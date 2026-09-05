@@ -73,6 +73,8 @@ including `MINI_ERR_TIMEOUT` for finite timed operations.
 
 Task 1 establishes these common rules:
 
+- `abi_version` changes for incompatible ABI generations, not ordinary compatible
+  feature additions;
 - `mini_api_t` and service tables grow append-only;
 - service function tables begin with `struct_size`;
 - caller-owned extensible structures begin with `struct_size`;
@@ -83,10 +85,10 @@ Task 1 establishes these common rules:
 - extensible public structs are not embedded by value when growth would shift
   outer-field offsets;
 - resident API/service-table pointers remain valid for the current app execution;
-- V0 calls are application-context and synchronous unless explicitly documented
-  otherwise;
-- source can be rebuilt across architectures while binaries remain
-  architecture-specific.
+- V0 calls are application-context and synchronous unless explicitly documented;
+- native apps use the public C ABI and must match the resident target machine ABI;
+- source can be rebuilt across architectures while binaries remain machine-ABI
+  specific.
 
 ## 1. System ABI
 
@@ -128,6 +130,7 @@ Important properties:
 - explicit `MINI_ERR_NO_MEMORY` failure;
 - failed realloc leaves the original allocation valid;
 - MiniShell tracks allocations per foreground app;
+- exact app byte accounting uses requested live allocation sizes;
 - normal app teardown reclaims leftovers;
 - DMA/aligned/executable/special memory remains deferred.
 
@@ -184,7 +187,7 @@ time/location
 |-- utc_get()
 |-- optional utc_set()
 |-- location_get()
-|-- optional default-location get/set
+|-- optional default-location get/set/clear
 `-- snapshot_get()
 ```
 
@@ -192,11 +195,12 @@ Important properties:
 
 - monotonic time never follows UTC corrections;
 - implementation should use a free-running hardware timer where practical rather
-  than a periodic software tick solely for microsecond timekeeping;
+  than a high-frequency software tick solely for microsecond timekeeping;
 - UTC is maintained from trusted sources such as RTC/GPS/NTP/manual setting;
 - MiniShell exclusively owns any hardware RTC driver;
 - trusted apps/shell may request UTC changes through `utc_set()` when supported;
 - configured/default location is persistent MiniShell-owned state;
+- default location may be set, read, or cleared when supported;
 - live location is separate from configured/default location;
 - `location_get()` returns the effective location and identifies its source;
 - live freshness is exposed through monotonic update time;
@@ -267,7 +271,8 @@ Important properties:
 
 - input events are logical rather than HID/scan-code/device-specific;
 - character and special-key events are distinct;
-- V0 guarantees ASCII input repertoire but uses a 32-bit Unicode scalar field;
+- `codepoint` is a Unicode scalar from V0, while ASCII is the minimum guaranteed
+  repertoire;
 - finite waits use MiniShell's internal monotonic timing source;
 - pointer/touch/raw-keyboard/buttons remain separate future capability families;
 - stale queued events must not leak across foreground app handoff.
@@ -296,6 +301,7 @@ Each test:
 - is built separately from MiniShell;
 - uses `main(argc, argv)` plus `mini_api_get()`;
 - includes only public MiniShell headers;
+- targets the same machine ABI as the resident runtime;
 - checks field/service availability using the common compatibility rules;
 - exercises normal and important error behavior;
 - returns normally to the shell;
