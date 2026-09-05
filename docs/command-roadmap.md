@@ -45,31 +45,18 @@ Current resident commands:
 | `repeat` | development/lifecycle diagnostic |
 | `put` | bootstrap/provisioning file transfer |
 | `get` | bootstrap/recovery file transfer |
-
-Planned resident power/system behavior:
-
-| Command | Initial MiniShell scope |
-| --- | --- |
-| `status` | also show battery percentage and charging state where supported |
-| `suspend` | enter a wakeable low-power state |
-| `poweroff` | perform an actual device shutdown where supported |
-
-Do not add a separate `battery` command initially; the information belongs in the
-existing `status` diagnostics. Do not call device suspend `sleep`, because the
-familiar Linux meaning of `sleep` is a timed delay rather than system suspend.
+| `suspend` | global low-power state |
+| `poweroff` | global device shutdown |
 
 Future USB attach/detach detection is also resident system behavior, but no new
 shell command or generic event ABI is defined yet. A resident USB manager should
 first own detection and canonical device state; application notification should
 be designed only when a real app needs it.
 
-See `docs/power-system-plan.md`.
-
 Do not add resident commands merely because Linux has them.
 
-`cd` and `pwd`, for example, remain deferred until MiniShell has a deliberate
-working-directory model. The current Filesystem ABI is based on absolute logical
-paths.
+`cd` and `pwd` remain deferred until MiniShell has a deliberate working-directory
+model. The current Filesystem ABI is based on absolute logical paths.
 
 ## Application command set
 
@@ -78,17 +65,21 @@ installed as `/sd/apps/<name>.elf`.
 
 ### Stage A - minimum useful file environment
 
-This is the complete planned Stage A set:
+The Stage-A source implementation is complete; the four namespace commands are
+pending Task-6 hardware validation.
 
 | Command | Initial MiniShell scope | Status / ABI note |
 | --- | --- | --- |
-| `cat` | display text files | implemented; kept because it already exists |
+| `cat` | display text files | implemented and validated |
 | `nano` | open/edit/search/save text files | implemented and validated |
-| `cp` | copy one file to another path | implemented and validated with current Filesystem ABI |
-| `mv` | move/rename one file | next; drives rename/move ABI design |
-| `rm` | remove one file | drives remove-file ABI design |
-| `mkdir` | create one directory | drives create-directory ABI design |
-| `rmdir` | remove one empty directory | drives remove-directory ABI design |
+| `cp` | copy one file to another path | implemented and validated; original Filesystem ABI sufficient |
+| `mv` | rename one regular file, no overwrite | implemented in Task 6; uses appended `rename` |
+| `rm` | remove one regular file | implemented in Task 6; uses appended `remove_file` |
+| `mkdir` | create one directory | implemented in Task 6; uses appended `mkdir` |
+| `rmdir` | remove one empty directory | implemented in Task 6; uses appended `rmdir` |
+
+Task 6 also adds `MINI_ERR_NOT_EMPTY` so `rmdir` can distinguish a non-empty
+directory from a generic access or I/O error.
 
 `cat` is not considered essential; it remains because it is already implemented
 and useful as a tiny ABI/application example.
@@ -182,58 +173,46 @@ check current ABI
                 `-- no  -> reconsider command/design
 ```
 
-The current roadmap already gives concrete examples:
+Task 5 and Task 6 now provide concrete examples:
 
 ```text
-cp       current Filesystem ABI is enough
-mv       exposes missing rename/move primitive
-rm       exposes missing remove primitive
-mkdir    exposes missing create-directory primitive
-rmdir    exposes missing remove-directory primitive
-df       exposes missing storage-capacity/free-space information
+cp       original Filesystem ABI was sufficient
+mv       justified append-only rename
+rm       justified append-only remove_file
+mkdir    justified append-only mkdir
+rmdir    justified append-only rmdir + MINI_ERR_NOT_EMPTY
+df       expected to justify storage-capacity/free-space information
 ```
 
 Power/system work follows the same rule. Battery information and global
-suspend/poweroff clearly belong to resident ownership; add a public Power ABI only
-when an application needs normalized access to those capabilities.
+suspend/poweroff belong to resident ownership; add a public Power ABI only when an
+application needs normalized access to those capabilities.
 
 Do not expand an ABI merely to imitate Linux.
 
 ## Preferred development sequence
 
-Resident and application development can proceed independently.
-
 Resident/system path:
 
 ```text
-finish Task 2 file-transfer validation
-        |
-        v
-battery information in status
-        |
-        v
-suspend
-        |
-        v
-poweroff
-        |
-        v
+Task 2 transfer          COMPLETE
+Task 3 power/system      COMPLETE
 later: USB hardware-change detection
 ```
 
 Application path:
 
 ```text
-nano             COMPLETE
+nano                     COMPLETE
         |
         v
-cp               COMPLETE
+cp                       COMPLETE
         |
         v
-Filesystem ABI review   CURRENT
+Filesystem ABI review    COMPLETE
         |
         v
-mv / rm / mkdir / rmdir
+mv / rm / mkdir / rmdir  TASK 6 VALIDATION
         |
         v
 free / date / df
