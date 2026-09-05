@@ -16,7 +16,7 @@ microSD card mounted at `/sd`.
 Included:
 
 - ESP32-P4 built-in USB Serial/JTAG as the user console
-- a resident `$>` shell
+- a resident `M$` shell
 - microSD mounted and owned by MiniShell
 - `help`, `status`, `ls`, and `exec` built-ins
 - unknown-command lookup under `/sd/apps`
@@ -64,7 +64,7 @@ Task 0 expects:
 ```
 
 A missing or broken SD card is intentionally **not fatal**. MiniShell should
-still reach `$>` so the platform can be diagnosed independently of an app.
+still reach `M$` so the platform can be diagnosed independently of an app.
 
 ## Build MiniShell
 
@@ -152,19 +152,19 @@ Representative hardware session:
 MiniShell Task 0
 sd: mounted at /sd
 type 'help' for commands
-$> status
+M$ status
 platform : M5Stack Tab5 / ESP32-P4
 console  : OK - USB Serial/JTAG (interrupt-driven)
 sd       : OK
 app path : /sd/apps
-$> hello
+M$ hello
 app: loading /sd/apps/hello.elf
 Hello from a MiniShell ELF app.
-$>
+M$
 ```
 
 The `hello` application was launched repeatedly in succession and returned to
-`$>` each time without rebooting or an obvious leak.
+`M$` each time without rebooting or an obvious leak.
 
 A separate negative test also confirmed that MiniShell can reach the shell when
 SD initialization fails, preserving the diagnostic-first design goal.
@@ -174,12 +174,12 @@ SD initialization fails, preserving the diagnostic-first design goal.
 Task 0 hardware validation passed all intended criteria:
 
 1. USB Serial/JTAG is usable as an interactive console. **PASS**
-2. MiniShell reaches `$>` even when SD initialization fails. **PASS**
+2. MiniShell reaches `M$` even when SD initialization fails. **PASS**
 3. `ls /sd/apps` lists `hello.elf` when the card is valid. **PASS**
 4. Typing `hello` loads the ELF without rebooting. **PASS**
 5. `hello.elf` successfully calls the resident MiniShell runtime API. **PASS**
 6. The ELF returns and is unloaded. **PASS**
-7. `$>` works again immediately. **PASS**
+7. `M$` works again immediately. **PASS**
 8. `hello` can be run repeatedly without rebooting or an obvious leak. **PASS**
 
 Task 0 is therefore complete.
