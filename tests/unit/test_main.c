@@ -14,6 +14,7 @@ static const test_case_t tests[] = {
     {"input", test_input},
     {"transfer", test_transfer},
     {"power", test_power},
+    {"nano_buffer", test_nano_buffer},
 };
 
 int main(int argc, char **argv)
