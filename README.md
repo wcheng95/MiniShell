@@ -102,15 +102,17 @@ model.
 
 ## Task 0
 
-The first implementation milestone uses **physical UART0 as the only terminal**.
-Display, touch, Wi-Fi, USB host, audio, RTC, and other Tab5 features stay out of
-the framework until the basic app lifecycle works.
+The first implementation milestone uses the ESP32-P4 built-in **USB Serial/JTAG
+controller as the interactive terminal**. The same USB connection can be used for
+flashing, `idf.py monitor`, and JTAG debugging. Display, touch, Wi-Fi, USB host,
+audio, RTC, and other Tab5 features stay out of the framework until the basic app
+lifecycle works.
 
 Task 0 target:
 
 ```text
 power on
-   -> UART $> shell
+   -> USB Serial/JTAG $> shell
    -> MiniShell mounts /sd
    -> ls /sd/apps
    -> hello
@@ -121,7 +123,7 @@ power on
    -> $>
 ```
 
-See [`docs/task0.md`](docs/task0.md) for wiring, build steps, and success criteria.
+See [`docs/task0.md`](docs/task0.md) for build steps and success criteria.
 
 ## Documents
 
@@ -132,10 +134,11 @@ See [`docs/task0.md`](docs/task0.md) for wiring, build steps, and success criter
 
 ## Current Status
 
-Task 0 framework committed for M5Stack Tab5 / ESP32-P4. It includes the UART
-shell, MiniShell-owned SD mount, native ELF app manager, minimal runtime API, and
-a separately built `hello.elf` example.
+Task 0 framework builds and boots on the M5Stack Tab5 / ESP32-P4 rev v1.3. The
+resident MiniShell shell starts, and SD mounting has been observed successfully
+after reboot. The console is being moved from external UART0 to the built-in USB
+Serial/JTAG controller before completing the runtime ELF validation.
 
-**The framework has not yet been validated on physical Tab5 hardware.** The next
-step is to build it with ESP-IDF, flash the Tab5, and run the Task 0 session in
-`docs/task0.md`.
+**Task 0 is not complete yet.** The remaining hardware validation is to confirm
+interactive USB console input, list `/sd/apps`, run `hello.elf`, return to the
+shell, and repeat the launch without rebooting or an obvious leak.
