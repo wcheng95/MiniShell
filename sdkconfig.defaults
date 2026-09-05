@@ -2,13 +2,11 @@
 # ESP-IDF 5.5 defaults to rev v3.1+, so explicitly select the pre-v3 target.
 CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 
-# Task 0: use the physical UART0 console on the Tab5 M5-Bus.
-CONFIG_ESP_CONSOLE_UART_CUSTOM=y
-CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_0=y
-CONFIG_ESP_CONSOLE_UART_NUM=0
-CONFIG_ESP_CONSOLE_UART_TX_GPIO=37
-CONFIG_ESP_CONSOLE_UART_RX_GPIO=38
-CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+# Task 0: use the ESP32-P4 built-in USB Serial/JTAG controller as the
+# primary interactive console. This supports stdin/stdout, flashing, and
+# JTAG debugging over the same USB connection.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
 # Tab5 has 16 MB flash. Task 0 does not need a custom partition table.
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
