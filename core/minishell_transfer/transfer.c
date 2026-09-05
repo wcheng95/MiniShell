@@ -14,7 +14,7 @@
 #define MFT_MAGIC_3 '1'
 
 #define MFT_HEADER_SIZE       16u
-#define MFT_BUFFER_SIZE       1024u
+#define MFT_BLOCK_SIZE        1024u
 #define MFT_PATH_MAX          512u
 #define MFT_IO_TIMEOUT_MS     5000u
 #define MFT_MAX_FILE_SIZE     0xFFFFFFFFull
@@ -147,7 +147,7 @@ static int receive_payload(const mini_fs_api_t *fs,
                            uint64_t size,
                            uint32_t expected_crc)
 {
-    uint8_t buffer[MFT_BUFFER_SIZE];
+    uint8_t buffer[MFT_BLOCK_SIZE];
     uint64_t remaining = size;
     uint32_t crc = 0xFFFFFFFFu;
 
@@ -166,6 +166,11 @@ static int receive_payload(const mini_fs_api_t *fs,
 
         crc = crc32_update(crc, buffer, chunk);
         remaining -= chunk;
+
+        /* Pace the sender. USB Serial/JTAG has a small finite RX ring buffer;
+         * without block acknowledgement a fast host can outrun SD writes and
+         * lose bytes. The host sends the next block only after this response. */
+        if (remaining > 0u && send_text("MFT1 NEXT\n") != 0) return -4;
     }
 
     crc ^= 0xFFFFFFFFu;
@@ -188,8 +193,6 @@ int minishell_transfer_put(const char *destination_path)
         return -1;
     }
 
-    /* The sender waits for READY, so it is safe to discard CR/LF or other bytes
-     * left by the terminal before entering binary protocol mode. */
     drain_input();
     if (send_text("MFT1 PUT READY\n") != 0) return -1;
 
@@ -223,9 +226,6 @@ int minishell_transfer_put(const char *destination_path)
         return -1;
     }
 
-    /* Header validation and temporary-file open succeeded. Only now invite the
-     * host to send binary payload, so an open/path/storage error cannot leave
-     * payload bytes spilling into the shell after this function returns. */
     if (send_text("MFT1 DATA READY\n") != 0) {
         cleanup_temporary(fs, &file, temporary);
         return -1;
@@ -236,7 +236,7 @@ int minishell_transfer_put(const char *destination_path)
         cleanup_temporary(fs, &file, temporary);
         if (receive_result == -3) (void)send_text("MFT1 ERROR crc\n");
         else if (receive_result == -1) (void)send_text("MFT1 ERROR payload-timeout\n");
-        else (void)send_text("MFT1 ERROR write\n");
+        else if (receive_result == -2) (void)send_text("MFT1 ERROR write\n");
         return -1;
     }
 
@@ -274,7 +274,7 @@ static int compute_file_crc(const mini_fs_api_t *fs,
                             uint64_t size,
                             uint32_t *out_crc)
 {
-    uint8_t buffer[MFT_BUFFER_SIZE];
+    uint8_t buffer[MFT_BLOCK_SIZE];
     uint64_t remaining = size;
     uint32_t crc = 0xFFFFFFFFu;
 
@@ -293,7 +293,7 @@ static int compute_file_crc(const mini_fs_api_t *fs,
 
 static int send_file_payload(const mini_fs_api_t *fs, mini_file_t file, uint64_t size)
 {
-    uint8_t buffer[MFT_BUFFER_SIZE];
+    uint8_t buffer[MFT_BLOCK_SIZE];
     uint64_t remaining = size;
 
     while (remaining > 0u) {
