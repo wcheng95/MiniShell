@@ -1,6 +1,6 @@
 # MiniShell System ABI v0
 
-Status: **Task 1 design contract; provisional until implementation and hardware ABI tests pass**
+Status: **Task 1 design contract; provisional until implementation, unit tests, ELF integration, and hardware validation pass**
 
 ## 1. Purpose
 
@@ -175,17 +175,38 @@ typedef struct {
 
 Existing fields are never reordered, removed, repurposed, or given incompatible semantics after ABI stabilization.
 
-## 9. ABI test requirements
+## 9. Verification requirements
 
-`abi_system.elf` should validate at least:
+### 9.1 Unit tests — primary
+
+The System service must have unit tests using a fake diagnostic sink. They should
+verify at least:
+
+1. exact byte/string forwarding to the backend;
+2. no automatic newline insertion;
+3. multiple independent calls preserve order;
+4. ordinary UTF-8 byte sequences are forwarded unchanged;
+5. the service table exposes the expected V0 prefix and `struct_size`;
+6. backend replacement does not change public System semantics.
+
+`text == NULL` is documented as invalid application behavior and does not require
+the service to make arbitrary invalid-pointer use recoverable.
+
+### 9.2 Runtime-loaded ELF integration test
+
+`abi_system.elf` should remain small and validate the real binary boundary:
 
 1. `api->system` is present;
-2. `struct_size` covers the v0 `write` field;
-3. several independent `write()` calls produce the expected byte stream;
-4. newline handling is exactly caller-controlled;
-5. ordinary UTF-8 bytes pass through without crashing the runtime;
-6. the ELF returns normally to `M$>`;
-7. repeated launch/write/exit cycles leave the shell healthy;
-8. Task 0's `hello.elf` behavior remains compatible with the v0 contract.
+2. `struct_size` covers the V0 `write` field;
+3. representative `write()` calls reach the resident service;
+4. the ELF returns normally to `M$>`;
+5. repeated launch/write/exit cycles leave the shell healthy;
+6. Task 0's `hello.elf` remains compatible.
 
-The ABI remains provisional until the focused test passes through the real runtime ABI on the Tab5 reference platform.
+### 9.3 Hardware validation
+
+On Tab5, verify that System output reaches the configured USB Serial/JTAG
+backend. Equivalent hardware validation applies to other platform backends.
+
+The ABI remains provisional until its unit suite, focused ELF integration test,
+and required hardware validation all pass.
