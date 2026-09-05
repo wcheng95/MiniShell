@@ -1,5 +1,7 @@
 #include <stdio.h>
 
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
 #include "esp_err.h"
 
 #include "minishell_platform.h"
@@ -18,16 +20,27 @@ static esp_err_t s_sd_status = ESP_FAIL;
 static esp_err_t init_console(void)
 {
     /*
-     * ESP-IDF owns initialization of the primary USB Serial/JTAG console when
-     * CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG is selected. Its VFS setup installs
-     * the interrupt-driven USB Serial/JTAG driver, so normal getchar()/stdio
-     * input can block while waiting for shell input.
+     * Selecting CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG registers the USB
+     * Serial/JTAG VFS for stdin/stdout, but its default implementation polls
+     * the peripheral directly. A shell waiting in getchar() would therefore
+     * keep CPU0 busy and starve IDLE0, eventually tripping the task watchdog.
      *
-     * MiniShell only chooses stdio buffering policy here; it does not own or
-     * reconfigure the USB Serial/JTAG hardware.
+     * Install the interrupt-driven driver and tell the VFS to use it. Blocking
+     * stdin then sleeps on the driver's FreeRTOS objects and yields the CPU.
      */
+    if (!usb_serial_jtag_is_driver_installed()) {
+        usb_serial_jtag_driver_config_t config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+        esp_err_t err = usb_serial_jtag_driver_install(&config);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+
+    usb_serial_jtag_vfs_use_driver();
+
     setvbuf(stdin, NULL, _IONBF, 0);
     setvbuf(stdout, NULL, _IONBF, 0);
+
     return ESP_OK;
 }
 
@@ -74,7 +87,7 @@ const char *minishell_platform_sd_status(void)
 const char *minishell_platform_console_status(void)
 {
     if (s_console_status == ESP_OK) {
-        return "OK - USB Serial/JTAG";
+        return "OK - USB Serial/JTAG (interrupt-driven)";
     }
 
     return esp_err_to_name(s_console_status);
