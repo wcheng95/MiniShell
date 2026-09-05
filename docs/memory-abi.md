@@ -1,6 +1,6 @@
 # MiniShell Memory ABI v0
 
-Status: **Task 1 design contract; provisional until implementation and hardware ABI tests pass**
+Status: **Task 1 design contract; provisional until implementation, unit tests, ELF integration, and hardware validation pass**
 
 ## 1. Purpose
 
@@ -318,25 +318,56 @@ V0 follows the common MiniShell ABI evolution rules:
 Memory calls follow the common V0 application-context rule. They are not promised
 ISR-safe or generally reentrant unless a future extension explicitly says so.
 
-## 14. ABI test requirements
+## 14. Verification requirements
 
-`abi_memory.elf` should validate at least:
+### 14.1 Unit tests — primary
 
-1. allocate, write, read back, and free;
+The Memory service must have comprehensive unit tests with a controllable fake
+allocator/backend so success and failure paths can be forced deterministically.
+They should verify at least:
+
+1. allocate/write/read/free;
 2. multiple independent allocations;
-3. grow with `realloc()` and verify preserved contents;
-4. shrink with `realloc()` and verify preserved prefix;
-5. failed allocation returns NULL plus `MINI_ERR_NO_MEMORY`;
-6. failed `realloc()` preserves the original allocation;
-7. `alloc(0)` and `realloc(..., 0)` fail cleanly;
-8. `free(NULL)` succeeds;
-9. double-free and invalid/interior pointers fail cleanly;
-10. `get_info()` counts requested live bytes and allocation count exactly;
-11. if allocator-domain fields are valid, they behave plausibly across
-    allocation/free operations;
-12. intentionally leave one allocation live, return, relaunch, and verify normal
-    teardown reclaimed it;
-13. repeat the test many times without exhausting or destabilizing MiniShell.
+3. ordinary alignment guarantees;
+4. `alloc(0)` and NULL output-pointer handling;
+5. deterministic allocation failure and `MINI_ERR_NO_MEMORY`;
+6. grow/shrink `realloc()` and preserved contents;
+7. moved and in-place realloc success;
+8. failed realloc preserving the original allocation and data;
+9. `realloc(NULL, ...)` and `realloc(..., 0)` invalid behavior;
+10. `free(NULL)` success;
+11. invalid, interior, foreign, and double-free detection;
+12. exact requested-byte and allocation-count bookkeeping;
+13. allocator-domain validity-bit behavior;
+14. per-app ownership isolation in the bookkeeping layer;
+15. teardown reclaiming intentionally leaked app allocations;
+16. repeated allocate/realloc/free/teardown cycles;
+17. `struct_size` handling for `mini_memory_info_t` including too-small and
+    prefix-sized callers.
 
-The ABI remains provisional until these tests pass through the real runtime ABI
-on the Tab5 reference platform.
+Where useful, randomized operation sequences may be used in addition to explicit
+cases to stress bookkeeping invariants.
+
+### 14.2 Runtime-loaded ELF integration test
+
+`abi_memory.elf` should be a smaller integration test that proves the public
+binary boundary. It should cover:
+
+1. service/table discovery and V0 field presence;
+2. one representative alloc/read/write/free path;
+3. representative realloc behavior;
+4. one representative invalid/error case;
+5. `get_info()` through the public structure;
+6. returning with one live allocation so app teardown can be observed;
+7. repeated launch/exit without leak or runtime damage.
+
+It does not need to duplicate the exhaustive unit suite.
+
+### 14.3 Hardware/platform validation
+
+Validate that the Tab5 allocator-domain implementation behaves correctly with its
+real eligible RAM pools and that repeated real allocations do not destabilize the
+runtime.
+
+The ABI remains provisional until the unit suite, focused ELF integration test,
+and required platform validation all pass.
