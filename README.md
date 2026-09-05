@@ -100,12 +100,42 @@ model.
 10. **Keep it understandable.** MiniShell should remain small enough to study,
     debug, and port.
 
+## Task 0
+
+The first implementation milestone uses **physical UART0 as the only terminal**.
+Display, touch, Wi-Fi, USB host, audio, RTC, and other Tab5 features stay out of
+the framework until the basic app lifecycle works.
+
+Task 0 target:
+
+```text
+power on
+   -> UART $> shell
+   -> MiniShell mounts /sd
+   -> ls /sd/apps
+   -> hello
+   -> load hello.elf
+   -> hello calls MiniShell runtime API
+   -> hello returns
+   -> unload
+   -> $>
+```
+
+See [`docs/task0.md`](docs/task0.md) for wiring, build steps, and success criteria.
+
 ## Documents
 
 - [`docs/design-principles.md`](docs/design-principles.md)
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/app-abi.md`](docs/app-abi.md)
+- [`docs/task0.md`](docs/task0.md)
 
 ## Current Status
 
-Architecture definition. No framework implementation has been committed yet.
+Task 0 framework committed for M5Stack Tab5 / ESP32-P4. It includes the UART
+shell, MiniShell-owned SD mount, native ELF app manager, minimal runtime API, and
+a separately built `hello.elf` example.
+
+**The framework has not yet been validated on physical Tab5 hardware.** The next
+step is to build it with ESP-IDF, flash the Tab5, and run the Task 0 session in
+`docs/task0.md`.
