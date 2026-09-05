@@ -199,42 +199,41 @@ python3 tools/minishell_transfer.py /dev/ttyACM0 get /sd/log.txt log.txt
 MFT1 receive uses a temporary file, whole-file CRC-32, two startup handshakes,
 1024-byte block acknowledgements, and FATFS replacement/rollback handling.
 
-Real Tab5 hardware has validated:
-
-```text
-small text-file put                       PASS
-multi-block ELF put                       PASS
-runtime install + execution of cat.elf    PASS
-put/get round trip + SHA-256 equality     PASS
-existing-destination replacement          PASS
-524325-byte binary put/get                 PASS
-intentional stalled upload                PASS
-payload-timeout cleanup                    PASS
-old destination survives interruption     PASS
-host unit regression                      7/7 PASS
-post-transfer shell/ABI sanity             PASS
-```
+Real Tab5 hardware has validated small and large transfers, replacement,
+interruption cleanup, and runtime installation/execution of `cat.elf`.
 
 See [`docs/task2.md`](docs/task2.md).
 
 ## Task 3 — Active: Power/System
 
-The next resident-system milestone is deliberately separate from the ELF command
-roadmap.
+Task 3 adds resident power ownership without changing the public application ABI.
+The source implementation is now present and awaits host-build and Tab5 hardware
+validation.
 
-Initial Task-3 scope:
+Implemented resident surface:
 
 ```text
-status      add battery percentage + charging state
-suspend     wakeable low-power state
-poweroff    actual shutdown
+status      battery percentage + charging state
+suspend     ESP32-P4 deep sleep; external reset/power wake restarts MiniShell
+poweroff    Tab5 shutdown request with deep-sleep fallback
 later       resident USB attach/detach detection
 ```
 
-Battery/power state is owned by resident MiniShell and the platform backend, not
-by ordinary ELF utilities. USB hardware-change detection is planned later in the
-same system area, but no generic event ABI will be invented until a real app needs
-one.
+Architecture:
+
+```text
+shell
+  -> core/minishell_power
+      -> private platform callbacks
+          -> Tab5 INA226 + charger/power expander + ESP32-P4 sleep
+```
+
+The Tab5 backend explicitly enables charging during startup. Power initialization
+failure is non-fatal so MiniShell remains usable as a diagnostic/recovery shell;
+`status` reports unavailable fields when telemetry cannot be obtained.
+
+Task 3 adds `resident_power_unit`, bringing the host CTest suite to eight groups.
+No `Power ABI` has been added to `include/minishell/api.h`.
 
 See [`docs/power-system-plan.md`](docs/power-system-plan.md).
 
@@ -284,8 +283,8 @@ Milestones and policy:
 
 ## Current Status
 
-**Task 0, Task 1, and Task 2 are complete. Task 3 Power/System is the active
-resident MiniShell milestone.**
+**Task 0, Task 1, and Task 2 are complete. Task 3 Power/System is implemented in
+source and pending host-build/real-hardware validation.**
 
 The ordinary ELF application roadmap remains independent and currently starts
 with `nano`, followed by the minimal file-management command set.
