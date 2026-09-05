@@ -3,6 +3,14 @@
 Task 0 proves the smallest useful vertical slice of MiniShell on the M5Stack
 Tab5 / ESP32-P4.
 
+## Status
+
+**Complete and hardware-validated on M5Stack Tab5 / ESP32-P4 rev v1.3.**
+
+The validated system used ESP-IDF 5.5.4, `espressif/elf_loader` 1.3.3, the
+ESP32-P4 USB Serial/JTAG controller for the interactive console, and a FAT32
+microSD card mounted at `/sd`.
+
 ## Scope
 
 Included:
@@ -41,7 +49,9 @@ On Linux, the serial function normally appears as `/dev/ttyACM*` or under
 `/dev/serial/by-id/`.
 
 Task 0 configures USB Serial/JTAG as the **primary** ESP-IDF console, not merely a
-secondary log output. This is required for shell input as well as output.
+secondary log output. MiniShell also installs the interrupt-driven USB
+Serial/JTAG driver and switches the VFS to that driver so blocking shell input
+yields normally instead of busy-polling CPU0.
 
 ## SD Card Layout
 
@@ -112,7 +122,7 @@ ESP-IDF or Tab5 headers.
 
 ## Task 0 Runtime Binding
 
-Task 0 tests this model:
+Task 0 validates this model:
 
 ```text
 hello.elf
@@ -131,13 +141,12 @@ versioned mini_api_t service table
 api->system->write(...)
 ```
 
-This is deliberately provisional. If the real ESP32-P4 ELF toolchain exposes a
-better binding mechanism, the ABI document may be adjusted before ABI v1 is
-frozen.
+This remains deliberately provisional. The runtime binding works on real
+hardware, but the ABI is not frozen simply because Task 0 passed.
 
-## Expected Session
+## Validated Session
 
-With a working SD card:
+Representative hardware session:
 
 ```text
 MiniShell Task 0
@@ -145,40 +154,47 @@ sd: mounted at /sd
 type 'help' for commands
 $> status
 platform : M5Stack Tab5 / ESP32-P4
-console  : OK - USB Serial/JTAG
+console  : OK - USB Serial/JTAG (interrupt-driven)
 sd       : OK
 app path : /sd/apps
-$> ls /sd/apps
-hello.elf
 $> hello
 app: loading /sd/apps/hello.elf
 Hello from a MiniShell ELF app.
 $>
 ```
 
-With no usable SD card, success means MiniShell still becomes diagnostic:
+The `hello` application was launched repeatedly in succession and returned to
+`$>` each time without rebooting or an obvious leak.
 
-```text
-MiniShell Task 0
-sd: mount failed: ...
-type 'help' for commands
-$> status
-...
-sd       : ...
-$>
-```
+A separate negative test also confirmed that MiniShell can reach the shell when
+SD initialization fails, preserving the diagnostic-first design goal.
 
 ## Success Criteria
 
-Task 0 is complete only after it is verified on real Tab5 hardware that:
+Task 0 hardware validation passed all intended criteria:
 
-1. USB Serial/JTAG is usable as an interactive console.
-2. MiniShell reaches `$>` even when SD initialization fails.
-3. `ls /sd/apps` lists `hello.elf` when the card is valid.
-4. Typing `hello` loads the ELF without rebooting.
-5. `hello.elf` successfully calls the resident MiniShell runtime API.
-6. The ELF returns and is unloaded.
-7. `$>` works again immediately.
-8. `hello` can be run repeatedly without rebooting or leaking obvious memory.
+1. USB Serial/JTAG is usable as an interactive console. **PASS**
+2. MiniShell reaches `$>` even when SD initialization fails. **PASS**
+3. `ls /sd/apps` lists `hello.elf` when the card is valid. **PASS**
+4. Typing `hello` loads the ELF without rebooting. **PASS**
+5. `hello.elf` successfully calls the resident MiniShell runtime API. **PASS**
+6. The ELF returns and is unloaded. **PASS**
+7. `$>` works again immediately. **PASS**
+8. `hello` can be run repeatedly without rebooting or an obvious leak. **PASS**
 
-The framework is not considered fully validated until this hardware test passes.
+Task 0 is therefore complete.
+
+## Observed Non-Blocking Warnings
+
+Two warnings were observed during validation but did not prevent Task 0 from
+passing:
+
+```text
+ldo: The voltage value 0 is out of the recommended range [500, 2700]
+M5Stack Tab5: Warning: Long filenames on SD card are disabled in menuconfig!
+```
+
+The ELF loader also reports padding before one ELF segment. The application
+still loads, runs, and returns normally, so this is not a Task 0 blocker. These
+items may be investigated independently if they become relevant to later
+milestones.
