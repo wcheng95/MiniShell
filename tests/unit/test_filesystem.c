@@ -79,6 +79,50 @@ bool test_filesystem(void)
     TEST_EQ(st.type, MINI_FS_TYPE_DIRECTORY);
     TEST_EQ(fs->stat("/../../bad", &st), MINI_ERR_INVALID);
 
+    TEST_CHECK(fs->rename != NULL);
+    TEST_CHECK(fs->remove_file != NULL);
+    TEST_CHECK(fs->mkdir != NULL);
+    TEST_CHECK(fs->rmdir != NULL);
+
+    fake_fs_add_file("/sd/move.txt", "move-me");
+    TEST_EQ(fs->rename("/sd/./move.txt", "/sd/moved.txt"), MINI_OK);
+    st.struct_size = sizeof(st);
+    TEST_EQ(fs->stat("/sd/move.txt", &st), MINI_ERR_NOT_FOUND);
+    st.struct_size = sizeof(st);
+    TEST_EQ(fs->stat("/sd/moved.txt", &st), MINI_OK);
+    TEST_EQ(st.type, MINI_FS_TYPE_FILE);
+    TEST_EQ(st.size, 7u);
+    TEST_EQ(fs->rename("/sd/moved.txt", "/sd/./moved.txt"), MINI_OK);
+
+    fake_fs_add_file("/sd/existing.txt", "keep");
+    TEST_EQ(fs->rename("/sd/moved.txt", "/sd/existing.txt"), MINI_ERR_EXISTS);
+    st.struct_size = sizeof(st);
+    TEST_EQ(fs->stat("/sd/moved.txt", &st), MINI_OK);
+    TEST_EQ(fs->rename("/", "/sd/root"), MINI_ERR_ACCESS);
+    TEST_EQ(fs->rename("/sd/moved.txt", "/"), MINI_ERR_ACCESS);
+
+    TEST_EQ(fs->remove_file("/sd/moved.txt"), MINI_OK);
+    st.struct_size = sizeof(st);
+    TEST_EQ(fs->stat("/sd/moved.txt", &st), MINI_ERR_NOT_FOUND);
+    TEST_EQ(fs->remove_file("/sd"), MINI_ERR_IS_DIR);
+    TEST_EQ(fs->remove_file("/"), MINI_ERR_IS_DIR);
+
+    TEST_EQ(fs->mkdir("/sd/newdir"), MINI_OK);
+    st.struct_size = sizeof(st);
+    TEST_EQ(fs->stat("/sd/newdir", &st), MINI_OK);
+    TEST_EQ(st.type, MINI_FS_TYPE_DIRECTORY);
+    TEST_EQ(fs->mkdir("/sd/newdir"), MINI_ERR_EXISTS);
+    TEST_EQ(fs->mkdir("/missing/child"), MINI_ERR_NOT_FOUND);
+
+    fake_fs_add_file("/sd/newdir/child.txt", "x");
+    TEST_EQ(fs->rmdir("/sd/newdir"), MINI_ERR_NOT_EMPTY);
+    TEST_EQ(fs->remove_file("/sd/newdir/child.txt"), MINI_OK);
+    TEST_EQ(fs->rmdir("/sd/newdir"), MINI_OK);
+    st.struct_size = sizeof(st);
+    TEST_EQ(fs->stat("/sd/newdir", &st), MINI_ERR_NOT_FOUND);
+    TEST_EQ(fs->rmdir("/sd/read.txt"), MINI_ERR_NOT_DIR);
+    TEST_EQ(fs->rmdir("/"), MINI_ERR_ACCESS);
+
     mini_file_t handles[32];
     for (uint32_t i = 0; i < 32u; ++i) {
         TEST_EQ(fs->open("/sd/read.txt", MINI_FS_READ, &handles[i]), MINI_OK);
@@ -94,5 +138,20 @@ bool test_filesystem(void)
 
     mini_fs_stat_t small = {.struct_size = sizeof(uint32_t)};
     TEST_EQ(fs->stat("/sd", &small), MINI_ERR_INVALID);
+
+    minishell_services_port_t old_port = fake_full_port();
+    old_port.fs_rename = NULL;
+    old_port.fs_remove_file = NULL;
+    old_port.fs_mkdir = NULL;
+    old_port.fs_rmdir = NULL;
+    minishell_services_configure(&old_port);
+    minishell_services_app_begin();
+    fs = mini_api_get()->fs;
+    TEST_CHECK(fs != NULL);
+    TEST_EQ(fs->rename("/sd/read.txt", "/sd/x.txt"), MINI_ERR_UNSUPPORTED);
+    TEST_EQ(fs->remove_file("/sd/read.txt"), MINI_ERR_UNSUPPORTED);
+    TEST_EQ(fs->mkdir("/sd/x"), MINI_ERR_UNSUPPORTED);
+    TEST_EQ(fs->rmdir("/sd"), MINI_ERR_UNSUPPORTED);
+
     return true;
 }
