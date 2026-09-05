@@ -58,7 +58,7 @@ static void build_body_line(char *out,
 
     while (out_count < width) {
         if (current_line && position == buffer->cursor) {
-            out[out_count++] = '|';
+            out[out_count++] = '_';
             if (out_count >= width) break;
         }
         if (position >= end) break;
