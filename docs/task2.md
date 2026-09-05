@@ -1,4 +1,4 @@
-# Task 2 - Resident File Transfer
+# Task 2 - Resident File Transfer — COMPLETE
 
 ## Goal
 
@@ -106,8 +106,8 @@ storage path is known usable. Block-level pacing prevents a fast host from
 outrunning the finite USB Serial/JTAG receive buffer while MiniShell is writing
 to SD.
 
-An interrupted or corrupt transfer must not intentionally publish the incomplete
-temporary file as the destination.
+An interrupted or corrupt transfer does not publish the incomplete temporary
+file as the destination.
 
 ### Get
 
@@ -146,31 +146,20 @@ MFT1 OK
 - The Tab5 platform explicitly allocates 4096-byte USB Serial/JTAG RX and TX
   driver buffers instead of relying on ESP-IDF's smaller default buffers.
 
-## Verification status
+## Development finding: transport flow control
 
-The first real-hardware `put` test passed on the Tab5 reference platform:
+The first small-file upload passed, but an early ELF upload exposed a
+`payload-timeout`. The root cause was a fast host streaming into ESP-IDF's small
+default USB Serial/JTAG receive buffer while MiniShell was intermittently writing
+to SD.
 
-```text
-python3 tools/minishell_transfer.py /dev/ttyACM0 put test.txt /sd/test.txt
-put: test.txt -> /sd/test.txt (34 bytes, crc32=fd90e9b8)
-```
+MFT1 was corrected to use 1024-byte block pacing plus explicit 4096-byte platform
+RX/TX buffers. The transfer unit test now uses a multi-block payload and requires
+MiniShell to emit `MFT1 NEXT` before the fake sender exposes the next block.
 
-A subsequent ELF upload exposed a flow-control bug in the original continuous
-streaming implementation:
+## Real-hardware validation
 
-```text
-MFT1 ERROR payload-timeout
-```
-
-The small text file succeeded because it fit comfortably within the transport
-buffer. ESP-IDF's default USB Serial/JTAG driver configuration uses only a
-256-byte RX ring buffer, while the original host helper streamed much larger
-chunks without waiting for storage progress. MFT1 now uses 1024-byte block pacing
-plus explicit 4096-byte platform RX/TX buffers. The host unit test uses a
-1500-byte payload and withholds the second block until `MFT1 NEXT` is emitted, so
-multi-block pacing is covered by regression testing.
-
-The corrected block-paced protocol then successfully installed the first normal
+The corrected protocol successfully installed and executed the first normal
 utility application:
 
 ```text
@@ -180,63 +169,55 @@ put: apps/cat/build/cat.app.elf -> /sd/apps/cat.elf \
      (1568 bytes, crc32=89be16c8)
 ```
 
-`cat.elf` was then launched normally by the MiniShell app manager and successfully
-read the previously uploaded `/sd/test.txt`. This proves multi-block binary
-upload, CRC verification, publication into `/sd/apps`, runtime discovery/load,
-and execution of an independently developed application.
+`cat.elf` then launched normally and read `/sd/test.txt`, proving independent ELF
+installation without reflashing MiniShell.
 
-## Final hardware validation
-
-`tools/task2_validate.py` automates the remaining Task-2 checks against a real
-MiniShell device. Close `idf.py monitor` first so the validator has exclusive
-access to the USB Serial/JTAG port.
-
-Run:
-
-```bash
-python3 tools/task2_validate.py /dev/ttyACM0
-```
-
-The validator uses `/sd/task2_validate.bin` as a scratch destination and checks:
+Final hardware validation used `tools/task2_validate.py` and passed all checks:
 
 ```text
-1. put + get round trip, verified by host SHA-256
-2. replacement of an existing destination
-3. a 512 KiB-class multi-block binary transfer
-4. an intentionally stalled put after one acknowledged 1 KiB block
-5. MFT1 payload timeout on that interrupted transfer
-6. removal of the incomplete .mft.part file
-7. survival of the previously published destination after interruption
+round-trip put/get                     PASS
+host SHA-256 equality                  PASS
+replace existing destination           PASS
+524325-byte multi-block binary         PASS
+intentional stalled upload             PASS
+payload timeout handling               PASS
+.mft.part cleanup                      PASS
+old destination survives interruption  PASS
 ```
 
-The intentional interruption keeps the serial port open but stops sending data
-for longer than MiniShell's payload timeout. This exercises MiniShell's timeout
-and cleanup path without relying on USB disconnect/reconnect behavior.
+The large replacement file was downloaded after publication with matching
+SHA-256, and the same published file remained unchanged after the intentionally
+interrupted replacement attempt.
 
-The remote scratch file is intentionally left in place because MiniShell does not
-yet have the planned `rm` utility.
+## Regression validation
 
-After the validator passes, run the normal host unit suite and a short real-hardware
-ABI sanity check. Task 2 can then be marked complete.
+After hardware validation, the complete host suite passed:
 
-## Verification plan
+```text
+abi_system_unit          PASS
+abi_memory_unit          PASS
+abi_filesystem_unit      PASS
+abi_time_location_unit   PASS
+abi_display_unit         PASS
+abi_input_unit           PASS
+abi_transfer_unit        PASS
 
-1. Host unit suite including `abi_transfer_unit`. **Implemented.**
-2. Small text-file put. **PASS on real hardware.**
-3. Separately built ELF put + execute. **PASS on real hardware.**
-4. Automated get/replacement/large-file/interruption validation. **Ready to run.**
-5. Final Task-1 regression sanity check. **Pending final closeout.**
+7/7 PASS
+```
 
-## Success criteria
+Real-hardware reconnect checks also passed for the normal shell/application path,
+including `hello`, Filesystem ABI operation, and interactive Input ABI operation.
 
-Task 2 V1 is complete when:
+## Completion criteria
+
+Task 2 V1 is complete because:
 
 - `put` transfers arbitrary binary files from host to MiniShell storage;
 - `get` transfers arbitrary binary files back to the host;
 - early path/storage errors occur before payload transmission;
 - transfer pacing prevents transport-buffer overrun during storage writes;
 - CRC verification detects incomplete/corrupt transfers;
-- a transferred ELF can be executed normally;
+- a transferred ELF executes normally;
 - replacing an existing FATFS destination works with rollback protection;
 - interrupted transfers do not replace the last verified destination;
 - incomplete temporary files are cleaned up on timeout;
@@ -244,3 +225,5 @@ Task 2 V1 is complete when:
 - existing Task 1 ABI tests still pass;
 - the transfer implementation remains resident and modular rather than growing
   into shell parser code.
+
+**Task 2 is complete.**
