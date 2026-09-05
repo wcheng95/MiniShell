@@ -20,6 +20,8 @@
 #include "terminal_backend.h"
 
 #define TRANSFER_REPLACE_PATH_MAX 600u
+#define CONSOLE_RX_BUFFER_SIZE    4096u
+#define CONSOLE_TX_BUFFER_SIZE    4096u
 
 esp_err_t bsp_sdcard_mount(void);
 
@@ -56,6 +58,8 @@ static esp_err_t init_console(void)
 {
     if (!usb_serial_jtag_is_driver_installed()) {
         usb_serial_jtag_driver_config_t config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+        config.rx_buffer_size = CONSOLE_RX_BUFFER_SIZE;
+        config.tx_buffer_size = CONSOLE_TX_BUFFER_SIZE;
         esp_err_t err = usb_serial_jtag_driver_install(&config);
         if (err != ESP_OK) return err;
     }
@@ -101,12 +105,9 @@ static int transfer_replace_file(void *ctx, const char *temporary_path,
     (void)ctx;
     if (temporary_path == NULL || destination_path == NULL) return -EINVAL;
 
-    /* New destination: the normal rename path is enough. */
     if (rename(temporary_path, destination_path) == 0) return 0;
     if (errno != EEXIST) return -errno;
 
-    /* FatFs f_rename() does not overwrite an existing destination. Preserve the
-     * verified old file as a rollback copy while publishing the new one. */
     char backup[TRANSFER_REPLACE_PATH_MAX];
     int n = snprintf(backup, sizeof(backup), "%s.mft.bak", destination_path);
     if (n < 0 || (size_t)n >= sizeof(backup)) return -ENAMETOOLONG;
@@ -129,7 +130,6 @@ static void transfer_remove_file(void *ctx, const char *path)
     (void)ctx;
     if (path == NULL) return;
     if (unlink(path) != 0 && errno != ENOENT) {
-        /* Best-effort cleanup; the transfer reports the primary error. */
     }
 }
 
