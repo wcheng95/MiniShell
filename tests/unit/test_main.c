@@ -13,6 +13,7 @@ static const test_case_t tests[] = {
     {"display", test_display},
     {"input", test_input},
     {"transfer", test_transfer},
+    {"power", test_power},
 };
 
 int main(int argc, char **argv)
