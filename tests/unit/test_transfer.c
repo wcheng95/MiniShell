@@ -5,6 +5,7 @@
 #include "minishell_transfer.h"
 
 #define TRANSFER_BUFFER 8192u
+#define MFT_HEADER_BYTES 16u
 
 typedef struct {
     uint8_t input[TRANSFER_BUFFER];
@@ -13,6 +14,7 @@ typedef struct {
     uint8_t output[TRANSFER_BUFFER];
     size_t output_len;
     bool put_ready;
+    bool data_ready;
 } fake_transfer_t;
 
 static fake_transfer_t s_transfer;
@@ -59,6 +61,13 @@ static int transfer_read(void *ctx, uint8_t *buffer, size_t size, uint32_t timeo
     (void)ctx;
     (void)timeout_ms;
     if (!s_transfer.put_ready || s_transfer.input_pos >= s_transfer.input_len) return 0;
+
+    if (!s_transfer.data_ready) {
+        if (s_transfer.input_pos >= MFT_HEADER_BYTES) return 0;
+        size_t header_remaining = MFT_HEADER_BYTES - s_transfer.input_pos;
+        if (size > header_remaining) size = header_remaining;
+    }
+
     size_t available = s_transfer.input_len - s_transfer.input_pos;
     if (size > available) size = available;
     memcpy(buffer, s_transfer.input + s_transfer.input_pos, size);
@@ -74,11 +83,18 @@ static int transfer_write(void *ctx, const uint8_t *buffer, size_t size, uint32_
     memcpy(s_transfer.output + s_transfer.output_len, buffer, size);
     s_transfer.output_len += size;
 
-    static const char ready[] = "MFT1 PUT READY\n";
-    if (s_transfer.output_len >= sizeof(ready) - 1u &&
-        memcmp(s_transfer.output + s_transfer.output_len - (sizeof(ready) - 1u),
-               ready, sizeof(ready) - 1u) == 0) {
+    static const char put_ready[] = "MFT1 PUT READY\n";
+    static const char data_ready[] = "MFT1 DATA READY\n";
+
+    if (s_transfer.output_len >= sizeof(put_ready) - 1u &&
+        memcmp(s_transfer.output + s_transfer.output_len - (sizeof(put_ready) - 1u),
+               put_ready, sizeof(put_ready) - 1u) == 0) {
         s_transfer.put_ready = true;
+    }
+    if (s_transfer.output_len >= sizeof(data_ready) - 1u &&
+        memcmp(s_transfer.output + s_transfer.output_len - (sizeof(data_ready) - 1u),
+               data_ready, sizeof(data_ready) - 1u) == 0) {
+        s_transfer.data_ready = true;
     }
     return (int)size;
 }
@@ -137,6 +153,7 @@ bool test_transfer(void)
 {
     static const uint8_t payload[] = {0x00u, 0x01u, 0x7fu, 0x80u, 0xffu, 'M', 'F', 'T', '1'};
     static const uint8_t ok_prefix[] = "MFT1 OK ";
+    static const uint8_t data_ready[] = "MFT1 DATA READY\n";
     const uint32_t crc = crc32_bytes(payload, sizeof(payload));
 
     fake_reset();
@@ -153,10 +170,13 @@ bool test_transfer(void)
     TEST_CHECK(memcmp(g_fake.fs_nodes[node].data, payload, sizeof(payload)) == 0);
     TEST_CHECK(find_node("/sd/new.bin.mft.part") < 0);
     TEST_CHECK(contains_bytes(s_transfer.output, s_transfer.output_len,
+                              data_ready, sizeof(data_ready) - 1u));
+    TEST_CHECK(contains_bytes(s_transfer.output, s_transfer.output_len,
                               ok_prefix, sizeof(ok_prefix) - 1u));
 
     configure_transfer();
-    s_transfer.put_ready = true; /* get has no incoming binary phase */
+    s_transfer.put_ready = true;
+    s_transfer.data_ready = true; /* get has no incoming binary phase */
     TEST_EQ(minishell_transfer_get("/sd/new.bin"), 0);
 
     uint8_t *line_end = memchr(s_transfer.output, '\n', s_transfer.output_len);
