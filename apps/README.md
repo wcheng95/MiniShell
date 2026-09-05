@@ -16,21 +16,21 @@ MiniShell uses familiar Linux command names when the behavior is close enough to
 be unsurprising, but implements only the minimum useful subset rather than trying
 to reproduce full GNU/Linux userland behavior.
 
-Current applications:
+Current Stage-A applications:
 
 ```text
-cat     simple text-file display utility
-nano    interactive text editor
-cp      binary-safe file copy utility (Task 5 active)
+cat      simple text-file display utility
+nano     interactive text editor
+cp       binary-safe file copy utility
+mv       no-overwrite regular-file rename
+rm       remove one regular file
+mkdir    create one directory
+rmdir    remove one empty directory
 ```
 
-Near-term planned applications:
+Later planned applications:
 
 ```text
-mv
-rm
-mkdir
-rmdir
 free
 date
 df
