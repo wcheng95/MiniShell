@@ -243,6 +243,14 @@ foreground return to the shell. `hello.elf` was also run successfully immediatel
 after the Display/Input tests, confirming that the shell remained healthy after
 foreground app handoff and teardown.
 
+A dedicated `abi_stress.elf` lifecycle test also passed 20 consecutive
+load/run/teardown/unload cycles through the shell `repeat` command on real Tab5
+hardware. Each invocation intentionally leaves eight MiniShell-managed memory
+allocations and two filesystem handles open; successful completion of all 20
+runs verifies that app teardown reclaims those resources between invocations.
+Post-stress `hello`, Memory ABI, and Filesystem ABI checks also passed, confirming
+that the shell and core services remained healthy afterward.
+
 Long FAT filenames are enabled and functionally verified: long-named ABI ELF
 files load successfully and the Filesystem ABI long-name test passes. The earlier
 legacy Tab5 BSP long-filename warning has been suppressed at its BSP log tag while
