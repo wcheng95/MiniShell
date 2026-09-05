@@ -1,0 +1,23 @@
+# Task 0: use the physical UART0 console on the Tab5 M5-Bus.
+CONFIG_ESP_CONSOLE_UART_CUSTOM=y
+CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_0=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_UART_TX_GPIO=37
+CONFIG_ESP_CONSOLE_UART_RX_GPIO=38
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+
+# Tab5 has 16 MB flash. Task 0 does not need a custom partition table.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# Storage belongs to MiniShell. Mount failure must be reportable, not fatal.
+CONFIG_BSP_ERROR_CHECK=n
+CONFIG_BSP_SD_FORMAT_ON_MOUNT_FAIL=n
+CONFIG_BSP_SD_MOUNT_POINT="/sd"
+
+# Espressif ELF loader: applications live under /sd/apps.
+CONFIG_ELF_DYNAMIC_LOAD_SHARED_OBJECT=y
+CONFIG_ELF_FILE_SYSTEM_BASE_PATH="/sd/apps"
+
+# Match Espressif's ESP32-P4 ELF-loader example requirements.
+CONFIG_ESP_SYSTEM_MEMPROT_FEATURE=n
+CONFIG_ESP_SYSTEM_PMP_IDRAM_SPLIT=n
