@@ -83,12 +83,12 @@ This is the complete planned Stage A set:
 | Command | Initial MiniShell scope | Status / ABI note |
 | --- | --- | --- |
 | `cat` | display text files | implemented; kept because it already exists |
-| `nano` | open/edit/search/save text files | next major utility |
-| `cp` | copy one file to another path | current Filesystem ABI is sufficient |
-| `mv` | move/rename one file | requires a deliberate Filesystem ABI extension |
-| `rm` | remove one file | requires a deliberate Filesystem ABI extension |
-| `mkdir` | create one directory | requires a deliberate Filesystem ABI extension |
-| `rmdir` | remove one empty directory | requires a deliberate Filesystem ABI extension |
+| `nano` | open/edit/search/save text files | implemented and validated |
+| `cp` | copy one file to another path | implemented and validated with current Filesystem ABI |
+| `mv` | move/rename one file | next; drives rename/move ABI design |
+| `rm` | remove one file | drives remove-file ABI design |
+| `mkdir` | create one directory | drives create-directory ABI design |
+| `rmdir` | remove one empty directory | drives remove-directory ABI design |
 
 `cat` is not considered essential; it remains because it is already implemented
 and useful as a tiny ABI/application example.
@@ -224,13 +224,13 @@ later: USB hardware-change detection
 Application path:
 
 ```text
-nano
+nano             COMPLETE
         |
         v
-cp
+cp               COMPLETE
         |
         v
-Filesystem ABI review
+Filesystem ABI review   CURRENT
         |
         v
 mv / rm / mkdir / rmdir
