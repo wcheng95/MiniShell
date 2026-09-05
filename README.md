@@ -108,7 +108,8 @@ resident MiniShell
     file transfer
 
 runtime applications
-    med.elf
+    cat.elf
+    nano.elf
     calculator.elf
     radio applications
     future MiniFT8
@@ -118,7 +119,13 @@ Do not begin with BusyBox-style packaging. One ELF per ordinary tool/application
 remains the default; related tiny tools may be bundled later only if measurements
 show a real benefit.
 
-See [`docs/resident-vs-app.md`](docs/resident-vs-app.md).
+MiniShell uses familiar Linux command names when the behavior is close enough to
+be unsurprising, but implements only the minimum useful subset rather than trying
+to reproduce an entire GNU/Linux userland. The planned editor is therefore named
+`nano`, replacing the earlier working name `med`.
+
+See [`docs/resident-vs-app.md`](docs/resident-vs-app.md) and
+[`docs/command-roadmap.md`](docs/command-roadmap.md).
 
 ## Task 0 — Complete
 
@@ -211,7 +218,11 @@ payload CRC, syncs/closes it, and only then publishes it. On FATFS, updating an
 existing destination uses a temporary backup/rollback sequence because FatFs
 `f_rename()` does not overwrite an existing name.
 
-Current Task 2 implementation includes:
+MFT1 put uses two startup handshakes plus 1024-byte block acknowledgements so a
+fast host cannot outrun the USB Serial/JTAG receive buffer while MiniShell writes
+to SD.
+
+Current implementation includes:
 
 ```text
 core/minishell_transfer/       resident MFT1 protocol module
@@ -221,7 +232,42 @@ tools/minishell_transfer.py    host helper
 abi_transfer_unit              fake-stream/fake-filesystem unit test
 ```
 
-Task 2 hardware validation is the next step. See [`docs/task2.md`](docs/task2.md).
+Real hardware has now proven:
+
+```text
+small text-file put            PASS
+multi-block ELF put            PASS
+runtime install of cat.elf     PASS
+execution of uploaded cat.elf  PASS
+```
+
+The first uploaded independent utility was `cat.elf`, demonstrating the intended
+separation: MiniShell file transfer remained resident while the application was
+built, uploaded, and run independently without reflashing MiniShell.
+
+See [`docs/task2.md`](docs/task2.md).
+
+## Command Roadmap
+
+Linux is the naming/behavior reference for ordinary MiniShell commands, with
+**minimum/useful** as the selection rule.
+
+Near-term application sequence:
+
+```text
+cat          implemented
+nano         next editor
+cp / mv / rm
+mkdir / rmdir
+sha256sum / hexdump
+head / tail / wc / grep
+```
+
+Commands are added only when the underlying MiniShell concept is useful. Linux
+commands whose system model does not exist here (`sudo`, `ps`, `systemctl`, Unix
+ownership/permission tools, etc.) are not copied merely for familiarity.
+
+See [`docs/command-roadmap.md`](docs/command-roadmap.md).
 
 ## ABI Documents
 
@@ -241,17 +287,18 @@ Canonical service contracts:
 - [`docs/display-abi.md`](docs/display-abi.md)
 - [`docs/input-abi.md`](docs/input-abi.md)
 
-Milestones and placement policy:
+Milestones and policy:
 
 - [`docs/task0.md`](docs/task0.md)
 - [`docs/task1.md`](docs/task1.md)
 - [`docs/task2.md`](docs/task2.md)
 - [`docs/resident-vs-app.md`](docs/resident-vs-app.md)
+- [`docs/command-roadmap.md`](docs/command-roadmap.md)
 
 ## Current Status
 
-**Task 0 and Task 1 are complete. Task 2 resident file transfer is active and
-ready for host-unit/build/hardware validation.**
+**Task 0 and Task 1 are complete. Task 2 resident file transfer is active, with
+small-file and runtime-ELF upload/execution proven on real hardware.**
 
 Physical Tab5 LCD/touch integration and optional RTC/default-location backends
 remain later platform work. Display/Input are already proven through the serial
