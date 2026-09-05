@@ -58,17 +58,38 @@ int minishell_app_run(const char *command, int argc, char **argv)
     elf_file_t file = {0};
     esp_elf_t elf;
     bool elf_initialized = false;
-    printf("app: loading %s\n", fullpath);
+
+    printf("app: loading %s (%lld bytes)\n", fullpath, (long long)st.st_size);
+
     ret = esp_elf_open(&file, filename);
-    if (ret < 0) return ret;
+    if (ret < 0) {
+        printf("app: elf_open failed (%d)\n", ret);
+        return ret;
+    }
+
     ret = esp_elf_init(&elf);
-    if (ret < 0) goto cleanup;
+    if (ret < 0) {
+        printf("app: elf_init failed (%d)\n", ret);
+        goto cleanup;
+    }
     elf_initialized = true;
+
     ret = esp_elf_relocate(&elf, file.payload);
-    if (ret < 0) goto cleanup;
+    if (ret < 0) {
+        printf("app: elf_relocate failed (%d)\n", ret);
+        goto cleanup;
+    }
+    printf("app: relocate OK\n");
+
     minishell_services_app_begin();
     ret = esp_elf_request(&elf, 0, argc, argv);
     minishell_services_app_end();
+    if (ret < 0) {
+        printf("app: elf_request failed (%d)\n", ret);
+    } else {
+        printf("app: request OK\n");
+    }
+
 cleanup:
     if (elf_initialized) esp_elf_deinit(&elf);
     esp_elf_close(&file);
