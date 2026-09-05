@@ -12,6 +12,7 @@ static const test_case_t tests[] = {
     {"time_location", test_time_location},
     {"display", test_display},
     {"input", test_input},
+    {"transfer", test_transfer},
 };
 
 int main(int argc, char **argv)
