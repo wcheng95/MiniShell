@@ -58,7 +58,7 @@ MiniShell/
 |   `-- minishell_platform_tab5/
 |-- examples/
 |   `-- hello/
-`-- tests/              future host/focused test support
+`-- tests/              unit tests + ABI integration support
 ```
 
 Exact filenames may evolve. Responsibility and dependency boundaries matter more
@@ -166,12 +166,13 @@ foundational ABI requires:
 
 1. a platform-neutral documented contract;
 2. one clear hardware/state owner;
-3. a resident implementation;
-4. a focused separately built ELF test;
-5. real-hardware validation;
-6. defined success/error behavior;
-7. defined ownership/cleanup behavior;
-8. a reviewed backward-compatible extension path.
+3. a resident implementation behind a clean platform boundary;
+4. comprehensive unit tests as the primary correctness/regression suite;
+5. a focused separately built ELF integration test;
+6. real-hardware validation for platform-dependent behavior;
+7. defined success/error behavior;
+8. defined ownership/cleanup behavior;
+9. a reviewed backward-compatible extension path.
 
 Canonical contracts live in the standalone `*-abi.md` documents.
 
@@ -246,16 +247,19 @@ implementation can change without forcing unrelated modules or apps to change.
 Examples:
 
 ```text
-change FATFS backend            -> Filesystem ABI unchanged
-change diagnostic transport     -> System ABI unchanged
-change allocator internals      -> Memory ABI unchanged
-change RTC/GPS implementation   -> Time/Location ABI unchanged
+change FATFS backend              -> Filesystem ABI unchanged
+change diagnostic transport       -> System ABI unchanged
+change allocator internals        -> Memory ABI unchanged
+change RTC/GPS implementation     -> Time/Location ABI unchanged
 change TFT/e-paper implementation -> Display ABI unchanged
-change keyboard/terminal source -> Input ABI unchanged
-change platform port            -> app source rebuilds, not redesigns
+change keyboard/terminal source   -> Input ABI unchanged
+change platform port              -> app source rebuilds, not redesigns
 ```
 
 This requires small interfaces, explicit ownership, and no private-type leakage.
+
+It also improves testability: service policy/state logic should sit above narrow
+platform interfaces so host unit tests can replace hardware backends with fakes.
 
 ## 11. Memory model
 
@@ -338,7 +342,34 @@ hardware owner throughout.
 
 ## 15. ABI testing
 
-Task 1 focused tests:
+Testing has three layers with different responsibilities.
+
+### Unit tests — primary
+
+Every foundational service has a comprehensive unit suite. Wherever practical,
+service semantics are exercised through ABI-shaped interfaces over fake platform
+backends.
+
+Unit tests carry the broad behavioral coverage:
+
+```text
+success/error paths
+boundary values
+struct_size compatibility
+capability combinations
+resource bookkeeping
+state transitions
+partial/failure behavior
+timeouts/freshness
+cleanup and repeated operations
+```
+
+They should be fast and deterministic enough to run constantly during
+implementation and refactoring.
+
+### Runtime-loaded ELF integration tests
+
+Task 1 integration tests are:
 
 ```text
 abi_system.elf
@@ -349,20 +380,34 @@ abi_display.elf
 abi_input.elf
 ```
 
-Each test is separately built and uses only public MiniShell headers.
-
-The decisive validation path is:
+Each is separately built and uses only public MiniShell headers. Their purpose is
+not exhaustive behavior coverage; they prove the real binary/runtime path:
 
 ```text
-ELF test
-   -> public MiniShell ABI
+ELF app
+   -> loader
+   -> mini_api_get()
+   -> public table layout/calling convention
    -> resident service
-   -> platform implementation
-   -> hardware/backend
+   -> teardown/unload
 ```
 
-Host/unit tests should also cover platform-independent validation, bookkeeping,
-normalization, compatibility, and cleanup policy where useful.
+### Hardware/platform validation
+
+Real Tab5 testing proves backend behavior that unit mocks cannot establish, such
+as SD persistence, RTC retention, hardware timer behavior, physical display
+refresh, and terminal/touch input routing.
+
+The preferred sequence is:
+
+```text
+unit suite
+    -> focused ELF integration
+    -> hardware/backend validation
+```
+
+A passing ELF or hardware smoke test does not replace a failing or incomplete
+unit suite.
 
 ## 16. Diagnostics as architecture
 
@@ -411,8 +456,9 @@ display
 input
 ```
 
-All six design contracts are now provisional and documented. Implementation and
-focused hardware validation are next.
+All six design contracts are provisional and documented. Implementation now uses
+unit-test-first verification, followed by focused ELF integration and required
+real-hardware validation.
 
 See `docs/task1.md`.
 
