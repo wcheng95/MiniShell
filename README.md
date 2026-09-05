@@ -36,7 +36,7 @@ APIs.
 After power-on, MiniShell presents a local shell:
 
 ```text
-MiniShell 0.1
+MiniShell
 
 M$> ls
 flash/
@@ -121,10 +121,9 @@ power on
 Task 0 is complete and hardware-validated on M5Stack Tab5 / ESP32-P4 rev v1.3.
 See [`docs/task0.md`](docs/task0.md).
 
-## Task 1 — ABI Foundation
+## Task 1 — Complete: ABI Foundation
 
-Task 1 defines, implements, and independently validates six foundational ABIs
-before adding real applications:
+Task 1 defines, implements, and independently validates six foundational ABIs:
 
 ```text
 system
@@ -138,7 +137,7 @@ input
 Display and Input are separate fundamental services. A console/terminal is a
 higher-level composition rather than a basic ABI.
 
-Each ABI follows the same development path:
+Each ABI followed the same development path:
 
 ```text
 define contract
@@ -146,8 +145,9 @@ define contract
    -> build comprehensive unit tests
    -> run/fix unit suite
    -> build focused ELF integration test
-   -> validate real hardware/backend behavior
-   -> repeat lifecycle checks where relevant
+   -> validate real platform/backend behavior
+   -> repeat lifecycle checks
+   -> re-review the public boundary
 ```
 
 The test hierarchy is deliberate:
@@ -169,14 +169,12 @@ abi_display.elf
 abi_input.elf
 ```
 
-The ELF tests use only the public MiniShell ABI and must not include
+The ELF tests use only the public MiniShell ABI and do not include
 platform-private headers. They are intentionally smaller than the unit suites.
 
 The ABI is designed for compatible growth through append-only tables,
 `struct_size`, capability bits, optional sub-APIs, stable numeric meanings, and
 explicit ownership/lifetime rules.
-
-`med` is postponed until all six foundational boundaries are proven.
 
 ## ABI Documents
 
@@ -203,29 +201,16 @@ Milestones:
 
 ## Current Status
 
-**Task 0 is complete. Task 1 ABI Foundation is active.**
-
-Task 0 validated:
-
-- interactive interrupt-driven USB Serial/JTAG shell
-- MiniShell-owned FAT32 microSD mounted at `/sd`
-- `help`, `status`, and `ls` shell commands
-- runtime lookup of `/sd/apps/hello.elf`
-- native RISC-V ELF loading through `espressif/elf_loader`
-- runtime binding through `mini_api_get()`
-- resident `system.write()` call from the ELF
-- clean return to the shell
-- repeated load/run/unload cycles without reboot or an obvious leak
-- shell availability even when SD initialization fails
+**Task 0 and Task 1 are complete.**
 
 Task 1 has resident service-core implementations for all six foundational ABIs
 plus one host unit-test group per ABI. The clean host suite passes 6/6 with
 `-Wall -Wextra -Werror` and also passes 6/6 under AddressSanitizer and
 UndefinedBehaviorSanitizer.
 
-The serial-terminal backend now exposes Display and Input through the same
-USB Serial/JTAG transport already used by the shell. On real M5Stack Tab5 /
-ESP32-P4 rev v1.3 hardware, all six focused runtime-loaded ELF tests pass:
+The serial-terminal backend exposes Display and Input through the same USB
+Serial/JTAG transport already used by the shell. On real M5Stack Tab5 / ESP32-P4
+rev v1.3 hardware, all six focused runtime-loaded ELF tests pass:
 
 ```text
 abi_system         PASS
@@ -239,23 +224,37 @@ abi_input          PASS
 This validates the public table layout, `mini_api_get()` binding,
 function-pointer calling convention, service logic, ELF loader integration,
 serial-terminal Display output, interactive terminal Input routing, and normal
-foreground return to the shell. `hello.elf` was also run successfully immediately
-after the Display/Input tests, confirming that the shell remained healthy after
-foreground app handoff and teardown.
+foreground return to the shell.
 
-A dedicated `abi_stress.elf` lifecycle test also passed 20 consecutive
-load/run/teardown/unload cycles through the shell `repeat` command on real Tab5
-hardware. Each invocation intentionally leaves eight MiniShell-managed memory
-allocations and two filesystem handles open; successful completion of all 20
-runs verifies that app teardown reclaims those resources between invocations.
-Post-stress `hello`, Memory ABI, and Filesystem ABI checks also passed, confirming
-that the shell and core services remained healthy afterward.
+Lifecycle stress validation also passes. `abi_stress.elf` intentionally leaves
+eight MiniShell-managed allocations and two file handles open on every
+invocation so normal app teardown must reclaim them. The following completed on
+real hardware without failure:
+
+```text
+repeat 20 abi_stress     PASS 20/20
+repeat 100 abi_stress    PASS 100/100
+```
+
+Ordinary ELF applications and the focused ABI tests remained healthy after the
+stress runs. This provides strong evidence that repeated ELF
+load/run/teardown/unload does not exhaust the tracked Memory or Filesystem
+resources and that foreground Input/Display ownership returns cleanly to the
+shell.
 
 Long FAT filenames are enabled and functionally verified: long-named ABI ELF
-files load successfully and the Filesystem ABI long-name test passes. The earlier
-legacy Tab5 BSP long-filename warning has been suppressed at its BSP log tag while
-preserving BSP errors.
+files load successfully and the Filesystem ABI long-name test passes. The legacy
+Tab5 BSP long-filename warning is suppressed at its BSP log tag while preserving
+BSP errors.
 
-Physical Tab5 LCD/touch integration and optional RTC/default-location backends are
-separate later platform work; they are not required for the serial-terminal ABI
-validation above.
+A final boundary review found no Task-1 ABI blocker: the public API contains only
+MiniShell-owned/fixed-width C types, opaque handles, documented native pointers,
+and function tables; no ESP-IDF, FreeRTOS, FATFS, or M5Stack type crosses the
+application boundary.
+
+Physical Tab5 LCD/touch integration and optional RTC/default-location platform
+backends are later platform work. They are not required for the Task-1 ABI
+foundation: Display/Input are already proven through the serial-terminal backend,
+and optional Time/Location capability semantics are covered by the service/unit
+contracts while the reference platform currently provides baseline monotonic
+time and sleep.
