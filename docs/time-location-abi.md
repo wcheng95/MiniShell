@@ -78,8 +78,21 @@ Optional features use capability bits:
 #define MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION  (1ull << 4)
 ```
 
+Capability dependencies are:
+
+```text
+SET_UTC              implies UTC
+DEFAULT_LOCATION     implies LOCATION
+SET_DEFAULT_LOCATION implies DEFAULT_LOCATION and LOCATION
+```
+
+`LOCATION` means `location_get()` can provide an effective location when one is
+available. The platform may implement that capability using only a configured
+default location, only a live source, or both.
+
 `DEFAULT_LOCATION` means persistent configured location can be read. The separate
-`SET_DEFAULT_LOCATION` bit means trusted applications are allowed to change it.
+`SET_DEFAULT_LOCATION` bit means trusted applications are allowed to change or
+clear it.
 
 Future capability bits may describe accuracy, altitude, heading, speed, timezone
 support, alarms, higher-resolution timing, or other additions. Existing numeric
@@ -205,15 +218,26 @@ MINI_ERR_UNSUPPORTED UTC capability is absent
 `utc_set()` is supported only when `MINI_TIMELOC_CAP_SET_UTC` is present. If the
 capability is absent, calling it returns `MINI_ERR_UNSUPPORTED`.
 
+The input structure follows the common `struct_size` rules and
+`nanoseconds >= 1000000000` returns `MINI_ERR_INVALID`.
+
 `utc_set()` means:
 
 > Request that MiniShell set/correct global system UTC.
 
-MiniShell updates its UTC/monotonic anchor and, when appropriate, its owned
-hardware RTC.
+On `MINI_OK`:
+
+- the runtime UTC anchor has been updated;
+- monotonic time is unchanged;
+- if the platform has a writable hardware RTC that MiniShell uses as persistent
+  UTC state, MiniShell has completed its normal RTC update before returning.
+
+If the operation fails before the new UTC can be committed, the previous runtime
+UTC remains the API-visible value. Low-level hardware failures are translated to
+an appropriate MiniShell error such as `MINI_ERR_IO`.
 
 Applications using `utc_set()` are trusted. Changing UTC may affect all
-applications and persistent RTC state. It never changes `monotonic_us()`.
+applications and persistent RTC state.
 
 A shell command such as `date` may use the same operation.
 
@@ -244,6 +268,8 @@ Ranges:
 latitude_e7   -900000000 ..  +900000000
 longitude_e7 -1800000000 .. +1800000000
 ```
+
+Out-of-range coordinates return `MINI_ERR_INVALID` when accepted as setter input.
 
 This structure deliberately contains only coordinates. Runtime source/freshness
 metadata is not accepted as configuration input.
@@ -290,23 +316,42 @@ mini_result_t (*location_default_get)(
 
 mini_result_t (*location_default_set)(
     const mini_geo_point_t *location);
+
+mini_result_t (*location_default_clear)(void);
 ```
 
 `location_default_get()` requires
 `MINI_TIMELOC_CAP_DEFAULT_LOCATION`; otherwise it returns
 `MINI_ERR_UNSUPPORTED`.
 
-`location_default_set()` requires both default-location support and
-`MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION`; otherwise it returns
+Its read semantics are:
+
+```text
+MINI_OK              configured coordinates returned
+MINI_ERR_NOT_READY   default-location feature exists but no value is configured
+MINI_ERR_UNSUPPORTED feature is absent
+```
+
+`location_default_set()` and `location_default_clear()` require
+`MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION`; otherwise they return
 `MINI_ERR_UNSUPPORTED`.
 
 Setting default location means:
 
-> Store the persistent fallback coordinates owned by MiniShell.
+> Store persistent fallback coordinates owned by MiniShell.
+
+Clearing default location means:
+
+> Remove that persistent fallback so the system returns to having no configured
+> default location.
+
+On `MINI_OK`, set/clear has been committed to MiniShell's normal persistent
+configuration mechanism and is expected to survive a normal restart. If the
+operation fails, the previously configured API-visible default remains in force.
 
 The ABI stores coordinates, not a human-readable place name. A shell/UI layer may
-translate a name such as `Los Angeles, CA` into coordinates before calling this
-operation.
+translate a name such as `Los Angeles, CA` into coordinates before calling the
+setter.
 
 MiniShell owns persistence. The application does not depend on whether storage is
 NVS, flash file, another filesystem, or another platform-private mechanism.
@@ -350,8 +395,8 @@ Loss of a live source does not necessarily erase the most recent live fix.
 MiniShell may retain it and expose its age through `updated_monotonic_us`.
 
 There is no universal age threshold in V0. Freshness policy belongs to the
-application. A later application may consider a ten-minute-old location useful
-while another may reject it.
+application. One app may consider a ten-minute-old fix useful while another may
+reject it.
 
 ## 13. Snapshot
 
@@ -387,7 +432,7 @@ typedef struct {
 } mini_time_location_snapshot_t;
 ```
 
-`valid_fields` is 64-bit so future snapshot validity bits can grow without
+`valid_fields` is 64-bit so future snapshot-validity bits can grow without
 replacing the field.
 
 The structure is flat because embedding `mini_utc_time_t` or `mini_location_t` by
@@ -438,13 +483,15 @@ typedef struct {
     mini_result_t (*location_default_set)(
         const mini_geo_point_t *location);
 
+    mini_result_t (*location_default_clear)(void);
+
     mini_result_t (*snapshot_get)(
         mini_time_location_snapshot_t *out_snapshot);
 } mini_time_location_api_t;
 ```
 
-The V0 table fields above are present when the service exists. Optional flat
-operations return `MINI_ERR_UNSUPPORTED` when their capability is absent.
+The V0 fields above are present when the service exists. Optional flat operations
+return `MINI_ERR_UNSUPPORTED` when their capability is absent.
 
 After ABI stabilization, existing fields/functions are never reordered, removed,
 or incompatibly repurposed. Future operations are appended.
@@ -508,13 +555,16 @@ optional sub-APIs when a real portable need appears.
 6. `utc_set()` changes UTC when the capability is present;
 7. `utc_set()` does not disturb monotonic time;
 8. hardware RTC persistence is validated on Tab5 if its RTC is used;
-9. configured/default location can be read and, when writable, set and persisted;
-10. `location_get()` returns DEFAULT when no retained/current live location exists;
-11. live location identifies source and exposes freshness information;
-12. snapshot validity bits correctly describe available UTC/location fields;
-13. snapshot monotonic time and UTC are internally coherent;
-14. unsupported optional operations return `MINI_ERR_UNSUPPORTED`;
-15. repeated app launch/exit cycles leave the service healthy.
+9. default location get reports NOT_READY before configuration when appropriate;
+10. configured/default location can be set, read back, and persisted;
+11. configured/default location can be cleared and remains cleared after restart;
+12. `location_get()` returns DEFAULT when configured and no retained/current live
+    location exists;
+13. live location identifies source and exposes freshness information;
+14. snapshot validity bits correctly describe available UTC/location fields;
+15. snapshot monotonic time and UTC are internally coherent;
+16. unsupported optional operations return `MINI_ERR_UNSUPPORTED`;
+17. repeated app launch/exit cycles leave the service healthy.
 
 The ABI remains provisional until the public interface, resident implementation,
 focused ELF test, and real Tab5 behavior agree.
