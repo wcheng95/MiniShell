@@ -37,19 +37,19 @@ After power-on, MiniShell presents a local shell:
 ```text
 MiniShell 0.1
 
-M$ ls
+M$> ls
 flash/
 sd/
 
-M$ ls /sd
+M$> ls /sd
 apps/
 logs/
 
-M$ minift8
+M$> minift8
 [MiniFT8 runs]
 
 [application exits]
-M$
+M$>
 ```
 
 An unknown shell command may be resolved through an application search path such
@@ -112,7 +112,7 @@ Task 0 target:
 
 ```text
 power on
-   -> USB Serial/JTAG M$ shell
+   -> USB Serial/JTAG M$> shell
    -> MiniShell mounts /sd
    -> ls /sd/apps
    -> hello
@@ -120,7 +120,7 @@ power on
    -> hello calls MiniShell runtime API
    -> hello returns
    -> unload
-   -> M$
+   -> M$>
 ```
 
 See [`docs/task0.md`](docs/task0.md) for build steps and validation details.
