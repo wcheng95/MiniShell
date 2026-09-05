@@ -6,10 +6,11 @@
 
 void app_main(void)
 {
-    printf("\nMiniShell Task 0\n");
+    printf("\nMiniShell\n");
 
     /* Platform failures are intentionally non-fatal. The shell is the
-     * diagnostic environment, so it must remain available when SD fails. */
+     * diagnostic environment, so it must remain available when SD or an
+     * optional platform facility fails. */
     (void)minishell_platform_init();
 
     if (minishell_app_init() != 0) {
