@@ -99,7 +99,7 @@ static void cmd_help(void)
 static void cmd_status(void)
 {
     printf("platform : %s\n", minishell_platform_name());
-    printf("console  : UART0 115200 8N1, TX=G37 RX=G38\n");
+    printf("console  : %s\n", minishell_platform_console_status());
     printf("sd       : %s\n", minishell_platform_sd_status());
     printf("app path : /sd/apps\n");
 }
