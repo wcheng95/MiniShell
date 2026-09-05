@@ -185,17 +185,47 @@ read the previously uploaded `/sd/test.txt`. This proves multi-block binary
 upload, CRC verification, publication into `/sd/apps`, runtime discovery/load,
 and execution of an independently developed application.
 
+## Final hardware validation
+
+`tools/task2_validate.py` automates the remaining Task-2 checks against a real
+MiniShell device. Close `idf.py monitor` first so the validator has exclusive
+access to the USB Serial/JTAG port.
+
+Run:
+
+```bash
+python3 tools/task2_validate.py /dev/ttyACM0
+```
+
+The validator uses `/sd/task2_validate.bin` as a scratch destination and checks:
+
+```text
+1. put + get round trip, verified by host SHA-256
+2. replacement of an existing destination
+3. a 512 KiB-class multi-block binary transfer
+4. an intentionally stalled put after one acknowledged 1 KiB block
+5. MFT1 payload timeout on that interrupted transfer
+6. removal of the incomplete .mft.part file
+7. survival of the previously published destination after interruption
+```
+
+The intentional interruption keeps the serial port open but stops sending data
+for longer than MiniShell's payload timeout. This exercises MiniShell's timeout
+and cleanup path without relying on USB disconnect/reconnect behavior.
+
+The remote scratch file is intentionally left in place because MiniShell does not
+yet have the planned `rm` utility.
+
+After the validator passes, run the normal host unit suite and a short real-hardware
+ABI sanity check. Task 2 can then be marked complete.
+
 ## Verification plan
 
-1. Run the host unit suite, including `abi_transfer_unit`.
-2. Build MiniShell with the resident module.
-3. Put a small text file and compare its contents. **PASS on real hardware.**
-4. Put a separately built `.elf`, then execute it. **PASS on real hardware.**
-5. Get the same file back and compare SHA-256 on the host.
-6. Put over an existing destination and confirm FATFS backup/replace behavior.
-7. Transfer a larger binary file.
-8. Interrupt a put and verify the old destination remains usable where possible.
-9. Run ordinary ABI apps after transfer to verify shell/transport handoff.
+1. Host unit suite including `abi_transfer_unit`. **Implemented.**
+2. Small text-file put. **PASS on real hardware.**
+3. Separately built ELF put + execute. **PASS on real hardware.**
+4. Automated get/replacement/large-file/interruption validation. **Ready to run.**
+5. Final Task-1 regression sanity check. **Pending final closeout.**
 
 ## Success criteria
 
@@ -208,6 +238,8 @@ Task 2 V1 is complete when:
 - CRC verification detects incomplete/corrupt transfers;
 - a transferred ELF can be executed normally;
 - replacing an existing FATFS destination works with rollback protection;
+- interrupted transfers do not replace the last verified destination;
+- incomplete temporary files are cleaned up on timeout;
 - transfer state returns cleanly to `M$>`;
 - existing Task 1 ABI tests still pass;
 - the transfer implementation remains resident and modular rather than growing
