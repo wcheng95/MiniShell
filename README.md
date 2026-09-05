@@ -142,14 +142,23 @@ Each ABI follows the same development path:
 
 ```text
 define contract
-   -> implement resident service
-   -> build focused ELF test
-   -> validate on real hardware
-   -> exercise success + failure paths
-   -> repeat launch/run/exit
+   -> implement service logic
+   -> build comprehensive unit tests
+   -> run/fix unit suite
+   -> build focused ELF integration test
+   -> validate real hardware/backend behavior
+   -> repeat lifecycle checks where relevant
 ```
 
-Focused tests:
+The test hierarchy is deliberate:
+
+```text
+unit tests      primary correctness and regression coverage
+ELF tests       binary ABI / loader / runtime integration
+hardware tests  real platform/backend behavior
+```
+
+Runtime-loaded integration tests:
 
 ```text
 abi_system.elf
@@ -160,8 +169,8 @@ abi_display.elf
 abi_input.elf
 ```
 
-The test ELFs use only the public MiniShell ABI and must not include
-platform-private headers.
+The ELF tests use only the public MiniShell ABI and must not include
+platform-private headers. They are intentionally smaller than the unit suites.
 
 The ABI is designed for compatible growth through append-only tables,
 `struct_size`, capability bits, optional sub-APIs, stable numeric meanings, and
@@ -210,6 +219,7 @@ Task 0 validated:
 - shell availability even when SD initialization fails
 
 Task 1 now has provisional design contracts for all six foundational ABIs. The
-next phase is implementation and focused ABI validation one service at a time.
-The current Task-0 `api.h` remains intentionally minimal until the reviewed Task-1
+next phase is implementation with unit-test-first verification, followed by
+focused ELF integration and real-hardware validation one service at a time. The
+current Task-0 `api.h` remains intentionally minimal until the reviewed Task-1
 contracts are implemented.
