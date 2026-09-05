@@ -1,6 +1,6 @@
 # MiniShell Display ABI v0
 
-Status: **Task 1 design contract; provisional until implementation and hardware ABI tests pass**
+Status: **Task 1 design contract; provisional until implementation, unit tests, ELF integration, and hardware validation pass**
 
 ## 1. Purpose
 
@@ -334,25 +334,55 @@ Existing function-table fields and meanings are never reordered, repurposed, or 
 once the ABI is stabilized. Applications check `struct_size`, capability bits, and
 optional sub-API pointers before using appended functionality.
 
-## 14. ABI test requirements
+## 14. Verification requirements
 
-`abi_display.elf` should validate at least:
+### 14.1 Unit tests — primary
 
-1. query `get_info()` and verify nonzero geometry;
-2. clear the full logical surface and `present()`;
-3. write text at `(0,0)`;
-4. write text near the center;
-5. write text at or near the bottom-right corner;
-6. verify right-edge clipping without wrapping;
-7. clear a small rectangle with `clear_at()` and visually verify only that region;
-8. verify a `clear_at()` rectangle extending beyond the surface is clipped;
-9. verify zero-sized `clear_at()` is a successful no-op;
-10. verify out-of-range starting row/column returns `MINI_ERR_INVALID`;
-11. call `present()` after multiple logical changes;
-12. launch, run, exit, and repeat without destabilizing MiniShell.
+The Display service must have comprehensive unit tests against a fake logical
+character-cell surface/backend. They should verify at least:
 
-The hardware test should combine automatic return-code checks with simple visual
-verification of the resulting display content.
+1. capability-bit/sub-API-pointer consistency;
+2. `get_info()` geometry and `struct_size` compatibility;
+3. full-surface clear;
+4. `clear_at()` for interior rectangles;
+5. right/bottom clipping of `clear_at()`;
+6. zero-sized `clear_at()` no-op behavior;
+7. invalid starting coordinates;
+8. `write_at()` at origin, middle, and final cell;
+9. right-edge clipping without wrapping;
+10. zero-byte write behavior;
+11. NULL text rejection when byte count is nonzero;
+12. newline/tab/ANSI bytes receiving no terminal semantics;
+13. ASCII cell contents after sequences of write/clear operations;
+14. logical changes remaining distinct from `present()` calls;
+15. `present()` delegation/flush behavior for fake immediate and buffered backends;
+16. repeated operations and foreground reset/restore state as the implementation
+    develops.
+
+The fake surface should make expected cell contents directly assertable rather
+than relying on visual inspection.
+
+### 14.2 Runtime-loaded ELF integration test
+
+`abi_display.elf` should prove the public binary path with a representative set:
+
+1. discover Display and text capability;
+2. query geometry;
+3. clear, write several positions, clear one rectangle, and call `present()`;
+4. exercise one clipping case and one invalid-coordinate case;
+5. return normally and repeat launch/exit.
+
+The ELF test does not need exhaustive clipping/rectangle permutations because
+those belong in unit tests.
+
+### 14.3 Hardware/platform validation
+
+On Tab5, visually validate text geometry, clipping, clear regions, and physical
+`present()` behavior on the real LCD. Future e-paper ports should similarly
+validate that the same logical contract maps correctly to their refresh model.
+
+The ABI remains provisional until the unit suite, focused ELF integration test,
+and required hardware validation all pass.
 
 ## 15. V0 boundary summary
 
