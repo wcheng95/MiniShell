@@ -32,6 +32,7 @@ typedef int32_t mini_result_t;
 #define MINI_ERR_NO_MEMORY       ((mini_result_t)-13)
 #define MINI_ERR_NOT_READY       ((mini_result_t)-14)
 #define MINI_ERR_TIMEOUT         ((mini_result_t)-15)
+#define MINI_ERR_NOT_EMPTY       ((mini_result_t)-16)
 
 typedef struct {
     uint32_t struct_size;
@@ -93,6 +94,10 @@ typedef struct {
     mini_result_t (*seek)(mini_file_t file, int64_t offset, uint32_t origin, uint64_t *out_position);
     mini_result_t (*sync)(mini_file_t file);
     mini_result_t (*stat)(const char *path, mini_fs_stat_t *out_stat);
+    mini_result_t (*rename)(const char *old_path, const char *new_path);
+    mini_result_t (*remove_file)(const char *path);
+    mini_result_t (*mkdir)(const char *path);
+    mini_result_t (*rmdir)(const char *path);
 } mini_fs_api_t;
 
 #define MINI_TIMELOC_CAP_UTC                   (1ull << 0)
