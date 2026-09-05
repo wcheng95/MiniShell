@@ -35,22 +35,25 @@ Develop and validate one ABI at a time:
 ```text
 define contract
     |
-implement resident service
+implement service logic behind a clean platform boundary
     |
-build focused separately-built ELF test
+build comprehensive unit tests
     |
-run on real Tab5 hardware
+run/fix unit suite until semantics are solid
     |
-exercise success + failure cases
+build focused separately-built ELF integration test
     |
-repeat launch/run/exit
+validate real platform/hardware behavior
+    |
+repeat launch/run/exit where lifecycle matters
     |
 review boundary after implementation
     |
 only then move to the next ABI
 ```
 
-The focused ELF programs are infrastructure tests, not product apps.
+Unit tests are the primary correctness suite. The focused ELF programs are
+integration/ABI-boundary tests, not the main source of behavioral coverage.
 
 ## Common requirements
 
@@ -64,7 +67,10 @@ Every public ABI must:
 - remain small enough to understand completely;
 - permit implementation changes behind the boundary;
 - have a backward-compatible growth path where practical;
-- avoid unnecessary concurrency/asynchronous complexity in V0.
+- avoid unnecessary concurrency/asynchronous complexity in V0;
+- have a comprehensive unit-test suite;
+- have a focused runtime-loaded ELF integration test;
+- have real-hardware validation for platform-dependent behavior.
 
 Task 1 uses the shared result namespace defined in `docs/abi-foundation.md`,
 including `MINI_ERR_TIMEOUT` for finite timed operations.
@@ -104,10 +110,12 @@ system
 `system.write()` is the guaranteed diagnostic/system text sink. It is not the
 application display surface and not a console abstraction.
 
-Focused test:
+Verification:
 
 ```text
-abi_system.elf
+primary       unit tests
+integration   abi_system.elf
+hardware      diagnostic backend output
 ```
 
 ## 2. Memory ABI
@@ -134,10 +142,12 @@ Important properties:
 - normal app teardown reclaims leftovers;
 - DMA/aligned/executable/special memory remains deferred.
 
-Focused test:
+Verification:
 
 ```text
-abi_memory.elf
+primary       unit tests
+integration   abi_memory.elf
+hardware      allocator/backend behavior as needed
 ```
 
 ## 3. Filesystem ABI
@@ -167,10 +177,12 @@ Important properties:
 - no FATFS, libc `FILE *`, or ESP-IDF types cross the ABI;
 - normal teardown reclaims remaining app file resources.
 
-Focused test:
+Verification:
 
 ```text
-abi_fs.elf
+primary       unit tests with fake/in-memory backend where practical
+integration   abi_fs.elf
+hardware      real SD/filesystem backend
 ```
 
 ## 4. Time/Location ABI
@@ -207,10 +219,12 @@ Important properties:
 - snapshot is flat to preserve ABI offsets;
 - local timezone/geocoding remain outside V0.
 
-Focused test:
+Verification:
 
 ```text
-abi_time_location.elf
+primary       unit tests with fake clock/RTC/location/persistence backends
+integration   abi_time_location.elf
+hardware      real timer, RTC persistence, live-source behavior when available
 ```
 
 ## 5. Display ABI
@@ -241,10 +255,12 @@ Important properties:
   and e-paper implementations can share the same ABI;
 - graphics/framebuffer/multiple-display features are deferred extensions.
 
-Focused test:
+Verification:
 
 ```text
-abi_display.elf
+primary       unit tests against a fake logical display backend
+integration   abi_display.elf
+hardware      visual/physical display validation
 ```
 
 ## 6. Input ABI
@@ -277,15 +293,48 @@ Important properties:
 - pointer/touch/raw-keyboard/buttons remain separate future capability families;
 - stale queued events must not leak across foreground app handoff.
 
-Focused test:
+Verification:
 
 ```text
-abi_input.elf
+primary       unit tests with synthetic normalized events/fake monotonic clock
+integration   abi_input.elf
+hardware      terminal/touch/keyboard source validation
 ```
 
-## Focused ABI tests
+## Test hierarchy
 
-The complete Task 1 runtime-test set is:
+### 1. Unit tests — primary
+
+Every ABI must have a unit-test suite. This is the main correctness and regression
+suite and should carry substantially more coverage than the runtime-loaded ELF
+test.
+
+Tests should run without hardware wherever practical by placing policy/state
+logic above mockable platform interfaces.
+
+Typical unit coverage includes:
+
+```text
+success paths
+invalid arguments
+boundary values
+struct_size compatibility
+capability combinations
+error translation
+ownership/bookkeeping
+cleanup
+partial/failure behavior
+state transitions
+timeouts/freshness
+repeated operations
+```
+
+Tests should exercise the public ABI-shaped behavior whenever practical, even
+when the backend underneath is fake.
+
+### 2. Runtime-loaded ELF tests — integration
+
+The Task 1 integration set remains:
 
 ```text
 abi_system.elf
@@ -296,56 +345,44 @@ abi_display.elf
 abi_input.elf
 ```
 
-Each test:
+Each ELF test:
 
 - is built separately from MiniShell;
 - uses `main(argc, argv)` plus `mini_api_get()`;
 - includes only public MiniShell headers;
 - targets the same machine ABI as the resident runtime;
-- checks field/service availability using the common compatibility rules;
-- exercises normal and important error behavior;
+- checks field/service discovery through `struct_size`/capabilities;
+- performs a representative happy path and selected error checks;
 - returns normally to the shell;
-- is repeated to catch leaks/stale state/lifecycle damage.
+- is repeated where useful to catch loader/resource/lifecycle problems.
 
-## Test layers
-
-### Host/unit tests
-
-Use host tests where practical for platform-independent policy such as:
+The ELF tests do not need to repeat every unit-test case. Their job is to verify
+the real binary boundary:
 
 ```text
-flag validation
-handle/ownership tables
-allocation bookkeeping
-error translation helpers
-struct_size compatibility checks
-event normalization
-foreground queue cleanup
-snapshot/layout rules
-```
-
-### Real-hardware ELF tests
-
-The decisive ABI test is a separately built ELF running through the actual
-MiniShell loader on Tab5:
-
-```text
-M$> abi_fs
-[focused filesystem ABI tests]
-PASS
-M$>
-```
-
-This validates:
-
-```text
-ELF app
+separately built ELF
+  -> loader
   -> mini_api_get()
-  -> public MiniShell service table
+  -> public table layout/calling convention
   -> resident service
-  -> platform implementation
-  -> hardware/backend
+  -> teardown/unload
 ```
+
+### 3. Hardware/platform tests
+
+Hardware validation covers behavior that mocks cannot prove:
+
+```text
+real SD persistence/error behavior
+actual RTC retention/correction
+hardware timer behavior
+physical display output/present behavior
+terminal/touch/keyboard input routing
+platform-specific backend integration
+```
+
+Unit tests remain primary even after hardware tests pass. A hardware smoke test is
+not a substitute for exhaustive semantic coverage.
 
 ## Resource ownership
 
@@ -371,13 +408,15 @@ not stable merely because a struct exists in `api.h`.
 A service becomes a candidate for stable ABI only after:
 
 1. semantics are documented;
-2. resident implementation exists;
-3. focused ELF test passes on real hardware;
-4. important invalid/error paths have been exercised;
-5. repeated runs do not leak or destabilize MiniShell;
-6. teardown/foreground handoff works correctly;
-7. the boundary remains platform-neutral after implementation;
-8. its extension path has been re-reviewed for compatibility.
+2. resident implementation exists behind a clean platform boundary;
+3. comprehensive unit tests pass;
+4. important invalid/error/boundary paths are covered by tests;
+5. the focused ELF integration test passes through the real loader/runtime;
+6. required real-hardware behavior is validated;
+7. repeated runs do not leak or destabilize MiniShell;
+8. teardown/foreground handoff works correctly;
+9. the boundary remains platform-neutral after implementation;
+10. its extension path has been re-reviewed for compatibility.
 
 ## Recommended implementation order
 
@@ -393,8 +432,8 @@ teaches us a reason to change it:
 6. input           uses monotonic timeout semantics and foreground routing
 ```
 
-The order is chosen to build dependencies progressively rather than because later
-services are less important.
+For each service, build its testable logic and unit suite before expanding the
+runtime ELF integration test.
 
 ## Task 1 success criteria
 
@@ -402,16 +441,19 @@ Task 1 is complete when:
 
 1. all six V0 contracts remain documented and internally consistent;
 2. each service has a resident implementation;
-3. each service has a focused separately built ELF test;
-4. each test uses only public MiniShell headers;
-5. all focused tests pass on the Tab5 reference hardware;
-6. important invalid/error cases fail cleanly;
-7. repeated execution does not exhaust or corrupt MiniShell-managed resources;
-8. normal app teardown reclaims app-owned MiniShell resources;
-9. foreground Display/Input ownership returns cleanly to the shell;
-10. no public ABI leaks platform-private types;
-11. backward-compatible extension rules still hold after implementation;
-12. Task 0 shell/load/run/unload behavior remains intact.
+3. each service has a comprehensive unit-test suite;
+4. all unit suites pass;
+5. each service has a focused separately built ELF integration test;
+6. each ELF test uses only public MiniShell headers;
+7. all focused ELF tests pass on the Tab5 reference runtime;
+8. hardware-dependent behavior is validated on Tab5;
+9. important invalid/error/boundary cases are covered and fail cleanly;
+10. repeated execution does not exhaust or corrupt MiniShell-managed resources;
+11. normal app teardown reclaims app-owned MiniShell resources;
+12. foreground Display/Input ownership returns cleanly to the shell;
+13. no public ABI leaks platform-private types;
+14. backward-compatible extension rules still hold after implementation;
+15. Task 0 shell/load/run/unload behavior remains intact.
 
 ## After Task 1
 
