@@ -5,6 +5,9 @@
 #include <sys/stat.h>
 
 #include "esp_elf.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 #include "minishell/api.h"
 #include "minishell_app.h"
@@ -12,6 +15,16 @@
 
 #define APP_DIR "/sd/apps"
 #define APP_NAME_MAX 96
+#define APP_TASK_STACK_SIZE 8192u
+#define APP_TASK_PRIORITY (tskIDLE_PRIORITY + 1u)
+
+typedef struct {
+    esp_elf_t *elf;
+    int argc;
+    char **argv;
+    SemaphoreHandle_t done;
+    volatile int result;
+} app_execution_t;
 
 static bool s_initialized;
 
@@ -34,6 +47,53 @@ static int make_filename(const char *command, char *filename, size_t size)
     else written = snprintf(filename, size, "%s.elf", command);
     if (written < 0 || (size_t)written >= size) return -ENAMETOOLONG;
     return 0;
+}
+
+static void app_task(void *argument)
+{
+    app_execution_t *execution = (app_execution_t *)argument;
+
+    minishell_services_app_begin();
+    execution->result = esp_elf_request(execution->elf, 0,
+                                        execution->argc, execution->argv);
+    minishell_services_app_end();
+
+    xSemaphoreGive(execution->done);
+    vTaskDelete(NULL);
+}
+
+static int run_relocated_app(esp_elf_t *elf, int argc, char **argv)
+{
+    SemaphoreHandle_t done = xSemaphoreCreateBinary();
+    if (done == NULL) return -ENOMEM;
+
+    app_execution_t execution = {
+        .elf = elf,
+        .argc = argc,
+        .argv = argv,
+        .done = done,
+        .result = -EIO,
+    };
+
+    BaseType_t created = xTaskCreate(app_task,
+                                     "minishell-app",
+                                     APP_TASK_STACK_SIZE,
+                                     &execution,
+                                     APP_TASK_PRIORITY,
+                                     NULL);
+    if (created != pdPASS) {
+        vSemaphoreDelete(done);
+        return -ENOMEM;
+    }
+
+    if (xSemaphoreTake(done, portMAX_DELAY) != pdTRUE) {
+        vSemaphoreDelete(done);
+        return -EIO;
+    }
+
+    int result = execution.result;
+    vSemaphoreDelete(done);
+    return result;
 }
 
 int minishell_app_init(void)
@@ -81,9 +141,7 @@ int minishell_app_run(const char *command, int argc, char **argv)
     }
     printf("app: relocate OK\n");
 
-    minishell_services_app_begin();
-    ret = esp_elf_request(&elf, 0, argc, argv);
-    minishell_services_app_end();
+    ret = run_relocated_app(&elf, argc, argv);
     if (ret < 0) {
         printf("app: elf_request failed (%d)\n", ret);
     } else {
