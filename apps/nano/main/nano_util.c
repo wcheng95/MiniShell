@@ -1,6 +1,7 @@
 #include "nano_util.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 void *memcpy(void *destination, const void *source, size_t count)
 {
@@ -15,7 +16,7 @@ void *memmove(void *destination, const void *source, size_t count)
     unsigned char *dst = (unsigned char *)destination;
     const unsigned char *src = (const unsigned char *)source;
     if (dst == src || count == 0u) return destination;
-    if (dst < src) {
+    if ((uintptr_t)dst < (uintptr_t)src) {
         for (size_t i = 0u; i < count; ++i) dst[i] = src[i];
     } else {
         for (size_t i = count; i > 0u; --i) dst[i - 1u] = src[i - 1u];
