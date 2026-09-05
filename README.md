@@ -218,31 +218,36 @@ Task 0 validated:
 - repeated load/run/unload cycles without reboot or an obvious leak
 - shell availability even when SD initialization fails
 
-Task 1 now has resident service-core implementations for all six foundational
-ABIs plus one host unit-test group per ABI. The clean host suite passes 6/6 with
+Task 1 has resident service-core implementations for all six foundational ABIs
+plus one host unit-test group per ABI. The clean host suite passes 6/6 with
 `-Wall -Wextra -Werror` and also passes 6/6 under AddressSanitizer and
 UndefinedBehaviorSanitizer.
 
-The first real Tab5 ELF integration checkpoint also passes for every currently
-wired service:
+The serial-terminal backend now exposes Display and Input through the same
+USB Serial/JTAG transport already used by the shell. On real M5Stack Tab5 /
+ESP32-P4 rev v1.3 hardware, all six focused runtime-loaded ELF tests pass:
 
 ```text
 abi_system         PASS
 abi_memory         PASS
 abi_fs             PASS
 abi_time_location  PASS
-abi_display        SKIP - display backend not wired yet
-abi_input          SKIP - input backend not wired yet
+abi_display        PASS
+abi_input          PASS
 ```
 
-This validates the public table layout, `mini_api_get()` binding, function-pointer
-calling path, service logic, app lifecycle, and ELF loader integration for System,
-Memory, Filesystem, and baseline Time/Location on real ESP32-P4 hardware.
+This validates the public table layout, `mini_api_get()` binding,
+function-pointer calling convention, service logic, ELF loader integration,
+serial-terminal Display output, interactive terminal Input routing, and normal
+foreground return to the shell. `hello.elf` was also run successfully immediately
+after the Display/Input tests, confirming that the shell remained healthy after
+foreground app handoff and teardown.
 
-Long FAT filenames are functionally working (the long-named ABI ELF files load and
-the Filesystem ABI long-name test passes). The Tab5 BSP still emits a legacy
-"long filenames disabled" warning at boot, so that warning should not currently be
-used as the source of truth for MiniShell FATFS capability.
+Long FAT filenames are enabled and functionally verified: long-named ABI ELF
+files load successfully and the Filesystem ABI long-name test passes. The earlier
+legacy Tab5 BSP long-filename warning has been suppressed at its BSP log tag while
+preserving BSP errors.
 
-Display/Input and optional RTC/default-location platform backends remain for the
-next hardware/UI steps.
+Physical Tab5 LCD/touch integration and optional RTC/default-location backends are
+separate later platform work; they are not required for the serial-terminal ABI
+validation above.
