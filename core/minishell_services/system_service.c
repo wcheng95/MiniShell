@@ -1,15 +1,14 @@
-#include <stdio.h>
-
-#include "minishell/api.h"
+#include "services_internal.h"
 
 static void system_write(const char *text)
 {
+    const minishell_services_port_t *port = minishell_services_port();
     if (text == NULL) {
         return;
     }
-
-    fputs(text, stdout);
-    fflush(stdout);
+    if (port->system_write != NULL) {
+        port->system_write(port->ctx, text);
+    }
 }
 
 static const mini_system_api_t s_system_api = {
@@ -17,13 +16,7 @@ static const mini_system_api_t s_system_api = {
     .write = system_write,
 };
 
-static const mini_api_t s_api = {
-    .abi_version = MINISHELL_ABI_VERSION,
-    .struct_size = sizeof(mini_api_t),
-    .system = &s_system_api,
-};
-
-const mini_api_t *mini_api_get(void)
+const mini_system_api_t *minishell_system_service_api(void)
 {
-    return &s_api;
+    return &s_system_api;
 }

@@ -1,0 +1,61 @@
+#include "test_support.h"
+
+bool test_memory(void)
+{
+    fake_reset();
+    minishell_services_port_t p = fake_full_port();
+    minishell_services_configure(&p);
+    minishell_services_app_begin();
+    const mini_memory_api_t *mem = mini_api_get()->memory;
+    TEST_CHECK(mem != NULL);
+    void *ptr = (void *)0x1;
+    TEST_EQ(mem->alloc(0, &ptr), MINI_ERR_INVALID);
+    TEST_CHECK(ptr == NULL);
+    TEST_EQ(mem->alloc(8, NULL), MINI_ERR_INVALID);
+    TEST_EQ(mem->alloc(8, &ptr), MINI_OK);
+    TEST_CHECK(ptr != NULL);
+    memcpy(ptr, "ABCDEFG", 8);
+    mini_memory_info_t info = {.struct_size = sizeof(info)};
+    TEST_EQ(mem->get_info(&info), MINI_OK);
+    TEST_CHECK((info.valid_fields & MINI_MEM_INFO_APP_USAGE) != 0u);
+    TEST_EQ(info.app_allocated_bytes, 8u);
+    TEST_EQ(info.app_allocation_count, 1u);
+    TEST_EQ(info.free_bytes, g_fake.reported_free);
+    TEST_EQ(info.largest_free_block, g_fake.reported_largest);
+    void *grown = NULL;
+    TEST_EQ(mem->realloc(ptr, 16, &grown), MINI_OK);
+    TEST_CHECK(grown != NULL);
+    TEST_CHECK(memcmp(grown, "ABCDEFG", 8) == 0);
+    ptr = grown;
+    info.struct_size = sizeof(info);
+    TEST_EQ(mem->get_info(&info), MINI_OK);
+    TEST_EQ(info.app_allocated_bytes, 16u);
+    g_fake.fail_realloc = true;
+    void *failed = (void *)0x1;
+    TEST_EQ(mem->realloc(ptr, 32, &failed), MINI_ERR_NO_MEMORY);
+    TEST_CHECK(failed == NULL);
+    TEST_CHECK(memcmp(ptr, "ABCDEFG", 8) == 0);
+    g_fake.fail_realloc = false;
+    TEST_EQ(mem->realloc(NULL, 10, &failed), MINI_ERR_INVALID);
+    TEST_EQ(mem->realloc(ptr, 0, &failed), MINI_ERR_INVALID);
+    TEST_EQ(mem->free((uint8_t *)ptr + 1), MINI_ERR_INVALID);
+    TEST_EQ(mem->free(NULL), MINI_OK);
+    TEST_EQ(mem->free(ptr), MINI_OK);
+    TEST_EQ(mem->free(ptr), MINI_ERR_INVALID);
+    void *leak = NULL;
+    TEST_EQ(mem->alloc(20, &leak), MINI_OK);
+    uint32_t frees_before = g_fake.free_calls;
+    minishell_services_app_end();
+    TEST_EQ(g_fake.free_calls, frees_before + 1u);
+    minishell_services_app_begin();
+    info.struct_size = sizeof(info);
+    TEST_EQ(mem->get_info(&info), MINI_OK);
+    TEST_EQ(info.app_allocated_bytes, 0u);
+    TEST_EQ(info.app_allocation_count, 0u);
+    mini_memory_info_t too_small = {.struct_size = sizeof(uint32_t)};
+    TEST_EQ(mem->get_info(&too_small), MINI_ERR_INVALID);
+    g_fake.fail_alloc = true;
+    TEST_EQ(mem->alloc(4, &ptr), MINI_ERR_NO_MEMORY);
+    TEST_CHECK(ptr == NULL);
+    return true;
+}
