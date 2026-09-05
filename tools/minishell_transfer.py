@@ -19,7 +19,8 @@ except ImportError:
 
 MAGIC = b"MFT1"
 HEADER = struct.Struct("<4sQI")
-CHUNK = 16 * 1024
+FILE_CHUNK = 16 * 1024
+PUT_BLOCK = 1024
 HANDSHAKE_TIMEOUT = 10.0
 
 
@@ -32,7 +33,7 @@ def crc32_file(path: Path) -> int:
     crc = 0
     with path.open("rb") as f:
         while True:
-            data = f.read(CHUNK)
+            data = f.read(FILE_CHUNK)
             if not data:
                 break
             crc = binascii.crc32(data, crc)
@@ -76,13 +77,17 @@ def put_file(ser: serial.Serial, local: Path, remote: str) -> None:
     ser.flush()
     wait_for_line(ser, lambda line: line == "MFT1 DATA READY")
 
+    remaining = size
     with local.open("rb") as f:
-        while True:
-            data = f.read(CHUNK)
+        while remaining:
+            data = f.read(min(PUT_BLOCK, remaining))
             if not data:
-                break
+                raise RuntimeError("local file became shorter during transfer")
             ser.write(data)
-    ser.flush()
+            ser.flush()
+            remaining -= len(data)
+            if remaining:
+                wait_for_line(ser, lambda line: line == "MFT1 NEXT")
 
     line = wait_for_line(ser, lambda text: text.startswith("MFT1 OK "))
     fields = line.split()
@@ -113,7 +118,7 @@ def get_file(ser: serial.Serial, remote: str, local: Path) -> None:
     try:
         with temporary.open("wb") as f:
             while remaining:
-                chunk = ser.read(min(CHUNK, remaining))
+                chunk = ser.read(min(FILE_CHUNK, remaining))
                 if not chunk:
                     raise TimeoutError(f"transfer stopped with {remaining} bytes remaining")
                 f.write(chunk)
