@@ -38,14 +38,24 @@ static mini_result_t errno_to_mini(int err)
     case ENOENT: return MINI_ERR_NOT_FOUND;
     case EEXIST: return MINI_ERR_EXISTS;
     case EACCES:
-    case EPERM: return MINI_ERR_ACCESS;
+    case EPERM:
+#ifdef EBUSY
+    case EBUSY:
+#endif
+        return MINI_ERR_ACCESS;
     case ENOSPC: return MINI_ERR_NO_SPACE;
     case EMFILE:
     case ENFILE: return MINI_ERR_TOO_MANY_OPEN;
     case ENAMETOOLONG: return MINI_ERR_NAME_TOO_LONG;
     case ENOTDIR: return MINI_ERR_NOT_DIR;
     case EISDIR: return MINI_ERR_IS_DIR;
+#ifdef ENOTEMPTY
+    case ENOTEMPTY: return MINI_ERR_NOT_EMPTY;
+#endif
     case ENOMEM: return MINI_ERR_NO_MEMORY;
+#ifdef EXDEV
+    case EXDEV: return MINI_ERR_UNSUPPORTED;
+#endif
 #ifdef ENOTSUP
     case ENOTSUP: return MINI_ERR_UNSUPPORTED;
 #endif
@@ -255,6 +265,31 @@ static mini_result_t service_fs_stat(void *ctx, const char *path,
     return MINI_OK;
 }
 
+static mini_result_t service_fs_rename(void *ctx, const char *old_path,
+                                       const char *new_path)
+{
+    (void)ctx;
+    return rename(old_path, new_path) == 0 ? MINI_OK : errno_to_mini(errno);
+}
+
+static mini_result_t service_fs_remove_file(void *ctx, const char *path)
+{
+    (void)ctx;
+    return unlink(path) == 0 ? MINI_OK : errno_to_mini(errno);
+}
+
+static mini_result_t service_fs_mkdir(void *ctx, const char *path)
+{
+    (void)ctx;
+    return mkdir(path, 0777) == 0 ? MINI_OK : errno_to_mini(errno);
+}
+
+static mini_result_t service_fs_rmdir(void *ctx, const char *path)
+{
+    (void)ctx;
+    return rmdir(path) == 0 ? MINI_OK : errno_to_mini(errno);
+}
+
 static uint64_t service_monotonic_us(void *ctx)
 {
     (void)ctx;
@@ -296,6 +331,10 @@ static void configure_services(void)
         .fs_seek = service_fs_seek,
         .fs_sync = service_fs_sync,
         .fs_stat = service_fs_stat,
+        .fs_rename = service_fs_rename,
+        .fs_remove_file = service_fs_remove_file,
+        .fs_mkdir = service_fs_mkdir,
+        .fs_rmdir = service_fs_rmdir,
         .monotonic_us = service_monotonic_us,
         .sleep_ms = service_sleep_ms,
         .time_location_capabilities = 0u,
