@@ -7,7 +7,7 @@ MiniShell is a resident MCU application environment.
 ```text
 +------------------------------------------------------+
 |                    Applications                      |
-|          med.elf   minift8.elf   minicw.elf ...     |
+|          future: med.elf   minift8.elf   ...        |
 +----------------------- MiniShell ABI ----------------+
 |                    MiniShell Core                    |
 |                                                      |
@@ -15,7 +15,7 @@ MiniShell is a resident MCU application environment.
 +-------------------- service boundary ----------------+
 |                  Platform Services                   |
 |                                                      |
-| display input audio storage time USB network power  |
+| console memory filesystem time display audio ...    |
 +-------------------- platform boundary ---------------+
 |              ESP32-P4 / ESP-IDF / Tab5              |
 +------------------------------------------------------+
@@ -35,8 +35,8 @@ V1 reference platform:
 - microSD as an important user/app storage backend
 - ESP-IDF as the underlying platform SDK
 
-MiniShell may depend heavily on ESP-IDF inside the ESP32-P4 platform port.
-That dependency must stop at the MiniShell ABI boundary.
+MiniShell may depend heavily on ESP-IDF inside the ESP32-P4 platform port. That
+dependency must stop at the MiniShell ABI boundary.
 
 ## 3. Major Modules
 
@@ -56,8 +56,7 @@ MiniShell/
 |-- platform/
 |   `-- minishell_platform_tab5/
 |-- examples/
-|   |-- hello/
-|   `-- med/
+|   `-- hello/
 `-- tests/
 ```
 
@@ -82,19 +81,6 @@ Initial responsibilities:
 - returning to the prompt after app exit
 - platform diagnostics
 
-Example:
-
-```text
-M$> ls /sd/apps
-hello.elf
-med.elf
-
-M$> med /sd/notes.txt
-[MiniEditor owns the foreground terminal through MiniShell services]
-[MiniEditor exits]
-M$>
-```
-
 V1 does not need POSIX pipelines, redirection, background jobs, users, or process
 management.
 
@@ -112,22 +98,9 @@ Initial proposal:
 Applications receive paths through MiniShell filesystem services and should not
 mount/unmount or initialize the underlying storage hardware.
 
-The shell may later provide configurable command/application search paths, for
-example:
-
-```text
-/apps
-/sd/apps
-```
-
-A merged visual `ls` view is optional convenience; the canonical filesystem
-namespace should remain explicit and predictable.
-
 ## 6. App Manager
 
 The app manager owns application lifecycle.
-
-Launch sequence:
 
 ```text
 shell command
@@ -140,36 +113,38 @@ load ELF
     |
 prepare app context
     |
-call app entry point
-    |
 application runs in foreground
     |
-application returns / requests exit
+application returns
     |
-cleanup registered resources
+cleanup MiniShell-managed resources
     |
 unload ELF
     |
 return to shell
 ```
 
-V1 runs one foreground native application at a time.
-
-No process isolation is provided.
+V1 runs one foreground native application at a time. No process isolation is
+provided.
 
 ## 7. Service Layer
 
-MiniShell services are the normal path from applications to hardware-related
-capabilities.
+MiniShell services are the normal path from applications to runtime and
+hardware-related capabilities.
 
-Likely service groups:
+Task 1 develops the first basic ABI set in this order:
 
 ```text
 system
-console/input
+memory
 filesystem
-memory/status
+console/input
 time
+```
+
+Later service groups may include:
+
+```text
 display
 audio
 USB
@@ -177,17 +152,17 @@ network
 power
 ```
 
-These are categories, not a commitment to implement every service immediately.
+A service is not considered established merely because an API table exists. Each
+basic ABI must have:
 
-Each service should have:
+1. a platform-neutral documented contract,
+2. one clear owner,
+3. a resident implementation,
+4. a focused separately built ELF test,
+5. real-hardware validation,
+6. defined error and cleanup behavior.
 
-1. a platform-neutral public interface
-2. one clear owner
-3. a platform implementation
-4. shell diagnostics where useful
-
-Task 1 intentionally lets a real application (`med`) determine the minimum
-console/input and filesystem operations we actually need.
+Real applications are postponed until this foundation is proven.
 
 ## 8. Platform Layer
 
@@ -199,14 +174,14 @@ For Tab5 this may include:
 platform/minishell_platform_tab5/
     boot/startup
     console
-    display
-    input
+    memory
     storage
     time
+    display
+    input
     audio
     USB
     network
-    memory
 ```
 
 The platform layer may freely include ESP-IDF and M5Stack-specific headers.
@@ -219,37 +194,22 @@ application-facing hardware service.
 
 MiniShell owns shared hardware after boot.
 
-Example storage path:
+Example filesystem path:
 
 ```text
-med
+application
    |
-mini filesystem API
+MiniShell filesystem ABI
    |
-MiniShell filesystem service
+filesystem service
    |
 ESP-IDF VFS/FATFS
    |
 SD hardware
 ```
 
-`med` should not call SD initialization, FATFS mount, SDMMC bus initialization,
-or equivalent platform operations.
-
-Example console path:
-
-```text
-med
-   |
-MiniShell console/input API
-   |
-console service
-   |
-USB Serial/JTAG VFS/driver
-```
-
-The application sees normalized key events and logical terminal operations, not
-USB driver structures or raw platform ownership.
+Applications should not call SD initialization, FATFS mount, SDMMC bus
+initialization, or equivalent platform operations.
 
 Direct access remains technically possible because MiniShell provides no
 protection. Such access is outside the standard portable contract.
@@ -260,13 +220,13 @@ MiniShell's modularity goal is not simply to split source code into files. The
 important property is that one implementation can change without forcing
 unrelated modules to change.
 
-Task 1 should demonstrate examples such as:
+Examples:
 
 ```text
-change document representation  -> filesystem service unaffected
-change FATFS implementation      -> med unaffected
-change terminal implementation   -> med unaffected
-change editor rendering strategy -> app loader unaffected
+change FATFS implementation       -> application ABI unchanged
+change console transport          -> application ABI unchanged
+change memory allocator internals -> applications unchanged
+change platform port              -> MiniShell source users rebuild, not redesign
 ```
 
 This requires small interfaces, clear ownership, and no leakage of private
@@ -285,9 +245,11 @@ V1 assumptions:
 - MiniShell remains resident while the app runs
 - loaded app memory is reclaimed after exit where the ELF loader permits
 
+Task 1 will define a MiniShell memory ABI so applications that need dynamic
+memory do not depend directly on the platform allocator.
+
 The app manager should track MiniShell-managed resources so cooperative cleanup
-is possible even when an app forgets to close a normal service handle before
-returning.
+is possible when an application returns normally.
 
 It cannot recover safely from arbitrary memory corruption.
 
@@ -295,7 +257,7 @@ It cannot recover safely from arbitrary memory corruption.
 
 The ABI is represented by MiniShell-owned types and function signatures.
 
-Task 0 validated the current runtime binding model:
+Task 0 validated the runtime binding model:
 
 ```text
 app.elf
@@ -307,77 +269,78 @@ versioned MiniShell API table
 resident services
 ```
 
-The current ABI is still deliberately small and not frozen. Task 1 extends it
-only with operations needed by the first real application.
-
 Public ABI rules:
 
 - no ESP-IDF types
 - no M5Stack BSP objects
 - no `FILE *` or FATFS objects
-- no raw USB driver handles
+- no FreeRTOS or raw driver handles
 - opaque MiniShell handles where stateful resources are needed
+- explicit ownership, lifetime, error, and compatibility semantics
 - backward-compatible extension preferred where practical
+
+The filesystem ABI v0 contract is already documented in `docs/app-abi.md`.
 
 ## 13. Resource Ownership
 
-MiniShell remains the owner of system services while an app is active.
-
-An app may acquire logical resources such as:
-
-- open files
-- foreground console/display ownership
-- audio stream/session
-- input subscription
-- timers
-- network handles
-
-Task 1 begins concrete bookkeeping with filesystem handles.
+MiniShell remains the owner of resources acquired through its services.
 
 Conceptually:
 
 ```text
-app sees:       mini_file_t = opaque value
-
-MiniShell owns:
-    handle slot
-      -> underlying file object
-      -> owning foreground application
-      -> state
+foreground app context
+    |
+    +-- MiniShell-managed allocations
+    +-- open file handles
+    +-- future service resources
 ```
 
-Normal app teardown releases MiniShell-managed resources before the ELF is
-unloaded.
+Normal app teardown releases remaining MiniShell-managed resources before the
+ELF is unloaded.
 
-This is cooperative cleanup, not protection from arbitrary memory corruption.
+This is cooperative cleanup, not memory protection.
 
-## 14. Foreground UI Model
+## 14. ABI Testing
 
-A foreground application may temporarily control the user-facing terminal,
-display, or input through MiniShell services, but MiniShell remains the hardware
-owner.
+Task 1 uses focused ELF tests as first-class architecture tests.
 
-Conceptually:
+Suggested test programs:
 
 ```text
-shell owns foreground
-    |
-launch app
-    v
-app owns foreground session through API
-    |
-app exits
-    v
-MiniShell restores shell foreground
+abi_system.elf
+abi_memory.elf
+abi_fs.elf
+abi_console.elf
+abi_time.elf
 ```
 
-Task 1 uses this model for a full-screen terminal editor. Future applications
-such as MiniFT8 may use the same concept for the physical display/input system.
+Each test is built separately from MiniShell and uses only the public MiniShell
+ABI. A typical validation path is:
+
+```text
+M$> abi_fs
+[focused filesystem ABI tests]
+PASS
+M$>
+```
+
+This validates:
+
+```text
+ELF app
+  -> ABI table
+  -> resident service
+  -> platform implementation
+  -> hardware/backend
+```
+
+Host/unit tests should also be used for platform-independent policy and
+bookkeeping where useful.
 
 ## 15. Diagnostics as Architecture
 
-Diagnostics are not an afterthought. They are how platform problems are isolated
-before an application is blamed.
+Diagnostics are how platform problems are isolated before an application is
+blamed.
 
 Examples:
 
@@ -385,14 +348,11 @@ Examples:
 M$> status
 M$> mem
 M$> storage status
-M$> ls /flash
 M$> ls /sd
 M$> rtc status
-M$> usb status
 ```
 
-If a subsystem cannot be verified from MiniShell itself, the service boundary is
-not yet complete enough.
+A service should be independently diagnosable and testable.
 
 ## 16. Development Milestones
 
@@ -400,44 +360,37 @@ not yet complete enough.
 
 Validated on real M5Stack Tab5 / ESP32-P4 hardware:
 
-1. Boot to the `M$>` shell over USB Serial/JTAG.
-2. Mount microSD through MiniShell-owned platform code.
-3. Load `/sd/apps/hello.elf` dynamically.
-4. Resolve the resident `mini_api_get()` runtime symbol.
-5. Call a MiniShell system service from the separately built ELF.
-6. Return from the app, unload it, and return to `M$>`.
-7. Repeat load/run/unload without rebooting.
+1. boot to `M$>` over USB Serial/JTAG,
+2. mount microSD,
+3. load `/sd/apps/hello.elf`,
+4. resolve `mini_api_get()`,
+5. call a resident MiniShell service,
+6. return and unload,
+7. repeat without rebooting.
 
 See `docs/task0.md`.
 
-### Task 1 - MiniEditor (`med`) — ACTIVE
+### Task 1 - ABI Foundation — ACTIVE
 
-Build a small nano-like terminal editor as the first useful MiniShell app.
-
-Task 1 drives the implementation of:
-
-- platform-neutral console/input service
-- normalized key events
-- platform-neutral filesystem service
-- opaque file handles
-- app-owned resource cleanup
-- first multi-module real ELF application
-
-Expected user flow:
+Define, implement, and independently validate:
 
 ```text
-M$> med /sd/notes.txt
-[edit file]
-Ctrl-S
-Ctrl-X
-M$>
+system
+memory
+filesystem
+console/input
+time
 ```
+
+Each ABI gets a focused runtime-loaded ELF test and real-hardware validation.
 
 See `docs/task1.md`.
 
 ### Later milestones
 
-After `med` proves these boundaries, add other services only when real
-applications require them. MiniFT8 should come later, once console/input,
-storage, lifecycle, and additional needed service boundaries have proven
-themselves with smaller applications.
+After the ABI foundation is proven, add the first real application. `med` remains
+a strong candidate because it can exercise several already-established services
+without specialized hardware.
+
+Additional ABIs should continue to be added only when justified by real system or
+application requirements.
