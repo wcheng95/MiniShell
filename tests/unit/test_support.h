@@ -95,3 +95,4 @@ bool test_filesystem(void);
 bool test_time_location(void);
 bool test_display(void);
 bool test_input(void);
+bool test_transfer(void);
