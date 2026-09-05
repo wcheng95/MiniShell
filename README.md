@@ -218,8 +218,10 @@ Task 0 validated:
 - repeated load/run/unload cycles without reboot or an obvious leak
 - shell availability even when SD initialization fails
 
-Task 1 now has provisional design contracts for all six foundational ABIs. The
-next phase is implementation with unit-test-first verification, followed by
-focused ELF integration and real-hardware validation one service at a time. The
-current Task-0 `api.h` remains intentionally minimal until the reviewed Task-1
-contracts are implemented.
+Task 1 now has resident service-core implementations for all six foundational
+ABIs plus one host unit-test group per ABI. The clean host suite passes 6/6 with
+`-Wall -Wextra -Werror` and also passes 6/6 under AddressSanitizer and
+UndefinedBehaviorSanitizer. System, Memory, Filesystem, and baseline monotonic
+Time/Location are wired into the current Tab5 platform port. Display/Input and
+optional RTC/default-location platform backends remain for the next hardware/UI
+steps. The focused ELF integration-test phase has not started yet.
