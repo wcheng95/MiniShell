@@ -16,6 +16,7 @@ add_executable(minishell_unit_tests
     ../../core/minishell_transfer/transfer.c
     ../../core/minishell_power/power.c
     ../../apps/nano/main/nano_buffer.c
+    ../../apps/cp/main/cp_copy.c
     test_support.c
     test_system.c
     test_memory.c
@@ -26,6 +27,7 @@ add_executable(minishell_unit_tests
     test_transfer.c
     test_power.c
     test_nano_buffer.c
+    test_cp_copy.c
     test_main.c
 )
 
@@ -35,6 +37,7 @@ target_include_directories(minishell_unit_tests PRIVATE
     ../../core/minishell_transfer
     ../../core/minishell_power
     ../../apps/nano/main
+    ../../apps/cp/main
 )
 
 target_compile_options(minishell_unit_tests PRIVATE -Wall -Wextra -Werror)
@@ -45,3 +48,4 @@ foreach(group system memory filesystem time_location display input transfer)
 endforeach()
 add_test(NAME resident_power_unit COMMAND minishell_unit_tests power)
 add_test(NAME nano_editor_unit COMMAND minishell_unit_tests nano_buffer)
+add_test(NAME cp_copy_unit COMMAND minishell_unit_tests cp_copy)
