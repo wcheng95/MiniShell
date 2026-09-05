@@ -1,6 +1,6 @@
 # MiniShell Architecture
 
-## 1. System View
+## 1. System view
 
 MiniShell is a resident MCU application environment.
 
@@ -15,30 +15,31 @@ MiniShell is a resident MCU application environment.
 +-------------------- service boundary ----------------+
 |                  Platform Services                   |
 |                                                      |
-| console memory filesystem time display audio ...    |
+| system memory filesystem time/location display input|
+|                 future: audio USB network power     |
 +-------------------- platform boundary ---------------+
 |              ESP32-P4 / ESP-IDF / Tab5              |
 +------------------------------------------------------+
 ```
 
-The key architectural rule is that applications normally depend on MiniShell,
-not directly on ESP-IDF or Tab5 hardware.
+The key rule is that portable applications depend on MiniShell, not directly on
+ESP-IDF or Tab5 hardware.
 
-## 2. Reference Platform
+## 2. Reference platform
 
 V1 reference platform:
 
 - M5Stack Tab5
 - ESP32-P4
 - native RISC-V applications
-- external PSRAM available for runtime application loading and buffers
-- microSD as an important user/app storage backend
+- external PSRAM for comfortable runtime loading and buffers
+- microSD as an important app/user storage backend
 - ESP-IDF as the underlying platform SDK
 
 MiniShell may depend heavily on ESP-IDF inside the ESP32-P4 platform port. That
-dependency must stop at the MiniShell ABI boundary.
+dependency stops at the public MiniShell ABI.
 
-## 3. Major Modules
+## 3. Major modules
 
 The framework should remain deliberately small and modular.
 
@@ -57,11 +58,11 @@ MiniShell/
 |   `-- minishell_platform_tab5/
 |-- examples/
 |   `-- hello/
-`-- tests/
+`-- tests/              future host/focused test support
 ```
 
-Exact filenames may change as implementation teaches us more. Module boundaries
-matter more than directory aesthetics.
+Exact filenames may evolve. Responsibility and dependency boundaries matter more
+than directory aesthetics.
 
 A module is replaceable only when unrelated modules depend on its interface
 rather than its internal representation.
@@ -78,27 +79,31 @@ Initial responsibilities:
 - filesystem commands
 - application search path
 - launching an app by command name
-- returning to the prompt after app exit
-- platform diagnostics
+- returning to `M$>` after app exit
+- platform/service diagnostics
+- future trusted configuration commands such as setting UTC/default location
 
 V1 does not need POSIX pipelines, redirection, background jobs, users, or process
 management.
 
-## 5. Filesystem Namespace
+The shell may consume MiniShell services internally but is not itself part of the
+application ABI.
 
-MiniShell exposes storage through a clear logical namespace.
+## 5. Filesystem namespace
 
-Initial proposal:
+MiniShell exposes storage through a logical namespace.
+
+Initial targets include:
 
 ```text
 /flash   internal persistent filesystem
 /sd      microSD filesystem
 ```
 
-Applications receive paths through MiniShell filesystem services and should not
-mount/unmount or initialize the underlying storage hardware.
+Applications use the Filesystem ABI and do not initialize, mount, unmount, or own
+the underlying storage hardware.
 
-## 6. App Manager
+## 6. App manager
 
 The app manager owns application lifecycle.
 
@@ -107,81 +112,85 @@ shell command
     |
 resolve app name/path
     |
-validate executable + ABI
-    |
-load ELF
+validate/load ELF
     |
 prepare app context
+    |
+main(argc, argv)
+    |
+app obtains mini_api_get()
     |
 application runs in foreground
     |
 application returns
     |
-cleanup MiniShell-managed resources
+cleanup MiniShell-managed app resources
     |
 unload ELF
     |
-return to shell
+restore shell foreground
 ```
 
 V1 runs one foreground native application at a time. No process isolation is
 provided.
 
-## 7. Service Layer
+## 7. Foundational service layer
 
-MiniShell services are the normal path from applications to runtime and
-hardware-related capabilities.
-
-Task 1 develops the first basic ABI set in this order:
+Task 1 defines and independently validates these six foundational application
+ABIs:
 
 ```text
 system
 memory
 filesystem
-console/input
-time
+time/location
+display
+input
 ```
 
 Later service groups may include:
 
 ```text
-display
 audio
 USB
 network
-power
+power/system control
 ```
 
-A service is not considered established merely because an API table exists. Each
-basic ABI must have:
+`console` is not a foundational ABI. A terminal/console is a higher-level
+composition of output and input behavior. `system.write()` is a diagnostic sink,
+not application UI.
 
-1. a platform-neutral documented contract,
-2. one clear owner,
-3. a resident implementation,
-4. a focused separately built ELF test,
-5. real-hardware validation,
-6. defined error and cleanup behavior.
+A service is not considered established merely because a table exists. Each
+foundational ABI requires:
 
-Real applications are postponed until this foundation is proven.
+1. a platform-neutral documented contract;
+2. one clear hardware/state owner;
+3. a resident implementation;
+4. a focused separately built ELF test;
+5. real-hardware validation;
+6. defined success/error behavior;
+7. defined ownership/cleanup behavior;
+8. a reviewed backward-compatible extension path.
 
-## 8. Platform Layer
+Canonical contracts live in the standalone `*-abi.md` documents.
 
-The platform layer translates MiniShell services into hardware/SDK operations.
+## 8. Platform layer
+
+The platform layer translates MiniShell concepts into hardware/SDK operations.
 
 For Tab5 this may include:
 
 ```text
 platform/minishell_platform_tab5/
     boot/startup
-    console
-    memory
-    storage
-    time
+    diagnostic transport
+    memory allocator support
+    storage/filesystem support
+    monotonic timer / RTC / location sources
     display
     input
-    audio
-    USB
-    network
+    future audio / USB / network / power
 ```
 
 The platform layer may freely include ESP-IDF and M5Stack-specific headers.
@@ -190,7 +199,7 @@ Public MiniShell headers may not.
 The ELF loader is resident infrastructure used by the app manager. It is not an
 application-facing hardware service.
 
-## 9. Hardware Ownership
+## 9. Hardware ownership
 
 MiniShell owns shared hardware after boot.
 
@@ -199,40 +208,56 @@ Example filesystem path:
 ```text
 application
    |
-MiniShell filesystem ABI
+Filesystem ABI
    |
-filesystem service
+MiniShell filesystem service
    |
 ESP-IDF VFS/FATFS
    |
 SD hardware
 ```
 
-Applications should not call SD initialization, FATFS mount, SDMMC bus
-initialization, or equivalent platform operations.
+Example RTC path:
 
-Direct access remains technically possible because MiniShell provides no
-protection. Such access is outside the standard portable contract.
+```text
+application
+   |
+utc_get() / utc_set()
+   |
+Time/Location service
+   |
+MiniShell-owned RTC driver
+   |
+hardware RTC
+```
 
-## 10. Replaceable Internals
+An application may request a global state change through the ABI when an
+operation such as `utc_set()` or default-location setting is supported. It still
+does not own or manipulate the RTC/storage device directly.
 
-MiniShell's modularity goal is not simply to split source code into files. The
-important property is that one implementation can change without forcing
-unrelated modules to change.
+Direct hardware access remains technically possible because MiniShell provides no
+protection. Such access leaves the portable contract.
+
+## 10. Replaceable internals
+
+MiniShell modularity is not simply source-file splitting. The goal is that one
+implementation can change without forcing unrelated modules or apps to change.
 
 Examples:
 
 ```text
-change FATFS implementation       -> application ABI unchanged
-change console transport          -> application ABI unchanged
-change memory allocator internals -> applications unchanged
-change platform port              -> MiniShell source users rebuild, not redesign
+change FATFS backend            -> Filesystem ABI unchanged
+change diagnostic transport     -> System ABI unchanged
+change allocator internals      -> Memory ABI unchanged
+change RTC/GPS implementation   -> Time/Location ABI unchanged
+change TFT/e-paper implementation -> Display ABI unchanged
+change keyboard/terminal source -> Input ABI unchanged
+change platform port            -> app source rebuilds, not redesigns
 ```
 
-This requires small interfaces, clear ownership, and no leakage of private
-implementation types across module boundaries.
+This requires small interfaces, explicit ownership, and no private-type leakage.
 
-## 11. Memory Model
+## 11. Memory model
 
 MiniShell and applications share the MCU address space.
 
@@ -245,132 +270,135 @@ V1 assumptions:
 - MiniShell remains resident while the app runs
 - loaded app memory is reclaimed after exit where the ELF loader permits
 
-Task 1 will define a MiniShell memory ABI so applications that need dynamic
-memory do not depend directly on the platform allocator.
+The Memory ABI gives apps ordinary dynamic memory without exposing the platform
+heap and lets MiniShell track app-owned allocations for normal teardown.
 
-The app manager should track MiniShell-managed resources so cooperative cleanup
-is possible when an application returns normally.
+MiniShell cannot safely recover from arbitrary memory corruption.
 
-It cannot recover safely from arbitrary memory corruption.
+## 12. ABI boundary
 
-## 12. ABI Boundary
-
-The ABI is represented by MiniShell-owned types and function signatures.
-
-Task 0 validated the runtime binding model:
+Task 0 validated:
 
 ```text
 app.elf
    |
+main(argc, argv)
+   |
 mini_api_get()
    |
-versioned MiniShell API table
+versioned mini_api_t
    |
 resident services
 ```
 
-Public ABI rules:
+Cross-ABI rules are centralized in `docs/abi-foundation.md`:
 
-- no ESP-IDF types
-- no M5Stack BSP objects
-- no `FILE *` or FATFS objects
-- no FreeRTOS or raw driver handles
-- opaque MiniShell handles where stateful resources are needed
-- explicit ownership, lifetime, error, and compatibility semantics
-- backward-compatible extension preferred where practical
+- append-only tables
+- `struct_size` field-presence checks
+- capability bits and optional sub-APIs
+- stable numeric meanings
+- fixed-width MiniShell-owned public types
+- explicit ownership/lifetime
+- source portability with architecture-specific binaries
+- application-context, synchronous-first V0 behavior
 
-The filesystem ABI v0 contract is already documented in `docs/app-abi.md`.
+## 13. Resource ownership
 
-## 13. Resource Ownership
-
-MiniShell remains the owner of resources acquired through its services.
-
-Conceptually:
+MiniShell remains the hardware/service owner. The foreground app may own logical
+resources produced through MiniShell APIs.
 
 ```text
 foreground app context
-    |
     +-- MiniShell-managed allocations
     +-- open file handles
-    +-- future service resources
+    `-- future logical service resources
 ```
 
-Normal app teardown releases remaining MiniShell-managed resources before the
-ELF is unloaded.
+Normal app teardown reclaims remaining MiniShell-managed resources before ELF
+unload where practical.
 
-This is cooperative cleanup, not memory protection.
+This is cooperative cleanup, not protection.
 
-## 14. ABI Testing
+## 14. Foreground Display/Input model
 
-Task 1 uses focused ELF tests as first-class architecture tests.
+V0 has one foreground app, one primary logical display, and one primary logical
+input stream.
 
-Suggested test programs:
+```text
+shell foreground
+    -> launch app
+    -> app uses Display/Input ABI
+    -> app returns
+    -> stale queued app input is discarded
+    -> shell foreground restored
+```
+
+No acquire/release handles are needed in V0. MiniShell remains the physical
+hardware owner throughout.
+
+## 15. ABI testing
+
+Task 1 focused tests:
 
 ```text
 abi_system.elf
 abi_memory.elf
 abi_fs.elf
-abi_console.elf
-abi_time.elf
+abi_time_location.elf
+abi_display.elf
+abi_input.elf
 ```
 
-Each test is built separately from MiniShell and uses only the public MiniShell
-ABI. A typical validation path is:
+Each test is separately built and uses only public MiniShell headers.
+
+The decisive validation path is:
 
 ```text
-M$> abi_fs
-[focused filesystem ABI tests]
-PASS
-M$>
+ELF test
+   -> public MiniShell ABI
+   -> resident service
+   -> platform implementation
+   -> hardware/backend
 ```
 
-This validates:
+Host/unit tests should also cover platform-independent validation, bookkeeping,
+normalization, compatibility, and cleanup policy where useful.
 
-```text
-ELF app
-  -> ABI table
-  -> resident service
-  -> platform implementation
-  -> hardware/backend
-```
+## 16. Diagnostics as architecture
 
-Host/unit tests should also be used for platform-independent policy and
-bookkeeping where useful.
+Platform/service state should be inspectable independently of user apps.
 
-## 15. Diagnostics as Architecture
-
-Diagnostics are how platform problems are isolated before an application is
-blamed.
-
-Examples:
+Examples may include:
 
 ```text
 M$> status
 M$> mem
 M$> storage status
 M$> ls /sd
+M$> date
+M$> location
 M$> rtc status
 ```
 
-A service should be independently diagnosable and testable.
+A service that works independently narrows later application debugging sharply.
 
-## 16. Development Milestones
+## 17. Development milestones
 
-### Task 0 - Framework proof — COMPLETE
+### Task 0 — Framework proof — COMPLETE
 
-Validated on real M5Stack Tab5 / ESP32-P4 hardware:
+Validated on real Tab5 / ESP32-P4 hardware:
 
-1. boot to `M$>` over USB Serial/JTAG,
-2. mount microSD,
-3. load `/sd/apps/hello.elf`,
-4. resolve `mini_api_get()`,
-5. call a resident MiniShell service,
-6. return and unload,
+1. boot to `M$>` over USB Serial/JTAG;
+2. mount microSD;
+3. load `/sd/apps/hello.elf`;
+4. resolve `mini_api_get()`;
+5. call resident `system.write()`;
+6. return and unload;
 7. repeat without rebooting.
 
 See `docs/task0.md`.
 
-### Task 1 - ABI Foundation — ACTIVE
+### Task 1 — ABI Foundation — ACTIVE
 
 Define, implement, and independently validate:
 
@@ -378,19 +406,21 @@ Define, implement, and independently validate:
 system
 memory
 filesystem
-console/input
-time
+time/location
+display
+input
 ```
 
-Each ABI gets a focused runtime-loaded ELF test and real-hardware validation.
+All six design contracts are now provisional and documented. Implementation and
+focused hardware validation are next.
 
 See `docs/task1.md`.
 
 ### Later milestones
 
-After the ABI foundation is proven, add the first real application. `med` remains
-a strong candidate because it can exercise several already-established services
-without specialized hardware.
+After Task 1 is proven, add the first real application. `med` remains a strong
+candidate because it can exercise several established services without requiring
+a specialized hardware path.
 
-Additional ABIs should continue to be added only when justified by real system or
-application requirements.
+Additional ABIs should be added only when justified by real system/application
+requirements.
