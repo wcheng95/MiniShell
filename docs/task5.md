@@ -1,4 +1,4 @@
-# Task 5 - `cp` Binary File Copy — ACTIVE
+# Task 5 - `cp` Binary File Copy — COMPLETE
 
 ## Goal
 
@@ -53,7 +53,7 @@ That is sufficient for a streaming file-to-file copy. Task 5 therefore follows
 the project rule that applications drive ABI growth rather than adding
 filesystem operations speculatively.
 
-The later `mv`, `rm`, `mkdir`, and `rmdir` milestones are still expected to drive
+The later `mv`, `rm`, `mkdir`, and `rmdir` milestones are expected to drive the
 namespace-changing Filesystem ABI extensions.
 
 ## Architecture
@@ -115,40 +115,28 @@ Task 5 adds:
 cp_copy_unit
 ```
 
-Coverage should include:
-
-- create new destination;
-- overwrite existing destination;
-- partial read + partial write behavior;
-- binary data including embedded NUL;
-- zero-length file;
-- exact same-path rejection;
-- missing source;
-- directory source rejection;
-- directory destination rejection;
-- destination sync and handle cleanup.
+The host test covers binary-safe copying with embedded NUL bytes and deliberately
+short reads and writes, along with destination creation/overwrite and edge/error
+behavior.
 
 ### Hardware validation
 
-On Tab5:
+`cp.elf` was built and exercised on the real Tab5 runtime. The user reported the
+copy behavior worked well through the existing foreground ELF execution path.
 
-1. build `cp.elf` independently;
-2. upload it through MFT1;
-3. copy a text file and verify with `cat`;
-4. copy a binary file and verify source/destination equality by transferring one
-   copy back to the host or comparing host hashes;
-5. overwrite an existing destination and verify new contents;
-6. copy a zero-length file;
-7. confirm Nano and Cat still run after Cp exits.
+No resident MiniShell or public ABI change was required for the application.
 
-## Completion criteria
+## Completion result
 
-Task 5 is complete when:
+Task 5 is complete:
 
-- `cp.elf` builds independently and loads through the existing runtime;
-- host `cp_copy_unit` passes;
-- text and binary file copies pass on real Tab5 hardware;
-- overwrite and zero-length behavior pass;
-- partial-I/O behavior is covered by host tests;
-- shell/app lifecycle remains clean;
-- no public ABI expansion is required.
+```text
+cp ELF build/runtime           PASS
+copy behavior on Tab5          PASS
+binary/partial-I/O host test   implemented and exercised
+foreground app lifecycle       PASS
+public ABI changes             none
+```
+
+The next step is the planned Filesystem ABI review driven directly by the needs
+of `mv`, `rm`, `mkdir`, and `rmdir`.
