@@ -3,15 +3,15 @@
 ## Purpose
 
 MiniShell exists to reduce repeated platform work in MCU applications.
-Applications should be able to focus on their domain logic instead of repeatedly
-bringing up and debugging RTC, USB, FATFS, SD, display, keyboard, audio, Wi-Fi,
-and other common hardware.
+Applications should focus on domain logic instead of repeatedly bringing up and
+debugging RTC, storage, display, input, audio, USB, networking, and other common
+hardware.
 
 The project intentionally adopts a subset of useful operating-system ideas while
-remaining an MCU environment rather than attempting to reproduce a protected
-multi-process OS.
+remaining an MCU application environment rather than a protected multi-process
+OS.
 
-## 1. One Hardware Owner
+## 1. One hardware owner
 
 Shared hardware is owned by MiniShell.
 
@@ -28,43 +28,48 @@ Shell ----> SD driver
 GOOD
 
 App A --\
-App B ----> storage API ----> MiniShell ----> SD/FATFS
+App B ----> Filesystem ABI ----> MiniShell ----> SD/FATFS
 Shell --/
 ```
 
-This applies equally to display, keyboard/input, audio, USB, networking, RTC,
-power management, buses, and other shared resources.
+The same ownership rule applies to display, input devices, audio, USB,
+networking, RTC, timers, power management, buses, and other shared resources.
 
-## 2. Protection by Convention
+A trusted application may request a global state change through a supported ABI
+operation such as setting UTC or the configured default location. MiniShell still
+owns the underlying RTC, persistence mechanism, or other hardware.
+
+## 2. Protection by convention
 
 MiniShell does not provide process isolation or memory protection.
 
-Applications and MiniShell execute in the same MCU environment. A defective app
-can corrupt memory, reconfigure hardware, or crash the whole system.
+Applications and MiniShell execute in the same MCU address space. A defective app
+can corrupt memory, reconfigure hardware, or crash the entire system.
 
 That is accepted by design.
 
-The contract is simple:
+The contract is:
 
 - MiniShell owns shared hardware.
-- Normal applications use MiniShell services.
+- Portable applications use MiniShell services.
 - Applications release resources and return cleanly.
+- MiniShell performs cooperative cleanup of remaining MiniShell-managed app
+  resources where practical.
 - Direct hardware access is allowed only when the developer intentionally leaves
   the portable contract.
-- If an application violates the contract, the developer is responsible for the
-  consequences.
+- The developer owns the consequences of violating MiniShell assumptions.
 
-MiniShell provides structure and convenience, not protection from the developer.
+MiniShell provides structure and convenience, not protection from arbitrary app
+code.
 
-## 3. Runtime API Instead of Repeated Platform Integration
+## 3. Runtime API instead of repeated platform integration
 
 Traditional MCU applications commonly compile platform libraries directly into
-each firmware image. MiniShell instead keeps service implementations resident
-and makes them available to applications at runtime.
+each firmware image. MiniShell keeps common service implementations resident and
+makes them available to runtime-loaded applications.
 
-An application may still include MiniShell headers at build time to know ABI
-structures and function signatures, but the service implementation belongs to
-MiniShell.
+An app includes MiniShell public headers to know the ABI, but the service
+implementation belongs to MiniShell.
 
 ```text
 application source
@@ -73,21 +78,21 @@ application source
       v
 application.elf
       |
-      | runtime service calls
+      | mini_api_get() + service-table calls
       v
 resident MiniShell
 ```
 
-This allows MiniShell and applications to optimize independently while retaining
-a stable contract.
+This lets MiniShell and apps evolve independently while retaining a stable
+contract.
 
-## 4. Keep ESP-IDF Below the Boundary
+## 4. Keep platform SDKs below the boundary
 
-The first implementation may use ESP-IDF extensively for the ESP32-P4 platform.
-That is desirable: MiniShell should reuse mature MCU support rather than rewrite
-USB, FATFS, SD, networking, timers, and drivers.
+The ESP32-P4 reference implementation may use ESP-IDF extensively. That is
+desirable: MiniShell should reuse mature MCU support rather than rewrite drivers
+and libraries unnecessarily.
 
-The public MiniShell ABI must not expose ESP-IDF-specific types.
+The public ABI must not expose platform-private types.
 
 Bad public API:
 
@@ -99,76 +104,73 @@ TaskHandle_t mini_task_create(...);
 Preferred public API:
 
 ```c
-mini_result_t mini_file_open(...);
-mini_task_t mini_task_create(...);
+mini_result_t ...;
+mini_file_t ...;
 ```
 
-The platform implementation translates MiniShell concepts into ESP-IDF concepts.
+The platform layer translates MiniShell concepts into platform SDK concepts.
 
-## 5. Three Application Levels
-
-MiniShell recognizes three useful application styles.
+## 5. Three application levels
 
 ### Portable application
 
 Uses only the standard MiniShell ABI.
 
-Goal: source can be rebuilt for any platform implementing the required ABI.
+Goal: source can be rebuilt for any MiniShell platform that implements the
+required services/capabilities.
 
 ### Platform-aware application
 
 Uses the standard ABI plus documented platform-specific extensions.
 
-Goal: exploit useful hardware features while keeping most application logic
-portable.
+Goal: exploit useful hardware while keeping most logic portable.
 
 ### Bare-hardware application
 
 Directly accesses MCU peripherals, registers, or platform SDK APIs.
 
-Goal: maximum control where needed. Portability and system safety become the
-application developer's responsibility.
+Goal: maximum control where necessary. Portability and system-state safety become
+the application developer's responsibility.
 
-## 6. Diagnostics Are a System Feature
+## 6. Diagnostics are a system feature
 
-MiniShell should make platform state inspectable before an application runs.
+MiniShell should make service/platform state inspectable before a user app runs.
 
 Examples:
 
 ```text
-$> status
-$> storage status
-$> ls /flash
-$> ls /sd
-$> cat /sd/test.txt
-$> rtc status
-$> usb status
-$> audio status
-$> mem
+M$> status
+M$> mem
+M$> storage status
+M$> ls /sd
+M$> date
+M$> location
+M$> rtc status
+M$> usb status
 ```
 
-If SD access works from the shell before an application starts, a well-behaved
-application should not need to rediscover or reinitialize the SD hardware.
+If a service works from the shell or focused ABI test, a later application should
+not need to rediscover or reinitialize the hardware.
 
-This narrows debugging boundaries dramatically.
-
-## 7. Runtime-Loadable Apps
+## 7. Runtime-loadable apps
 
 V1 uses native ELF applications.
 
-An application should feel like a shell command:
+An app should feel like a shell command:
 
 ```text
-$> minift8 --band 20m
+M$> minift8 --band 20m
 [application runs]
 [application returns]
-$>
+M$>
 ```
 
-ELF is an implementation choice for loading native code. It is not part of the
-conceptual MiniShell service model. Other runtimes may be added later.
+The current native model is ordinary `main(argc, argv)` plus runtime API
+acquisition through `mini_api_get()`.
 
-## 8. Top-Down Modular Design
+ELF is a loading/container choice, not the conceptual service architecture.
+
+## 8. Top-down modular design
 
 Architecture is defined from responsibilities downward:
 
@@ -177,41 +179,82 @@ application
     |
 MiniShell ABI
     |
-services
+resident services
     |
-platform abstraction
+platform implementation
     |
-SDK / drivers
+SDK / RTOS / bare-metal support
     |
 hardware
 ```
 
-A module should have one clear responsibility and one clear owner for each
-hardware resource.
+Each hardware resource has one clear owner. Each module has one clear
+responsibility.
 
-## 9. Small Stable ABI
+## 9. Small stable ABI
 
-The ABI should expose useful capabilities without mirroring every function of the
-underlying SDK.
+The ABI should expose useful, portable capabilities without mirroring every
+function of the underlying SDK.
 
-Prefer small service groups such as:
+Task 1 foundational services are:
 
-- system
-- memory
-- filesystem/storage
-- time
-- display
-- input
-- audio
-- USB
-- network
+```text
+system
+memory
+filesystem
+time/location
+display
+input
+```
 
-New API surface should be added only when a real application needs it.
+Likely later services include:
 
-## 10. First Make One Platform Work Well
+```text
+audio
+USB
+network
+power/system control
+```
+
+`console` is a higher-level composition, not a foundational ABI.
+
+New surface area should be added only when a real application or system need
+justifies it.
+
+## 10. Design for compatible growth
+
+ABI evolution should prefer:
+
+```text
+append-only tables
+struct_size
+capability bits
+optional sub-APIs
+stable numeric meanings
+explicit ownership and lifetime
+fixed-width public types
+```
+
+Do not change an established function's meaning to add a new feature.
+
+Do not embed one extensible public struct by value inside another when future
+growth would shift established field offsets.
+
+## 11. Synchronous and understandable first
+
+Task 1 APIs are synchronous unless explicitly documented otherwise.
+
+V0 does not promise general ISR safety, reentrancy, or multi-thread safety.
+Portable apps should serialize use of shared logical resources.
+
+More complex asynchronous/concurrent behavior should be added only when a real
+need justifies the additional contract.
+
+## 12. First make one platform work well
 
 Tab5 / ESP32-P4 is the reference platform for V1.
 
-Portability should influence boundary design, but the project should not build
-multiple incomplete ports merely to prove abstraction. Once the Tab5 framework
-is stable, a second architecture such as ESP32-S3 can validate the boundary.
+Portability should shape boundaries, but the project should not build several
+incomplete ports merely to prove abstraction. Once the Tab5 foundation is stable,
+a second architecture can validate the design without forcing premature
+lowest-common-denominator choices.
