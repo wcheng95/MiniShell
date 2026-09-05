@@ -290,7 +290,7 @@ The real Tab5 runtime test passed.
 
 See [`docs/task5.md`](docs/task5.md).
 
-## Task 6 — Active: Filesystem Namespace Commands
+## Task 6 — Complete: Filesystem Namespace Commands
 
 Task 6 completes the Stage-A file-management set with four runtime applications:
 
@@ -301,7 +301,7 @@ mkdir   create one directory; parent must exist
 rmdir   remove one empty directory
 ```
 
-The real application requirements drive one append-only Filesystem ABI extension:
+The real application requirements drove one append-only Filesystem ABI extension:
 
 ```text
 rename
@@ -310,9 +310,13 @@ mkdir
 rmdir
 ```
 
-`MINI_ERR_NOT_EMPTY` is added so `rmdir` can report a portable non-empty-directory
+`MINI_ERR_NOT_EMPTY` was added so `rmdir` can report a portable non-empty-directory
 result. The Tab5 backend normalizes the FATFS `FR_DENIED` ambiguity by checking
 directory contents before removal.
+
+Real Tab5 validation passed for directory creation, non-empty-directory protection,
+file rename, no-overwrite protection, file removal, empty-directory removal, and
+regression use of Nano, Cat, and Cp.
 
 The existing Filesystem table prefix and top-level ABI generation remain
 unchanged, so older Stage-A applications remain binary-compatible.
@@ -325,11 +329,11 @@ See [`docs/task6.md`](docs/task6.md) and
 Linux is the naming/behavior reference for ordinary MiniShell commands, with
 **minimum/useful** as the selection rule.
 
-Planned application command set:
+Current application command set:
 
 ```text
-Stage A: cat  nano  cp  mv  rm  mkdir  rmdir
-Stage C: free  date  df
+Stage A: cat  nano  cp  mv  rm  mkdir  rmdir    COMPLETE
+Stage C: free  date  df                           PLANNED
 ```
 
 `cat` is kept because it is already implemented, not because it is considered
@@ -369,7 +373,8 @@ Milestones and policy:
 
 ## Current Status
 
-**Task 0 through Task 5 are complete. Task 6 is active.**
+**Task 0 through Task 6 are complete. Stage A is complete.**
 
-Task 6 implementation is ready for host/build/hardware validation. Future resident
-system work includes USB device attach/detach detection when it becomes useful.
+The next planned application stage is the small Stage-C system-information set:
+`free`, `date`, and `df`. Future resident system work also includes USB device
+attach/detach detection when it becomes useful.
