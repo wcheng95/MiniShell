@@ -19,6 +19,8 @@
 #include "minishell_platform.h"
 #include "terminal_backend.h"
 
+#define TRANSFER_REPLACE_PATH_MAX 600u
+
 esp_err_t bsp_sdcard_mount(void);
 
 static esp_err_t s_console_status = ESP_FAIL;
@@ -98,8 +100,28 @@ static int transfer_replace_file(void *ctx, const char *temporary_path,
 {
     (void)ctx;
     if (temporary_path == NULL || destination_path == NULL) return -EINVAL;
+
+    /* New destination: the normal rename path is enough. */
     if (rename(temporary_path, destination_path) == 0) return 0;
-    return -errno;
+    if (errno != EEXIST) return -errno;
+
+    /* FatFs f_rename() does not overwrite an existing destination. Preserve the
+     * verified old file as a rollback copy while publishing the new one. */
+    char backup[TRANSFER_REPLACE_PATH_MAX];
+    int n = snprintf(backup, sizeof(backup), "%s.mft.bak", destination_path);
+    if (n < 0 || (size_t)n >= sizeof(backup)) return -ENAMETOOLONG;
+
+    (void)unlink(backup);
+    if (rename(destination_path, backup) != 0) return -errno;
+
+    if (rename(temporary_path, destination_path) == 0) {
+        (void)unlink(backup);
+        return 0;
+    }
+
+    int publish_error = errno;
+    (void)rename(backup, destination_path);
+    return -publish_error;
 }
 
 static void transfer_remove_file(void *ctx, const char *path)
