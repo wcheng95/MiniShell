@@ -80,20 +80,42 @@ mini_result_t minishell_services_input_submit(const mini_key_event_t *event)
     return MINI_OK;
 }
 
+static void copy_event(mini_key_event_t *out_event, uint32_t caller_size,
+                       const mini_key_event_t *event)
+{
+    *out_event = *event;
+    out_event->struct_size = caller_size;
+}
+
 static mini_result_t input_read(mini_key_event_t *out_event, uint32_t timeout_ms)
 {
     const minishell_services_port_t *port = minishell_services_port();
     const uint32_t v0_size = MINI_FIELD_END(mini_key_event_t, modifiers);
     if ((s_input_api.capabilities & MINI_INPUT_CAP_KEY) == 0u) return MINI_ERR_UNSUPPORTED;
     if (out_event == NULL || out_event->struct_size < v0_size) return MINI_ERR_INVALID;
+
     uint32_t caller_size = out_event->struct_size;
     mini_key_event_t event;
     if (pop_event(&event)) {
-        *out_event = event;
-        out_event->struct_size = caller_size;
+        copy_event(out_event, caller_size, &event);
         return MINI_OK;
     }
-    if (timeout_ms == MINI_WAIT_NONE) return MINI_ERR_NOT_READY;
+
+    /* Pull-based backends such as a serial terminal need one zero-time poll so
+     * MINI_WAIT_NONE can still observe bytes already waiting in the transport. */
+    if (timeout_ms == MINI_WAIT_NONE) {
+        mini_result_t poll_result = port->input_wait(port->ctx, MINI_WAIT_NONE);
+        if (pop_event(&event)) {
+            copy_event(out_event, caller_size, &event);
+            return MINI_OK;
+        }
+        if (poll_result != MINI_OK && poll_result != MINI_ERR_NOT_READY &&
+            poll_result != MINI_ERR_TIMEOUT) {
+            return poll_result;
+        }
+        return MINI_ERR_NOT_READY;
+    }
+
     uint64_t start = port->monotonic_us(port->ctx);
     for (;;) {
         uint32_t wait_ms = timeout_ms;
@@ -105,18 +127,21 @@ static mini_result_t input_read(mini_key_event_t *out_event, uint32_t timeout_ms
             wait_ms = (uint32_t)((remaining_us + 999u) / 1000u);
             if (wait_ms == 0u) wait_ms = 1u;
         }
+
         mini_result_t wait_result = port->input_wait(port->ctx, wait_ms);
         if (pop_event(&event)) {
-            *out_event = event;
-            out_event->struct_size = caller_size;
+            copy_event(out_event, caller_size, &event);
             return MINI_OK;
         }
+
         if (timeout_ms != MINI_WAIT_FOREVER) {
             uint64_t elapsed_us = port->monotonic_us(port->ctx) - start;
             if (elapsed_us >= (uint64_t)timeout_ms * 1000u) return MINI_ERR_TIMEOUT;
         }
-        if (wait_result != MINI_OK && wait_result != MINI_ERR_TIMEOUT && wait_result != MINI_ERR_NOT_READY) return wait_result;
-        if (timeout_ms == MINI_WAIT_FOREVER && wait_result == MINI_ERR_UNSUPPORTED) return MINI_ERR_UNSUPPORTED;
+        if (wait_result != MINI_OK && wait_result != MINI_ERR_TIMEOUT &&
+            wait_result != MINI_ERR_NOT_READY) {
+            return wait_result;
+        }
     }
 }
 
@@ -130,7 +155,9 @@ void minishell_input_service_configure(void)
     s_input_api.capabilities = 0u;
     s_input_api.key = NULL;
     s_available = false;
-    bool key_ready = (port->input_capabilities & MINI_INPUT_CAP_KEY) != 0u && port->input_wait != NULL && port->monotonic_us != NULL;
+
+    bool key_ready = (port->input_capabilities & MINI_INPUT_CAP_KEY) != 0u &&
+                     port->input_wait != NULL && port->monotonic_us != NULL;
     if (key_ready) {
         s_available = true;
         s_input_api.capabilities = MINI_INPUT_CAP_KEY;
@@ -138,7 +165,14 @@ void minishell_input_service_configure(void)
     }
 }
 
-void minishell_input_service_app_begin(void) { minishell_services_input_flush(); }
-void minishell_input_service_app_end(void) { minishell_services_input_flush(); }
+static void input_handoff_flush(void)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    minishell_services_input_flush();
+    if (port->input_flush != NULL) port->input_flush(port->ctx);
+}
+
+void minishell_input_service_app_begin(void) { input_handoff_flush(); }
+void minishell_input_service_app_end(void) { input_handoff_flush(); }
 bool minishell_input_service_available(void) { return s_available; }
 const mini_input_api_t *minishell_input_service_api(void) { return &s_input_api; }
