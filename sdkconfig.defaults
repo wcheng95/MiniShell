@@ -1,3 +1,7 @@
+# Task 0: Tab5 currently uses ESP32-P4 rev v1.x silicon.
+# ESP-IDF 5.5 defaults to rev v3.1+, so explicitly select the pre-v3 target.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+
 # Task 0: use the physical UART0 console on the Tab5 M5-Bus.
 CONFIG_ESP_CONSOLE_UART_CUSTOM=y
 CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_0=y
