@@ -4,9 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "bsp/m5stack_tab5.h"
-#include "driver/i2c_master.h"
-#include "esp_io_expander.h"
+#include "tab5_bsp_power_shim.h"
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
