@@ -73,6 +73,9 @@ def put_file(ser: serial.Serial, local: Path, remote: str) -> None:
     wait_for_line(ser, lambda line: line == "MFT1 PUT READY")
 
     ser.write(HEADER.pack(MAGIC, size, crc))
+    ser.flush()
+    wait_for_line(ser, lambda line: line == "MFT1 DATA READY")
+
     with local.open("rb") as f:
         while True:
             data = f.read(CHUNK)
@@ -91,16 +94,6 @@ def put_file(ser: serial.Serial, local: Path, remote: str) -> None:
         raise RuntimeError("device completion metadata does not match local file")
 
     print(f"put: {local} -> {remote} ({size} bytes, crc32={crc:08x})")
-
-
-def read_exact(ser: serial.Serial, size: int) -> bytes:
-    data = bytearray()
-    while len(data) < size:
-        chunk = ser.read(min(CHUNK, size - len(data)))
-        if not chunk:
-            raise TimeoutError(f"transfer stopped after {len(data)}/{size} bytes")
-        data.extend(chunk)
-    return bytes(data)
 
 
 def get_file(ser: serial.Serial, remote: str, local: Path) -> None:
