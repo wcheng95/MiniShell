@@ -1,9 +1,11 @@
-# MiniShell Power/System Plan
+# Task 3 - MiniShell Power/System — ACTIVE
 
 ## Goal
 
 MiniShell should own device power state and hardware-change detection because
 these are platform/runtime concerns rather than ordinary application utilities.
+
+Task 3 begins after completion of Task 2 resident file transfer.
 
 The initial desired capabilities are:
 
@@ -56,12 +58,10 @@ supports it.
 
 This is intentionally distinct from `suspend`.
 
-On the Tab5 reference hardware, M5Stack documents that battery charging is only
-available after the device is powered on and initialized; charging does not
-continue while the device is fully off. Therefore `poweroff` should be an
-explicit action rather than the normal USB-powered idle behavior. When USB-C is
-present and continued charging is desired, a wakeable low-power mode is generally
-the more appropriate action.
+On the Tab5 reference hardware, charging is expected during normal powered and
+initialized operation; full poweroff is a distinct state and should not be used
+as the ordinary USB-powered idle mode. When continued charging and later wake are
+desired, `suspend` is the preferred low-power action.
 
 ## Resident ownership
 
@@ -102,20 +102,15 @@ request poweroff
 Exact public structures/capabilities should be designed at implementation time,
 with unit tests before the ABI is considered established.
 
+Task 3 does not require an application-facing Power ABI merely to implement the
+resident `status`, `suspend`, and `poweroff` commands. Add the ABI only when an
+application requirement justifies it.
+
 ## Tab5 reference-platform notes
 
-The Tab5 includes:
-
-```text
-IP2326 charging management
-INA226 real-time power monitoring
-NP-F550 7.4 V battery
-```
-
-M5Stack's current Tab5 documentation exposes charging state, battery voltage, and
-battery level through its power-management support. MiniShell should normalize
-only the values it can support reliably; platform/library types must not cross the
-public ABI boundary.
+The Tab5 power hardware includes charging/power-monitoring facilities. MiniShell
+should normalize only values it can support reliably; platform/library types must
+not cross the public ABI boundary.
 
 MiniShell should leave charging enabled during ordinary powered operation unless
 a later explicit battery-management feature provides a reason to change that
@@ -123,8 +118,8 @@ policy.
 
 ## Future hardware-change detection
 
-Hardware-change detection is planned later, with USB attach/detach as the first
-important case.
+Hardware-change detection is planned later in Task 3, with USB attach/detach as
+the first important case.
 
 The initial ownership model should be:
 
@@ -155,12 +150,9 @@ before its semantics are known.
 
 ## Development order
 
-These capabilities should follow the current file-transfer milestone:
+Task 3 should proceed in this order:
 
 ```text
-finish Task 2 file transfer
-        |
-        v
 battery information in status
         |
         v
