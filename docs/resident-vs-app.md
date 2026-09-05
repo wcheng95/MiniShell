@@ -62,13 +62,17 @@ facility.
 Ordinary functionality should normally remain independently built and loaded:
 
 ```text
-med.elf
+nano.elf
 calculator.elf
 radio applications
 analysis tools
 games
 future MiniFT8
 ```
+
+MiniShell uses familiar Linux command names when the implemented behavior is
+close enough to the familiar command to avoid surprise. The planned editor is
+therefore named `nano`, not the earlier working name `med`.
 
 These applications consume MiniShell services and can evolve independently of
 the resident runtime.
@@ -134,3 +138,6 @@ Resident functionality should still have:
 
 Runtime applications should continue to use the public MiniShell ABI rather than
 reaching around it to resident internals.
+
+See `docs/command-roadmap.md` for the Linux-inspired command naming and staged
+utility plan.
