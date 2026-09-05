@@ -45,8 +45,8 @@ M$> ls /sd
 apps/
 logs/
 
-M$> minift8
-[MiniFT8 runs]
+M$> med /sd/notes.txt
+[MiniEditor runs]
 
 [application exits]
 M$>
@@ -57,7 +57,7 @@ as `/apps`, `/sd/apps`, or another configured location.
 
 ## V1 Application Model
 
-V1 will focus on native ELF applications.
+V1 focuses on native ELF applications.
 
 ```text
                  application.elf
@@ -102,19 +102,12 @@ model.
 
 ## Task 0
 
-The first implementation milestone uses the ESP32-P4 built-in **USB Serial/JTAG
-controller as the interactive terminal**. The same USB connection can be used for
-flashing, `idf.py monitor`, and JTAG debugging. Display, touch, Wi-Fi, USB host,
-audio, RTC, and other Tab5 features stay out of the framework until the basic app
-lifecycle works.
-
-Task 0 target:
+Task 0 proved the smallest working vertical slice on real hardware:
 
 ```text
 power on
    -> USB Serial/JTAG M$> shell
    -> MiniShell mounts /sd
-   -> ls /sd/apps
    -> hello
    -> load hello.elf
    -> hello calls MiniShell runtime API
@@ -123,7 +116,34 @@ power on
    -> M$>
 ```
 
-See [`docs/task0.md`](docs/task0.md) for build steps and validation details.
+Task 0 is complete and hardware-validated on M5Stack Tab5 / ESP32-P4 rev v1.3.
+See [`docs/task0.md`](docs/task0.md).
+
+## Task 1
+
+Task 1 builds the first useful MiniShell application: **MiniEditor (`med`)**, a
+small nano-like terminal text editor.
+
+```text
+M$> med /sd/notes.txt
+```
+
+The editor will drive the design of MiniShell's first reusable console/input and
+filesystem services. `med` remains a separately built ELF application and must
+not depend directly on ESP-IDF, the M5Stack BSP, FATFS internals, or USB
+Serial/JTAG driver APIs.
+
+The design goal is replaceable internals behind stable boundaries:
+
+```text
+change editor text structure    -> MiniShell services unaffected
+change FATFS implementation     -> med unaffected
+change terminal implementation  -> med unaffected
+change editor rendering         -> app loader unaffected
+```
+
+See [`docs/task1.md`](docs/task1.md) for scope, architecture, and success
+criteria.
 
 ## Documents
 
@@ -131,12 +151,13 @@ See [`docs/task0.md`](docs/task0.md) for build steps and validation details.
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/app-abi.md`](docs/app-abi.md)
 - [`docs/task0.md`](docs/task0.md)
+- [`docs/task1.md`](docs/task1.md)
 
 ## Current Status
 
-**Task 0 is complete and hardware-validated on M5Stack Tab5 / ESP32-P4 rev v1.3.**
+**Task 0 is complete. Task 1 MiniEditor design is now active.**
 
-Validated behavior includes:
+Validated Task 0 behavior includes:
 
 - interactive USB Serial/JTAG shell using the interrupt-driven driver
 - MiniShell-owned FAT32 microSD mounted at `/sd`
@@ -148,5 +169,5 @@ Validated behavior includes:
 - repeated load/run/unload cycles without reboot or an obvious leak
 - shell remains available when SD initialization fails
 
-The next milestone can build on this validated vertical slice rather than adding
-more loader or console infrastructure.
+Task 1 begins by defining only the console/input and filesystem ABI required by
+`med`, then implementing those resident services before adding editor behavior.
