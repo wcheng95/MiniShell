@@ -9,3 +9,10 @@ examples/*/build/
 examples/*/managed_components/
 examples/*/sdkconfig
 examples/*/sdkconfig.old
+
+tests/elf/*/build/
+tests/elf/*/managed_components/
+tests/elf/*/sdkconfig
+tests/elf/*/sdkconfig.old
+tests/elf/*/dependencies.lock
+tests/elf/out/
