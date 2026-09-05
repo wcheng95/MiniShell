@@ -83,7 +83,33 @@ pointers may be NULL on a platform that does not provide that service.
 
 The Tab5 Task 1 reference implementation is expected to provide all six.
 
-## 4. API acquisition and lifetime
+## 4. ABI version meaning
+
+`abi_version` identifies an **incompatible ABI generation**. It is not a feature
+counter.
+
+Compatible append-only growth through `struct_size`, capability bits, new numeric
+values, or optional sub-APIs does **not** require changing `abi_version`.
+
+An incompatible change to established layout or semantics requires a new ABI
+generation.
+
+Conceptually:
+
+```text
+ABI 1
+  + append a new service pointer      -> still ABI 1
+  + append a new optional function    -> still ABI 1
+  + add a new capability bit          -> still ABI 1
+
+  change existing field meaning       -> ABI 2
+  reorder established fields          -> ABI 2
+```
+
+During Task 1, ABI v1 is still provisional, so its final frozen contents may
+change before real third-party compatibility is promised.
+
+## 5. API acquisition and lifetime
 
 For V0/V1 development, an application obtains the resident API through
 `mini_api_get()`.
@@ -99,7 +125,30 @@ through it:
 The application entry-point contract is separate from API acquisition. The
 current native model remains ordinary `main(argc, argv)` plus `mini_api_get()`.
 
-## 5. Append-only tables
+## 6. Native C ABI contract
+
+The public MiniShell ABI is a C ABI. Public headers use `extern "C"` protection
+for C++ consumers.
+
+A native app must be built for the same target machine ABI as the resident
+MiniShell, including compatible:
+
+```text
+CPU architecture / ISA target
+endianness
+pointer width
+calling convention
+fundamental type alignment
+C struct layout rules
+```
+
+The app and MiniShell do not need the exact same compiler version as long as both
+conform to the same target ABI and public C declarations.
+
+This is separate from MiniShell source portability: the same source may be rebuilt
+for another target, but one ELF is not portable across incompatible machine ABIs.
+
+## 7. Append-only tables
 
 Every public service function table begins with:
 
@@ -114,7 +163,7 @@ semantics.
 The same rule applies to `mini_api_t`: new top-level service pointers are appended
 rather than inserted into the established prefix.
 
-## 6. Correct `struct_size` use
+## 8. Correct `struct_size` use
 
 An application must not require `struct_size >= sizeof(the newest struct)` unless
 it truly requires every field in that newest struct.
@@ -128,14 +177,14 @@ Conceptually:
 field_present = struct_size >= offset_of_field + sizeof(field);
 ```
 
-This rule is essential for backward-compatible extension: an old resident table
-may provide the prefix an app needs even when it is smaller than a newer header's
-full structure.
+This rule is essential for backward-compatible extension: an older resident table
+may provide the exact prefix an app needs even when it is smaller than a newer
+header's full structure.
 
 Implementation helpers/macros may later make these checks less error-prone, but
 the semantic rule is fixed here.
 
-## 7. Caller-owned extensible structures
+## 9. Caller-owned extensible structures
 
 Caller-owned input/output structures begin with:
 
@@ -155,12 +204,12 @@ MiniShell:
 - writes only fields covered by that size;
 - ignores unknown future tail space;
 - returns `MINI_ERR_INVALID` when the structure is too small to contain the
-  minimum required v0 prefix for that operation.
+  minimum required V0 prefix for that operation.
 
 Unless an operation explicitly documents useful error outputs, output fields are
 not meaningful after an error return.
 
-## 8. Do not nest extensible structs by value
+## 10. Do not nest extensible structs by value
 
 One extensible public structure must not embed another extensible public
 structure by value when future growth of the inner structure would shift later
@@ -170,26 +219,27 @@ Prefer:
 
 - flat fields;
 - pointers to separate structures; or
-- another layout whose offsets remain stable.
+- another layout whose established offsets remain stable.
 
 The Time/Location snapshot intentionally uses a flat layout for this reason.
 
-## 9. Capability rules
+## 11. Capability rules
 
-Capability discovery follows these common rules:
+Capability discovery follows these common rules.
 
 ### Missing top-level service
 
 ```text
-service pointer == NULL
+service field absent by struct_size  -> unavailable to this app
+service field present but NULL       -> service unavailable
 ```
 
-The service is unavailable.
+An app must first confirm that the top-level field exists before reading it.
 
-### Present service, mandatory v0 operation
+### Present service, mandatory V0 operation
 
-A function that is mandatory for the present service's v0 contract must have a
-non-NULL function pointer when its field is present in `struct_size`.
+A function mandatory for the present service's V0 contract has a non-NULL
+function pointer when its field is present in the service table.
 
 ### Optional capability family
 
@@ -206,10 +256,11 @@ Unknown future capability bits are ignored by older applications.
 
 A service may keep an optional operation in the base table when that keeps the
 interface simpler, as Time/Location does for UTC/default-location setters. The
-capability bit determines whether the operation is supported; unsupported calls
-return `MINI_ERR_UNSUPPORTED`.
+app first checks that the function field exists, then uses the capability bit to
+determine whether the operation is supported. Unsupported calls return
+`MINI_ERR_UNSUPPORTED`.
 
-## 10. Public ABI-owned types
+## 12. Public ABI-owned types
 
 Public signatures use:
 
@@ -224,7 +275,7 @@ Public signatures must not expose SDK/RTOS/backend-private types.
 The ABI does not rely on C `enum` representation. Public constants are carried in
 fixed-width integer fields.
 
-## 11. Stable numeric meanings
+## 13. Stable numeric meanings
 
 After ABI stabilization, numeric meanings are never reused for another purpose,
 including:
@@ -240,10 +291,10 @@ file types
 seek origins
 ```
 
-New values may be appended. Older apps must ignore unknown capability/modifier
-bits and must not assume that every future enumerated numeric value is known.
+New values may be appended. Older apps ignore unknown capability/modifier bits
+and must not assume that every future enumerated numeric value is known.
 
-## 12. Shared result codes
+## 14. Shared result codes
 
 `mini_result_t` is shared by all MiniShell services. Zero means success and
 negative values mean errors.
@@ -273,7 +324,7 @@ Add another result only when a real ABI requires a distinct portable meaning.
 Backend-native values such as `errno`, FATFS `FRESULT`, or `esp_err_t` never cross
 the public boundary.
 
-## 13. Synchronous first
+## 15. Synchronous first
 
 Task 1 calls are synchronous unless a service contract explicitly says otherwise.
 Future asynchronous behavior is added through new functions or sub-APIs rather
@@ -283,7 +334,7 @@ For synchronous calls, an application-owned buffer passed to MiniShell remains
 owned by the application and must not be retained after the call returns unless
 the specific service explicitly documents otherwise.
 
-## 14. Ownership and application context
+## 16. Ownership and application context
 
 Every resource crossing the ABI has explicit ownership and lifetime rules.
 
@@ -302,7 +353,7 @@ is unloaded.
 
 This is cooperative lifecycle cleanup, not memory protection.
 
-## 15. Foreground service routing
+## 17. Foreground service routing
 
 V0 has one foreground application at a time. Display and Input therefore do not
 require acquire/release handles.
@@ -322,7 +373,7 @@ MiniShell remains the hardware owner throughout.
 Foreground handoff must not expose stale queued logical input from a previous app
 instance unless a future API explicitly provides such behavior.
 
-## 16. Execution-context rule
+## 18. Execution-context rule
 
 Portable V0 ABI calls are application-context calls.
 
@@ -337,19 +388,21 @@ Unless a specific service explicitly documents otherwise:
 A future concurrency model can add stronger guarantees without changing existing
 single-foreground-app semantics.
 
-## 17. Source portability, architecture-specific binaries
+## 19. Source portability, architecture-specific binaries
 
 The same application source should be rebuildable against the same MiniShell API
 on RV32, RV64, Xtensa, ARM, or other supported architectures where the required
 services exist.
 
-A compiled ELF is not expected to be binary-compatible across architectures.
+A compiled ELF is not expected to be binary-compatible across architectures or
+machine ABIs.
 
-## 18. Compatibility philosophy
+## 20. Compatibility philosophy
 
 MiniShell compatibility is based on:
 
 ```text
+ABI generation number for incompatible changes
 append-only tables
 struct_size
 capability bits
@@ -359,7 +412,8 @@ explicit ownership/lifetime
 fixed-width public types
 ```
 
-It is not based on mirroring one SDK forever.
+It is not based on mirroring one SDK forever or incrementing a version number for
+every new feature.
 
 Do not freeze ABI v1 merely because structures have been written into `api.h`.
 Each service remains provisional until its documented contract, resident
