@@ -4,5 +4,14 @@ idf_component_register(
         "terminal_backend.c"
         "power_backend.c"
     INCLUDE_DIRS "."
-    REQUIRES m5stack_tab5_noglib esp_driver_usb_serial_jtag esp_timer minishell_services minishell_transfer minishell_power
+    REQUIRES
+        m5stack_tab5_noglib
+        esp_driver_usb_serial_jtag
+        esp_driver_i2c
+        esp_hw_support
+        freertos
+        esp_timer
+        minishell_services
+        minishell_transfer
+        minishell_power
 )
