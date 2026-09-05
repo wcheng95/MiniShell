@@ -70,6 +70,7 @@ typedef struct {
     void (*input_unlock)(void *ctx);
     mini_result_t (*input_wait)(void *ctx, uint32_t timeout_ms);
     void (*input_wake)(void *ctx);
+    void (*input_flush)(void *ctx);
 } minishell_services_port_t;
 
 /* Configure the resident service layer. Safe to call again in host tests. */
