@@ -9,13 +9,20 @@
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
 #include "esp_err.h"
+#include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "minishell_services.h"
 #include "minishell_platform.h"
+#include "terminal_backend.h"
 
+/*
+ * The current m5stack_tab5_noglib public umbrella header pulls in display.h,
+ * which in turn requires esp_lcd headers that the BSP declares privately.
+ * Keep the BSP detail isolated here instead of leaking it into MiniShell.
+ */
 esp_err_t bsp_sdcard_mount(void);
 
 static esp_err_t s_console_status = ESP_FAIL;
@@ -54,10 +61,47 @@ static esp_err_t init_console(void)
         esp_err_t err = usb_serial_jtag_driver_install(&config);
         if (err != ESP_OK) return err;
     }
+
     usb_serial_jtag_vfs_use_driver();
     setvbuf(stdin, NULL, _IONBF, 0);
     setvbuf(stdout, NULL, _IONBF, 0);
     return ESP_OK;
+}
+
+static int terminal_read_byte(uint32_t timeout_ms)
+{
+    uint8_t byte = 0u;
+    TickType_t ticks;
+
+    if (timeout_ms == MINI_WAIT_FOREVER) {
+        ticks = portMAX_DELAY;
+    } else if (timeout_ms == MINI_WAIT_NONE) {
+        ticks = 0;
+    } else {
+        ticks = pdMS_TO_TICKS(timeout_ms);
+        if (ticks == 0) ticks = 1;
+    }
+
+    int count = usb_serial_jtag_read_bytes(&byte, 1u, ticks);
+    return count == 1 ? (int)byte : -1;
+}
+
+static esp_err_t mount_sd(void)
+{
+    /*
+     * m5stack_tab5_noglib 1.3.0 still checks the obsolete aggregate symbol
+     * CONFIG_FATFS_LONG_FILENAMES. ESP-IDF 5.5 represents that Kconfig choice
+     * with CONFIG_FATFS_LFN_NONE/HEAP/STACK, so the BSP emits a false warning
+     * even when LFN is enabled. Suppress only WARN/INFO from the BSP tag during
+     * the mount call; real BSP errors remain visible and MiniShell reports the
+     * returned error itself.
+     */
+    static const char *const bsp_tag = "M5Stack Tab5";
+    esp_log_level_t old_level = esp_log_level_get(bsp_tag);
+    esp_log_level_set(bsp_tag, ESP_LOG_ERROR);
+    esp_err_t result = bsp_sdcard_mount();
+    esp_log_level_set(bsp_tag, old_level);
+    return result;
 }
 
 static void service_system_write(void *ctx, const char *text)
@@ -67,13 +111,31 @@ static void service_system_write(void *ctx, const char *text)
     fflush(stdout);
 }
 
-static void *service_memory_alloc(void *ctx, uint32_t size) { (void)ctx; return malloc((size_t)size); }
-static void *service_memory_realloc(void *ctx, void *ptr, uint32_t new_size) { (void)ctx; return realloc(ptr, (size_t)new_size); }
-static void service_memory_free(void *ctx, void *ptr) { (void)ctx; free(ptr); }
+static void *service_memory_alloc(void *ctx, uint32_t size)
+{
+    (void)ctx;
+    return malloc((size_t)size);
+}
 
-static int backend_fd(minishell_backend_file_t file) { return (int)(file - 1u); }
+static void *service_memory_realloc(void *ctx, void *ptr, uint32_t new_size)
+{
+    (void)ctx;
+    return realloc(ptr, (size_t)new_size);
+}
 
-static mini_result_t service_fs_open(void *ctx, const char *path, uint32_t flags, minishell_backend_file_t *out_file)
+static void service_memory_free(void *ctx, void *ptr)
+{
+    (void)ctx;
+    free(ptr);
+}
+
+static int backend_fd(minishell_backend_file_t file)
+{
+    return (int)(file - 1u);
+}
+
+static mini_result_t service_fs_open(void *ctx, const char *path, uint32_t flags,
+                                     minishell_backend_file_t *out_file)
 {
     (void)ctx;
     int oflags = 0;
@@ -84,6 +146,7 @@ static mini_result_t service_fs_open(void *ctx, const char *path, uint32_t flags
     if (flags & MINI_FS_EXCL) oflags |= O_EXCL;
     if (flags & MINI_FS_TRUNC) oflags |= O_TRUNC;
     if (flags & MINI_FS_APPEND) oflags |= O_APPEND;
+
     int fd = open(path, oflags, 0666);
     if (fd < 0) return errno_to_mini(errno);
     *out_file = (minishell_backend_file_t)((uintptr_t)fd + 1u);
@@ -96,7 +159,8 @@ static mini_result_t service_fs_close(void *ctx, minishell_backend_file_t file)
     return close(backend_fd(file)) == 0 ? MINI_OK : errno_to_mini(errno);
 }
 
-static mini_result_t service_fs_read(void *ctx, minishell_backend_file_t file, void *buffer, uint32_t size, uint32_t *out_read)
+static mini_result_t service_fs_read(void *ctx, minishell_backend_file_t file,
+                                     void *buffer, uint32_t size, uint32_t *out_read)
 {
     (void)ctx;
     ssize_t n = read(backend_fd(file), buffer, (size_t)size);
@@ -105,7 +169,9 @@ static mini_result_t service_fs_read(void *ctx, minishell_backend_file_t file, v
     return MINI_OK;
 }
 
-static mini_result_t service_fs_write(void *ctx, minishell_backend_file_t file, const void *buffer, uint32_t size, uint32_t *out_written)
+static mini_result_t service_fs_write(void *ctx, minishell_backend_file_t file,
+                                      const void *buffer, uint32_t size,
+                                      uint32_t *out_written)
 {
     (void)ctx;
     ssize_t n = write(backend_fd(file), buffer, (size_t)size);
@@ -114,10 +180,13 @@ static mini_result_t service_fs_write(void *ctx, minishell_backend_file_t file, 
     return MINI_OK;
 }
 
-static mini_result_t service_fs_seek(void *ctx, minishell_backend_file_t file, int64_t offset, uint32_t origin, uint64_t *out_position)
+static mini_result_t service_fs_seek(void *ctx, minishell_backend_file_t file,
+                                     int64_t offset, uint32_t origin,
+                                     uint64_t *out_position)
 {
     (void)ctx;
-    int whence = origin == MINI_FS_SEEK_SET ? SEEK_SET : origin == MINI_FS_SEEK_CUR ? SEEK_CUR : SEEK_END;
+    int whence = origin == MINI_FS_SEEK_SET ? SEEK_SET :
+                 origin == MINI_FS_SEEK_CUR ? SEEK_CUR : SEEK_END;
     off_t requested = (off_t)offset;
     if ((int64_t)requested != offset) return MINI_ERR_UNSUPPORTED;
     off_t result = lseek(backend_fd(file), requested, whence);
@@ -132,7 +201,8 @@ static mini_result_t service_fs_sync(void *ctx, minishell_backend_file_t file)
     return fsync(backend_fd(file)) == 0 ? MINI_OK : errno_to_mini(errno);
 }
 
-static mini_result_t service_fs_stat(void *ctx, const char *path, uint32_t *out_type, uint64_t *out_size)
+static mini_result_t service_fs_stat(void *ctx, const char *path,
+                                     uint32_t *out_type, uint64_t *out_size)
 {
     (void)ctx;
     struct stat st;
@@ -144,7 +214,11 @@ static mini_result_t service_fs_stat(void *ctx, const char *path, uint32_t *out_
     return MINI_OK;
 }
 
-static uint64_t service_monotonic_us(void *ctx) { (void)ctx; return (uint64_t)esp_timer_get_time(); }
+static uint64_t service_monotonic_us(void *ctx)
+{
+    (void)ctx;
+    return (uint64_t)esp_timer_get_time();
+}
 
 static mini_result_t service_sleep_ms(void *ctx, uint32_t milliseconds)
 {
@@ -156,15 +230,26 @@ static mini_result_t service_sleep_ms(void *ctx, uint32_t milliseconds)
     return MINI_OK;
 }
 
+static void service_input_flush(void *ctx)
+{
+    (void)ctx;
+    minishell_terminal_input_flush();
+}
+
 static void configure_services(void)
 {
+    bool terminal_ready = s_console_status == ESP_OK;
+    minishell_terminal_backend_init(terminal_ready ? terminal_read_byte : NULL);
+
     const minishell_services_port_t port = {
         .ctx = NULL,
         .system_write = service_system_write,
+
         .memory_alloc = service_memory_alloc,
         .memory_realloc = service_memory_realloc,
         .memory_free = service_memory_free,
         .memory_get_info = NULL,
+
         .fs_open = service_fs_open,
         .fs_close = service_fs_close,
         .fs_read = service_fs_read,
@@ -172,38 +257,71 @@ static void configure_services(void)
         .fs_seek = service_fs_seek,
         .fs_sync = service_fs_sync,
         .fs_stat = service_fs_stat,
+
         .monotonic_us = service_monotonic_us,
         .sleep_ms = service_sleep_ms,
         .time_location_capabilities = 0u,
-        .display_capabilities = 0u,
-        .input_capabilities = 0u,
+
+        .display_capabilities = terminal_ready ? MINI_DISPLAY_CAP_TEXT : 0u,
+        .display_text_get_info = minishell_terminal_display_get_info,
+        .display_text_clear = minishell_terminal_display_clear,
+        .display_text_clear_at = minishell_terminal_display_clear_at,
+        .display_text_write_at = minishell_terminal_display_write_at,
+        .display_present = minishell_terminal_display_present,
+
+        .input_capabilities = terminal_ready ? MINI_INPUT_CAP_KEY : 0u,
+        .input_wait = minishell_terminal_input_wait,
+        .input_flush = service_input_flush,
     };
+
     minishell_services_configure(&port);
 }
 
 int minishell_platform_init(void)
 {
     int result = 0;
+
     s_console_status = init_console();
     if (s_console_status != ESP_OK) {
-        printf("console: setup failed: %s (0x%x)\n", esp_err_to_name(s_console_status), (unsigned int)s_console_status);
+        printf("console: setup failed: %s (0x%x)\n",
+               esp_err_to_name(s_console_status),
+               (unsigned int)s_console_status);
         result = -1;
     }
-    s_sd_status = bsp_sdcard_mount();
-    if (s_sd_status == ESP_OK) printf("sd: mounted at /sd\n");
-    else {
-        printf("sd: mount failed: %s (0x%x)\n", esp_err_to_name(s_sd_status), (unsigned int)s_sd_status);
+
+    s_sd_status = mount_sd();
+    if (s_sd_status == ESP_OK) {
+        printf("sd: mounted at /sd\n");
+    } else {
+        printf("sd: mount failed: %s (0x%x)\n",
+               esp_err_to_name(s_sd_status),
+               (unsigned int)s_sd_status);
         result = -1;
     }
+
     configure_services();
     return result;
 }
 
-bool minishell_platform_sd_ready(void) { return s_sd_status == ESP_OK; }
-const char *minishell_platform_sd_status(void) { return s_sd_status == ESP_OK ? "OK" : esp_err_to_name(s_sd_status); }
+bool minishell_platform_sd_ready(void)
+{
+    return s_sd_status == ESP_OK;
+}
+
+const char *minishell_platform_sd_status(void)
+{
+    return s_sd_status == ESP_OK ? "OK" : esp_err_to_name(s_sd_status);
+}
+
 const char *minishell_platform_console_status(void)
 {
-    if (s_console_status == ESP_OK) return "OK - USB Serial/JTAG (interrupt-driven)";
+    if (s_console_status == ESP_OK) {
+        return "OK - USB Serial/JTAG (interrupt-driven)";
+    }
     return esp_err_to_name(s_console_status);
 }
-const char *minishell_platform_name(void) { return "M5Stack Tab5 / ESP32-P4"; }
+
+const char *minishell_platform_name(void)
+{
+    return "M5Stack Tab5 / ESP32-P4";
+}
