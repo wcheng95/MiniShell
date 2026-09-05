@@ -7,7 +7,7 @@ MiniShell is a resident MCU application environment.
 ```text
 +------------------------------------------------------+
 |                    Applications                      |
-|          med.elf   future minift8.elf   ...         |
+|       cat.elf   nano.elf   future minift8.elf ...   |
 +----------------------- MiniShell ABI ----------------+
 |                    MiniShell Core                    |
 |                                                      |
@@ -55,6 +55,8 @@ MiniShell/
 |   |-- minishell_app/
 |   |-- minishell_services/
 |   `-- minishell_transfer/
+|-- apps/
+|   `-- cat/
 |-- platform/
 |   `-- minishell_platform_tab5/
 |-- examples/
@@ -84,7 +86,8 @@ resident
     file transfer
 
 applications
-    editor
+    cat
+    nano
     calculator
     radio tools
     future MiniFT8
@@ -95,6 +98,10 @@ small resident module rather than implementing the whole feature in `shell.c`.
 
 BusyBox-style bundling is not the default. Use independent ELFs first; bundle
 closely related tiny tools only if measurement later justifies it.
+
+Ordinary commands use familiar Linux names when the implemented behavior is
+close enough to avoid surprise. MiniShell implements the minimum useful subset,
+not the full GNU/POSIX option surface. See `docs/command-roadmap.md`.
 
 ## 5. Shell
 
@@ -212,7 +219,8 @@ minishell_transfer
 The transfer module owns:
 
 - MFT1 framing;
-- ready handshake;
+- ready handshakes;
+- block pacing;
 - raw payload transfer;
 - CRC-32 verification;
 - timeout/error handling;
@@ -331,8 +339,11 @@ host unit tests
 Task 1's six ABI groups remain the primary service correctness suites.
 
 Task 2 adds a resident transfer unit group using a fake byte stream and fake
-filesystem. Hardware testing then verifies the real USB Serial/JTAG transport,
+filesystem. Hardware testing verifies the real USB Serial/JTAG transport,
 SD persistence, replacement behavior, and return to normal shell/app operation.
+
+Application commands should likewise keep command logic host-testable where
+practical, then validate the separately built ELF on real MiniShell.
 
 ## 15. Milestones
 
@@ -350,14 +361,14 @@ backend, and lifecycle-stress tested through 100 repeated ELF runs.
 ### Task 2 — Resident File Transfer — ACTIVE
 
 Implement and validate `put`/`get` over USB Serial/JTAG using the MFT1 protocol.
-The first implementation includes the resident module, Tab5 raw transport,
-CRC-verified temporary-file receive path, replacement/rollback, host Python
-helper, and host unit test.
+Small-file upload and a block-paced runtime ELF upload have passed on real Tab5
+hardware; the uploaded `cat.elf` executes normally.
 
 See `docs/task2.md`.
 
 ### Later
 
 Continue adding resident facilities only when they are runtime/recovery concerns.
-Add ordinary functionality as independent ELF applications, with `med` still a
-strong early application candidate after file transfer is proven.
+Add ordinary functionality as independent ELF applications following
+`docs/command-roadmap.md`. The next planned editor is `nano`, using the familiar
+Linux command name instead of the earlier working name `med`.
