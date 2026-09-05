@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "nano.c"
+        "nano_buffer.c"
+        "nano_file.c"
+        "nano_ui.c"
+    INCLUDE_DIRS
+        "."
+        "../../../include"
+)
