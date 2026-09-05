@@ -172,30 +172,12 @@ ELF tests       binary ABI / loader / runtime integration
 hardware tests  real platform/backend behavior
 ```
 
-All six focused ELF tests pass on real Tab5/ESP32-P4 hardware:
-
-```text
-abi_system         PASS
-abi_memory         PASS
-abi_fs             PASS
-abi_time_location  PASS
-abi_display        PASS
-abi_input          PASS
-```
-
-Lifecycle stress also passes:
-
-```text
-repeat 20 abi_stress     PASS 20/20
-repeat 100 abi_stress    PASS 100/100
-```
-
-The public boundary review found no ESP-IDF, FreeRTOS, FATFS, or M5Stack type
-leaking into the application ABI.
+All six focused ELF tests pass on real Tab5/ESP32-P4 hardware, and lifecycle
+stress passes through 100 repeated ELF runs.
 
 See [`docs/task1.md`](docs/task1.md).
 
-## Task 2 — Active: Resident File Transfer
+## Task 2 — Complete: Resident File Transfer
 
 Task 2 adds bootstrap/recovery file transfer over the existing USB Serial/JTAG
 transport without expanding the application ABI.
@@ -214,45 +196,47 @@ python3 tools/minishell_transfer.py /dev/ttyACM0 put local.elf /sd/apps/local.el
 python3 tools/minishell_transfer.py /dev/ttyACM0 get /sd/log.txt log.txt
 ```
 
-`pyserial` is required by the host helper:
+MFT1 receive uses a temporary file, whole-file CRC-32, two startup handshakes,
+1024-byte block acknowledgements, and FATFS replacement/rollback handling.
 
-```bash
-python3 -m pip install pyserial
-```
-
-The receive path writes to `<destination>.mft.part`, verifies the complete
-payload CRC, syncs/closes it, and only then publishes it. On FATFS, updating an
-existing destination uses a temporary backup/rollback sequence because FatFs
-`f_rename()` does not overwrite an existing name.
-
-MFT1 put uses two startup handshakes plus 1024-byte block acknowledgements so a
-fast host cannot outrun the USB Serial/JTAG receive buffer while MiniShell writes
-to SD.
-
-Current implementation includes:
+Real Tab5 hardware has validated:
 
 ```text
-core/minishell_transfer/       resident MFT1 protocol module
-shell put/get dispatch         control plane only
-Tab5 raw USB serial backend    private platform callbacks
-tools/minishell_transfer.py    host helper
-abi_transfer_unit              fake-stream/fake-filesystem unit test
+small text-file put                       PASS
+multi-block ELF put                       PASS
+runtime install + execution of cat.elf    PASS
+put/get round trip + SHA-256 equality     PASS
+existing-destination replacement          PASS
+524325-byte binary put/get                 PASS
+intentional stalled upload                PASS
+payload-timeout cleanup                    PASS
+old destination survives interruption     PASS
+host unit regression                      7/7 PASS
+post-transfer shell/ABI sanity             PASS
 ```
-
-Real hardware has now proven:
-
-```text
-small text-file put            PASS
-multi-block ELF put            PASS
-runtime install of cat.elf     PASS
-execution of uploaded cat.elf  PASS
-```
-
-The first uploaded independent utility was `cat.elf`, demonstrating the intended
-separation: MiniShell file transfer remained resident while the application was
-built, uploaded, and run independently without reflashing MiniShell.
 
 See [`docs/task2.md`](docs/task2.md).
+
+## Task 3 — Active: Power/System
+
+The next resident-system milestone is deliberately separate from the ELF command
+roadmap.
+
+Initial Task-3 scope:
+
+```text
+status      add battery percentage + charging state
+suspend     wakeable low-power state
+poweroff    actual shutdown
+later       resident USB attach/detach detection
+```
+
+Battery/power state is owned by resident MiniShell and the platform backend, not
+by ordinary ELF utilities. USB hardware-change detection is planned later in the
+same system area, but no generic event ABI will be invented until a real app needs
+one.
+
+See [`docs/power-system-plan.md`](docs/power-system-plan.md).
 
 ## Command Roadmap
 
@@ -269,17 +253,7 @@ Stage C: free  date  df
 `cat` is kept because it is already implemented, not because it is considered
 essential. Text search belongs inside `nano`; no separate `grep` is planned.
 
-Resident/system additions are independent of the ELF command path:
-
-```text
-status      add battery percentage + charging state
-suspend     wakeable low-power state
-poweroff    actual shutdown
-later       resident USB attach/detach detection
-```
-
-See [`docs/command-roadmap.md`](docs/command-roadmap.md) and
-[`docs/power-system-plan.md`](docs/power-system-plan.md).
+See [`docs/command-roadmap.md`](docs/command-roadmap.md).
 
 ## ABI Documents
 
@@ -310,9 +284,8 @@ Milestones and policy:
 
 ## Current Status
 
-**Task 0 and Task 1 are complete. Task 2 resident file transfer is active, with
-small-file and runtime-ELF upload/execution proven on real hardware.**
+**Task 0, Task 1, and Task 2 are complete. Task 3 Power/System is the active
+resident MiniShell milestone.**
 
-Physical Tab5 LCD/touch integration and optional RTC/default-location backends
-remain later platform work. Display/Input are already proven through the serial
-terminal backend.
+The ordinary ELF application roadmap remains independent and currently starts
+with `nano`, followed by the minimal file-management command set.
