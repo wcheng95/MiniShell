@@ -34,6 +34,16 @@ int main(int argc, char **argv)
     if (r != MINI_OK && r != MINI_ERR_NOT_READY)
         return abi_test_fail(api, "abi_input", "nonblocking read result", 53);
 
+    api->system->write("[abi_input] press one key (arrow keys are OK): ");
+    event.struct_size = sizeof(event);
+    r = key->read(&event, MINI_WAIT_FOREVER);
+    api->system->write("\n");
+    if (r != MINI_OK)
+        return abi_test_fail(api, "abi_input", "blocking terminal read failed", 54);
+
+    if (event.type != MINI_KEY_EVENT_CHAR && event.type != MINI_KEY_EVENT_SPECIAL)
+        return abi_test_fail(api, "abi_input", "unexpected event type", 55);
+
     abi_test_line(api, "abi_input", "PASS");
     return 0;
 }
