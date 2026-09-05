@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "minishell_app.h"
@@ -11,6 +12,7 @@
 
 #define SHELL_LINE_MAX 256
 #define SHELL_ARG_MAX 16
+#define SHELL_REPEAT_MAX 10000ul
 
 static bool s_ignore_lf;
 
@@ -93,6 +95,7 @@ static void cmd_help(void)
     printf("status            show Task 0 platform status\n");
     printf("ls [path]         list a directory\n");
     printf("exec <app> [...]  run /sd/apps/<app>.elf\n");
+    printf("repeat N <app>    run an app N times (stress/lifecycle test)\n");
     printf("<app> [...]       run an app as a shell command\n");
 }
 
@@ -134,11 +137,11 @@ static int cmd_ls(const char *path)
     return 0;
 }
 
-static void run_app(const char *command, int argc, char **argv, bool command_lookup)
+static int run_app(const char *command, int argc, char **argv, bool command_lookup)
 {
     if (!minishell_platform_sd_ready()) {
         printf("%s: SD is not mounted (%s)\n", command, minishell_platform_sd_status());
-        return;
+        return -ENODEV;
     }
 
     int ret = minishell_app_run(command, argc, argv);
@@ -150,6 +153,41 @@ static void run_app(const char *command, int argc, char **argv, bool command_loo
     } else if (ret != 0) {
         printf("app: %s returned %d\n", command, ret);
     }
+
+    return ret;
+}
+
+static void cmd_repeat(int argc, char **argv)
+{
+    if (argc < 3) {
+        printf("usage: repeat <count> <app> [args...]\n");
+        return;
+    }
+
+    char *end = NULL;
+    errno = 0;
+    unsigned long count = strtoul(argv[1], &end, 10);
+    if (errno != 0 || end == argv[1] || *end != '\0' ||
+        count == 0ul || count > SHELL_REPEAT_MAX) {
+        printf("repeat: count must be 1..%lu\n", SHELL_REPEAT_MAX);
+        return;
+    }
+
+    if (!minishell_platform_sd_ready()) {
+        printf("repeat: SD is not mounted (%s)\n", minishell_platform_sd_status());
+        return;
+    }
+
+    const char *app = argv[2];
+    for (unsigned long i = 1ul; i <= count; ++i) {
+        int ret = minishell_app_run(app, argc - 2, &argv[2]);
+        if (ret != 0) {
+            printf("repeat: FAIL at %lu/%lu, %s returned %d\n", i, count, app, ret);
+            return;
+        }
+    }
+
+    printf("repeat: PASS %lu/%lu %s\n", count, count, app);
 }
 
 void minishell_shell_run(void)
@@ -192,11 +230,16 @@ void minishell_shell_run(void)
             if (argc < 2) {
                 printf("usage: exec <app> [args...]\n");
             } else {
-                run_app(argv[1], argc - 1, &argv[1], false);
+                (void)run_app(argv[1], argc - 1, &argv[1], false);
             }
             continue;
         }
 
-        run_app(argv[0], argc, argv, true);
+        if (strcmp(argv[0], "repeat") == 0) {
+            cmd_repeat(argc, argv);
+            continue;
+        }
+
+        (void)run_app(argv[0], argc, argv, true);
     }
 }
