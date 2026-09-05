@@ -221,7 +221,28 @@ Task 0 validated:
 Task 1 now has resident service-core implementations for all six foundational
 ABIs plus one host unit-test group per ABI. The clean host suite passes 6/6 with
 `-Wall -Wextra -Werror` and also passes 6/6 under AddressSanitizer and
-UndefinedBehaviorSanitizer. System, Memory, Filesystem, and baseline monotonic
-Time/Location are wired into the current Tab5 platform port. Display/Input and
-optional RTC/default-location platform backends remain for the next hardware/UI
-steps. The focused ELF integration-test phase has not started yet.
+UndefinedBehaviorSanitizer.
+
+The first real Tab5 ELF integration checkpoint also passes for every currently
+wired service:
+
+```text
+abi_system         PASS
+abi_memory         PASS
+abi_fs             PASS
+abi_time_location  PASS
+abi_display        SKIP - display backend not wired yet
+abi_input          SKIP - input backend not wired yet
+```
+
+This validates the public table layout, `mini_api_get()` binding, function-pointer
+calling path, service logic, app lifecycle, and ELF loader integration for System,
+Memory, Filesystem, and baseline Time/Location on real ESP32-P4 hardware.
+
+Long FAT filenames are functionally working (the long-named ABI ELF files load and
+the Filesystem ABI long-name test passes). The Tab5 BSP still emits a legacy
+"long filenames disabled" warning at boot, so that warning should not currently be
+used as the source of truth for MiniShell FATFS capability.
+
+Display/Input and optional RTC/default-location platform backends remain for the
+next hardware/UI steps.
