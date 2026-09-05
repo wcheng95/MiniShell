@@ -45,15 +45,22 @@ int main(int argc, char **argv)
         return abi_test_fail(api, "abi_fs", "service unavailable", 20);
 
     const mini_fs_api_t *fs = api->fs;
-    if (fs->struct_size < ABI_FIELD_END(mini_fs_api_t, stat) ||
+    if (fs->struct_size < ABI_FIELD_END(mini_fs_api_t, rmdir) ||
         fs->open == NULL || fs->close == NULL || fs->read == NULL ||
-        fs->write == NULL || fs->seek == NULL || fs->sync == NULL || fs->stat == NULL)
-        return abi_test_fail(api, "abi_fs", "v0 table incomplete", 21);
+        fs->write == NULL || fs->seek == NULL || fs->sync == NULL ||
+        fs->stat == NULL || fs->rename == NULL || fs->remove_file == NULL ||
+        fs->mkdir == NULL || fs->rmdir == NULL)
+        return abi_test_fail(api, "abi_fs", "table incomplete", 21);
 
     static const char path[] = "/sd/abi_fs_test.tmp";
+    static const char dir[] = "/sd/abi_fs_ns";
+    static const char moved[] = "/sd/abi_fs_ns/moved.tmp";
     static const uint8_t payload[] = "MiniShell Filesystem ABI";
     uint8_t readback[sizeof(payload) - 1u];
     mini_file_t file = MINI_FILE_INVALID;
+
+    (void)fs->remove_file(moved);
+    (void)fs->rmdir(dir);
 
     if (fs->open(path, MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_TRUNC, &file) != MINI_OK)
         return abi_test_fail(api, "abi_fs", "create/open failed", 22);
@@ -86,6 +93,27 @@ int main(int argc, char **argv)
 
     if (fs->close(file) != MINI_OK || fs->close(file) != MINI_ERR_BAD_HANDLE)
         return abi_test_fail(api, "abi_fs", "handle invalidation", 29);
+
+    if (fs->mkdir(dir) != MINI_OK)
+        return abi_test_fail(api, "abi_fs", "mkdir failed", 30);
+
+    if (fs->rename(path, moved) != MINI_OK)
+        return abi_test_fail(api, "abi_fs", "rename failed", 31);
+
+    st.struct_size = sizeof(st);
+    if (fs->stat(path, &st) != MINI_ERR_NOT_FOUND)
+        return abi_test_fail(api, "abi_fs", "rename source remained", 32);
+
+    st.struct_size = sizeof(st);
+    if (fs->stat(moved, &st) != MINI_OK || st.type != MINI_FS_TYPE_FILE ||
+        st.size != (uint64_t)(sizeof(payload) - 1u))
+        return abi_test_fail(api, "abi_fs", "rename destination mismatch", 33);
+
+    if (fs->remove_file(moved) != MINI_OK)
+        return abi_test_fail(api, "abi_fs", "remove file failed", 34);
+
+    if (fs->rmdir(dir) != MINI_OK)
+        return abi_test_fail(api, "abi_fs", "rmdir failed", 35);
 
     abi_test_line(api, "abi_fs", "PASS");
     return 0;
