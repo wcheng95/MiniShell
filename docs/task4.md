@@ -123,7 +123,7 @@ host C.
 Display ABI v0 has explicit character-cell drawing but no hardware cursor or text
 style. Task 4 does not expand the ABI merely for that reason.
 
-Nano V1 renders the logical cursor portably as an inserted visible `|` marker in
+Nano V1 renders the logical cursor portably as an inserted visible `_` marker in
 the current display line. The marker is not stored in the file.
 
 Initial screen layout:
@@ -231,6 +231,10 @@ Properties:
 - initial V1 foreground stack size is 8 KiB and may later become a configurable
   runtime policy if real applications justify it.
 
+The first real-hardware retest with this design passed: Nano ran without a stack
+panic, saved `/sd/nano-test.txt`, returned cleanly to the shell, and the existing
+Cat ELF independently reproduced the saved file contents.
+
 ## Testing
 
 ### Host unit tests
@@ -284,10 +288,12 @@ nano controller                implemented
 self-contained mini libc       implemented
 ELF build                      PASS
 ELF relocation on Tab5         PASS
-foreground app stack isolation implemented; hardware retest pending
+foreground app stack isolation PASS on hardware
+basic edit/save/exit            PASS on hardware
+Cat verification of saved file PASS on hardware
 public ABI changes             none
 host test                      pending confirmation
-Tab5 interactive validation    pending
+full control/dirty-exit sweep  pending confirmation
 ```
 
 ## Completion criteria
