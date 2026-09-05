@@ -18,7 +18,7 @@ static bool read_line(char *line, size_t size)
 {
     size_t len = 0;
 
-    printf("$> ");
+    printf("M$ ");
     fflush(stdout);
 
     for (;;) {
