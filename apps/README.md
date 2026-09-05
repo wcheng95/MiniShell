@@ -19,20 +19,21 @@ to reproduce full GNU/Linux userland behavior.
 Current applications:
 
 ```text
-cat    simple text-file display utility
+cat     simple text-file display utility
+nano    interactive text editor
+cp      binary-safe file copy utility (Task 5 active)
 ```
 
-Near-term planned applications begin with:
+Near-term planned applications:
 
 ```text
-nano
-cp
 mv
 rm
 mkdir
 rmdir
-sha256sum
-hexdump
+free
+date
+df
 ```
 
 Applications are built separately from resident MiniShell and copied or uploaded
