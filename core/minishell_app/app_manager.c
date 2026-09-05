@@ -15,7 +15,7 @@
 
 #define APP_DIR "/sd/apps"
 #define APP_NAME_MAX 96
-#define APP_TASK_STACK_SIZE 16384u
+#define APP_TASK_STACK_SIZE 8192u
 #define APP_TASK_PRIORITY (tskIDLE_PRIORITY + 1u)
 
 typedef struct {
@@ -24,7 +24,6 @@ typedef struct {
     char **argv;
     SemaphoreHandle_t done;
     volatile int result;
-    volatile UBaseType_t stack_high_water;
 } app_execution_t;
 
 static bool s_initialized;
@@ -58,7 +57,6 @@ static void app_task(void *argument)
     execution->result = esp_elf_request(execution->elf, 0,
                                         execution->argc, execution->argv);
     minishell_services_app_end();
-    execution->stack_high_water = uxTaskGetStackHighWaterMark(NULL);
 
     xSemaphoreGive(execution->done);
     vTaskDelete(NULL);
@@ -75,7 +73,6 @@ static int run_relocated_app(esp_elf_t *elf, int argc, char **argv)
         .argv = argv,
         .done = done,
         .result = -EIO,
-        .stack_high_water = 0u,
     };
 
     BaseType_t created = xTaskCreate(app_task,
@@ -95,8 +92,6 @@ static int run_relocated_app(esp_elf_t *elf, int argc, char **argv)
     }
 
     int result = execution.result;
-    printf("app: stack high-water free: %u\n",
-           (unsigned)execution.stack_high_water);
     vSemaphoreDelete(done);
     return result;
 }
