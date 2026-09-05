@@ -209,7 +209,6 @@ static mini_result_t fs_rename(const char *old_path, const char *new_path)
     result = normalize_one(new_path, new_normalized);
     if (result != MINI_OK) return result;
 
-    if (strcmp(old_normalized, new_normalized) == 0) return MINI_OK;
     if (strcmp(old_normalized, "/") == 0 || strcmp(new_normalized, "/") == 0) {
         return MINI_ERR_ACCESS;
     }
@@ -218,6 +217,9 @@ static mini_result_t fs_rename(const char *old_path, const char *new_path)
     uint64_t size = 0u;
     result = port->fs_stat(port->ctx, old_normalized, &type, &size);
     if (result != MINI_OK) return result;
+    if (type != MINI_FS_TYPE_FILE) return MINI_ERR_IS_DIR;
+    if (strcmp(old_normalized, new_normalized) == 0) return MINI_OK;
+
     result = port->fs_stat(port->ctx, new_normalized, &type, &size);
     if (result == MINI_OK) return MINI_ERR_EXISTS;
     if (result != MINI_ERR_NOT_FOUND) return result;
