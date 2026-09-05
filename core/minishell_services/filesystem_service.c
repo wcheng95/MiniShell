@@ -83,6 +83,11 @@ static mini_result_t normalize_path(const char *path, char *out, uint32_t out_si
     return MINI_OK;
 }
 
+static mini_result_t normalize_one(const char *path, char *normalized)
+{
+    return normalize_path(path, normalized, MINI_FS_NORMALIZED_PATH_MAX);
+}
+
 static mini_result_t fs_open(const char *path, uint32_t flags, mini_file_t *out_file)
 {
     const minishell_services_port_t *port = minishell_services_port();
@@ -92,7 +97,7 @@ static mini_result_t fs_open(const char *path, uint32_t flags, mini_file_t *out_
     mini_result_t result = validate_flags(flags);
     if (result != MINI_OK) return result;
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    result = normalize_path(path, normalized, sizeof(normalized));
+    result = normalize_one(path, normalized);
     if (result != MINI_OK) return result;
     uint32_t index = MINI_FS_MAX_OPEN_FILES;
     for (uint32_t i = 0; i < MINI_FS_MAX_OPEN_FILES; ++i) {
@@ -180,7 +185,7 @@ static mini_result_t fs_stat(const char *path, mini_fs_stat_t *out_stat)
     if (!s_available) return MINI_ERR_UNSUPPORTED;
     if (path == NULL || out_stat == NULL || out_stat->struct_size < v0_size) return MINI_ERR_INVALID;
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    mini_result_t result = normalize_path(path, normalized, sizeof(normalized));
+    mini_result_t result = normalize_one(path, normalized);
     if (result != MINI_OK) return result;
     uint32_t type = 0u;
     uint64_t size = 0u;
@@ -191,9 +196,99 @@ static mini_result_t fs_stat(const char *path, mini_fs_stat_t *out_stat)
     return MINI_OK;
 }
 
+static mini_result_t fs_rename(const char *old_path, const char *new_path)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    if (!s_available) return MINI_ERR_UNSUPPORTED;
+    if (port->fs_rename == NULL) return MINI_ERR_UNSUPPORTED;
+
+    char old_normalized[MINI_FS_NORMALIZED_PATH_MAX];
+    char new_normalized[MINI_FS_NORMALIZED_PATH_MAX];
+    mini_result_t result = normalize_one(old_path, old_normalized);
+    if (result != MINI_OK) return result;
+    result = normalize_one(new_path, new_normalized);
+    if (result != MINI_OK) return result;
+
+    if (strcmp(old_normalized, new_normalized) == 0) return MINI_OK;
+    if (strcmp(old_normalized, "/") == 0 || strcmp(new_normalized, "/") == 0) {
+        return MINI_ERR_ACCESS;
+    }
+
+    uint32_t type = 0u;
+    uint64_t size = 0u;
+    result = port->fs_stat(port->ctx, old_normalized, &type, &size);
+    if (result != MINI_OK) return result;
+    result = port->fs_stat(port->ctx, new_normalized, &type, &size);
+    if (result == MINI_OK) return MINI_ERR_EXISTS;
+    if (result != MINI_ERR_NOT_FOUND) return result;
+
+    return port->fs_rename(port->ctx, old_normalized, new_normalized);
+}
+
+static mini_result_t fs_remove_file(const char *path)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    if (!s_available) return MINI_ERR_UNSUPPORTED;
+    if (port->fs_remove_file == NULL) return MINI_ERR_UNSUPPORTED;
+
+    char normalized[MINI_FS_NORMALIZED_PATH_MAX];
+    mini_result_t result = normalize_one(path, normalized);
+    if (result != MINI_OK) return result;
+    if (strcmp(normalized, "/") == 0) return MINI_ERR_IS_DIR;
+
+    uint32_t type = 0u;
+    uint64_t size = 0u;
+    result = port->fs_stat(port->ctx, normalized, &type, &size);
+    if (result != MINI_OK) return result;
+    if (type != MINI_FS_TYPE_FILE) return MINI_ERR_IS_DIR;
+    return port->fs_remove_file(port->ctx, normalized);
+}
+
+static mini_result_t fs_mkdir(const char *path)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    if (!s_available) return MINI_ERR_UNSUPPORTED;
+    if (port->fs_mkdir == NULL) return MINI_ERR_UNSUPPORTED;
+
+    char normalized[MINI_FS_NORMALIZED_PATH_MAX];
+    mini_result_t result = normalize_one(path, normalized);
+    if (result != MINI_OK) return result;
+    if (strcmp(normalized, "/") == 0) return MINI_ERR_EXISTS;
+    return port->fs_mkdir(port->ctx, normalized);
+}
+
+static mini_result_t fs_rmdir(const char *path)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    if (!s_available) return MINI_ERR_UNSUPPORTED;
+    if (port->fs_rmdir == NULL) return MINI_ERR_UNSUPPORTED;
+
+    char normalized[MINI_FS_NORMALIZED_PATH_MAX];
+    mini_result_t result = normalize_one(path, normalized);
+    if (result != MINI_OK) return result;
+    if (strcmp(normalized, "/") == 0) return MINI_ERR_ACCESS;
+
+    uint32_t type = 0u;
+    uint64_t size = 0u;
+    result = port->fs_stat(port->ctx, normalized, &type, &size);
+    if (result != MINI_OK) return result;
+    if (type != MINI_FS_TYPE_DIRECTORY) return MINI_ERR_NOT_DIR;
+    return port->fs_rmdir(port->ctx, normalized);
+}
+
 static const mini_fs_api_t s_fs_api = {
-    .struct_size = sizeof(mini_fs_api_t), .open = fs_open, .close = fs_close,
-    .read = fs_read, .write = fs_write, .seek = fs_seek, .sync = fs_sync, .stat = fs_stat,
+    .struct_size = sizeof(mini_fs_api_t),
+    .open = fs_open,
+    .close = fs_close,
+    .read = fs_read,
+    .write = fs_write,
+    .seek = fs_seek,
+    .sync = fs_sync,
+    .stat = fs_stat,
+    .rename = fs_rename,
+    .remove_file = fs_remove_file,
+    .mkdir = fs_mkdir,
+    .rmdir = fs_rmdir,
 };
 
 void minishell_filesystem_service_configure(void)
