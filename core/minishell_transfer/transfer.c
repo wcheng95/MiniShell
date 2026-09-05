@@ -223,6 +223,14 @@ int minishell_transfer_put(const char *destination_path)
         return -1;
     }
 
+    /* Header validation and temporary-file open succeeded. Only now invite the
+     * host to send binary payload, so an open/path/storage error cannot leave
+     * payload bytes spilling into the shell after this function returns. */
+    if (send_text("MFT1 DATA READY\n") != 0) {
+        cleanup_temporary(fs, &file, temporary);
+        return -1;
+    }
+
     int receive_result = receive_payload(fs, file, size, expected_crc);
     if (receive_result != 0) {
         cleanup_temporary(fs, &file, temporary);
