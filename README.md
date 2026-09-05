@@ -204,19 +204,16 @@ interruption cleanup, and runtime installation/execution of `cat.elf`.
 
 See [`docs/task2.md`](docs/task2.md).
 
-## Task 3 — Active: Power/System
+## Task 3 — Complete: Power/System
 
 Task 3 adds resident power ownership without changing the public application ABI.
-The source implementation is now present and awaits host-build and Tab5 hardware
-validation.
 
-Implemented resident surface:
+Implemented and validated on real Tab5 hardware:
 
 ```text
-status      battery percentage + charging state
-suspend     ESP32-P4 deep sleep; external reset/power wake restarts MiniShell
-poweroff    Tab5 shutdown request with deep-sleep fallback
-later       resident USB attach/detach detection
+status      battery percentage + charging state     PASS
+suspend     ESP32-P4 deep sleep                     PASS
+poweroff    Tab5 shutdown request                   PASS
 ```
 
 Architecture:
@@ -232,8 +229,11 @@ The Tab5 backend explicitly enables charging during startup. Power initializatio
 failure is non-fatal so MiniShell remains usable as a diagnostic/recovery shell;
 `status` reports unavailable fields when telemetry cannot be obtained.
 
-Task 3 adds `resident_power_unit`, bringing the host CTest suite to eight groups.
-No `Power ABI` has been added to `include/minishell/api.h`.
+Task 3 adds `resident_power_unit`. No `Power ABI` has been added to
+`include/minishell/api.h`.
+
+USB attach/detach detection remains planned, but is explicitly deferred to a
+later resident-system milestone rather than keeping Task 3 open.
 
 See [`docs/power-system-plan.md`](docs/power-system-plan.md).
 
@@ -283,8 +283,8 @@ Milestones and policy:
 
 ## Current Status
 
-**Task 0, Task 1, and Task 2 are complete. Task 3 Power/System is implemented in
-source and pending host-build/real-hardware validation.**
+**Task 0, Task 1, Task 2, and Task 3 are complete.**
 
 The ordinary ELF application roadmap remains independent and currently starts
-with `nano`, followed by the minimal file-management command set.
+with `nano`, followed by the minimal file-management command set. Future resident
+system work includes USB device attach/detach detection when it becomes useful.
