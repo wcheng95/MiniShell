@@ -61,7 +61,8 @@ MiniShell/
 |   `-- minishell_platform_tab5/
 |-- examples/
 |-- tools/
-|   `-- minishell_transfer.py
+|   |-- minishell_transfer.py
+|   `-- task2_validate.py
 `-- tests/
 ```
 
@@ -73,8 +74,8 @@ matter more than source-file aesthetics.
 Placement follows the policy in `docs/resident-vs-app.md`.
 
 Keep functionality resident when MiniShell needs it to manage, provision,
-diagnose, recover, or own the application environment. Ordinary user/domain
-functionality normally belongs in a separately built ELF.
+diagnose, recover, power, or own the application environment. Ordinary
+user/domain functionality normally belongs in a separately built ELF.
 
 ```text
 resident
@@ -84,12 +85,14 @@ resident
     platform ownership
     diagnostics/recovery
     file transfer
+    power/system ownership
 
 applications
     cat
     nano
-    calculator
-    radio tools
+    cp / mv / rm
+    mkdir / rmdir
+    free / date / df
     future MiniFT8
 ```
 
@@ -200,7 +203,7 @@ not part of the current app ABI.
 
 ## 9. Resident file transfer
 
-Task 2 adds a resident bootstrap/recovery facility:
+Task 2 established a resident bootstrap/recovery facility:
 
 ```text
 shell put/get
@@ -237,9 +240,10 @@ so the Tab5 backend temporarily moves the old destination to
 `<destination>.mft.bak`, publishes the verified new file, and removes the backup;
 failed publication attempts rollback the old destination where possible.
 
-File transfer is resident because it is needed to provision/recover applications
-and because it temporarily owns the serial byte stream. Requiring a transfer ELF
-to install transfer ELFs would invert the bootstrap dependency.
+Task 2 is complete. Hardware validation proved round-trip transfer, replacement,
+a 524325-byte binary, timeout cleanup, and preservation of the old destination
+after an intentionally interrupted replacement. The full seven-group host suite
+and post-transfer shell/ABI sanity checks also pass.
 
 ## 10. Platform layer
 
@@ -258,8 +262,9 @@ raw transfer byte stream
 completed-file replace/remove
 ```
 
-Future platform work may add RTC/location persistence, physical LCD/touch, audio,
-network, and power control.
+Task 3 extends this area with battery status, suspend, and poweroff. Later work
+may add USB attach/detach management, RTC/location persistence, physical LCD/touch,
+audio, and network support.
 
 Platform code may freely include ESP-IDF/M5Stack types. Public MiniShell headers
 may not.
@@ -338,9 +343,10 @@ host unit tests
 
 Task 1's six ABI groups remain the primary service correctness suites.
 
-Task 2 adds a resident transfer unit group using a fake byte stream and fake
-filesystem. Hardware testing verifies the real USB Serial/JTAG transport,
-SD persistence, replacement behavior, and return to normal shell/app operation.
+Task 2 added a resident transfer unit group using a fake byte stream and fake
+filesystem. Hardware testing then verified the real USB Serial/JTAG transport,
+SD persistence, replacement behavior, interruption cleanup, and return to normal
+shell/app operation.
 
 Application commands should likewise keep command logic host-testable where
 practical, then validate the separately built ELF on real MiniShell.
@@ -358,17 +364,25 @@ System, Memory, Filesystem, Time/Location, Display, and Input are documented,
 implemented, unit tested, ELF tested, hardware tested through the available
 backend, and lifecycle-stress tested through 100 repeated ELF runs.
 
-### Task 2 — Resident File Transfer — ACTIVE
+### Task 2 — Resident File Transfer — COMPLETE
 
-Implement and validate `put`/`get` over USB Serial/JTAG using the MFT1 protocol.
-Small-file upload and a block-paced runtime ELF upload have passed on real Tab5
-hardware; the uploaded `cat.elf` executes normally.
+Resident `put`/`get` over USB Serial/JTAG is implemented and validated. MFT1 uses
+CRC verification, paced multi-block transfer, safe temporary-file publication,
+and FATFS replacement/rollback. Real hardware validation includes large-file
+round trip, replacement, interrupted-transfer cleanup, and post-transfer ABI
+regression.
 
 See `docs/task2.md`.
 
-### Later
+### Task 3 — Power/System — ACTIVE
 
-Continue adding resident facilities only when they are runtime/recovery concerns.
-Add ordinary functionality as independent ELF applications following
-`docs/command-roadmap.md`. The next planned editor is `nano`, using the familiar
-Linux command name instead of the earlier working name `med`.
+Add resident battery/charging status, wakeable suspend, and explicit poweroff.
+USB attach/detach detection is planned later in the same system area after the
+resident USB manager is designed.
+
+See `docs/power-system-plan.md`.
+
+### Applications
+
+Ordinary functionality continues independently as ELF applications following
+`docs/command-roadmap.md`. The planned set remains intentionally small.
