@@ -1,351 +1,266 @@
-# Task 1 - MiniEditor (`med`)
+# Task 1 - ABI Foundation
 
 ## Goal
 
-Task 1 builds the first genuinely useful MiniShell application: a small
-nano-like terminal text editor named `med`.
+Task 1 develops and validates a small set of basic MiniShell application ABIs
+before adding real user applications.
 
-The purpose is not to clone nano. The purpose is to let a real application drive
-the design of MiniShell's first reusable filesystem and console/input services.
+Task 0 proved that a separately built ELF can be loaded, call a resident
+MiniShell service, return, unload, and leave the shell healthy. Task 1 now turns
+that proof into a useful, testable runtime contract.
 
-Expected usage:
+`med` is postponed until these basic services are defined, implemented, and
+validated independently.
 
-```text
-M$> med /sd/notes.txt
-```
+## Principle
 
-`med` runs as a separately built native ELF application, edits the file in a
-full-screen terminal UI, saves through MiniShell services, returns normally, and
-leaves the resident shell healthy.
-
-## Architectural Rule
-
-Task 1 keeps the dependency direction strict:
+Develop one ABI at a time:
 
 ```text
-med.elf
-   |
-   | MiniShell ABI only
-   v
-+-------------------------------+
-| MiniShell services            |
-|                               |
-| console/input    filesystem   |
-+-------------------------------+
-              |
-              v
-+-------------------------------+
-| platform implementation       |
-| USB Serial/JTAG   FATFS/VFS   |
-+-------------------------------+
-              |
-              v
-          ESP32-P4 / Tab5
+define contract
+    |
+implement resident service
+    |
+build focused ELF test
+    |
+run on real hardware
+    |
+exercise success + failure cases
+    |
+repeat launch/run/exit
+    |
+only then move to next ABI
 ```
 
-The application must not depend on ESP-IDF, M5Stack BSP, FATFS internals, USB
-Serial/JTAG driver APIs, or platform-specific handles.
+The test ELF programs are infrastructure tests, not product applications.
 
-The service interfaces are the contract. Implementations behind those contracts
-may change without requiring changes to unrelated modules.
+Each public ABI must:
 
-## Application Structure
+- use MiniShell-owned types only
+- expose no ESP-IDF, M5Stack, FATFS, FreeRTOS, or driver-private objects
+- have explicit ownership and lifetime rules
+- have defined error semantics
+- remain small enough to understand completely
+- allow the implementation behind it to change independently
 
-The initial `med` source should remain small and understandable:
+## Task 1 ABI Set
+
+Initial development order:
 
 ```text
-examples/med/
-|-- CMakeLists.txt
-|-- main/
-|   |-- CMakeLists.txt
-|   |-- main.c
-|   |-- editor.c
-|   |-- editor.h
-|   |-- document.c
-|   |-- document.h
-|   |-- view.c
-|   `-- view.h
-`-- idf_component.yml
+1. system
+2. memory
+3. filesystem
+4. console/input
+5. time
 ```
 
-Responsibilities:
+This order may be adjusted if implementation exposes a dependency, but no real
+application should drive new ABI design during Task 1.
+
+### 1. System ABI
+
+Task 0 already proved the minimal system service:
 
 ```text
-main.c       application lifecycle and argument handling
-editor.c     editor state machine, cursor movement, commands
-document.c   text storage and editing operations
-view.c       terminal rendering through MiniShell console API
+system.write()
 ```
 
-`document.c` must know nothing about MiniShell console rendering, USB, FATFS,
-or ESP-IDF. It operates only on the in-memory document model.
+Task 1 should formalize its contract and test it as part of the ABI suite rather
+than relying only on the original `hello.elf` demonstration.
 
-`view.c` must not read or write files.
+Do not add unrelated system calls merely to make the table look complete.
 
-`editor.c` coordinates document operations and user commands, but does not own
-hardware.
+### 2. Memory ABI
 
-## Task 1 V1 Features
+Real applications will need dynamic memory without importing the platform heap
+API directly.
 
-Included:
+The exact memory ABI remains to be designed. It should begin with the smallest
+useful allocation contract and define ownership, failure behavior, and cleanup at
+application exit.
 
-- open an existing text file
-- create a new text file
-- display text in a full-screen terminal UI
-- insert printable characters
-- Backspace
-- Delete
-- Enter / split line
-- cursor movement with arrow keys
-- vertical scrolling
-- save with `Ctrl-S`
-- exit with `Ctrl-X`
-- short help/status line
-- return cleanly to `M$>`
+Potential operations are intentionally not frozen here.
 
-Explicitly deferred:
+### 3. Filesystem ABI
 
-- syntax highlighting
-- search/replace
-- copy/paste engine
-- undo/redo
-- line numbers
-- mouse support
-- multiple buffers
-- very-large-file optimization
-- background applications
-- terminal-size negotiation beyond a simple initial fixed/default geometry
+The filesystem ABI v0 design is already defined in `docs/app-abi.md`.
 
-## Console/Input Boundary
+Initial operations:
 
-Applications should not parse raw USB Serial/JTAG hardware or driver state.
-MiniShell owns the console.
+```text
+open
+close
+read
+write
+seek
+sync
+stat
+```
 
-Task 1 should extend the ABI with a platform-neutral console service. Conceptual
-operations include:
+Important properties include:
+
+- absolute MiniShell paths such as `/sd/...`
+- opaque `mini_file_t` handles
+- MiniShell-owned result codes
+- partial reads/writes are valid
+- EOF is successful zero-byte read
+- no FATFS, libc `FILE *`, or ESP-IDF types cross the ABI
+- MiniShell reclaims app-owned file handles during normal teardown
+
+`readline`, directory operations, rename/remove, and other convenience functions
+remain deferred until justified.
+
+### 4. Console/Input ABI
+
+The console/input ABI should provide platform-neutral text output and normalized
+input events without exposing USB Serial/JTAG details or ANSI byte parsing to an
+application.
+
+Exact operations and event structures are still to be designed.
+
+Likely concepts include:
 
 ```text
 write text
 read normalized key event
-clear screen
-move cursor(row, column)
-erase line
-show/hide cursor
+terminal geometry
+basic screen/cursor operations
 ```
 
-The exact C signatures are not frozen by this document.
+Only operations justified as generally useful MiniShell primitives should enter
+the ABI.
 
-MiniShell should normalize common terminal escape sequences before they reach the
-application. `med` should see logical key events such as:
+### 5. Time ABI
+
+The time ABI should give applications useful timing without exposing ESP-IDF
+timers or RTC drivers.
+
+The design must distinguish at least conceptually between:
 
 ```text
-MINI_KEY_UP
-MINI_KEY_DOWN
-MINI_KEY_LEFT
-MINI_KEY_RIGHT
-MINI_KEY_DELETE
-MINI_KEY_BACKSPACE
-MINI_KEY_ENTER
-MINI_KEY_CTRL_S
-MINI_KEY_CTRL_X
-printable character
+monotonic elapsed time
+wall-clock / UTC time
 ```
 
-This keeps ANSI/VT100 byte-sequence parsing inside the console service rather
-than duplicating it in every application.
+The exact V0 function set is still to be decided and tested independently.
 
-For Task 1 the Tab5 implementation may use ANSI/VT100 sequences internally for
-screen control. Those escape sequences are a platform/console implementation
-detail, not part of the portable application contract.
+## Focused ABI Tests
 
-## Filesystem Boundary
-
-Applications should use MiniShell filesystem services rather than newlib/FATFS
-file functions directly.
-
-Conceptually:
+Use one separately built ELF test per service. Suggested names:
 
 ```text
-med
- |
- | mini filesystem API
- v
-MiniShell filesystem service
- |
- | private FILE*/VFS/FATFS state
- v
-microSD
+abi_system.elf
+abi_memory.elf
+abi_fs.elf
+abi_console.elf
+abi_time.elf
 ```
 
-Application-visible file handles should be MiniShell-owned opaque values, not
-`FILE *`, FATFS objects, or ESP-IDF handles.
+These tests should call the public ABI exactly as a future application would.
+They must not include platform headers or bypass MiniShell services.
 
-Task 1 initially needs enough operations to:
+Each test should be small enough that its expected behavior is obvious from
+reading the source.
+
+## Test Layers
+
+Each ABI should have two useful test levels where practical.
+
+### Host/unit tests
+
+Test platform-independent policy and bookkeeping without hardware when that is
+useful, for example:
+
+- flag validation
+- handle validation
+- resource tables
+- error translation helpers
+- cleanup logic
+
+### Real-hardware ELF tests
+
+The decisive ABI test is a separately built ELF running through the real
+MiniShell loader on Tab5:
 
 ```text
-open/create
-read
-write
-close
+M$> abi_fs
+[filesystem ABI tests]
+PASS
+M$>
 ```
 
-Additional operations should be added only when a real application needs them.
+The hardware test validates the whole boundary:
+
+```text
+ELF app
+  -> MiniShell ABI table
+  -> resident service
+  -> platform implementation
+  -> hardware/backend
+```
 
 ## Resource Ownership
 
-MiniShell remains the owner of resources acquired through its services.
+Task 1 should establish a reusable resource-ownership pattern rather than invent
+separate cleanup rules for every service.
 
 Conceptually:
 
 ```text
-application receives: mini_file_t = opaque handle
-
-MiniShell owns:
-    handle slot
-      -> underlying platform file object
-      -> owning foreground application
-      -> state
+foreground app context
+    |
+    +-- allocated memory
+    +-- open file handles
+    +-- future service resources
 ```
 
-When the foreground application returns normally, the app manager must reclaim
-any MiniShell-managed resources still owned by that application before unloading
-the ELF.
+When the application returns normally, MiniShell releases any remaining
+MiniShell-managed resources owned by that app before unloading its ELF.
 
-This cleanup is cooperative lifecycle management, not memory protection.
+This is cooperative lifecycle cleanup, not memory protection.
 
-## Initial Document Model
+## ABI Evolution Rule
 
-Task 1 deliberately avoids sophisticated editor data structures.
+Task 1 is allowed to change the ABI while we learn. The ABI should not be called
+stable merely because a struct exists in `api.h`.
 
-Use an understandable line-oriented representation first:
+A service becomes a candidate for stable ABI only after:
 
-```text
-document
-  -> line 0 character buffer
-  -> line 1 character buffer
-  -> line 2 character buffer
-  -> ...
-```
+1. its semantics are documented,
+2. its implementation exists,
+3. its focused ELF test passes on real hardware,
+4. error paths have been exercised,
+5. repeated runs do not leak or destabilize MiniShell,
+6. the interface still looks small and platform-neutral after implementation.
 
-This should make insert, delete, split-line, join-line, cursor movement, loading,
-and saving easy to understand and test.
+Prefer adding fields/functions compatibly rather than leaking implementation
+assumptions into the public boundary.
 
-If later workloads justify a gap buffer, piece table, rope, or another
-representation, `document.c` can change without changing the MiniShell ABI or
-console/filesystem services.
+## Task 1 Success Criteria
 
-That replaceability is part of the Task 1 design goal.
+Task 1 is complete when:
 
-## Initial Screen Model
+1. system, memory, filesystem, console/input, and time ABIs have documented V0
+   contracts;
+2. each service has a resident MiniShell implementation;
+3. each service has a focused separately built ELF test;
+4. each ELF test uses only public MiniShell headers;
+5. all tests pass on the M5Stack Tab5 reference hardware;
+6. important invalid/error cases fail cleanly;
+7. repeated test execution does not exhaust MiniShell-managed resources;
+8. application teardown reclaims resources owned through MiniShell APIs;
+9. no public ABI exposes ESP-IDF, M5Stack, FATFS, FreeRTOS, USB-driver, or other
+   platform-private types;
+10. Task 0's shell/load/run/unload behavior remains intact.
 
-Start with a simple terminal geometry, initially 80 columns by 24 rows unless the
-implementation proves another default more useful.
+## After Task 1
 
-Suggested layout:
+Only after the basic ABI suite is proven should MiniShell add a real application.
 
-```text
-row 0       title / filename
-rows 1-21   document viewport
-row 22      status/message
-row 23      shortcuts
-```
+`med` remains a strong candidate because it will exercise memory, filesystem,
+console/input, and application lifecycle together without requiring specialized
+hardware.
 
-Example:
-
-```text
- MiniEditor 0.1                         /sd/notes.txt
-------------------------------------------------------
-This is a text file.
-The cursor can move around.
-
-
-
-------------------------------------------------------
-^S Save    ^X Exit    ^G Help
-```
-
-The editor tracks logical document position separately from viewport position:
-
-```text
-cursor_line
-cursor_column
-screen_top_line
-```
-
-## Development Steps
-
-### 1. Define minimal Task 1 ABI additions
-
-Add only the console/input and filesystem operations required by `med` V1.
-Do not expose ESP-IDF or libc file handles.
-
-### 2. Implement resident services
-
-Implement the MiniShell-side console/input and filesystem services behind the
-new ABI tables.
-
-### 3. Add resource bookkeeping
-
-Track app-owned opaque filesystem handles so normal app teardown can reclaim
-leaked handles.
-
-### 4. Build a minimal `med` ELF
-
-First milestone inside the application:
-
-```text
-M$> med /sd/notes.txt
-```
-
-The app should be able to open/load the file, render it, and exit back to the
-shell before editing behavior is added.
-
-### 5. Add editing operations
-
-Add character insertion, Backspace/Delete, Enter, cursor motion, and scrolling.
-
-### 6. Add save
-
-`Ctrl-S` writes the current in-memory document through the MiniShell filesystem
-service.
-
-### 7. Validate lifecycle repeatedly
-
-Open, edit, save, exit, reopen, and repeat without rebooting or exhausting
-MiniShell-managed resources.
-
-## Success Criteria
-
-Task 1 is complete when real Tab5 hardware demonstrates all of the following:
-
-1. `med` is built separately and runtime-loaded as an ELF application.
-2. `med` includes no ESP-IDF or M5Stack platform dependency.
-3. An existing text file can be opened through MiniShell filesystem services.
-4. A new text file can be created through MiniShell filesystem services.
-5. Text is displayed through the MiniShell console service.
-6. Arrow-key movement works through normalized MiniShell key events.
-7. Insert, Backspace, Delete, and Enter work.
-8. Vertical scrolling works.
-9. `Ctrl-S` saves the edited document correctly.
-10. `Ctrl-X` exits normally and restores `M$>`.
-11. Reopening the file shows the saved content.
-12. MiniShell reclaims any application-owned file handles during normal teardown.
-13. Repeated editor launch/edit/save/exit cycles do not exhaust resources or
-    destabilize the resident shell.
-
-## Design Principle Proven by Task 1
-
-Task 0 proved that MiniShell can load an application.
-
-Task 1 should prove that a useful application can be built on stable MiniShell
-services while its own internals and the platform implementations remain
-independently replaceable:
-
-```text
-change document representation  -> filesystem service unaffected
-change FATFS implementation      -> med unaffected
-change terminal driver           -> med unaffected
-change editor rendering strategy -> app loader unaffected
-```
-
-That isolation is a core MiniShell objective, not merely a coding style.
+At that point the application should consume already-proven MiniShell services
+rather than define the platform architecture while it is being written.
