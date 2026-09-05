@@ -2,113 +2,117 @@
 
 ## Goal
 
-Task 1 develops and validates a small set of basic MiniShell application ABIs
-before adding real user applications.
+Task 1 develops and validates a small set of foundational MiniShell application
+ABIs before adding real user applications.
 
-Task 0 proved that a separately built ELF can be loaded, call a resident
-MiniShell service, return, unload, and leave the shell healthy. Task 1 now turns
-that proof into a useful, testable runtime contract.
+Task 0 proved that a separately built ELF can be loaded, obtain the resident API,
+call a MiniShell service, return, unload, and leave the shell healthy. Task 1
+turns that proof into a useful, reusable runtime contract.
 
-`med` is postponed until these basic services are defined, implemented, and
-validated independently.
+`med` remains postponed until the foundational services are independently proven.
 
-The six basic Task 1 ABIs are:
+The six Task 1 ABIs are:
 
 ```text
 1. system
 2. memory
 3. filesystem
-4. time
+4. time/location
 5. display
 6. input
 ```
 
-`console` is not one of the fundamental ABIs. A console/terminal is a higher-level
-composition of text output plus text input and may later be built on top of the
-basic services.
+`console` is not a foundational ABI. A console/terminal is a higher-level
+composition of output and input behavior.
 
-See `docs/abi-foundation.md` for the detailed design contract.
+Canonical cross-ABI rules live in `docs/abi-foundation.md`. Detailed service
+contracts live in the six standalone `*-abi.md` files.
 
-## Principle
+## Development discipline
 
-Develop one ABI at a time:
+Develop and validate one ABI at a time:
 
 ```text
 define contract
     |
 implement resident service
     |
-build focused ELF test
+build focused separately-built ELF test
     |
-run on real hardware
+run on real Tab5 hardware
     |
 exercise success + failure cases
     |
 repeat launch/run/exit
     |
-only then move to next ABI
+review boundary after implementation
+    |
+only then move to the next ABI
 ```
 
-The test ELF programs are infrastructure tests, not product applications.
+The focused ELF programs are infrastructure tests, not product apps.
 
-Each public ABI must:
+## Common requirements
 
-- use MiniShell-owned types only
-- expose no ESP-IDF, M5Stack, FATFS, FreeRTOS, or driver-private objects
-- have explicit ownership and lifetime rules
-- have defined error semantics
-- remain small enough to understand completely
-- allow the implementation behind it to change independently
-- be designed for append-only, backward-compatible extension where practical
+Every public ABI must:
 
-## Compatibility Model
+- use MiniShell-owned/fixed-width public types;
+- expose no ESP-IDF, M5Stack, FATFS, FreeRTOS, or driver-private objects;
+- document ownership and lifetime;
+- document success and error semantics;
+- obey the common `struct_size` and capability rules;
+- remain small enough to understand completely;
+- permit implementation changes behind the boundary;
+- have a backward-compatible growth path where practical;
+- avoid unnecessary concurrency/asynchronous complexity in V0.
 
-Task 1 establishes a common ABI evolution pattern:
+Task 1 uses the shared result namespace defined in `docs/abi-foundation.md`,
+including `MINI_ERR_TIMEOUT` for finite timed operations.
 
-- top-level service pointers are appended to `mini_api_t`
-- service function tables begin with `struct_size`
-- existing fields/functions are never reordered or repurposed after stabilization
-- caller-owned extensible structures begin with `struct_size`
-- optional capability families use capability bits and optional sub-API pointers
-- unknown future capability bits are ignored by older applications
-- public numeric meanings are never reused after ABI stabilization
-- the same source API may be rebuilt for different CPU architectures; binaries
-  themselves are architecture-specific
+## Compatibility model
 
-Display and input deliberately use sub-APIs so their boundaries can grow without
-forcing today's text model to absorb every future hardware type:
+Task 1 establishes these common rules:
 
-```text
-display
-  `-- text          now
-  `-- graphics      later
-
-input
-  `-- text          now
-  `-- pointer       later
-  `-- raw keyboard  later
-  `-- buttons       later
-```
+- `mini_api_t` and service tables grow append-only;
+- service function tables begin with `struct_size`;
+- caller-owned extensible structures begin with `struct_size`;
+- an app checks that `struct_size` reaches the specific field it needs rather
+  than blindly requiring the newest whole-struct size;
+- optional capability families use capability bits and optional sub-API pointers;
+- stable numeric meanings are never reused;
+- extensible public structs are not embedded by value when growth would shift
+  outer-field offsets;
+- resident API/service-table pointers remain valid for the current app execution;
+- V0 calls are application-context and synchronous unless explicitly documented
+  otherwise;
+- source can be rebuilt across architectures while binaries remain
+  architecture-specific.
 
 ## 1. System ABI
 
-Task 0 already proved the minimal system service:
+Canonical contract: `docs/system-abi.md`
+
+V0:
 
 ```text
-system.write()
+system
+`-- write()
 ```
 
-Task 1 formalizes it as a diagnostic/system text sink rather than a display
-surface. It is tested explicitly through `abi_system.elf`.
+`system.write()` is the guaranteed diagnostic/system text sink. It is not the
+application display surface and not a console abstraction.
 
-Do not add unrelated system calls merely to make the table look complete.
+Focused test:
+
+```text
+abi_system.elf
+```
 
 ## 2. Memory ABI
 
-The memory ABI provides MiniShell-managed dynamic memory without exposing the
-platform heap implementation.
+Canonical contract: `docs/memory-abi.md`
 
-Initial operations:
+V0:
 
 ```text
 alloc
@@ -119,19 +123,25 @@ get_info
 
 Important properties:
 
-- normal target-ABI alignment
-- explicit allocation failure through MiniShell result codes
-- failed realloc leaves the original allocation valid
-- app-owned allocations are tracked by MiniShell
-- remaining MiniShell-managed allocations are reclaimed during normal app exit
-- DMA/special/aligned memory classes remain deferred
+- ordinary application RAM only;
+- normal target-ABI alignment;
+- explicit `MINI_ERR_NO_MEMORY` failure;
+- failed realloc leaves the original allocation valid;
+- MiniShell tracks allocations per foreground app;
+- normal app teardown reclaims leftovers;
+- DMA/aligned/executable/special memory remains deferred.
+
+Focused test:
+
+```text
+abi_memory.elf
+```
 
 ## 3. Filesystem ABI
 
-Filesystem ABI v0 is defined in detail in `docs/app-abi.md` and summarized in
-`docs/abi-foundation.md`.
+Canonical contract: `docs/filesystem-abi.md`
 
-Initial operations:
+V0:
 
 ```text
 open
@@ -143,205 +153,265 @@ sync
 stat
 ```
 
-Important properties include:
+Important properties:
 
-- absolute MiniShell paths such as `/sd/...`
-- opaque `mini_file_t` handles
-- MiniShell-owned result codes
-- partial reads/writes are valid
-- EOF is successful zero-byte read
-- no FATFS, libc `FILE *`, or ESP-IDF types cross the ABI
-- MiniShell reclaims app-owned file handles during normal teardown
+- absolute logical paths such as `/sd/...`;
+- opaque `mini_file_t` handles;
+- partial reads/writes are valid;
+- EOF is successful zero-byte read;
+- failed `seek()` leaves the file position unchanged;
+- APPEND writes always begin at EOF;
+- no FATFS, libc `FILE *`, or ESP-IDF types cross the ABI;
+- normal teardown reclaims remaining app file resources.
 
-`readline`, directory operations, rename/remove, and other convenience functions
-remain deferred until justified.
-
-## 4. Time ABI
-
-The time ABI keeps two fundamentally different concepts separate:
+Focused test:
 
 ```text
-monotonic time
-UTC / wall-clock time
+abi_fs.elf
 ```
 
-Initial operations:
+## 4. Time/Location ABI
+
+Canonical contract: `docs/time-location-abi.md`
+
+V0 groups related system state while keeping monotonic timing logically
+independent from UTC/location.
 
 ```text
-monotonic_us
-utc_get
-sleep_ms
+time/location
+|-- monotonic_us()
+|-- sleep_ms()
+|-- utc_get()
+|-- optional utc_set()
+|-- location_get()
+|-- optional default-location get/set
+`-- snapshot_get()
 ```
 
 Important properties:
 
-- monotonic time never follows RTC/network clock corrections
-- UTC is expressed independently of local timezone
-- platforms may lack valid UTC while still supporting monotonic time
-- sleep is a blocking/cooperative application delay, not a hard real-time
-  guarantee
-- alarms and richer timer services remain deferred
+- monotonic time never follows UTC corrections;
+- implementation should use a free-running hardware timer where practical rather
+  than a periodic software tick solely for microsecond timekeeping;
+- UTC is maintained from trusted sources such as RTC/GPS/NTP/manual setting;
+- MiniShell exclusively owns any hardware RTC driver;
+- trusted apps/shell may request UTC changes through `utc_set()` when supported;
+- configured/default location is persistent MiniShell-owned state;
+- live location is separate from configured/default location;
+- `location_get()` returns the effective location and identifies its source;
+- live freshness is exposed through monotonic update time;
+- snapshot is flat to preserve ABI offsets;
+- local timezone/geocoding remain outside V0.
+
+Focused test:
+
+```text
+abi_time_location.elf
+```
 
 ## 5. Display ABI
 
-Display is an output service, not a console.
+Canonical contract: `docs/display-abi.md`
 
-The initial capability is text display:
+V0 represents one primary logical display and starts with text capability:
 
 ```text
 display
-  `-- text
-       |-- get_info
-       |-- clear
-       `-- write_at
+|-- capabilities
+|-- text
+|   |-- get_info()
+|   |-- clear()
+|   |-- clear_at()
+|   `-- write_at()
+`-- present()
 ```
 
-Text display uses explicit row/column coordinates and has no implicit terminal
-cursor or ANSI semantics.
+Important properties:
 
-The top-level display ABI is designed so a later graphics sub-API can be appended
-without changing the existing text contract.
+- logical character cells, not physical pixels;
+- app queries rows/columns through `get_info()`;
+- explicit coordinates; no implicit cursor;
+- no ANSI/terminal semantics;
+- `clear_at()` supports rectangular partial logical clear;
+- `present()` separates logical drawing from physical refresh so TFT, buffered,
+  and e-paper implementations can share the same ABI;
+- graphics/framebuffer/multiple-display features are deferred extensions.
+
+Focused test:
+
+```text
+abi_display.elf
+```
 
 ## 6. Input ABI
 
-Input is separate from display and initially exposes text-oriented logical input
-rather than raw hardware scan codes.
+Canonical contract: `docs/input-abi.md`
 
-Initial form:
+V0 begins with normalized logical key input:
 
 ```text
 input
-  `-- text
-       `-- read normalized event
+`-- key
+    `-- read(event, timeout_ms)
 ```
 
-The text event model distinguishes character input from special keys and carries
-logical modifiers where available.
+The same primitive supports:
 
-Future pointer/mouse/touch-pointer, raw-keyboard, button, encoder, or other input
-families are appended as separate optional sub-APIs rather than bloating or
-changing the text event contract.
+```text
+timeout_ms = 0            non-blocking poll
+finite timeout            wait up to N ms
+0xFFFFFFFF                wait forever
+```
 
-## Focused ABI Tests
+Important properties:
 
-Use one separately built ELF test per service:
+- input events are logical rather than HID/scan-code/device-specific;
+- character and special-key events are distinct;
+- V0 guarantees ASCII input repertoire but uses a 32-bit Unicode scalar field;
+- finite waits use MiniShell's internal monotonic timing source;
+- pointer/touch/raw-keyboard/buttons remain separate future capability families;
+- stale queued events must not leak across foreground app handoff.
+
+Focused test:
+
+```text
+abi_input.elf
+```
+
+## Focused ABI tests
+
+The complete Task 1 runtime-test set is:
 
 ```text
 abi_system.elf
 abi_memory.elf
 abi_fs.elf
-abi_time.elf
+abi_time_location.elf
 abi_display.elf
 abi_input.elf
 ```
 
-These tests call the public ABI exactly as a future application would. They must
-not include platform headers or bypass MiniShell services.
+Each test:
 
-Each test should be small enough that its expected behavior is obvious from
-reading the source.
+- is built separately from MiniShell;
+- uses `main(argc, argv)` plus `mini_api_get()`;
+- includes only public MiniShell headers;
+- checks field/service availability using the common compatibility rules;
+- exercises normal and important error behavior;
+- returns normally to the shell;
+- is repeated to catch leaks/stale state/lifecycle damage.
 
-## Test Layers
-
-Each ABI should have two useful test levels where practical.
+## Test layers
 
 ### Host/unit tests
 
-Test platform-independent policy and bookkeeping without hardware when useful,
-for example:
+Use host tests where practical for platform-independent policy such as:
 
-- flag validation
-- handle validation
-- allocation/resource ownership tables
-- error translation helpers
-- cleanup logic
-- event normalization
-- compatibility/struct-size checks
+```text
+flag validation
+handle/ownership tables
+allocation bookkeeping
+error translation helpers
+struct_size compatibility checks
+event normalization
+foreground queue cleanup
+snapshot/layout rules
+```
 
 ### Real-hardware ELF tests
 
-The decisive ABI test is a separately built ELF running through the real
+The decisive ABI test is a separately built ELF running through the actual
 MiniShell loader on Tab5:
 
 ```text
 M$> abi_fs
-[filesystem ABI tests]
+[focused filesystem ABI tests]
 PASS
 M$>
 ```
 
-The hardware test validates the whole boundary:
+This validates:
 
 ```text
 ELF app
-  -> MiniShell ABI table
+  -> mini_api_get()
+  -> public MiniShell service table
   -> resident service
   -> platform implementation
   -> hardware/backend
 ```
 
-## Resource Ownership
+## Resource ownership
 
-Task 1 establishes a reusable resource-ownership pattern rather than inventing
-separate cleanup rules for every service.
-
-Conceptually:
+Task 1 establishes one reusable ownership pattern:
 
 ```text
 foreground app context
-    |
     +-- allocated memory
     +-- open file handles
-    +-- future service resources
+    `-- future logical service resources
 ```
 
-When the application returns normally, MiniShell releases any remaining
-MiniShell-managed resources owned by that app before unloading its ELF.
+When an app returns normally, MiniShell releases remaining MiniShell-managed
+resources associated with that app before ELF unload where practical.
 
-This is cooperative lifecycle cleanup, not memory protection.
+This is cooperative lifecycle cleanup, not process protection.
 
-## ABI Evolution Rule
+## ABI evolution rule
 
-Task 1 is allowed to change the ABI while we learn. The ABI should not be called
-stable merely because a struct exists in `api.h`.
+Task 1 is allowed to change the ABI while implementation teaches us. A service is
+not stable merely because a struct exists in `api.h`.
 
 A service becomes a candidate for stable ABI only after:
 
-1. its semantics are documented,
-2. its implementation exists,
-3. its focused ELF test passes on real hardware,
-4. error paths have been exercised,
-5. repeated runs do not leak or destabilize MiniShell,
-6. the interface still looks small and platform-neutral after implementation,
-7. its extension path has been reviewed for backward compatibility.
+1. semantics are documented;
+2. resident implementation exists;
+3. focused ELF test passes on real hardware;
+4. important invalid/error paths have been exercised;
+5. repeated runs do not leak or destabilize MiniShell;
+6. teardown/foreground handoff works correctly;
+7. the boundary remains platform-neutral after implementation;
+8. its extension path has been re-reviewed for compatibility.
 
-Prefer adding fields/functions compatibly rather than leaking implementation
-assumptions into the public boundary.
+## Recommended implementation order
 
-## Task 1 Success Criteria
+Now that all six design contracts exist, use this sequence unless implementation
+teaches us a reason to change it:
+
+```text
+1. system          already largely proven by Task 0
+2. memory          establishes app resource bookkeeping
+3. filesystem      establishes opaque-handle bookkeeping
+4. time/location   supplies monotonic timing and persistent UTC/location state
+5. display         establishes foreground output
+6. input           uses monotonic timeout semantics and foreground routing
+```
+
+The order is chosen to build dependencies progressively rather than because later
+services are less important.
+
+## Task 1 success criteria
 
 Task 1 is complete when:
 
-1. system, memory, filesystem, time, display, and input ABIs have documented V0
-   contracts;
-2. each service has a resident MiniShell implementation;
+1. all six V0 contracts remain documented and internally consistent;
+2. each service has a resident implementation;
 3. each service has a focused separately built ELF test;
-4. each ELF test uses only public MiniShell headers;
-5. all tests pass on the M5Stack Tab5 reference hardware;
+4. each test uses only public MiniShell headers;
+5. all focused tests pass on the Tab5 reference hardware;
 6. important invalid/error cases fail cleanly;
-7. repeated test execution does not exhaust MiniShell-managed resources;
-8. application teardown reclaims resources owned through MiniShell APIs;
-9. no public ABI exposes ESP-IDF, M5Stack, FATFS, FreeRTOS, USB-driver, or other
-   platform-private types;
-10. additive display/input growth remains possible without breaking the initial
-    text contracts;
-11. Task 0's shell/load/run/unload behavior remains intact.
+7. repeated execution does not exhaust or corrupt MiniShell-managed resources;
+8. normal app teardown reclaims app-owned MiniShell resources;
+9. foreground Display/Input ownership returns cleanly to the shell;
+10. no public ABI leaks platform-private types;
+11. backward-compatible extension rules still hold after implementation;
+12. Task 0 shell/load/run/unload behavior remains intact.
 
 ## After Task 1
 
-Only after the six basic ABI boundaries are proven should MiniShell add real user
-applications.
+Only after the six foundational boundaries are proven should MiniShell add real
+user applications.
 
-`med` remains a strong candidate because it can then consume already-proven
-memory, filesystem, display, input, time, and lifecycle services instead of
-helping define the platform architecture while it is being written.
+`med` remains a strong first candidate because it can consume already-proven
+Memory, Filesystem, Display, Input, and lifecycle services instead of defining
+those boundaries while being written.
