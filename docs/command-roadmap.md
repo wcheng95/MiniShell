@@ -29,8 +29,8 @@ The planned editor previously called `med` is now named `nano`.
 The resident-vs-application rule remains unchanged.
 
 Resident commands exist when MiniShell itself needs the capability for shell
-state, bootstrap, provisioning, recovery, diagnostics, or hardware ownership.
-Ordinary user utilities are independent ELF applications.
+state, bootstrap, provisioning, recovery, diagnostics, power/system ownership,
+or hardware ownership. Ordinary user utilities are independent ELF applications.
 
 ### Resident baseline
 
@@ -45,6 +45,25 @@ Current resident commands:
 | `repeat` | development/lifecycle diagnostic |
 | `put` | bootstrap/provisioning file transfer |
 | `get` | bootstrap/recovery file transfer |
+
+Planned resident power/system behavior:
+
+| Command | Initial MiniShell scope |
+| --- | --- |
+| `status` | also show battery percentage and charging state where supported |
+| `suspend` | enter a wakeable low-power state |
+| `poweroff` | perform an actual device shutdown where supported |
+
+Do not add a separate `battery` command initially; the information belongs in the
+existing `status` diagnostics. Do not call device suspend `sleep`, because the
+familiar Linux meaning of `sleep` is a timed delay rather than system suspend.
+
+Future USB attach/detach detection is also resident system behavior, but no new
+shell command or generic event ABI is defined yet. A resident USB manager should
+first own detection and canonical device state; application notification should
+be designed only when a real app needs it.
+
+See `docs/power-system-plan.md`.
 
 Do not add resident commands merely because Linux has them.
 
@@ -98,7 +117,10 @@ The planned Stage C set is intentionally small:
 | `date` | show/set UTC where supported | builds on Time/Location ABI capabilities |
 | `df` | show storage capacity/free space | requires filesystem/storage information support |
 
-No other Linux system-information commands are currently planned.
+No other Linux system-information ELF commands are currently planned.
+
+Battery information, suspend, and poweroff are intentionally not Stage C ELF
+commands because device power state is resident MiniShell/platform ownership.
 
 ## Commands intentionally not planned
 
@@ -171,14 +193,37 @@ rmdir    exposes missing remove-directory primitive
 df       exposes missing storage-capacity/free-space information
 ```
 
+Power/system work follows the same rule. Battery information and global
+suspend/poweroff clearly belong to resident ownership; add a public Power ABI only
+when an application needs normalized access to those capabilities.
+
 Do not expand an ABI merely to imitate Linux.
 
 ## Preferred development sequence
+
+Resident and application development can proceed independently.
+
+Resident/system path:
 
 ```text
 finish Task 2 file-transfer validation
         |
         v
+battery information in status
+        |
+        v
+suspend
+        |
+        v
+poweroff
+        |
+        v
+later: USB hardware-change detection
+```
+
+Application path:
+
+```text
 nano
         |
         v
