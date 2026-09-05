@@ -38,6 +38,10 @@ typedef struct {
     mini_result_t (*fs_sync)(void *ctx, minishell_backend_file_t file);
     mini_result_t (*fs_stat)(void *ctx, const char *path,
                              uint32_t *out_type, uint64_t *out_size);
+    mini_result_t (*fs_rename)(void *ctx, const char *old_path, const char *new_path);
+    mini_result_t (*fs_remove_file)(void *ctx, const char *path);
+    mini_result_t (*fs_mkdir)(void *ctx, const char *path);
+    mini_result_t (*fs_rmdir)(void *ctx, const char *path);
 
     /* Time/location baseline. */
     uint64_t (*monotonic_us)(void *ctx);
