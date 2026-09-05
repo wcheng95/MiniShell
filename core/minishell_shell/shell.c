@@ -8,6 +8,7 @@
 
 #include "minishell_app.h"
 #include "minishell_platform.h"
+#include "minishell_power.h"
 #include "minishell_shell.h"
 #include "minishell_transfer.h"
 
@@ -93,7 +94,9 @@ static int split_args(char *line, char **argv, int max_args)
 static void cmd_help(void)
 {
     printf("help              show this help\n");
-    printf("status            show Task 0 platform status\n");
+    printf("status            show platform and power status\n");
+    printf("suspend           enter deep sleep; wake restarts MiniShell\n");
+    printf("poweroff          power off the device\n");
     printf("ls [path]         list a directory\n");
     printf("put <path>        receive a file from host\n");
     printf("get <path>        send a file to host\n");
@@ -108,6 +111,41 @@ static void cmd_status(void)
     printf("console  : %s\n", minishell_platform_console_status());
     printf("sd       : %s\n", minishell_platform_sd_status());
     printf("app path : /sd/apps\n");
+
+    minishell_power_status_t power;
+    if (minishell_power_get_status(&power) != 0) {
+        printf("battery  : unavailable\n");
+        printf("charging : unavailable\n");
+        return;
+    }
+
+    if (power.battery_percent_valid) {
+        printf("battery  : %u%%\n", (unsigned)power.battery_percent);
+    } else {
+        printf("battery  : unavailable\n");
+    }
+
+    if (power.charging_valid) {
+        printf("charging : %s\n", power.charging ? "yes" : "no");
+    } else {
+        printf("charging : unavailable\n");
+    }
+}
+
+static void cmd_suspend(void)
+{
+    printf("suspend: entering deep sleep; wake restarts MiniShell\n");
+    fflush(stdout);
+    int result = minishell_power_suspend();
+    printf("suspend: failed (%d)\n", result);
+}
+
+static void cmd_poweroff(void)
+{
+    printf("poweroff: shutting down\n");
+    fflush(stdout);
+    int result = minishell_power_poweroff();
+    printf("poweroff: failed (%d)\n", result);
 }
 
 static int cmd_ls(const char *path)
@@ -235,6 +273,18 @@ void minishell_shell_run(void)
 
         if (strcmp(argv[0], "status") == 0) {
             cmd_status();
+            continue;
+        }
+
+        if (strcmp(argv[0], "suspend") == 0) {
+            if (argc != 1) printf("usage: suspend\n");
+            else cmd_suspend();
+            continue;
+        }
+
+        if (strcmp(argv[0], "poweroff") == 0) {
+            if (argc != 1) printf("usage: poweroff\n");
+            else cmd_poweroff();
             continue;
         }
 
