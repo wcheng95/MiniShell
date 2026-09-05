@@ -14,9 +14,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "minishell_power.h"
 #include "minishell_services.h"
 #include "minishell_transfer.h"
 #include "minishell_platform.h"
+#include "power_backend.h"
 #include "terminal_backend.h"
 
 #define TRANSFER_REPLACE_PATH_MAX 600u
@@ -324,6 +326,17 @@ static void configure_services(void)
     }
 }
 
+static void configure_power(void)
+{
+    const minishell_power_port_t port = {
+        .ctx = NULL,
+        .get_status = minishell_tab5_power_get_status,
+        .suspend = minishell_tab5_power_suspend,
+        .poweroff = minishell_tab5_power_poweroff,
+    };
+    minishell_power_configure(&port);
+}
+
 int minishell_platform_init(void)
 {
     int result = 0;
@@ -335,6 +348,14 @@ int minishell_platform_init(void)
                (unsigned int)s_console_status);
         result = -1;
     }
+
+    esp_err_t power_status = minishell_tab5_power_init();
+    if (power_status != ESP_OK) {
+        printf("power: setup failed: %s (0x%x)\n",
+               esp_err_to_name(power_status),
+               (unsigned int)power_status);
+    }
+    configure_power();
 
     s_sd_status = mount_sd();
     if (s_sd_status == ESP_OK) {
