@@ -1,12 +1,11 @@
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 
 #include "minishell/api.h"
 #include "nano_buffer.h"
 #include "nano_file.h"
 #include "nano_ui.h"
+#include "nano_util.h"
 
 #define FIELD_END(type, field) \
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
@@ -55,28 +54,35 @@ static bool is_ctrl_char(const mini_key_event_t *event, char lower)
 
 static bool read_event(const mini_key_input_api_t *key, mini_key_event_t *event)
 {
-    memset(event, 0, sizeof(*event));
     event->struct_size = sizeof(*event);
+    event->type = 0u;
+    event->codepoint = 0u;
+    event->key = 0u;
+    event->modifiers = 0u;
     return key->read(event, MINI_WAIT_FOREVER) == MINI_OK;
 }
 
-static void status_file_error(char *status, size_t size, const char *prefix, int result)
+static void status_file_error(char *status, uint32_t size, const char *prefix, int result)
 {
-    (void)snprintf(status, size, "%s: %s", prefix, nano_file_result_text(result));
+    nano_string_set(status, size, prefix);
+    nano_string_append(status, size, ": ");
+    nano_string_append(status, size, nano_file_result_text(result));
 }
 
 static bool save_buffer(const mini_fs_api_t *fs,
                         const char *path,
                         nano_buffer_t *buffer,
                         char *status,
-                        size_t status_size)
+                        uint32_t status_size)
 {
     int result = nano_file_save(fs, path, buffer);
     if (result != NANO_FILE_OK) {
         status_file_error(status, status_size, "Save failed", result);
         return false;
     }
-    (void)snprintf(status, status_size, "Wrote %u bytes", (unsigned)buffer->length);
+    nano_string_set(status, status_size, "Wrote ");
+    nano_string_append_u32(status, status_size, buffer->length);
+    nano_string_append(status, status_size, " bytes");
     return true;
 }
 
@@ -85,14 +91,15 @@ static void search_prompt(nano_ui_t *ui,
                           const mini_key_input_api_t *key,
                           const char *path,
                           char *status,
-                          size_t status_size)
+                          uint32_t status_size)
 {
     char query[NANO_SEARCH_MAX + 1u];
     uint32_t length = 0u;
     query[0] = '\0';
 
     for (;;) {
-        (void)snprintf(status, status_size, "Search: %s", query);
+        nano_string_set(status, status_size, "Search: ");
+        nano_string_append(status, status_size, query);
         if (!nano_ui_render(ui, buffer, path, status)) return;
 
         mini_key_event_t event;
@@ -100,21 +107,23 @@ static void search_prompt(nano_ui_t *ui,
 
         if ((event.type == MINI_KEY_EVENT_SPECIAL && event.key == MINI_KEY_ESCAPE) ||
             is_ctrl_char(&event, 'c')) {
-            (void)snprintf(status, status_size, "Search cancelled");
+            nano_string_set(status, status_size, "Search cancelled");
             return;
         }
 
         if (event.type == MINI_KEY_EVENT_SPECIAL && event.key == MINI_KEY_ENTER) {
             if (length == 0u) {
-                (void)snprintf(status, status_size, "Empty search");
+                nano_string_set(status, status_size, "Empty search");
                 return;
             }
             uint32_t position = 0u;
             if (nano_buffer_search_forward(buffer, query, length, &position)) {
                 nano_buffer_set_cursor(buffer, position);
-                (void)snprintf(status, status_size, "Found: %s", query);
+                nano_string_set(status, status_size, "Found: ");
+                nano_string_append(status, status_size, query);
             } else {
-                (void)snprintf(status, status_size, "Not found: %s", query);
+                nano_string_set(status, status_size, "Not found: ");
+                nano_string_append(status, status_size, query);
             }
             return;
         }
@@ -141,11 +150,11 @@ static bool confirm_exit(nano_ui_t *ui,
                          const mini_key_input_api_t *key,
                          const char *path,
                          char *status,
-                         size_t status_size)
+                         uint32_t status_size)
 {
     if (!buffer->dirty) return true;
 
-    (void)snprintf(status, status_size, "Save modified buffer?  Y Yes  N No  C Cancel");
+    nano_string_set(status, status_size, "Save modified buffer?  Y Yes  N No  C Cancel");
     if (!nano_ui_render(ui, buffer, path, status)) return false;
 
     for (;;) {
@@ -153,7 +162,7 @@ static bool confirm_exit(nano_ui_t *ui,
         if (!read_event(key, &event)) continue;
 
         if (event.type == MINI_KEY_EVENT_SPECIAL && event.key == MINI_KEY_ESCAPE) {
-            (void)snprintf(status, status_size, "Exit cancelled");
+            nano_string_set(status, status_size, "Exit cancelled");
             return false;
         }
         if (event.type != MINI_KEY_EVENT_CHAR ||
@@ -166,7 +175,7 @@ static bool confirm_exit(nano_ui_t *ui,
         }
         if (event.codepoint == 'n' || event.codepoint == 'N') return true;
         if (event.codepoint == 'c' || event.codepoint == 'C') {
-            (void)snprintf(status, status_size, "Exit cancelled");
+            nano_string_set(status, status_size, "Exit cancelled");
             return false;
         }
     }
@@ -176,7 +185,7 @@ static void handle_special(nano_buffer_t *buffer,
                            const mini_key_event_t *event,
                            uint32_t page_rows,
                            char *status,
-                           size_t status_size)
+                           uint32_t status_size)
 {
     switch (event->key) {
     case MINI_KEY_LEFT: nano_buffer_move_left(buffer); break;
@@ -189,12 +198,12 @@ static void handle_special(nano_buffer_t *buffer,
     case MINI_KEY_PAGE_DOWN: nano_buffer_page_down(buffer, page_rows); break;
     case MINI_KEY_ENTER:
         if (!nano_buffer_insert_char(buffer, '\n')) {
-            (void)snprintf(status, status_size, "Buffer full or out of memory");
+            nano_string_set(status, status_size, "Buffer full or out of memory");
         }
         break;
     case MINI_KEY_TAB:
         if (!nano_buffer_insert_spaces(buffer, 4u)) {
-            (void)snprintf(status, status_size, "Buffer full or out of memory");
+            nano_string_set(status, status_size, "Buffer full or out of memory");
         }
         break;
     case MINI_KEY_BACKSPACE:
@@ -261,15 +270,14 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    nano_memory_context_t memory_context = {
-        .memory = api->memory,
-    };
-    const nano_allocator_t allocator = {
-        .ctx = &memory_context,
-        .alloc = memory_alloc_adapter,
-        .realloc = memory_realloc_adapter,
-        .free = memory_free_adapter,
-    };
+    nano_memory_context_t memory_context;
+    memory_context.memory = api->memory;
+
+    nano_allocator_t allocator;
+    allocator.ctx = &memory_context;
+    allocator.alloc = memory_alloc_adapter;
+    allocator.realloc = memory_realloc_adapter;
+    allocator.free = memory_free_adapter;
 
     nano_buffer_t buffer;
     if (!nano_buffer_init(&buffer, &allocator)) {
@@ -294,9 +302,9 @@ int main(int argc, char **argv)
     }
 
     char status[NANO_STATUS_MAX];
-    status[0] = '\0';
+    nano_string_clear(status, sizeof(status));
     if (load_result == NANO_FILE_NEW) {
-        (void)snprintf(status, sizeof(status), "New file");
+        nano_string_set(status, sizeof(status), "New file");
     }
 
     bool running = true;
@@ -307,7 +315,7 @@ int main(int argc, char **argv)
             say(api->system, "nano: display error\n");
             return 6;
         }
-        status[0] = '\0';
+        nano_string_clear(status, sizeof(status));
 
         mini_key_event_t event;
         if (!read_event(api->input->key, &event)) continue;
@@ -337,7 +345,7 @@ int main(int argc, char **argv)
             (event.modifiers & (MINI_MOD_CTRL | MINI_MOD_ALT)) == 0u &&
             event.codepoint >= 0x20u && event.codepoint <= 0x7eu) {
             if (!nano_buffer_insert_char(&buffer, (char)event.codepoint)) {
-                (void)snprintf(status, sizeof(status), "Buffer full or out of memory");
+                nano_string_set(status, sizeof(status), "Buffer full or out of memory");
             }
         }
     }
