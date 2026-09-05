@@ -58,6 +58,36 @@ static int alloc_node(void)
     return -1;
 }
 
+static bool parent_path(const char *path, char *out, size_t out_size)
+{
+    if (path == NULL || path[0] != '/' || strcmp(path, "/") == 0) return false;
+    size_t len = strlen(path);
+    if (len + 1u > out_size) return false;
+    memcpy(out, path, len + 1u);
+    char *slash = strrchr(out, '/');
+    if (slash == NULL) return false;
+    if (slash == out) out[1] = '\0';
+    else *slash = '\0';
+    return true;
+}
+
+static mini_result_t require_parent_dir(const char *path)
+{
+    char parent[128];
+    if (!parent_path(path, parent, sizeof(parent))) return MINI_ERR_INVALID;
+    int i = find_node(parent);
+    if (i < 0) return MINI_ERR_NOT_FOUND;
+    return g_fake.fs_nodes[i].is_dir ? MINI_OK : MINI_ERR_NOT_DIR;
+}
+
+static bool path_is_child_of(const char *path, const char *directory)
+{
+    size_t len = strlen(directory);
+    if (strncmp(path, directory, len) != 0) return false;
+    if (strcmp(directory, "/") == 0) return path[1] != '\0';
+    return path[len] == '/';
+}
+
 void fake_fs_add_file(const char *path, const char *content)
 {
     int i = alloc_node();
@@ -91,6 +121,8 @@ static mini_result_t fake_fs_open_cb(void *ctx, const char *path, uint32_t flags
     if (node_i >= 0 && (flags & MINI_FS_CREATE) && (flags & MINI_FS_EXCL)) return MINI_ERR_EXISTS;
     if (node_i < 0) {
         if (!(flags & MINI_FS_CREATE)) return MINI_ERR_NOT_FOUND;
+        mini_result_t parent_result = require_parent_dir(path);
+        if (parent_result != MINI_OK) return parent_result;
         node_i = alloc_node();
         if (node_i < 0) return MINI_ERR_NO_SPACE;
         fake_fs_node_t *n = &f->fs_nodes[node_i];
@@ -192,6 +224,60 @@ static mini_result_t fake_fs_stat_cb(void *ctx, const char *path, uint32_t *out_
     if (i < 0) return MINI_ERR_NOT_FOUND;
     *out_type = f->fs_nodes[i].is_dir ? MINI_FS_TYPE_DIRECTORY : MINI_FS_TYPE_FILE;
     *out_size = f->fs_nodes[i].size;
+    return MINI_OK;
+}
+
+static mini_result_t fake_fs_rename_cb(void *ctx, const char *old_path, const char *new_path)
+{
+    (void)ctx;
+    int old_i = find_node(old_path);
+    if (old_i < 0) return MINI_ERR_NOT_FOUND;
+    if (find_node(new_path) >= 0) return MINI_ERR_EXISTS;
+    mini_result_t parent_result = require_parent_dir(new_path);
+    if (parent_result != MINI_OK) return parent_result;
+    snprintf(g_fake.fs_nodes[old_i].path, sizeof(g_fake.fs_nodes[old_i].path), "%s", new_path);
+    return MINI_OK;
+}
+
+static mini_result_t fake_fs_remove_file_cb(void *ctx, const char *path)
+{
+    (void)ctx;
+    int i = find_node(path);
+    if (i < 0) return MINI_ERR_NOT_FOUND;
+    if (g_fake.fs_nodes[i].is_dir) return MINI_ERR_IS_DIR;
+    g_fake.fs_nodes[i].exists = false;
+    return MINI_OK;
+}
+
+static mini_result_t fake_fs_mkdir_cb(void *ctx, const char *path)
+{
+    (void)ctx;
+    if (find_node(path) >= 0) return MINI_ERR_EXISTS;
+    mini_result_t parent_result = require_parent_dir(path);
+    if (parent_result != MINI_OK) return parent_result;
+    int i = alloc_node();
+    if (i < 0) return MINI_ERR_NO_SPACE;
+    fake_fs_node_t *n = &g_fake.fs_nodes[i];
+    n->exists = true;
+    n->is_dir = true;
+    n->size = 0u;
+    snprintf(n->path, sizeof(n->path), "%s", path);
+    return MINI_OK;
+}
+
+static mini_result_t fake_fs_rmdir_cb(void *ctx, const char *path)
+{
+    (void)ctx;
+    int i = find_node(path);
+    if (i < 0) return MINI_ERR_NOT_FOUND;
+    if (!g_fake.fs_nodes[i].is_dir) return MINI_ERR_NOT_DIR;
+    for (int j = 0; j < 16; ++j) {
+        if (j != i && g_fake.fs_nodes[j].exists &&
+            path_is_child_of(g_fake.fs_nodes[j].path, path)) {
+            return MINI_ERR_NOT_EMPTY;
+        }
+    }
+    g_fake.fs_nodes[i].exists = false;
     return MINI_OK;
 }
 
@@ -351,6 +437,10 @@ minishell_services_port_t fake_full_port(void)
     p.fs_seek = fake_fs_seek_cb;
     p.fs_sync = fake_fs_sync_cb;
     p.fs_stat = fake_fs_stat_cb;
+    p.fs_rename = fake_fs_rename_cb;
+    p.fs_remove_file = fake_fs_remove_file_cb;
+    p.fs_mkdir = fake_fs_mkdir_cb;
+    p.fs_rmdir = fake_fs_rmdir_cb;
     p.monotonic_us = fake_mono;
     p.sleep_ms = fake_sleep;
     p.time_location_capabilities = MINI_TIMELOC_CAP_UTC | MINI_TIMELOC_CAP_SET_UTC |
