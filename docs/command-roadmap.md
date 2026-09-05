@@ -63,22 +63,22 @@ model. The current Filesystem ABI is based on absolute logical paths.
 The default is one independently built ELF per command under `apps/<name>/`,
 installed as `/sd/apps/<name>.elf`.
 
-### Stage A - minimum useful file environment
+### Stage A - minimum useful file environment — COMPLETE
 
-The Stage-A source implementation is complete; the four namespace commands are
-pending Task-6 hardware validation.
+The complete Stage-A set is implemented and validated on the Tab5 reference
+platform.
 
 | Command | Initial MiniShell scope | Status / ABI note |
 | --- | --- | --- |
 | `cat` | display text files | implemented and validated |
 | `nano` | open/edit/search/save text files | implemented and validated |
 | `cp` | copy one file to another path | implemented and validated; original Filesystem ABI sufficient |
-| `mv` | rename one regular file, no overwrite | implemented in Task 6; uses appended `rename` |
-| `rm` | remove one regular file | implemented in Task 6; uses appended `remove_file` |
-| `mkdir` | create one directory | implemented in Task 6; uses appended `mkdir` |
-| `rmdir` | remove one empty directory | implemented in Task 6; uses appended `rmdir` |
+| `mv` | rename one regular file, no overwrite | implemented and validated; uses appended `rename` |
+| `rm` | remove one regular file | implemented and validated; uses appended `remove_file` |
+| `mkdir` | create one directory | implemented and validated; uses appended `mkdir` |
+| `rmdir` | remove one empty directory | implemented and validated; uses appended `rmdir` |
 
-Task 6 also adds `MINI_ERR_NOT_EMPTY` so `rmdir` can distinguish a non-empty
+Task 6 also added `MINI_ERR_NOT_EMPTY` so `rmdir` can distinguish a non-empty
 directory from a generic access or I/O error.
 
 `cat` is not considered essential; it remains because it is already implemented
@@ -173,7 +173,7 @@ check current ABI
                 `-- no  -> reconsider command/design
 ```
 
-Task 5 and Task 6 now provide concrete examples:
+Task 5 and Task 6 provide concrete examples:
 
 ```text
 cp       original Filesystem ABI was sufficient
@@ -212,10 +212,10 @@ cp                       COMPLETE
 Filesystem ABI review    COMPLETE
         |
         v
-mv / rm / mkdir / rmdir  TASK 6 VALIDATION
+mv / rm / mkdir / rmdir  COMPLETE (Stage A)
         |
         v
-free / date / df
+free / date / df         PLANNED (Stage C)
 ```
 
 This is intentionally a small command set. MiniShell should become useful without
