@@ -123,7 +123,7 @@ power on
    -> $>
 ```
 
-See [`docs/task0.md`](docs/task0.md) for build steps and success criteria.
+See [`docs/task0.md`](docs/task0.md) for build steps and validation details.
 
 ## Documents
 
@@ -134,11 +134,19 @@ See [`docs/task0.md`](docs/task0.md) for build steps and success criteria.
 
 ## Current Status
 
-Task 0 framework builds and boots on the M5Stack Tab5 / ESP32-P4 rev v1.3. The
-resident MiniShell shell starts, and SD mounting has been observed successfully
-after reboot. The console is being moved from external UART0 to the built-in USB
-Serial/JTAG controller before completing the runtime ELF validation.
+**Task 0 is complete and hardware-validated on M5Stack Tab5 / ESP32-P4 rev v1.3.**
 
-**Task 0 is not complete yet.** The remaining hardware validation is to confirm
-interactive USB console input, list `/sd/apps`, run `hello.elf`, return to the
-shell, and repeat the launch without rebooting or an obvious leak.
+Validated behavior includes:
+
+- interactive USB Serial/JTAG shell using the interrupt-driven driver
+- MiniShell-owned FAT32 microSD mounted at `/sd`
+- `help`, `status`, and `ls` shell commands
+- runtime lookup of `/sd/apps/hello.elf`
+- native RISC-V ELF loading through `espressif/elf_loader` 1.3.3
+- ELF application call into the resident MiniShell API through `mini_api_get()`
+- clean application return to the resident shell
+- repeated load/run/unload cycles without reboot or an obvious leak
+- shell remains available when SD initialization fails
+
+The next milestone can build on this validated vertical slice rather than adding
+more loader or console infrastructure.
