@@ -6,10 +6,10 @@ MiniShell uses a unit-first test hierarchy:
 2. separately built ELF tests for the application ABI/runtime boundary;
 3. real-hardware checks for platform backends and resident facilities.
 
-The `tests/unit` suite covers all six foundational ABIs with fake backends and
-also includes resident-module tests such as file transfer and power/system.
-Error paths, timing/resource edge cases, framing, cleanup, and resident routing
-can therefore remain deterministic without hardware.
+The `tests/unit` suite covers all six foundational ABIs, resident modules such as
+file transfer and power/system, and pure application logic where it benefits from
+host testing. Error paths and state transitions can therefore remain deterministic
+without hardware.
 
 ## Run the host unit tests
 
@@ -48,12 +48,18 @@ abi_display_unit
 abi_input_unit
 abi_transfer_unit
 resident_power_unit
+nano_editor_unit
 ```
 
 The first six are the Task 1 application-ABI service groups. `abi_transfer_unit`
 exercises the resident MFT1 file-transfer module over a fake byte stream and fake
-filesystem, including successful put/get and CRC-failure cleanup.
+filesystem.
 
 `resident_power_unit` covers the private resident power-module contract. It is
-intentionally not named `abi_power_unit` because Task 3 has not introduced a
+intentionally not named `abi_power_unit` because Task 3 did not introduce a
 public application-facing Power ABI.
+
+`nano_editor_unit` covers Task 4's pure-C editor buffer: insert/delete, navigation,
+line/column tracking, search/wrap, growth, dirty state, and teardown. It tests the
+application's data model without requiring MiniShell, ESP-IDF, a display, or a
+filesystem.
