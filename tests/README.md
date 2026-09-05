@@ -1,13 +1,15 @@
 # MiniShell Tests
 
-Task 1 uses a unit-first test hierarchy:
+MiniShell uses a unit-first test hierarchy:
 
-1. host unit tests for service semantics and edge cases;
+1. host unit tests for service/module semantics and edge cases;
 2. separately built ELF tests for the application ABI/runtime boundary;
-3. real-hardware checks for platform backends.
+3. real-hardware checks for platform backends and resident facilities.
 
-The current `tests/unit` suite covers all six foundational ABIs with fake
-backends so error paths and timing/resource edge cases are deterministic.
+The `tests/unit` suite covers all six foundational ABIs with fake backends and
+also includes resident-module tests such as file transfer. Error paths,
+timing/resource edge cases, framing, and cleanup can therefore remain
+deterministic without hardware.
 
 ## Run the host unit tests
 
@@ -35,7 +37,7 @@ ASAN_OPTIONS=detect_leaks=1 \
 
 ## Test groups
 
-CTest registers one group per foundational ABI:
+CTest currently registers:
 
 ```text
 abi_system_unit
@@ -44,4 +46,9 @@ abi_filesystem_unit
 abi_time_location_unit
 abi_display_unit
 abi_input_unit
+abi_transfer_unit
 ```
+
+The first six are the Task 1 application-ABI service groups. `abi_transfer_unit`
+exercises the resident MFT1 file-transfer module over a fake byte stream and fake
+filesystem, including successful put/get and CRC-failure cleanup.
