@@ -7,11 +7,13 @@ MiniShell is a resident MCU application environment.
 ```text
 +------------------------------------------------------+
 |                    Applications                      |
-|          future: med.elf   minift8.elf   ...        |
+|          med.elf   future minift8.elf   ...         |
 +----------------------- MiniShell ABI ----------------+
 |                    MiniShell Core                    |
 |                                                      |
-|  shell   app manager   diagnostics   service APIs    |
+| shell   app manager   resident facilities   services |
+|                         |                            |
+|                     file transfer                    |
 +-------------------- service boundary ----------------+
 |                  Platform Services                   |
 |                                                      |
@@ -22,26 +24,24 @@ MiniShell is a resident MCU application environment.
 +------------------------------------------------------+
 ```
 
-The key rule is that portable applications depend on MiniShell, not directly on
-ESP-IDF or Tab5 hardware.
+Portable applications depend on MiniShell, not directly on ESP-IDF or Tab5
+hardware.
 
 ## 2. Reference platform
 
-V1 reference platform:
+Current reference platform:
 
 - M5Stack Tab5
 - ESP32-P4
-- native RISC-V applications
-- external PSRAM for comfortable runtime loading and buffers
-- microSD as an important app/user storage backend
-- ESP-IDF as the underlying platform SDK
+- native RISC-V ELF applications
+- external PSRAM
+- microSD as app/user storage
+- USB Serial/JTAG as the first shell, Display/Input, and file-transfer transport
+- ESP-IDF as the platform SDK
 
-MiniShell may depend heavily on ESP-IDF inside the ESP32-P4 platform port. That
-dependency stops at the public MiniShell ABI.
+ESP-IDF dependencies stop at the public MiniShell ABI.
 
 ## 3. Major modules
-
-The framework should remain deliberately small and modular.
 
 ```text
 MiniShell/
@@ -53,55 +53,68 @@ MiniShell/
 |-- core/
 |   |-- minishell_shell/
 |   |-- minishell_app/
-|   `-- minishell_services/
+|   |-- minishell_services/
+|   `-- minishell_transfer/
 |-- platform/
 |   `-- minishell_platform_tab5/
 |-- examples/
-|   `-- hello/
-`-- tests/              unit tests + ABI integration support
+|-- tools/
+|   `-- minishell_transfer.py
+`-- tests/
 ```
 
-Exact filenames may evolve. Responsibility and dependency boundaries matter more
-than directory aesthetics.
+Directory names may evolve. Responsibility, dependency, and ownership boundaries
+matter more than source-file aesthetics.
 
-A module is replaceable only when unrelated modules depend on its interface
-rather than its internal representation.
+## 4. Resident vs application placement
 
-## 4. Shell
+Placement follows the policy in `docs/resident-vs-app.md`.
+
+Keep functionality resident when MiniShell needs it to manage, provision,
+diagnose, recover, or own the application environment. Ordinary user/domain
+functionality normally belongs in a separately built ELF.
+
+```text
+resident
+    shell
+    app loader/lifecycle
+    ABI services
+    platform ownership
+    diagnostics/recovery
+    file transfer
+
+applications
+    editor
+    calculator
+    radio tools
+    future MiniFT8
+```
+
+Resident does not mean monolithic. A shell built-in should normally dispatch to a
+small resident module rather than implementing the whole feature in `shell.c`.
+
+BusyBox-style bundling is not the default. Use independent ELFs first; bundle
+closely related tiny tools only if measurement later justifies it.
+
+## 5. Shell
 
 The shell is the user-facing control plane.
 
-Initial responsibilities:
+Current responsibilities include:
 
-- command-line input
-- command parsing
-- built-in command dispatch
-- filesystem commands
-- application search path
-- launching an app by command name
-- returning to `M$>` after app exit
-- platform/service diagnostics
-- future trusted configuration commands such as setting UTC/default location
+- command-line input and parsing;
+- built-in command dispatch;
+- filesystem listing;
+- application search/launch;
+- lifecycle stress command;
+- platform/service diagnostics;
+- dispatch of resident provisioning commands such as `put` and `get`.
+
+The shell does not own the file-transfer protocol implementation. It delegates to
+`minishell_transfer`.
 
 V1 does not need POSIX pipelines, redirection, background jobs, users, or process
 management.
-
-The shell may consume MiniShell services internally but is not itself part of the
-application ABI.
-
-## 5. Filesystem namespace
-
-MiniShell exposes storage through a logical namespace.
-
-Initial targets include:
-
-```text
-/flash   internal persistent filesystem
-/sd      microSD filesystem
-```
-
-Applications use the Filesystem ABI and do not initialize, mount, unmount, or own
-the underlying storage hardware.
 
 ## 6. App manager
 
@@ -110,34 +123,31 @@ The app manager owns application lifecycle.
 ```text
 shell command
     |
-resolve app name/path
+resolve app
     |
-validate/load ELF
+load / relocate ELF
     |
-prepare app context
+MiniShell app begin
     |
 main(argc, argv)
     |
-app obtains mini_api_get()
-    |
-application runs in foreground
+application uses mini_api_get()
     |
 application returns
     |
-cleanup MiniShell-managed app resources
+MiniShell resource cleanup
     |
 unload ELF
     |
 restore shell foreground
 ```
 
-V1 runs one foreground native application at a time. No process isolation is
+One foreground native application runs at a time. No process isolation is
 provided.
 
 ## 7. Foundational service layer
 
-Task 1 defines and independently validates these six foundational application
-ABIs:
+Task 1 established six application-facing service ABIs:
 
 ```text
 system
@@ -148,63 +158,109 @@ display
 input
 ```
 
-Later service groups may include:
+Cross-cutting rules include:
+
+- append-only tables;
+- `struct_size` field checks;
+- capability bits and optional sub-APIs;
+- stable numeric meanings;
+- fixed-width MiniShell-owned public types;
+- explicit ownership/lifetime;
+- synchronous application-context V0 behavior;
+- architecture-specific binaries from portable source.
+
+A console is not itself an application ABI. The serial terminal is currently a
+platform implementation of Display/Input plus shell transport behavior.
+
+Later service groups may include audio, USB, network, and power/system control.
+
+## 8. Filesystem namespace
+
+Initial logical storage namespace:
 
 ```text
-audio
-USB
-network
-power/system control
+/sd
+future: /flash
 ```
 
-`console` is not a foundational ABI. A terminal/console is a higher-level
-composition of output and input behavior. `system.write()` is a diagnostic sink,
-not application UI.
+Applications use the Filesystem ABI and do not initialize or own storage
+hardware.
 
-A service is not considered established merely because a table exists. Each
-foundational ABI requires:
+Resident facilities may compose the established service semantics internally.
+File transfer uses the Filesystem service for data I/O while platform-private
+callbacks handle the final filesystem publication operation that is intentionally
+not part of the current app ABI.
 
-1. a platform-neutral documented contract;
-2. one clear hardware/state owner;
-3. a resident implementation behind a clean platform boundary;
-4. comprehensive unit tests as the primary correctness/regression suite;
-5. a focused separately built ELF integration test;
-6. real-hardware validation for platform-dependent behavior;
-7. defined success/error behavior;
-8. defined ownership/cleanup behavior;
-9. a reviewed backward-compatible extension path.
+## 9. Resident file transfer
 
-Canonical contracts live in the standalone `*-abi.md` documents.
+Task 2 adds a resident bootstrap/recovery facility:
 
-## 8. Platform layer
+```text
+shell put/get
+     |
+     v
+minishell_transfer
+     |                    |
+     |                    +--> Filesystem service
+     |
+     `--> raw byte-stream callbacks
+                              |
+                              v
+                       USB Serial/JTAG
+```
+
+The transfer module owns:
+
+- MFT1 framing;
+- ready handshake;
+- raw payload transfer;
+- CRC-32 verification;
+- timeout/error handling;
+- temporary-file workflow.
+
+The platform owns:
+
+- raw transport driver access;
+- completed-file replace/remove operations.
+
+On receive, MiniShell writes `<destination>.mft.part`, verifies and syncs the
+complete payload, then publishes it. FATFS cannot rename over an existing name,
+so the Tab5 backend temporarily moves the old destination to
+`<destination>.mft.bak`, publishes the verified new file, and removes the backup;
+failed publication attempts rollback the old destination where possible.
+
+File transfer is resident because it is needed to provision/recover applications
+and because it temporarily owns the serial byte stream. Requiring a transfer ELF
+to install transfer ELFs would invert the bootstrap dependency.
+
+## 10. Platform layer
 
 The platform layer translates MiniShell concepts into hardware/SDK operations.
 
-For Tab5 this may include:
+For Tab5 this currently includes:
 
 ```text
-platform/minishell_platform_tab5/
-    boot/startup
-    diagnostic transport
-    memory allocator support
-    storage/filesystem support
-    monotonic timer / RTC / location sources
-    display
-    input
-    future audio / USB / network / power
+USB Serial/JTAG console transport
+memory allocation support
+SD / POSIX-VFS filesystem support
+monotonic timer / sleep
+terminal Display backend
+terminal Input backend
+raw transfer byte stream
+completed-file replace/remove
 ```
 
-The platform layer may freely include ESP-IDF and M5Stack-specific headers.
-Public MiniShell headers may not.
+Future platform work may add RTC/location persistence, physical LCD/touch, audio,
+network, and power control.
 
-The ELF loader is resident infrastructure used by the app manager. It is not an
-application-facing hardware service.
+Platform code may freely include ESP-IDF/M5Stack types. Public MiniShell headers
+may not.
 
-## 9. Hardware ownership
+## 11. Hardware ownership
 
 MiniShell owns shared hardware after boot.
 
-Example filesystem path:
+Examples:
 
 ```text
 application
@@ -218,255 +274,90 @@ ESP-IDF VFS/FATFS
 SD hardware
 ```
 
-Example RTC path:
-
 ```text
-application
+shell put/get
    |
-utc_get() / utc_set()
+resident transfer module
    |
-Time/Location service
+private transport callbacks
    |
-MiniShell-owned RTC driver
-   |
-hardware RTC
+USB Serial/JTAG driver
 ```
-
-An application may request a global state change through the ABI when an
-operation such as `utc_set()` or default-location setting is supported. It still
-does not own or manipulate the RTC/storage device directly.
 
 Direct hardware access remains technically possible because MiniShell provides no
-protection. Such access leaves the portable contract.
+protection, but it leaves the portable contract.
 
-## 10. Replaceable internals
+## 12. Memory model and protection
 
-MiniShell modularity is not simply source-file splitting. The goal is that one
-implementation can change without forcing unrelated modules or apps to change.
+MiniShell and applications share one MCU address space.
 
-Examples:
+Current assumptions:
 
-```text
-change FATFS backend              -> Filesystem ABI unchanged
-change diagnostic transport       -> System ABI unchanged
-change allocator internals        -> Memory ABI unchanged
-change RTC/GPS implementation     -> Time/Location ABI unchanged
-change TFT/e-paper implementation -> Display ABI unchanged
-change keyboard/terminal source   -> Input ABI unchanged
-change platform port              -> app source rebuilds, not redesigns
-```
+- no virtual memory;
+- no process address-space isolation;
+- no privilege boundary;
+- one foreground loaded app;
+- MiniShell remains resident;
+- MiniShell-managed memory/files are reclaimed on normal app exit.
 
-This requires small interfaces, explicit ownership, and no private-type leakage.
+This is cooperative cleanup, not protection from arbitrary memory corruption.
 
-It also improves testability: service policy/state logic should sit above narrow
-platform interfaces so host unit tests can replace hardware backends with fakes.
-
-## 11. Memory model
-
-MiniShell and applications share the MCU address space.
-
-V1 assumptions:
-
-- no virtual memory
-- no process address-space isolation
-- no privilege boundary
-- one foreground loaded app
-- MiniShell remains resident while the app runs
-- loaded app memory is reclaimed after exit where the ELF loader permits
-
-The Memory ABI gives apps ordinary dynamic memory without exposing the platform
-heap and lets MiniShell track app-owned allocations for normal teardown.
-
-MiniShell cannot safely recover from arbitrary memory corruption.
-
-## 12. ABI boundary
-
-Task 0 validated:
-
-```text
-app.elf
-   |
-main(argc, argv)
-   |
-mini_api_get()
-   |
-versioned mini_api_t
-   |
-resident services
-```
-
-Cross-ABI rules are centralized in `docs/abi-foundation.md`:
-
-- append-only tables
-- `struct_size` field-presence checks
-- capability bits and optional sub-APIs
-- stable numeric meanings
-- fixed-width MiniShell-owned public types
-- explicit ownership/lifetime
-- source portability with architecture-specific binaries
-- application-context, synchronous-first V0 behavior
-
-## 13. Resource ownership
-
-MiniShell remains the hardware/service owner. The foreground app may own logical
-resources produced through MiniShell APIs.
-
-```text
-foreground app context
-    +-- MiniShell-managed allocations
-    +-- open file handles
-    `-- future logical service resources
-```
-
-Normal app teardown reclaims remaining MiniShell-managed resources before ELF
-unload where practical.
-
-This is cooperative cleanup, not protection.
-
-## 14. Foreground Display/Input model
-
-V0 has one foreground app, one primary logical display, and one primary logical
-input stream.
+## 13. Foreground Display/Input model
 
 ```text
 shell foreground
     -> launch app
     -> app uses Display/Input ABI
     -> app returns
-    -> stale queued app input is discarded
+    -> stale queued app input discarded
     -> shell foreground restored
 ```
 
-No acquire/release handles are needed in V0. MiniShell remains the physical
-hardware owner throughout.
+MiniShell remains the hardware owner throughout.
 
-## 15. ABI testing
+Resident transfer is different: while `put`/`get` runs, the shell synchronously
+hands the serial transport to the transfer protocol; no foreground app is active.
 
-Testing has three layers with different responsibilities.
+## 14. Testing model
 
-### Unit tests — primary
-
-Every foundational service has a comprehensive unit suite. Wherever practical,
-service semantics are exercised through ABI-shaped interfaces over fake platform
-backends.
-
-Unit tests carry the broad behavioral coverage:
+Testing has three layers:
 
 ```text
-success/error paths
-boundary values
-struct_size compatibility
-capability combinations
-resource bookkeeping
-state transitions
-partial/failure behavior
-timeouts/freshness
-cleanup and repeated operations
+host unit tests
+    -> focused ELF ABI integration
+    -> hardware/platform validation
 ```
 
-They should be fast and deterministic enough to run constantly during
-implementation and refactoring.
+Task 1's six ABI groups remain the primary service correctness suites.
 
-### Runtime-loaded ELF integration tests
+Task 2 adds a resident transfer unit group using a fake byte stream and fake
+filesystem. Hardware testing then verifies the real USB Serial/JTAG transport,
+SD persistence, replacement behavior, and return to normal shell/app operation.
 
-Task 1 integration tests are:
-
-```text
-abi_system.elf
-abi_memory.elf
-abi_fs.elf
-abi_time_location.elf
-abi_display.elf
-abi_input.elf
-```
-
-Each is separately built and uses only public MiniShell headers. Their purpose is
-not exhaustive behavior coverage; they prove the real binary/runtime path:
-
-```text
-ELF app
-   -> loader
-   -> mini_api_get()
-   -> public table layout/calling convention
-   -> resident service
-   -> teardown/unload
-```
-
-### Hardware/platform validation
-
-Real Tab5 testing proves backend behavior that unit mocks cannot establish, such
-as SD persistence, RTC retention, hardware timer behavior, physical display
-refresh, and terminal/touch input routing.
-
-The preferred sequence is:
-
-```text
-unit suite
-    -> focused ELF integration
-    -> hardware/backend validation
-```
-
-A passing ELF or hardware smoke test does not replace a failing or incomplete
-unit suite.
-
-## 16. Diagnostics as architecture
-
-Platform/service state should be inspectable independently of user apps.
-
-Examples may include:
-
-```text
-M$> status
-M$> mem
-M$> storage status
-M$> ls /sd
-M$> date
-M$> location
-M$> rtc status
-```
-
-A service that works independently narrows later application debugging sharply.
-
-## 17. Development milestones
+## 15. Milestones
 
 ### Task 0 — Framework proof — COMPLETE
 
-Validated on real Tab5 / ESP32-P4 hardware:
+Validated boot, shell, SD, ELF load, `mini_api_get()`, resident service call,
+return, and unload.
 
-1. boot to `M$>` over USB Serial/JTAG;
-2. mount microSD;
-3. load `/sd/apps/hello.elf`;
-4. resolve `mini_api_get()`;
-5. call resident `system.write()`;
-6. return and unload;
-7. repeat without rebooting.
+### Task 1 — ABI Foundation — COMPLETE
 
-See `docs/task0.md`.
+System, Memory, Filesystem, Time/Location, Display, and Input are documented,
+implemented, unit tested, ELF tested, hardware tested through the available
+backend, and lifecycle-stress tested through 100 repeated ELF runs.
 
-### Task 1 — ABI Foundation — ACTIVE
+### Task 2 — Resident File Transfer — ACTIVE
 
-Define, implement, and independently validate:
+Implement and validate `put`/`get` over USB Serial/JTAG using the MFT1 protocol.
+The first implementation includes the resident module, Tab5 raw transport,
+CRC-verified temporary-file receive path, replacement/rollback, host Python
+helper, and host unit test.
 
-```text
-system
-memory
-filesystem
-time/location
-display
-input
-```
+See `docs/task2.md`.
 
-All six design contracts are provisional and documented. Implementation now uses
-unit-test-first verification, followed by focused ELF integration and required
-real-hardware validation.
+### Later
 
-See `docs/task1.md`.
-
-### Later milestones
-
-After Task 1 is proven, add the first real application. `med` remains a strong
-candidate because it can exercise several established services without requiring
-a specialized hardware path.
-
-Additional ABIs should be added only when justified by real system/application
-requirements.
+Continue adding resident facilities only when they are runtime/recovery concerns.
+Add ordinary functionality as independent ELF applications, with `med` still a
+strong early application candidate after file transfer is proven.
