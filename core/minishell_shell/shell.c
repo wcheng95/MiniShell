@@ -9,6 +9,7 @@
 #include "minishell_app.h"
 #include "minishell_platform.h"
 #include "minishell_shell.h"
+#include "minishell_transfer.h"
 
 #define SHELL_LINE_MAX 256
 #define SHELL_ARG_MAX 16
@@ -94,6 +95,8 @@ static void cmd_help(void)
     printf("help              show this help\n");
     printf("status            show Task 0 platform status\n");
     printf("ls [path]         list a directory\n");
+    printf("put <path>        receive a file from host\n");
+    printf("get <path>        send a file to host\n");
     printf("exec <app> [...]  run /sd/apps/<app>.elf\n");
     printf("repeat N <app>    run an app N times (stress/lifecycle test)\n");
     printf("<app> [...]       run an app as a shell command\n");
@@ -190,6 +193,24 @@ static void cmd_repeat(int argc, char **argv)
     printf("repeat: PASS %lu/%lu %s\n", count, count, app);
 }
 
+static void cmd_put(int argc, char **argv)
+{
+    if (argc != 2) {
+        printf("usage: put <remote-path>\n");
+        return;
+    }
+    (void)minishell_transfer_put(argv[1]);
+}
+
+static void cmd_get(int argc, char **argv)
+{
+    if (argc != 2) {
+        printf("usage: get <remote-path>\n");
+        return;
+    }
+    (void)minishell_transfer_get(argv[1]);
+}
+
 void minishell_shell_run(void)
 {
     char line[SHELL_LINE_MAX];
@@ -223,6 +244,16 @@ void minishell_shell_run(void)
             } else {
                 (void)cmd_ls(argc == 2 ? argv[1] : "/");
             }
+            continue;
+        }
+
+        if (strcmp(argv[0], "put") == 0) {
+            cmd_put(argc, argv);
+            continue;
+        }
+
+        if (strcmp(argv[0], "get") == 0) {
+            cmd_get(argc, argv);
             continue;
         }
 
