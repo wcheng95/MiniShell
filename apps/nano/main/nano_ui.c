@@ -1,7 +1,9 @@
 #include "nano_ui.h"
 
-#include <stdio.h>
+#include <stddef.h>
 #include <string.h>
+
+#include "nano_util.h"
 
 #define NANO_UI_LINE_MAX 256u
 
@@ -76,14 +78,14 @@ bool nano_ui_init(nano_ui_t *ui, const mini_display_api_t *display)
     }
 
     const mini_text_display_api_t *text = display->text;
-    if (text->get_info == NULL || text->clear == NULL ||
-        text->write_at == NULL) {
+    if (text->get_info == NULL || text->clear == NULL || text->write_at == NULL) {
         return false;
     }
 
-    mini_text_display_info_t info = {
-        .struct_size = sizeof(mini_text_display_info_t),
-    };
+    mini_text_display_info_t info;
+    info.struct_size = sizeof(mini_text_display_info_t);
+    info.columns = 0u;
+    info.rows = 0u;
     if (text->get_info(&info) != MINI_OK || info.columns < 20u || info.rows < 5u) {
         return false;
     }
@@ -114,8 +116,9 @@ bool nano_ui_render(nano_ui_t *ui,
     if (ui->text->clear() != MINI_OK) return false;
 
     char line_buffer[NANO_UI_LINE_MAX];
-    (void)snprintf(line_buffer, sizeof(line_buffer),
-                   "MiniShell nano  %s%s", path, buffer->dirty ? " *" : "");
+    nano_string_set(line_buffer, sizeof(line_buffer), "MiniShell nano  ");
+    nano_string_append(line_buffer, sizeof(line_buffer), path);
+    if (buffer->dirty) nano_string_append(line_buffer, sizeof(line_buffer), " *");
     if (!write_text(ui, 0u, line_buffer)) return false;
 
     uint32_t cursor_line = 0u;
@@ -142,10 +145,10 @@ bool nano_ui_render(nano_ui_t *ui,
     if (status_text != NULL && status_text[0] != '\0') {
         if (!write_text(ui, ui->rows - 2u, status_text)) return false;
     } else {
-        (void)snprintf(line_buffer, sizeof(line_buffer),
-                       "Ln %u, Col %u",
-                       (unsigned)(cursor_line + 1u),
-                       (unsigned)(cursor_column + 1u));
+        nano_string_set(line_buffer, sizeof(line_buffer), "Ln ");
+        nano_string_append_u32(line_buffer, sizeof(line_buffer), cursor_line + 1u);
+        nano_string_append(line_buffer, sizeof(line_buffer), ", Col ");
+        nano_string_append_u32(line_buffer, sizeof(line_buffer), cursor_column + 1u);
         if (!write_text(ui, ui->rows - 2u, line_buffer)) return false;
     }
 
