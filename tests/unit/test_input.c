@@ -39,8 +39,17 @@ bool test_input(void)
     TEST_EQ(input->key->read(&out, MINI_WAIT_NONE), MINI_OK);
     TEST_EQ(out.type, MINI_KEY_EVENT_SPECIAL);
     TEST_EQ(out.key, MINI_KEY_UP);
+
     out.struct_size = sizeof(out);
     TEST_EQ(input->key->read(&out, MINI_WAIT_NONE), MINI_ERR_NOT_READY);
+
+    /* A pull-based terminal backend may discover an already-buffered byte only
+     * when polled. MINI_WAIT_NONE must give the backend one zero-time poll. */
+    g_fake.input_injected_event = char_event('p');
+    g_fake.input_inject_on_wait = true;
+    out.struct_size = sizeof(out);
+    TEST_EQ(input->key->read(&out, MINI_WAIT_NONE), MINI_OK);
+    TEST_EQ(out.codepoint, (uint32_t)'p');
 
     g_fake.mono_us = 1000u;
     out.struct_size = sizeof(out);
