@@ -122,15 +122,19 @@ See [`docs/task0.md`](docs/task0.md).
 
 Task 1 builds the **MiniShell ABI foundation** before adding real applications.
 
-Initial service order:
+The six basic ABIs are:
 
 ```text
 system
 memory
 filesystem
-console/input
 time
+display
+input
 ```
+
+Display and input are intentionally separate fundamental services. A future
+console/terminal is a higher-level composition rather than a basic hardware ABI.
 
 Each ABI is developed independently:
 
@@ -142,31 +146,38 @@ define contract
   -> exercise errors and repeated runs
 ```
 
-Suggested focused tests:
+Focused tests:
 
 ```text
 abi_system.elf
 abi_memory.elf
 abi_fs.elf
-abi_console.elf
 abi_time.elf
+abi_display.elf
+abi_input.elf
 ```
 
 The test ELFs use the same public MiniShell ABI that future applications will use
 and must not include platform-private headers.
 
-`med` is postponed until the basic ABI suite is proven. It remains a strong first
-real application because it can then consume already-tested memory, filesystem,
-console/input, and lifecycle services rather than defining those services while
-being written.
+The ABI is designed for compatible growth. Service tables are append-only,
+extensible structures carry `struct_size`, and capability families such as text
+vs graphics display or text vs pointer input use optional sub-APIs so future
+hardware support does not break old applications.
 
-See [`docs/task1.md`](docs/task1.md).
+`med` is postponed until the six basic ABI boundaries are proven. It remains a
+strong first real application because it can then consume already-tested
+MiniShell services rather than defining those services while being written.
+
+See [`docs/task1.md`](docs/task1.md) and
+[`docs/abi-foundation.md`](docs/abi-foundation.md).
 
 ## Documents
 
 - [`docs/design-principles.md`](docs/design-principles.md)
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/app-abi.md`](docs/app-abi.md)
+- [`docs/abi-foundation.md`](docs/abi-foundation.md)
 - [`docs/task0.md`](docs/task0.md)
 - [`docs/task1.md`](docs/task1.md)
 
@@ -186,6 +197,6 @@ Validated Task 0 behavior includes:
 - repeated load/run/unload cycles without reboot or an obvious leak
 - shell remains available when SD initialization fails
 
-The filesystem ABI v0 contract is defined. The remaining basic ABIs will be
-designed, implemented, and tested one at a time before MiniShell moves on to a
-real application.
+The filesystem ABI v0 contract is defined. The six-service ABI foundation now
+has a draft extensibility contract and will be implemented and tested one service
+at a time before MiniShell moves on to a real application.
