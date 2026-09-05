@@ -24,7 +24,7 @@ The Application ABI should:
 
 The ABI is not a process-isolation or security boundary.
 
-## 2. Native application format
+## 2. Native application format and machine ABI
 
 V1 native applications use ELF.
 
@@ -32,9 +32,17 @@ ELF is the initial loading/container format, not the conceptual MiniShell servic
 architecture. A future runtime such as MicroPython or WASM may coexist with the
 same service model.
 
-Binaries are architecture-specific. The same source may be rebuilt for ESP32-P4
-RV32, a future RV64 target, Xtensa, ARM, or another supported architecture, but
-one compiled ELF is not expected to run across those architectures.
+The public MiniShell ABI is a C ABI. A native ELF must target the same machine ABI
+as the resident MiniShell, including compatible architecture/ISA, endianness,
+pointer width, calling convention, alignment rules, and C structure layout.
+
+The app and MiniShell do not need the identical compiler release as long as both
+conform to the same target ABI and the public C declarations.
+
+Binaries are therefore architecture/machine-ABI specific. The same source may be
+rebuilt for ESP32-P4 RV32, a future RV64 target, Xtensa, ARM, or another supported
+architecture, but one compiled ELF is not expected to run across incompatible
+machine ABIs.
 
 ## 3. Entry point
 
@@ -100,30 +108,59 @@ typedef struct {
 ```
 
 `system` is mandatory. Other services may be absent on a smaller platform and
-are represented by NULL top-level pointers.
+are represented by NULL top-level pointers after the app has verified that the
+field itself is present by `struct_size`.
 
 New services are appended after the established prefix.
 
 The cross-ABI compatibility rules for `struct_size`, capabilities, stable numeric
-values, caller-owned structures, ownership, and execution context live in
-`docs/abi-foundation.md`.
+values, caller-owned structures, ownership, machine ABI, and execution context
+live in `docs/abi-foundation.md`.
 
-## 6. ABI versioning
+## 6. ABI generation/versioning
 
-MiniShell exposes an ABI version plus `struct_size` on the top-level table.
+`abi_version` identifies an incompatible MiniShell ABI generation. It is not
+incremented for every compatible feature addition.
 
-Compatibility is not determined by comparing against `sizeof(the newest
-mini_api_t)` unconditionally. An application checks that the particular fields it
-requires are present, then checks the corresponding service-table fields and
-capabilities it needs.
+Compatible changes such as:
 
-Incompatible semantic changes require a new major ABI version. Compatible growth
-should prefer append-only extension.
+```text
+append a service pointer
+append a function
+add a capability bit
+add a new stable numeric value
+```
 
-ABI v1 must not be considered frozen until the Task 1 service contracts have
-survived implementation and hardware tests.
+remain in the same ABI generation when the append-only/`struct_size` rules keep
+old apps valid.
 
-## 7. MiniShell-owned public types
+Changing established layout or semantics incompatibly requires a new generation.
+
+During Task 1, ABI v1 remains provisional. The current `MINISHELL_ABI_VERSION`
+value used by Task 0 is therefore an experimental V1 marker until the service
+foundation is frozen.
+
+## 7. Compatibility checks
+
+An app first checks that the resident ABI generation is one it supports. Within a
+compatible generation, it then checks only the fields/capabilities it actually
+requires.
+
+Compatibility is **not** determined by unconditionally requiring:
+
+```c
+api->struct_size >= sizeof(the newest mini_api_t)
+```
+
+Instead, the app checks that `struct_size` reaches the specific top-level service
+field it plans to read, then repeats the same field-presence/capability checks
+inside that service table.
+
+This is what allows an app built with a newer header to use an older compatible
+resident runtime when the older runtime still provides everything that app
+actually needs.
+
+## 8. MiniShell-owned public types
 
 Public MiniShell headers use MiniShell-owned and fixed-width types.
 
@@ -141,7 +178,7 @@ handles.
 Platform-specific extension APIs may intentionally expose platform concepts, but
 those are outside the standard portable ABI.
 
-## 8. Foundational service contracts
+## 9. Foundational service contracts
 
 Task 1 defines six foundational service ABIs:
 
@@ -165,7 +202,7 @@ Canonical documents:
 
 This document does not duplicate those service definitions.
 
-## 9. Foreground application lifecycle
+## 10. Foreground application lifecycle
 
 V1 supports one foreground native application at a time.
 
@@ -175,6 +212,7 @@ shell command
     -> validate/load ELF
     -> prepare app context
     -> enter main(argc, argv)
+    -> application calls mini_api_get()
     -> application runs
     -> application returns exit status
     -> reclaim remaining MiniShell-managed app resources
@@ -187,7 +225,7 @@ The app manager owns this lifecycle.
 An application should normally return from `main()` rather than rebooting or
 powering down the MCU.
 
-## 10. Resource ownership during an app
+## 11. Resource ownership during an app
 
 MiniShell remains the owner of shared hardware and resident services while an app
 runs.
@@ -207,7 +245,7 @@ context so normal teardown can reclaim leftovers before the ELF is unloaded.
 This cleanup does not protect MiniShell from arbitrary memory corruption in the
 shared MCU address space.
 
-## 11. Foreground display/input model
+## 12. Foreground display/input model
 
 V0 has one foreground application and one primary logical display/input stream.
 
@@ -225,7 +263,7 @@ application acquire/release handles in V0.
 Queued stale input from a previous app instance must not be exposed across
 foreground handoff unless a future API explicitly defines such behavior.
 
-## 12. Direct-access escape hatch
+## 13. Direct-access escape hatch
 
 MiniShell intentionally does not provide MMU/process protection. A developer may
 bypass the portable ABI and directly access hardware or platform SDK APIs when a
@@ -236,7 +274,7 @@ system-state corruption, ownership conflict, or crash it causes.
 
 The existence of this escape hatch must not weaken normal service ownership.
 
-## 13. Application levels
+## 14. Application levels
 
 MiniShell recognizes three useful styles:
 
@@ -252,7 +290,7 @@ Uses the standard ABI plus documented platform-specific extensions.
 
 Directly accesses SDKs, registers, or peripherals and owns the consequences.
 
-## 14. Non-goals for ABI V1
+## 15. Non-goals for ABI V1
 
 V1 does not need:
 
@@ -268,7 +306,7 @@ full platform SDK exposure
 binary compatibility across CPU architectures
 ```
 
-## 15. Task 0 validation
+## 16. Task 0 validation
 
 Task 0 proved the runtime mechanism with `hello.elf`:
 
@@ -288,7 +326,7 @@ resident shell remained usable.
 
 See `docs/task0.md` for the historical hardware validation.
 
-## 16. Task 1 relationship
+## 17. Task 1 relationship
 
 Task 1 does not add a real product application yet. It implements and validates
 the six foundational ABIs independently through focused ELF tests.
