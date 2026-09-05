@@ -1,8 +1,10 @@
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -49,7 +51,7 @@ static mini_result_t errno_to_mini(int err)
     case ENAMETOOLONG: return MINI_ERR_NAME_TOO_LONG;
     case ENOTDIR: return MINI_ERR_NOT_DIR;
     case EISDIR: return MINI_ERR_IS_DIR;
-#ifdef ENOTEMPTY
+#if defined(ENOTEMPTY) && ENOTEMPTY != EEXIST
     case ENOTEMPTY: return MINI_ERR_NOT_EMPTY;
 #endif
     case ENOMEM: return MINI_ERR_NO_MEMORY;
@@ -287,6 +289,24 @@ static mini_result_t service_fs_mkdir(void *ctx, const char *path)
 static mini_result_t service_fs_rmdir(void *ctx, const char *path)
 {
     (void)ctx;
+
+    DIR *dir = opendir(path);
+    if (dir == NULL) return errno_to_mini(errno);
+
+    errno = 0;
+    for (;;) {
+        struct dirent *entry = readdir(dir);
+        if (entry == NULL) break;
+        if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+            (void)closedir(dir);
+            return MINI_ERR_NOT_EMPTY;
+        }
+    }
+
+    int read_error = errno;
+    if (closedir(dir) != 0 && read_error == 0) read_error = errno;
+    if (read_error != 0) return errno_to_mini(read_error);
+
     return rmdir(path) == 0 ? MINI_OK : errno_to_mini(errno);
 }
 
