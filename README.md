@@ -45,10 +45,8 @@ M$> ls /sd
 apps/
 logs/
 
-M$> med /sd/notes.txt
-[MiniEditor runs]
-
-[application exits]
+M$> hello
+Hello from a MiniShell ELF app.
 M$>
 ```
 
@@ -94,7 +92,8 @@ model.
 7. **Independent optimization.** MiniShell services and applications may evolve
    independently as long as the ABI contract remains compatible.
 8. **Diagnose the platform first.** Storage, RTC, USB, audio, networking, and
-   other services should be testable from the shell before launching an app.
+   other services should be testable independently before an application is
+   blamed.
 9. **Top-down modular design.** Boundaries and ownership are defined before
    implementation details.
 10. **Keep it understandable.** MiniShell should remain small enough to study,
@@ -121,29 +120,47 @@ See [`docs/task0.md`](docs/task0.md).
 
 ## Task 1
 
-Task 1 builds the first useful MiniShell application: **MiniEditor (`med`)**, a
-small nano-like terminal text editor.
+Task 1 builds the **MiniShell ABI foundation** before adding real applications.
+
+Initial service order:
 
 ```text
-M$> med /sd/notes.txt
+system
+memory
+filesystem
+console/input
+time
 ```
 
-The editor will drive the design of MiniShell's first reusable console/input and
-filesystem services. `med` remains a separately built ELF application and must
-not depend directly on ESP-IDF, the M5Stack BSP, FATFS internals, or USB
-Serial/JTAG driver APIs.
-
-The design goal is replaceable internals behind stable boundaries:
+Each ABI is developed independently:
 
 ```text
-change editor text structure    -> MiniShell services unaffected
-change FATFS implementation     -> med unaffected
-change terminal implementation  -> med unaffected
-change editor rendering         -> app loader unaffected
+define contract
+  -> implement resident service
+  -> build focused ELF test
+  -> validate on real hardware
+  -> exercise errors and repeated runs
 ```
 
-See [`docs/task1.md`](docs/task1.md) for scope, architecture, and success
-criteria.
+Suggested focused tests:
+
+```text
+abi_system.elf
+abi_memory.elf
+abi_fs.elf
+abi_console.elf
+abi_time.elf
+```
+
+The test ELFs use the same public MiniShell ABI that future applications will use
+and must not include platform-private headers.
+
+`med` is postponed until the basic ABI suite is proven. It remains a strong first
+real application because it can then consume already-tested memory, filesystem,
+console/input, and lifecycle services rather than defining those services while
+being written.
+
+See [`docs/task1.md`](docs/task1.md).
 
 ## Documents
 
@@ -155,7 +172,7 @@ criteria.
 
 ## Current Status
 
-**Task 0 is complete. Task 1 MiniEditor design is now active.**
+**Task 0 is complete. Task 1 ABI Foundation is active.**
 
 Validated Task 0 behavior includes:
 
@@ -169,5 +186,6 @@ Validated Task 0 behavior includes:
 - repeated load/run/unload cycles without reboot or an obvious leak
 - shell remains available when SD initialization fails
 
-Task 1 begins by defining only the console/input and filesystem ABI required by
-`med`, then implementing those resident services before adding editor behavior.
+The filesystem ABI v0 contract is defined. The remaining basic ABIs will be
+designed, implemented, and tested one at a time before MiniShell moves on to a
+real application.
