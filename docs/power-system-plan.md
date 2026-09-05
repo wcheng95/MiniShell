@@ -1,18 +1,20 @@
-# Task 3 - MiniShell Power/System — ACTIVE
+# Task 3 - MiniShell Power/System — COMPLETE
 
 ## Goal
 
 MiniShell owns device power state because battery charging, low-power state, and
 shutdown are platform/runtime concerns rather than ordinary application utilities.
 
-The initial Task-3 capabilities are:
+Task 3 delivers:
 
 ```text
 battery state
 suspend / low-power operation
 poweroff / shutdown
-future hardware-change detection, especially USB attach/detach
 ```
+
+USB hardware-change detection, especially USB attach/detach, is deliberately
+deferred to a later milestone. It is not required for Task-3 completion.
 
 No application-facing Power ABI is required for the resident V1 implementation.
 
@@ -43,7 +45,7 @@ knowledge remains below the platform boundary.
 
 ### `status`
 
-The existing resident `status` command now includes normalized power fields:
+The existing resident `status` command includes normalized power fields:
 
 ```text
 battery  : 73%
@@ -57,6 +59,8 @@ The Tab5 backend enables charging during MiniShell startup, reads pack voltage v
 INA226, and reads the charger-status signal from the board's second IO expander.
 The percentage is a simple voltage-derived estimate suitable for V1 status, not a
 coulomb-counted state-of-charge measurement.
+
+Real Tab5 hardware validation: **PASS**.
 
 ### `suspend`
 
@@ -73,12 +77,14 @@ MiniShell enters deep sleep with no software wake source configured. The CPU and
 normal runtime state do not resume in place. An external reset/power-cycle wake
 path restarts MiniShell from boot.
 
-This is still useful as a low-power, charger-enabled idle state, but it is not yet
-a laptop-style suspend/resume. A later Tab5 wake-source implementation can improve
-the wake experience without changing the resident ownership rule.
+This is a low-power, charger-enabled idle state, but it is not laptop-style
+suspend/resume. A later Tab5 wake-source implementation can improve the wake
+experience without changing the resident ownership rule.
 
 The command is named `suspend`, not `sleep`, because Linux `sleep` conventionally
 means delaying a command for a time interval.
+
+Real Tab5 hardware validation: **PASS**.
 
 ### `poweroff`
 
@@ -89,9 +95,11 @@ shell.
 
 This is intentionally distinct from `suspend`.
 
+Real Tab5 hardware validation: **PASS**.
+
 ## Tab5 V1 backend
 
-The current implementation uses these board-level resources privately:
+The implementation uses these board-level resources privately:
 
 ```text
 second PI4IOE5V6408 IO expander
@@ -108,9 +116,13 @@ Charging initialization is intentionally early in platform startup, before SD
 mounting. Failure of the power backend is non-fatal: MiniShell still boots as a
 diagnostic/recovery environment and `status` reports unavailable power fields.
 
+The backend intentionally avoids the umbrella Tab5 BSP header because that header
+pulls display dependencies into the noglib build. A narrow private BSP power shim
+exposes only the I2C and IO-expander functions required by MiniShell.
+
 ## Resident module interface
 
-The private resident interface currently normalizes only what the shell needs:
+The private resident interface normalizes only what the shell needs:
 
 ```text
 get_status
@@ -146,18 +158,13 @@ The host test covers:
 - poweroff callback routing;
 - reset of the resident port configuration.
 
-Hardware validation should proceed independently:
+Real-hardware validation has proven the three user-visible power paths:
 
 ```text
-1. boot MiniShell and confirm no power setup error
-2. status: battery percentage is plausible
-3. status: charging changes appropriately with USB-C power/state
-4. leave USB-C attached and confirm battery can charge over time
-5. suspend: console disconnects / MCU enters deep sleep
-6. restart/wake and confirm MiniShell boots normally
-7. poweroff on battery power
-8. poweroff while USB-C is attached; record actual board behavior
-9. rerun host regression suite and a short app/file-transfer sanity check
+status battery/charging telemetry    PASS
+suspend deep-sleep path              PASS
+restart after suspend                PASS
+poweroff                             PASS
 ```
 
 ## Future Power ABI
@@ -178,12 +185,12 @@ request poweroff
 
 Task 3 does not create that ABI speculatively.
 
-## Future hardware-change detection
+## Deferred hardware-change detection
 
 Hardware-change detection remains later work, with USB attach/detach as the first
 important case.
 
-The intended ownership model is:
+The intended ownership model remains:
 
 ```text
 USB hardware / host controller
@@ -201,18 +208,16 @@ resident USB manager and let a real application requirement determine whether
 applications need queries, generation counters, an event queue, callbacks, or
 another notification model.
 
-## Development status
+## Completion
 
-Implemented in source, pending host build and Tab5 hardware validation:
+Task 3 is complete.
 
 ```text
-resident minishell_power core       implemented
-resident_power_unit                 implemented
-Tab5 charger enable                 implemented
-battery/charging status             implemented
-suspend deep-sleep path             implemented
-poweroff pulse + fallback           implemented
-USB hardware-change detection       deferred
+resident minishell_power core       COMPLETE
+resident_power_unit                 IMPLEMENTED
+Tab5 charger enable                 PASS
+battery/charging status             PASS
+suspend deep-sleep path             PASS
+poweroff pulse + fallback           PASS
+USB hardware-change detection       DEFERRED TO LATER MILESTONE
 ```
-
-Task 3 remains ACTIVE until the implemented power paths pass real-hardware tests.
