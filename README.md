@@ -13,33 +13,25 @@ operating-system ideas that are useful on an MCU:
 - reusable system services
 - clear hardware ownership
 - a simple foreground application lifecycle
-- diagnostics available before an application starts
+- diagnostics, provisioning, and recovery facilities
 
 Protection is by convention rather than privilege separation. A normal
 application uses MiniShell services and does not own shared system hardware. A
 trusted application may access hardware directly when necessary, but doing so
-leaves the portable MiniShell contract; if it corrupts state or crashes the MCU,
-the application developer owns the bug.
+leaves the portable MiniShell contract.
 
 ## Reference Platform
 
-The first reference platform is the **M5Stack Tab5 / ESP32-P4**. Tab5 provides
-enough PSRAM and peripherals to develop the architecture without forcing early
-memory compromises.
-
-ESP-IDF may be used heavily below the platform boundary. The public MiniShell ABI
-must not expose ESP-IDF types or require portable applications to use ESP-IDF
-APIs.
+The first reference platform is the **M5Stack Tab5 / ESP32-P4**. ESP-IDF may be
+used heavily below the platform boundary, but the public MiniShell ABI must not
+expose ESP-IDF types or require portable applications to use ESP-IDF APIs.
 
 ## User Model
-
-After power-on, MiniShell presents a local shell:
 
 ```text
 MiniShell
 
 M$> ls
-flash/
 sd/
 
 M$> hello
@@ -50,9 +42,7 @@ M$>
 An unknown shell command may be resolved through an application search path such
 as `/sd/apps`.
 
-## V1 Application Model
-
-V1 focuses on native ELF applications.
+## Application Model
 
 ```text
                  application.elf
@@ -60,16 +50,13 @@ V1 focuses on native ELF applications.
                  MiniShell ABI
 ================================================
                  MiniShell core
-      shell / app manager / resident services
+ shell / app manager / resident facilities / services
 ================================================
               platform implementation
              ESP-IDF + Tab5 hardware
 ================================================
                     ESP32-P4
 ```
-
-ELF is the initial loading format, not the MiniShell architecture itself. Future
-runtimes such as MicroPython or WASM may coexist with the same service model.
 
 The current native app contract is:
 
@@ -78,6 +65,8 @@ main(argc, argv)
     -> mini_api_get()
     -> resident MiniShell service tables
 ```
+
+ELF is the initial loading format, not the MiniShell architecture itself.
 
 ## Core Principles
 
@@ -92,7 +81,7 @@ main(argc, argv)
    memory isolation.
 6. **Direct hardware access remains possible.** It is an explicit trusted escape
    hatch, not the normal app model.
-7. **Independent optimization.** MiniShell services and apps may evolve
+7. **Independent evolution.** MiniShell and runtime applications can evolve
    independently while the ABI remains compatible.
 8. **Diagnose the platform first.** Services should be independently testable
    before an application is blamed.
@@ -100,6 +89,36 @@ main(argc, argv)
    implementation details.
 10. **Keep it understandable.** MiniShell should remain small enough to study,
     debug, and port.
+
+## Resident MiniShell vs `.elf` Applications
+
+Placement follows one primary rule:
+
+> If MiniShell needs a function to manage, provision, diagnose, recover, or own
+> the application environment itself, keep it resident. Ordinary user/domain
+> functionality should normally be a separately built `.elf` application.
+
+Examples:
+
+```text
+resident MiniShell
+    shell / loader / ABI services
+    platform ownership
+    diagnostics / recovery
+    file transfer
+
+runtime applications
+    med.elf
+    calculator.elf
+    radio applications
+    future MiniFT8
+```
+
+Do not begin with BusyBox-style packaging. One ELF per ordinary tool/application
+remains the default; related tiny tools may be bundled later only if measurements
+show a real benefit.
+
+See [`docs/resident-vs-app.md`](docs/resident-vs-app.md).
 
 ## Task 0 — Complete
 
@@ -109,21 +128,18 @@ Task 0 proved the smallest working vertical slice on real hardware:
 power on
    -> USB Serial/JTAG M$> shell
    -> MiniShell mounts /sd
-   -> hello
    -> load hello.elf
    -> hello calls mini_api_get()
    -> hello calls system.write()
-   -> hello returns
-   -> unload
+   -> return / unload
    -> M$>
 ```
 
-Task 0 is complete and hardware-validated on M5Stack Tab5 / ESP32-P4 rev v1.3.
 See [`docs/task0.md`](docs/task0.md).
 
 ## Task 1 — Complete: ABI Foundation
 
-Task 1 defines, implements, and independently validates six foundational ABIs:
+Task 1 defines, implements, and validates six foundational ABIs:
 
 ```text
 system
@@ -134,22 +150,6 @@ display
 input
 ```
 
-Display and Input are separate fundamental services. A console/terminal is a
-higher-level composition rather than a basic ABI.
-
-Each ABI followed the same development path:
-
-```text
-define contract
-   -> implement service logic
-   -> build comprehensive unit tests
-   -> run/fix unit suite
-   -> build focused ELF integration test
-   -> validate real platform/backend behavior
-   -> repeat lifecycle checks
-   -> re-review the public boundary
-```
-
 The test hierarchy is deliberate:
 
 ```text
@@ -158,23 +158,70 @@ ELF tests       binary ABI / loader / runtime integration
 hardware tests  real platform/backend behavior
 ```
 
-Runtime-loaded integration tests:
+All six focused ELF tests pass on real Tab5/ESP32-P4 hardware:
 
 ```text
-abi_system.elf
-abi_memory.elf
-abi_fs.elf
-abi_time_location.elf
-abi_display.elf
-abi_input.elf
+abi_system         PASS
+abi_memory         PASS
+abi_fs             PASS
+abi_time_location  PASS
+abi_display        PASS
+abi_input          PASS
 ```
 
-The ELF tests use only the public MiniShell ABI and do not include
-platform-private headers. They are intentionally smaller than the unit suites.
+Lifecycle stress also passes:
 
-The ABI is designed for compatible growth through append-only tables,
-`struct_size`, capability bits, optional sub-APIs, stable numeric meanings, and
-explicit ownership/lifetime rules.
+```text
+repeat 20 abi_stress     PASS 20/20
+repeat 100 abi_stress    PASS 100/100
+```
+
+The public boundary review found no ESP-IDF, FreeRTOS, FATFS, or M5Stack type
+leaking into the application ABI.
+
+See [`docs/task1.md`](docs/task1.md).
+
+## Task 2 — Active: Resident File Transfer
+
+Task 2 adds bootstrap/recovery file transfer over the existing USB Serial/JTAG
+transport without expanding the application ABI.
+
+Resident shell commands:
+
+```text
+put <remote-path>    receive a host file
+get <remote-path>    send a MiniShell file
+```
+
+The companion host tool performs the binary MFT1 handshake and CRC verification:
+
+```bash
+python3 tools/minishell_transfer.py /dev/ttyACM0 put local.elf /sd/apps/local.elf
+python3 tools/minishell_transfer.py /dev/ttyACM0 get /sd/log.txt log.txt
+```
+
+`pyserial` is required by the host helper:
+
+```bash
+python3 -m pip install pyserial
+```
+
+The receive path writes to `<destination>.mft.part`, verifies the complete
+payload CRC, syncs/closes it, and only then publishes it. On FATFS, updating an
+existing destination uses a temporary backup/rollback sequence because FatFs
+`f_rename()` does not overwrite an existing name.
+
+Current Task 2 implementation includes:
+
+```text
+core/minishell_transfer/       resident MFT1 protocol module
+shell put/get dispatch         control plane only
+Tab5 raw USB serial backend    private platform callbacks
+tools/minishell_transfer.py    host helper
+abi_transfer_unit              fake-stream/fake-filesystem unit test
+```
+
+Task 2 hardware validation is the next step. See [`docs/task2.md`](docs/task2.md).
 
 ## ABI Documents
 
@@ -194,67 +241,18 @@ Canonical service contracts:
 - [`docs/display-abi.md`](docs/display-abi.md)
 - [`docs/input-abi.md`](docs/input-abi.md)
 
-Milestones:
+Milestones and placement policy:
 
 - [`docs/task0.md`](docs/task0.md)
 - [`docs/task1.md`](docs/task1.md)
+- [`docs/task2.md`](docs/task2.md)
+- [`docs/resident-vs-app.md`](docs/resident-vs-app.md)
 
 ## Current Status
 
-**Task 0 and Task 1 are complete.**
+**Task 0 and Task 1 are complete. Task 2 resident file transfer is active and
+ready for host-unit/build/hardware validation.**
 
-Task 1 has resident service-core implementations for all six foundational ABIs
-plus one host unit-test group per ABI. The clean host suite passes 6/6 with
-`-Wall -Wextra -Werror` and also passes 6/6 under AddressSanitizer and
-UndefinedBehaviorSanitizer.
-
-The serial-terminal backend exposes Display and Input through the same USB
-Serial/JTAG transport already used by the shell. On real M5Stack Tab5 / ESP32-P4
-rev v1.3 hardware, all six focused runtime-loaded ELF tests pass:
-
-```text
-abi_system         PASS
-abi_memory         PASS
-abi_fs             PASS
-abi_time_location  PASS
-abi_display        PASS
-abi_input          PASS
-```
-
-This validates the public table layout, `mini_api_get()` binding,
-function-pointer calling convention, service logic, ELF loader integration,
-serial-terminal Display output, interactive terminal Input routing, and normal
-foreground return to the shell.
-
-Lifecycle stress validation also passes. `abi_stress.elf` intentionally leaves
-eight MiniShell-managed allocations and two file handles open on every
-invocation so normal app teardown must reclaim them. The following completed on
-real hardware without failure:
-
-```text
-repeat 20 abi_stress     PASS 20/20
-repeat 100 abi_stress    PASS 100/100
-```
-
-Ordinary ELF applications and the focused ABI tests remained healthy after the
-stress runs. This provides strong evidence that repeated ELF
-load/run/teardown/unload does not exhaust the tracked Memory or Filesystem
-resources and that foreground Input/Display ownership returns cleanly to the
-shell.
-
-Long FAT filenames are enabled and functionally verified: long-named ABI ELF
-files load successfully and the Filesystem ABI long-name test passes. The legacy
-Tab5 BSP long-filename warning is suppressed at its BSP log tag while preserving
-BSP errors.
-
-A final boundary review found no Task-1 ABI blocker: the public API contains only
-MiniShell-owned/fixed-width C types, opaque handles, documented native pointers,
-and function tables; no ESP-IDF, FreeRTOS, FATFS, or M5Stack type crosses the
-application boundary.
-
-Physical Tab5 LCD/touch integration and optional RTC/default-location platform
-backends are later platform work. They are not required for the Task-1 ABI
-foundation: Display/Input are already proven through the serial-terminal backend,
-and optional Time/Location capability semantics are covered by the service/unit
-contracts while the reference platform currently provides baseline monotonic
-time and sleep.
+Physical Tab5 LCD/touch integration and optional RTC/default-location backends
+remain later platform work. Display/Input are already proven through the serial
+terminal backend.
