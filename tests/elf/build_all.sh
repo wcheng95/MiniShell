@@ -3,7 +3,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$HERE/out"
-APPS=(abi_system abi_memory abi_fs abi_time_location abi_display abi_input)
+APPS=(abi_system abi_memory abi_fs abi_time_location abi_display abi_input abi_stress)
 
 mkdir -p "$OUT"
 rm -f "$OUT"/*.elf
@@ -43,5 +43,5 @@ if [[ $# -eq 1 ]]; then
     fi
     cp "$OUT"/*.elf "$dest"/
     echo
-    echo "copied six ELF tests to: $dest"
+    echo "copied ELF tests to: $dest"
 fi
