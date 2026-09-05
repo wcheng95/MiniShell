@@ -22,8 +22,10 @@ int main(int argc, char **argv)
     const mini_system_api_t *system = api->system;
     const mini_fs_api_t *fs = api->fs;
     if (system->struct_size < FIELD_END(mini_system_api_t, write) ||
-        system->write == NULL ||
-        fs->struct_size < FIELD_END(mini_fs_api_t, rename) ||
+        system->write == NULL) {
+        return 2;
+    }
+    if (fs->struct_size < FIELD_END(mini_fs_api_t, rename) ||
         fs->stat == NULL || fs->rename == NULL) {
         say(system, "mv: filesystem rename is unavailable\n");
         return 2;
