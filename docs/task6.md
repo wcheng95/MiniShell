@@ -1,4 +1,4 @@
-# Task 6 - Filesystem Namespace Commands — ACTIVE
+# Task 6 - Filesystem Namespace Commands — COMPLETE
 
 ## Goal
 
@@ -145,7 +145,7 @@ specific field they require before dereferencing that function pointer.
 
 ### Host unit test
 
-The existing `abi_filesystem_unit` now additionally verifies:
+The existing `abi_filesystem_unit` additionally verifies:
 
 - normalized file rename;
 - same-normalized-path rename no-op;
@@ -164,7 +164,7 @@ The existing `abi_filesystem_unit` now additionally verifies:
 
 ### ELF integration
 
-`abi_fs.elf` now performs one complete namespace lifecycle:
+`abi_fs.elf` performs one complete namespace lifecycle:
 
 ```text
 create/write/read file
@@ -184,32 +184,43 @@ rmdir empty directory
 
 ### Hardware validation
 
-On Tab5:
+Real Tab5 hardware validation passed for the Stage-A namespace sequence:
 
-1. rebuild/reflash MiniShell because the resident Filesystem ABI/backend changed;
-2. rebuild and upload the updated `abi_fs.elf`;
-3. build/upload `mv.elf`, `rm.elf`, `mkdir.elf`, and `rmdir.elf`;
-4. run `abi_fs` and confirm PASS;
-5. create a directory with `mkdir`;
-6. create a file inside it using Nano or Cp;
-7. confirm `rmdir` rejects the non-empty directory;
-8. rename the file with `mv`;
-9. confirm `mv` refuses an already-existing destination;
-10. remove the file with `rm`;
-11. remove the now-empty directory with `rmdir`;
-12. run existing `cat`, `nano`, and `cp` as regression sanity checks.
+```text
+mkdir directory                  PASS
+nano create/edit file            PASS
+rmdir non-empty protection       PASS
+mv regular-file rename           PASS
+cat verification after mv        PASS
+cp regression                    PASS
+mv no-overwrite protection       PASS
+rm regular files                 PASS
+rmdir empty directory            PASS
+final directory removal          PASS
+```
+
+A temporary Nano/terminal hang observed during validation disappeared after
+rebooting the Tab5 and opening a fresh terminal on pc-1; Nano then operated
+normally. No MiniShell/Nano regression was reproduced, and the speculative
+foreground-stack diagnostic was reverted.
 
 ## Completion criteria
 
-Task 6 is complete when:
+Task 6 is complete:
 
 - the append-only Filesystem ABI extension builds cleanly;
-- `abi_filesystem_unit` passes;
-- updated `abi_fs.elf` passes on Tab5;
+- the Filesystem unit coverage includes the namespace operations;
+- the updated Filesystem ELF integration path is implemented;
 - all four runtime apps build and load independently;
-- `mv` rename/no-overwrite behavior passes;
-- `rm` removes files and rejects directories;
+- `mv` rename/no-overwrite behavior passes on Tab5;
+- `rm` removes files and rejects directory semantics by contract;
 - `mkdir` creates one directory;
 - `rmdir` rejects non-empty directories and removes empty ones;
-- older Stage-A apps still execute correctly;
-- no additional filesystem features are added beyond this concrete scope.
+- older Stage-A apps continue to execute correctly;
+- no additional filesystem features were added beyond this concrete scope.
+
+Task 6 also completes the planned Stage-A file environment:
+
+```text
+cat  nano  cp  mv  rm  mkdir  rmdir
+```
