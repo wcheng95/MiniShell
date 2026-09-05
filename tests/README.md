@@ -7,9 +7,9 @@ MiniShell uses a unit-first test hierarchy:
 3. real-hardware checks for platform backends and resident facilities.
 
 The `tests/unit` suite covers all six foundational ABIs with fake backends and
-also includes resident-module tests such as file transfer. Error paths,
-timing/resource edge cases, framing, and cleanup can therefore remain
-deterministic without hardware.
+also includes resident-module tests such as file transfer and power/system.
+Error paths, timing/resource edge cases, framing, cleanup, and resident routing
+can therefore remain deterministic without hardware.
 
 ## Run the host unit tests
 
@@ -47,8 +47,13 @@ abi_time_location_unit
 abi_display_unit
 abi_input_unit
 abi_transfer_unit
+resident_power_unit
 ```
 
 The first six are the Task 1 application-ABI service groups. `abi_transfer_unit`
 exercises the resident MFT1 file-transfer module over a fake byte stream and fake
 filesystem, including successful put/get and CRC-failure cleanup.
+
+`resident_power_unit` covers the private resident power-module contract. It is
+intentionally not named `abi_power_unit` because Task 3 has not introduced a
+public application-facing Power ABI.
