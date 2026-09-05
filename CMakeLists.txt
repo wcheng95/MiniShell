@@ -4,6 +4,7 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_SOURCE_DIR}/core/minishell_services"
     "${CMAKE_SOURCE_DIR}/core/minishell_app"
     "${CMAKE_SOURCE_DIR}/core/minishell_shell"
+    "${CMAKE_SOURCE_DIR}/core/minishell_transfer"
     "${CMAKE_SOURCE_DIR}/platform/minishell_platform_tab5"
 )
 
