@@ -136,11 +136,28 @@ MFT1 OK
   commands.
 - File transfer does not expand the public application ABI.
 
+## Verification status
+
+The first real-hardware `put` test has passed on the Tab5 reference platform:
+
+```text
+python3 tools/minishell_transfer.py /dev/ttyACM0 put test.txt /sd/test.txt
+put: test.txt -> /sd/test.txt (34 bytes, crc32=fd90e9b8)
+```
+
+MiniShell then listed `/sd/test.txt`, confirming publication into the mounted SD
+filesystem. This proves the host helper, shell handoff, two-stage MFT1 upload
+handshake, binary payload path, CRC verification, filesystem write/sync/close,
+and final publish path on real hardware for a small file.
+
+The next verification steps are `get`, ELF upload/execute, replacement of an
+existing destination, a larger binary transfer, and interrupted-upload recovery.
+
 ## Verification plan
 
 1. Run the host unit suite, including `abi_transfer_unit`.
 2. Build MiniShell with the resident module.
-3. Put a small text file and compare its contents.
+3. Put a small text file and compare its contents. **PASS on real hardware.**
 4. Put a separately built `.elf`, then execute it.
 5. Get the same file back and compare SHA-256 on the host.
 6. Put over an existing destination and confirm FATFS backup/replace behavior.
