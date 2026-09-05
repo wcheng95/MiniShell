@@ -1,6 +1,6 @@
 # MiniShell Time/Location ABI v0
 
-Status: **Task 1 design contract; provisional until implementation and hardware ABI tests pass**
+Status: **Task 1 design contract; provisional until implementation, unit tests, ELF integration, and hardware validation pass**
 
 ## 1. Purpose
 
@@ -542,29 +542,57 @@ location names/geocoding
 These may be added later through append-only fields, capability bits, or new
 optional sub-APIs when a real portable need appears.
 
-## 18. ABI test requirements
+## 18. Verification requirements
 
-`abi_time_location.elf` should validate at least:
+### 18.1 Unit tests — primary
 
-1. repeated `monotonic_us()` calls never go backward;
-2. elapsed monotonic time approximately tracks a `sleep_ms()` interval;
-3. `sleep_ms(0)` succeeds;
-4. UTC unsupported/not-ready/valid behavior is distinguishable;
-5. valid UTC advances from monotonic elapsed time without continuous software
-   servicing;
-6. `utc_set()` changes UTC when the capability is present;
-7. `utc_set()` does not disturb monotonic time;
-8. hardware RTC persistence is validated on Tab5 if its RTC is used;
-9. default location get reports NOT_READY before configuration when appropriate;
-10. configured/default location can be set, read back, and persisted;
-11. configured/default location can be cleared and remains cleared after restart;
-12. `location_get()` returns DEFAULT when configured and no retained/current live
-    location exists;
-13. live location identifies source and exposes freshness information;
-14. snapshot validity bits correctly describe available UTC/location fields;
-15. snapshot monotonic time and UTC are internally coherent;
-16. unsupported optional operations return `MINI_ERR_UNSUPPORTED`;
-17. repeated app launch/exit cycles leave the service healthy.
+The Time/Location service must have comprehensive deterministic unit tests using
+fake monotonic clock, RTC, persistence, and live-location backends. They should
+verify at least:
 
-The ABI remains provisional until the public interface, resident implementation,
-focused ELF test, and real Tab5 behavior agree.
+1. monotonic values never go backward under normal fake-clock advancement;
+2. counter-wrap extension logic where the platform abstraction requires it;
+3. `sleep_ms(0)` and finite sleep behavior against a fake scheduler/clock;
+4. capability dependency combinations and unsupported-operation behavior;
+5. UTC NOT_READY/valid transitions;
+6. UTC anchor arithmetic across second/nanosecond carry boundaries;
+7. UTC progression from monotonic elapsed time without periodic software UTC
+   updates;
+8. `utc_set()` validation, including invalid nanoseconds and too-small structs;
+9. successful UTC correction without changing monotonic time;
+10. failed RTC/persistence commit preserving previous API-visible UTC;
+11. default-location NOT_READY, set, get, clear, and persistence-failure paths;
+12. latitude/longitude boundary and out-of-range validation;
+13. live/default effective-location priority;
+14. retained live-fix freshness using `updated_monotonic_us`;
+15. no-live/no-default NOT_READY behavior;
+16. snapshot validity-bit combinations;
+17. snapshot UTC/monotonic coherence and flat-structure `struct_size` behavior;
+18. repeated state changes without leaked/stale service state.
+
+The fake backends should let tests advance time instantly rather than sleeping in
+real time.
+
+### 18.2 Runtime-loaded ELF integration test
+
+`abi_time_location.elf` should be a focused integration test proving:
+
+1. service/table/capability discovery;
+2. monotonic time and one finite sleep path;
+3. representative UTC get/set behavior when supported;
+4. representative default-location get/set/clear behavior when supported;
+5. effective location and snapshot reads through public structures;
+6. one unsupported/not-ready path;
+7. normal return and repeated launch/exit.
+
+It does not need to duplicate the full fake-clock/failure matrix from unit tests.
+
+### 18.3 Hardware/platform validation
+
+On Tab5, validate the actual free-running timer behavior, hardware RTC retention
+and correction, persistent configured location, and any available live-location
+source. Power-cycle/restart persistence belongs here rather than in host unit
+tests.
+
+The ABI remains provisional until the unit suite, focused ELF integration test,
+and required hardware validation all pass.
