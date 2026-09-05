@@ -16,6 +16,11 @@ CONFIG_BSP_ERROR_CHECK=n
 CONFIG_BSP_SD_FORMAT_ON_MOUNT_FAIL=n
 CONFIG_BSP_SD_MOUNT_POINT="/sd"
 
+# MiniShell application and user filenames are not restricted to FAT 8.3 names.
+# Keep the long-filename working buffer on the heap rather than app/task stacks.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+
 # Espressif ELF loader: applications live under /sd/apps.
 CONFIG_ELF_DYNAMIC_LOAD_SHARED_OBJECT=y
 CONFIG_ELF_FILE_SYSTEM_BASE_PATH="/sd/apps"
