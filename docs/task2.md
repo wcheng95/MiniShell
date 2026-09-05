@@ -72,10 +72,17 @@ bytes 4..11   uint64 file size
 bytes 12..15  uint32 IEEE CRC-32 of payload
 ```
 
-4. Host sends exactly `file size` raw payload bytes.
-5. MiniShell writes to a temporary file, verifies CRC, syncs/closes it, then asks
+4. MiniShell validates the header and successfully opens the temporary destination.
+   Only then it replies:
+
+```text
+MFT1 DATA READY
+```
+
+5. Host sends exactly `file size` raw payload bytes.
+6. MiniShell writes to a temporary file, verifies CRC, syncs/closes it, then asks
    the platform to replace the destination with the completed temporary file.
-6. MiniShell replies with either:
+7. MiniShell replies with either:
 
 ```text
 MFT1 OK <size> <crc32>
@@ -86,6 +93,11 @@ or:
 ```text
 MFT1 ERROR <reason>
 ```
+
+The second ready handshake is deliberate: if the path is invalid, storage is
+unavailable, or the temporary file cannot be opened, MiniShell reports the error
+before the host starts streaming binary payload. That prevents leftover payload
+bytes from spilling into the shell after an early failure.
 
 An interrupted or corrupt transfer must not intentionally publish the incomplete
 temporary file as the destination.
@@ -119,23 +131,22 @@ MFT1 OK
   retransmission.
 - Paths are MiniShell absolute paths and V1 does not support spaces in shell
   arguments.
-- The protocol uses an explicit ready handshake before binary input, preventing a
-  trailing terminal CR/LF from being mistaken for file data.
+- Put uses separate header-ready and data-ready handshakes.
 - V1 is synchronous. While a transfer is active, the shell does not process other
   commands.
 - File transfer does not expand the public application ABI.
 
 ## Verification plan
 
-1. Host-test protocol/CRC helpers where practical.
+1. Run the host unit suite, including `abi_transfer_unit`.
 2. Build MiniShell with the resident module.
 3. Put a small text file and compare its contents.
 4. Put a separately built `.elf`, then execute it.
 5. Get the same file back and compare SHA-256 on the host.
-6. Transfer a larger binary file.
-7. Interrupt a put and verify the old destination remains usable where the
-   platform replacement semantics permit it.
-8. Run ordinary ABI apps after transfer to verify shell/transport handoff.
+6. Put over an existing destination and confirm FATFS backup/replace behavior.
+7. Transfer a larger binary file.
+8. Interrupt a put and verify the old destination remains usable where possible.
+9. Run ordinary ABI apps after transfer to verify shell/transport handoff.
 
 ## Success criteria
 
@@ -143,8 +154,10 @@ Task 2 V1 is complete when:
 
 - `put` transfers arbitrary binary files from host to MiniShell storage;
 - `get` transfers arbitrary binary files back to the host;
+- early path/storage errors occur before payload transmission;
 - CRC verification detects incomplete/corrupt transfers;
 - a transferred ELF can be executed normally;
+- replacing an existing FATFS destination works with rollback protection;
 - transfer state returns cleanly to `M$>`;
 - existing Task 1 ABI tests still pass;
 - the transfer implementation remains resident and modular rather than growing
