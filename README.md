@@ -273,6 +273,23 @@ no cursor/styling ABI expansion was required.
 
 See [`docs/task4.md`](docs/task4.md).
 
+## Task 5 — Complete: `cp` Binary File Copy
+
+Task 5 adds an independently built binary-safe `cp.elf` using only the existing
+Filesystem and System ABIs.
+
+V1 implements:
+
+```text
+cp <absolute-source> <absolute-destination>
+```
+
+The copy loop is binary-safe, handles partial reads/writes, synchronizes the
+destination before close, and requires no heap allocation or public ABI change.
+The real Tab5 runtime test passed.
+
+See [`docs/task5.md`](docs/task5.md).
+
 ## Command Roadmap
 
 Linux is the naming/behavior reference for ordinary MiniShell commands, with
@@ -314,14 +331,15 @@ Milestones and policy:
 - [`docs/task1.md`](docs/task1.md)
 - [`docs/task2.md`](docs/task2.md)
 - [`docs/task4.md`](docs/task4.md)
+- [`docs/task5.md`](docs/task5.md)
 - [`docs/resident-vs-app.md`](docs/resident-vs-app.md)
 - [`docs/command-roadmap.md`](docs/command-roadmap.md)
 - [`docs/power-system-plan.md`](docs/power-system-plan.md)
 
 ## Current Status
 
-**Task 0 through Task 4 are complete.**
+**Task 0 through Task 5 are complete.**
 
-The next ordinary application milestone is `cp`, followed by a Filesystem ABI
-review driven by the needs of `mv`, `rm`, `mkdir`, and `rmdir`. Future resident
-system work includes USB device attach/detach detection when it becomes useful.
+The next milestone is the Filesystem ABI review driven by the concrete needs of
+`mv`, `rm`, `mkdir`, and `rmdir`. Future resident system work includes USB device
+attach/detach detection when it becomes useful.
