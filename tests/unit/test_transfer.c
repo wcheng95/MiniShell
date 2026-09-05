@@ -4,13 +4,16 @@
 
 #include "minishell_transfer.h"
 
-#define TRANSFER_BUFFER 8192u
-#define MFT_HEADER_BYTES 16u
+#define TRANSFER_BUFFER   8192u
+#define MFT_HEADER_BYTES  16u
+#define MFT_BLOCK_BYTES   1024u
+#define TEST_PAYLOAD_SIZE 1500u
 
 typedef struct {
     uint8_t input[TRANSFER_BUFFER];
     size_t input_len;
     size_t input_pos;
+    size_t input_limit;
     uint8_t output[TRANSFER_BUFFER];
     size_t output_len;
     bool put_ready;
@@ -61,18 +64,21 @@ static int transfer_read(void *ctx, uint8_t *buffer, size_t size, uint32_t timeo
     (void)ctx;
     (void)timeout_ms;
     if (!s_transfer.put_ready || s_transfer.input_pos >= s_transfer.input_len) return 0;
-
-    if (!s_transfer.data_ready) {
-        if (s_transfer.input_pos >= MFT_HEADER_BYTES) return 0;
-        size_t header_remaining = MFT_HEADER_BYTES - s_transfer.input_pos;
-        if (size > header_remaining) size = header_remaining;
-    }
+    if (s_transfer.input_pos >= s_transfer.input_limit) return 0;
 
     size_t available = s_transfer.input_len - s_transfer.input_pos;
+    size_t permitted = s_transfer.input_limit - s_transfer.input_pos;
     if (size > available) size = available;
+    if (size > permitted) size = permitted;
     memcpy(buffer, s_transfer.input + s_transfer.input_pos, size);
     s_transfer.input_pos += size;
     return (int)size;
+}
+
+static void extend_input_limit(size_t amount)
+{
+    size_t next = s_transfer.input_limit + amount;
+    s_transfer.input_limit = next < s_transfer.input_len ? next : s_transfer.input_len;
 }
 
 static int transfer_write(void *ctx, const uint8_t *buffer, size_t size, uint32_t timeout_ms)
@@ -85,16 +91,24 @@ static int transfer_write(void *ctx, const uint8_t *buffer, size_t size, uint32_
 
     static const char put_ready[] = "MFT1 PUT READY\n";
     static const char data_ready[] = "MFT1 DATA READY\n";
+    static const char next_ready[] = "MFT1 NEXT\n";
 
     if (s_transfer.output_len >= sizeof(put_ready) - 1u &&
         memcmp(s_transfer.output + s_transfer.output_len - (sizeof(put_ready) - 1u),
                put_ready, sizeof(put_ready) - 1u) == 0) {
         s_transfer.put_ready = true;
+        s_transfer.input_limit = MFT_HEADER_BYTES;
     }
     if (s_transfer.output_len >= sizeof(data_ready) - 1u &&
         memcmp(s_transfer.output + s_transfer.output_len - (sizeof(data_ready) - 1u),
                data_ready, sizeof(data_ready) - 1u) == 0) {
         s_transfer.data_ready = true;
+        extend_input_limit(MFT_BLOCK_BYTES);
+    }
+    if (s_transfer.output_len >= sizeof(next_ready) - 1u &&
+        memcmp(s_transfer.output + s_transfer.output_len - (sizeof(next_ready) - 1u),
+               next_ready, sizeof(next_ready) - 1u) == 0) {
+        extend_input_limit(MFT_BLOCK_BYTES);
     }
     return (int)size;
 }
@@ -151,9 +165,14 @@ static void prepare_put_input(const uint8_t *payload, size_t size, uint32_t crc)
 
 bool test_transfer(void)
 {
-    static const uint8_t payload[] = {0x00u, 0x01u, 0x7fu, 0x80u, 0xffu, 'M', 'F', 'T', '1'};
+    uint8_t payload[TEST_PAYLOAD_SIZE];
+    for (uint32_t i = 0u; i < TEST_PAYLOAD_SIZE; ++i) {
+        payload[i] = (uint8_t)((i * 37u + 11u) & 0xffu);
+    }
+
     static const uint8_t ok_prefix[] = "MFT1 OK ";
     static const uint8_t data_ready[] = "MFT1 DATA READY\n";
+    static const uint8_t next_ready[] = "MFT1 NEXT\n";
     const uint32_t crc = crc32_bytes(payload, sizeof(payload));
 
     fake_reset();
@@ -172,11 +191,14 @@ bool test_transfer(void)
     TEST_CHECK(contains_bytes(s_transfer.output, s_transfer.output_len,
                               data_ready, sizeof(data_ready) - 1u));
     TEST_CHECK(contains_bytes(s_transfer.output, s_transfer.output_len,
+                              next_ready, sizeof(next_ready) - 1u));
+    TEST_CHECK(contains_bytes(s_transfer.output, s_transfer.output_len,
                               ok_prefix, sizeof(ok_prefix) - 1u));
 
     configure_transfer();
     s_transfer.put_ready = true;
-    s_transfer.data_ready = true; /* get has no incoming binary phase */
+    s_transfer.data_ready = true;
+    s_transfer.input_limit = s_transfer.input_len;
     TEST_EQ(minishell_transfer_get("/sd/new.bin"), 0);
 
     uint8_t *line_end = memchr(s_transfer.output, '\n', s_transfer.output_len);
