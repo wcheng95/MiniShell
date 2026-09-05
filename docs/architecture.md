@@ -7,7 +7,7 @@ MiniShell is a resident MCU application environment.
 ```text
 +------------------------------------------------------+
 |                    Applications                      |
-|          minift8.elf   minicw.elf   ...             |
+|          med.elf   minift8.elf   minicw.elf ...     |
 +----------------------- MiniShell ABI ----------------+
 |                    MiniShell Core                    |
 |                                                      |
@@ -40,7 +40,7 @@ That dependency must stop at the MiniShell ABI boundary.
 
 ## 3. Major Modules
 
-The initial framework should remain deliberately small.
+The framework should remain deliberately small and modular.
 
 ```text
 MiniShell/
@@ -48,23 +48,24 @@ MiniShell/
 |-- docs/
 |-- include/
 |   `-- minishell/
-|       |-- api.h
-|       |-- app.h
-|       |-- result.h
-|       `-- version.h
+|       `-- api.h
 |-- core/
-|   |-- shell/
-|   |-- app/
-|   `-- services/
+|   |-- minishell_shell/
+|   |-- minishell_app/
+|   `-- minishell_services/
 |-- platform/
-|   `-- esp32p4_tab5/
+|   `-- minishell_platform_tab5/
 |-- examples/
-|   `-- hello/
+|   |-- hello/
+|   `-- med/
 `-- tests/
 ```
 
 Exact filenames may change as implementation teaches us more. Module boundaries
 matter more than directory aesthetics.
+
+A module is replaceable only when unrelated modules depend on its interface
+rather than its internal representation.
 
 ## 4. Shell
 
@@ -75,7 +76,6 @@ Initial responsibilities:
 - command-line input
 - command parsing
 - built-in command dispatch
-- current directory
 - filesystem commands
 - application search path
 - launching an app by command name
@@ -85,14 +85,14 @@ Initial responsibilities:
 Example:
 
 ```text
-$> ls /sd/apps
+M$> ls /sd/apps
 hello.elf
-minift8.elf
+med.elf
 
-$> minift8
-[MiniFT8 owns the foreground UI through MiniShell services]
-[MiniFT8 exits]
-$>
+M$> med /sd/notes.txt
+[MiniEditor owns the foreground terminal through MiniShell services]
+[MiniEditor exits]
+M$>
 ```
 
 V1 does not need POSIX pipelines, redirection, background jobs, users, or process
@@ -100,7 +100,7 @@ management.
 
 ## 5. Filesystem Namespace
 
-MiniShell should expose storage through a clear logical namespace.
+MiniShell exposes storage through a clear logical namespace.
 
 Initial proposal:
 
@@ -127,7 +127,7 @@ namespace should remain explicit and predictable.
 
 The app manager owns application lifecycle.
 
-Proposed launch sequence:
+Launch sequence:
 
 ```text
 shell command
@@ -153,7 +153,7 @@ unload ELF
 return to shell
 ```
 
-V1 should run one foreground native application at a time.
+V1 runs one foreground native application at a time.
 
 No process isolation is provided.
 
@@ -166,19 +166,18 @@ Likely service groups:
 
 ```text
 system
-memory
+console/input
 filesystem
-storage diagnostics
+memory/status
 time
 display
-input
 audio
 USB
 network
 power
 ```
 
-These are categories, not a commitment to implement every service in Task 0.
+These are categories, not a commitment to implement every service immediately.
 
 Each service should have:
 
@@ -187,6 +186,9 @@ Each service should have:
 3. a platform implementation
 4. shell diagnostics where useful
 
+Task 1 intentionally lets a real application (`med`) determine the minimum
+console/input and filesystem operations we actually need.
+
 ## 8. Platform Layer
 
 The platform layer translates MiniShell services into hardware/SDK operations.
@@ -194,8 +196,9 @@ The platform layer translates MiniShell services into hardware/SDK operations.
 For Tab5 this may include:
 
 ```text
-platform/esp32p4_tab5/
+platform/minishell_platform_tab5/
     boot/startup
+    console
     display
     input
     storage
@@ -204,11 +207,13 @@ platform/esp32p4_tab5/
     USB
     network
     memory
-    ELF loader integration
 ```
 
 The platform layer may freely include ESP-IDF and M5Stack-specific headers.
 Public MiniShell headers may not.
+
+The ELF loader is resident infrastructure used by the app manager. It is not an
+application-facing hardware service.
 
 ## 9. Hardware Ownership
 
@@ -217,9 +222,9 @@ MiniShell owns shared hardware after boot.
 Example storage path:
 
 ```text
-MiniFT8
+med
    |
-mini_file_open()
+mini filesystem API
    |
 MiniShell filesystem service
    |
@@ -228,13 +233,46 @@ ESP-IDF VFS/FATFS
 SD hardware
 ```
 
-MiniFT8 should not call SD initialization, FATFS mount, SPI bus initialization,
-or equivalent platform operations in the portable application path.
+`med` should not call SD initialization, FATFS mount, SDMMC bus initialization,
+or equivalent platform operations.
+
+Example console path:
+
+```text
+med
+   |
+MiniShell console/input API
+   |
+console service
+   |
+USB Serial/JTAG VFS/driver
+```
+
+The application sees normalized key events and logical terminal operations, not
+USB driver structures or raw platform ownership.
 
 Direct access remains technically possible because MiniShell provides no
 protection. Such access is outside the standard portable contract.
 
-## 10. Memory Model
+## 10. Replaceable Internals
+
+MiniShell's modularity goal is not simply to split source code into files. The
+important property is that one implementation can change without forcing
+unrelated modules to change.
+
+Task 1 should demonstrate examples such as:
+
+```text
+change document representation  -> filesystem service unaffected
+change FATFS implementation      -> med unaffected
+change terminal implementation   -> med unaffected
+change editor rendering strategy -> app loader unaffected
+```
+
+This requires small interfaces, clear ownership, and no leakage of private
+implementation types across module boundaries.
+
+## 11. Memory Model
 
 MiniShell and applications share the MCU address space.
 
@@ -248,28 +286,95 @@ V1 assumptions:
 - loaded app memory is reclaimed after exit where the ELF loader permits
 
 The app manager should track MiniShell-managed resources so cooperative cleanup
-is possible even when an app returns through the normal lifecycle.
+is possible even when an app forgets to close a normal service handle before
+returning.
 
 It cannot recover safely from arbitrary memory corruption.
 
-## 11. ABI Boundary
+## 12. ABI Boundary
 
-The ABI should be represented by MiniShell-owned types and function signatures.
+The ABI is represented by MiniShell-owned types and function signatures.
 
-A useful initial model is a versioned API table passed to the application entry
-point:
+Task 0 validated the current runtime binding model:
 
-```c
-int mini_main(const mini_api_t *api, int argc, char **argv);
+```text
+app.elf
+   |
+mini_api_get()
+   |
+versioned MiniShell API table
+   |
+resident services
 ```
 
-This avoids requiring application code to bind directly to ESP-IDF symbols and
-makes the dependency direction explicit.
+The current ABI is still deliberately small and not frozen. Task 1 extends it
+only with operations needed by the first real application.
 
-The exact calling and ELF-linking mechanism will be validated against the
-ESP32-P4 ELF loader during Task 0 before the ABI is frozen.
+Public ABI rules:
 
-## 12. Diagnostics as Architecture
+- no ESP-IDF types
+- no M5Stack BSP objects
+- no `FILE *` or FATFS objects
+- no raw USB driver handles
+- opaque MiniShell handles where stateful resources are needed
+- backward-compatible extension preferred where practical
+
+## 13. Resource Ownership
+
+MiniShell remains the owner of system services while an app is active.
+
+An app may acquire logical resources such as:
+
+- open files
+- foreground console/display ownership
+- audio stream/session
+- input subscription
+- timers
+- network handles
+
+Task 1 begins concrete bookkeeping with filesystem handles.
+
+Conceptually:
+
+```text
+app sees:       mini_file_t = opaque value
+
+MiniShell owns:
+    handle slot
+      -> underlying file object
+      -> owning foreground application
+      -> state
+```
+
+Normal app teardown releases MiniShell-managed resources before the ELF is
+unloaded.
+
+This is cooperative cleanup, not protection from arbitrary memory corruption.
+
+## 14. Foreground UI Model
+
+A foreground application may temporarily control the user-facing terminal,
+display, or input through MiniShell services, but MiniShell remains the hardware
+owner.
+
+Conceptually:
+
+```text
+shell owns foreground
+    |
+launch app
+    v
+app owns foreground session through API
+    |
+app exits
+    v
+MiniShell restores shell foreground
+```
+
+Task 1 uses this model for a full-screen terminal editor. Future applications
+such as MiniFT8 may use the same concept for the physical display/input system.
+
+## 15. Diagnostics as Architecture
 
 Diagnostics are not an afterthought. They are how platform problems are isolated
 before an application is blamed.
@@ -277,55 +382,62 @@ before an application is blamed.
 Examples:
 
 ```text
-$> status
-$> mem
-$> storage status
-$> ls /flash
-$> ls /sd
-$> rtc status
-$> usb status
+M$> status
+M$> mem
+M$> storage status
+M$> ls /flash
+M$> ls /sd
+M$> rtc status
+M$> usb status
 ```
 
 If a subsystem cannot be verified from MiniShell itself, the service boundary is
 not yet complete enough.
 
-## 13. Initial Development Milestones
+## 16. Development Milestones
 
-### Task 0 - Framework proof
+### Task 0 - Framework proof — COMPLETE
 
-Goal: prove the architecture with the minimum working vertical slice.
+Validated on real M5Stack Tab5 / ESP32-P4 hardware:
 
-1. Boot Tab5 into a text shell.
-2. Accept a command.
-3. Mount and list storage through MiniShell-owned storage code.
-4. Integrate the ESP32-P4 ELF loader.
-5. Load `/sd/apps/hello.elf`.
-6. Pass the MiniShell API table to it.
-7. Have `hello.elf` call at least one MiniShell runtime service.
-8. Return from the app.
-9. Unload it.
-10. Return to `$>` without reboot.
+1. Boot to the `M$>` shell over USB Serial/JTAG.
+2. Mount microSD through MiniShell-owned platform code.
+3. Load `/sd/apps/hello.elf` dynamically.
+4. Resolve the resident `mini_api_get()` runtime symbol.
+5. Call a MiniShell system service from the separately built ELF.
+6. Return from the app, unload it, and return to `M$>`.
+7. Repeat load/run/unload without rebooting.
 
-Success looks like:
+See `docs/task0.md`.
+
+### Task 1 - MiniEditor (`med`) — ACTIVE
+
+Build a small nano-like terminal editor as the first useful MiniShell app.
+
+Task 1 drives the implementation of:
+
+- platform-neutral console/input service
+- normalized key events
+- platform-neutral filesystem service
+- opaque file handles
+- app-owned resource cleanup
+- first multi-module real ELF application
+
+Expected user flow:
 
 ```text
-MiniShell 0.1
-$> ls /sd/apps
-hello.elf
-$> hello
-Hello from a MiniShell ELF app.
-$>
+M$> med /sd/notes.txt
+[edit file]
+Ctrl-S
+Ctrl-X
+M$>
 ```
 
-### Task 1 - Useful diagnostics
+See `docs/task1.md`.
 
-Add enough filesystem, memory, time, display/input, and platform status commands
-to debug MiniShell itself independently of applications.
+### Later milestones
 
-### Task 2 - First real app port
-
-Choose a small existing application before attempting MiniFT8. The goal is to
-exercise lifecycle and services without importing a large application's legacy
-hardware assumptions.
-
-MiniFT8 should come later, once the boundary has proven itself.
+After `med` proves these boundaries, add other services only when real
+applications require them. MiniFT8 should come later, once console/input,
+storage, lifecycle, and additional needed service boundaries have proven
+themselves with smaller applications.
