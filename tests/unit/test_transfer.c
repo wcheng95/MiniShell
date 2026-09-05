@@ -17,6 +17,17 @@ typedef struct {
 
 static fake_transfer_t s_transfer;
 
+static bool contains_bytes(const uint8_t *haystack, size_t haystack_size,
+                           const uint8_t *needle, size_t needle_size)
+{
+    if (needle_size == 0u) return true;
+    if (haystack_size < needle_size) return false;
+    for (size_t i = 0u; i <= haystack_size - needle_size; ++i) {
+        if (memcmp(haystack + i, needle, needle_size) == 0) return true;
+    }
+    return false;
+}
+
 static uint32_t crc32_bytes(const uint8_t *data, size_t size)
 {
     uint32_t crc = 0xFFFFFFFFu;
@@ -125,6 +136,7 @@ static void prepare_put_input(const uint8_t *payload, size_t size, uint32_t crc)
 bool test_transfer(void)
 {
     static const uint8_t payload[] = {0x00u, 0x01u, 0x7fu, 0x80u, 0xffu, 'M', 'F', 'T', '1'};
+    static const uint8_t ok_prefix[] = "MFT1 OK ";
     const uint32_t crc = crc32_bytes(payload, sizeof(payload));
 
     fake_reset();
@@ -140,8 +152,8 @@ bool test_transfer(void)
     TEST_EQ(g_fake.fs_nodes[node].size, (uint32_t)sizeof(payload));
     TEST_CHECK(memcmp(g_fake.fs_nodes[node].data, payload, sizeof(payload)) == 0);
     TEST_CHECK(find_node("/sd/new.bin.mft.part") < 0);
-    TEST_CHECK(s_transfer.output_len >= 8u);
-    TEST_CHECK(memmem(s_transfer.output, s_transfer.output_len, "MFT1 OK ", 8u) != NULL);
+    TEST_CHECK(contains_bytes(s_transfer.output, s_transfer.output_len,
+                              ok_prefix, sizeof(ok_prefix) - 1u));
 
     configure_transfer();
     s_transfer.put_ready = true; /* get has no incoming binary phase */
