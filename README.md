@@ -290,6 +290,36 @@ The real Tab5 runtime test passed.
 
 See [`docs/task5.md`](docs/task5.md).
 
+## Task 6 — Active: Filesystem Namespace Commands
+
+Task 6 completes the Stage-A file-management set with four runtime applications:
+
+```text
+mv      rename one regular file; destination must not exist
+rm      remove one regular file
+mkdir   create one directory; parent must exist
+rmdir   remove one empty directory
+```
+
+The real application requirements drive one append-only Filesystem ABI extension:
+
+```text
+rename
+remove_file
+mkdir
+rmdir
+```
+
+`MINI_ERR_NOT_EMPTY` is added so `rmdir` can report a portable non-empty-directory
+result. The Tab5 backend normalizes the FATFS `FR_DENIED` ambiguity by checking
+directory contents before removal.
+
+The existing Filesystem table prefix and top-level ABI generation remain
+unchanged, so older Stage-A applications remain binary-compatible.
+
+See [`docs/task6.md`](docs/task6.md) and
+[`docs/filesystem-abi.md`](docs/filesystem-abi.md).
+
 ## Command Roadmap
 
 Linux is the naming/behavior reference for ordinary MiniShell commands, with
@@ -332,14 +362,14 @@ Milestones and policy:
 - [`docs/task2.md`](docs/task2.md)
 - [`docs/task4.md`](docs/task4.md)
 - [`docs/task5.md`](docs/task5.md)
+- [`docs/task6.md`](docs/task6.md)
 - [`docs/resident-vs-app.md`](docs/resident-vs-app.md)
 - [`docs/command-roadmap.md`](docs/command-roadmap.md)
 - [`docs/power-system-plan.md`](docs/power-system-plan.md)
 
 ## Current Status
 
-**Task 0 through Task 5 are complete.**
+**Task 0 through Task 5 are complete. Task 6 is active.**
 
-The next milestone is the Filesystem ABI review driven by the concrete needs of
-`mv`, `rm`, `mkdir`, and `rmdir`. Future resident system work includes USB device
-attach/detach detection when it becomes useful.
+Task 6 implementation is ready for host/build/hardware validation. Future resident
+system work includes USB device attach/detach detection when it becomes useful.
