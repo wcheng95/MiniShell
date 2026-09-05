@@ -86,20 +86,23 @@ int main(int argc, char **argv)
     if (display->struct_size < ABI_FIELD_END(mini_display_api_t, present) ||
         display->present == NULL ||
         (display->capabilities & MINI_DISPLAY_CAP_TEXT) == 0u ||
-        display->text == NULL)
+        display->text == NULL ||
+        display->text->struct_size < ABI_FIELD_END(mini_text_display_api_t, write_at) ||
+        display->text->get_info == NULL)
         return abi_test_fail(api, "abi_stress", "display table incomplete", 77);
 
     mini_text_display_info_t display_info = {0};
     display_info.struct_size = sizeof(display_info);
-    if (display->text->get_info == NULL ||
-        display->text->get_info(&display_info) != MINI_OK ||
+    if (display->text->get_info(&display_info) != MINI_OK ||
         display_info.columns == 0u || display_info.rows == 0u ||
         display->present() != MINI_OK)
         return abi_test_fail(api, "abi_stress", "display operation failed", 78);
 
     if (input->struct_size < ABI_FIELD_END(mini_input_api_t, key) ||
         (input->capabilities & MINI_INPUT_CAP_KEY) == 0u ||
-        input->key == NULL || input->key->read == NULL)
+        input->key == NULL ||
+        input->key->struct_size < ABI_FIELD_END(mini_key_input_api_t, read) ||
+        input->key->read == NULL)
         return abi_test_fail(api, "abi_stress", "input table incomplete", 79);
 
     mini_key_event_t event = {0};
