@@ -237,6 +237,42 @@ later resident-system milestone rather than keeping Task 3 open.
 
 See [`docs/power-system-plan.md`](docs/power-system-plan.md).
 
+## Task 4 — Complete: `nano` Interactive Editor
+
+Task 4 proves that a nontrivial interactive runtime application can live entirely
+above the MiniShell ABI and be installed independently from the resident firmware.
+
+`nano.elf` uses the existing Memory, Filesystem, Display, and Input ABIs for:
+
+```text
+open/create text file
+interactive editing and navigation
+forward search
+save
+clean exit back to M$>
+```
+
+The first hardware run exposed that running every ELF directly on the shell/main
+stack was too restrictive. MiniShell now executes the single foreground app in a
+dedicated reclaimable FreeRTOS task with an 8 KiB stack while keeping shell
+behavior synchronous.
+
+Validated on real Tab5 hardware:
+
+```text
+nano ELF load/relocation       PASS
+interactive edit/search/save   PASS
+clean exit to shell            PASS
+saved file verified by cat     PASS
+foreground app stack isolation PASS
+public ABI changes             none
+```
+
+The visible editor cursor is `_`, implemented entirely through Display ABI v0;
+no cursor/styling ABI expansion was required.
+
+See [`docs/task4.md`](docs/task4.md).
+
 ## Command Roadmap
 
 Linux is the naming/behavior reference for ordinary MiniShell commands, with
@@ -277,14 +313,15 @@ Milestones and policy:
 - [`docs/task0.md`](docs/task0.md)
 - [`docs/task1.md`](docs/task1.md)
 - [`docs/task2.md`](docs/task2.md)
+- [`docs/task4.md`](docs/task4.md)
 - [`docs/resident-vs-app.md`](docs/resident-vs-app.md)
 - [`docs/command-roadmap.md`](docs/command-roadmap.md)
 - [`docs/power-system-plan.md`](docs/power-system-plan.md)
 
 ## Current Status
 
-**Task 0, Task 1, Task 2, and Task 3 are complete.**
+**Task 0 through Task 4 are complete.**
 
-The ordinary ELF application roadmap remains independent and currently starts
-with `nano`, followed by the minimal file-management command set. Future resident
+The next ordinary application milestone is `cp`, followed by a Filesystem ABI
+review driven by the needs of `mv`, `rm`, `mkdir`, and `rmdir`. Future resident
 system work includes USB device attach/detach detection when it becomes useful.
