@@ -46,7 +46,7 @@ resident minishell_transfer
 ```
 
 The shell only parses/dispatches `put` and `get`. Protocol state, framing, CRC,
-timeouts, and transfer loops belong to the transfer module.
+timeouts, pacing, and transfer loops belong to the transfer module.
 
 The platform owns the physical console transport and provides narrow private raw
 read/write callbacks. Those callbacks are not part of the application ABI.
@@ -79,10 +79,17 @@ bytes 12..15  uint32 IEEE CRC-32 of payload
 MFT1 DATA READY
 ```
 
-5. Host sends exactly `file size` raw payload bytes.
-6. MiniShell writes to a temporary file, verifies CRC, syncs/closes it, then asks
-   the platform to replace the destination with the completed temporary file.
-7. MiniShell replies with either:
+5. Host sends the payload in blocks of at most 1024 bytes.
+6. After each non-final block MiniShell writes the block to storage and replies:
+
+```text
+MFT1 NEXT
+```
+
+   The host does not send the next block until this acknowledgement arrives.
+7. After the final block MiniShell verifies the whole-file CRC, syncs/closes the
+   temporary file, and asks the platform to replace the destination.
+8. MiniShell replies with either:
 
 ```text
 MFT1 OK <size> <crc32>
@@ -94,10 +101,10 @@ or:
 MFT1 ERROR <reason>
 ```
 
-The second ready handshake is deliberate: if the path is invalid, storage is
-unavailable, or the temporary file cannot be opened, MiniShell reports the error
-before the host starts streaming binary payload. That prevents leftover payload
-bytes from spilling into the shell after an early failure.
+The second ready handshake prevents binary payload from being sent before the
+storage path is known usable. Block-level pacing prevents a fast host from
+outrunning the finite USB Serial/JTAG receive buffer while MiniShell is writing
+to SD.
 
 An interrupted or corrupt transfer must not intentionally publish the incomplete
 temporary file as the destination.
@@ -127,6 +134,7 @@ MFT1 OK
   depend on ESP-IDF types.
 - File payload is binary-safe.
 - Whole-file CRC-32 detects corruption.
+- Put uses 1024-byte block acknowledgement for flow control.
 - V1 retries the whole transfer after an error rather than implementing block
   retransmission.
 - Paths are MiniShell absolute paths and V1 does not support spaces in shell
@@ -135,30 +143,39 @@ MFT1 OK
 - V1 is synchronous. While a transfer is active, the shell does not process other
   commands.
 - File transfer does not expand the public application ABI.
+- The Tab5 platform explicitly allocates 4096-byte USB Serial/JTAG RX and TX
+  driver buffers instead of relying on ESP-IDF's smaller default buffers.
 
 ## Verification status
 
-The first real-hardware `put` test has passed on the Tab5 reference platform:
+The first real-hardware `put` test passed on the Tab5 reference platform:
 
 ```text
 python3 tools/minishell_transfer.py /dev/ttyACM0 put test.txt /sd/test.txt
 put: test.txt -> /sd/test.txt (34 bytes, crc32=fd90e9b8)
 ```
 
-MiniShell then listed `/sd/test.txt`, confirming publication into the mounted SD
-filesystem. This proves the host helper, shell handoff, two-stage MFT1 upload
-handshake, binary payload path, CRC verification, filesystem write/sync/close,
-and final publish path on real hardware for a small file.
+A subsequent ELF upload exposed a flow-control bug in the original continuous
+streaming implementation:
 
-The next verification steps are `get`, ELF upload/execute, replacement of an
-existing destination, a larger binary transfer, and interrupted-upload recovery.
+```text
+MFT1 ERROR payload-timeout
+```
+
+The small text file succeeded because it fit comfortably within the transport
+buffer. ESP-IDF's default USB Serial/JTAG driver configuration uses only a
+256-byte RX ring buffer, while the original host helper streamed much larger
+chunks without waiting for storage progress. MFT1 now uses 1024-byte block pacing
+plus explicit 4096-byte platform RX/TX buffers. The host unit test uses a
+1500-byte payload and withholds the second block until `MFT1 NEXT` is emitted, so
+multi-block pacing is covered by regression testing.
 
 ## Verification plan
 
 1. Run the host unit suite, including `abi_transfer_unit`.
 2. Build MiniShell with the resident module.
 3. Put a small text file and compare its contents. **PASS on real hardware.**
-4. Put a separately built `.elf`, then execute it.
+4. Put a separately built `.elf`, then execute it. **Retest after block-pacing fix.**
 5. Get the same file back and compare SHA-256 on the host.
 6. Put over an existing destination and confirm FATFS backup/replace behavior.
 7. Transfer a larger binary file.
@@ -172,6 +189,7 @@ Task 2 V1 is complete when:
 - `put` transfers arbitrary binary files from host to MiniShell storage;
 - `get` transfers arbitrary binary files back to the host;
 - early path/storage errors occur before payload transmission;
+- transfer pacing prevents transport-buffer overrun during storage writes;
 - CRC verification detects incomplete/corrupt transfers;
 - a transferred ELF can be executed normally;
 - replacing an existing FATFS destination works with rollback protection;
