@@ -1,0 +1,3 @@
+dependencies:
+  idf: ">=5.4"
+  espressif/elf_loader: "^1.3.3"
