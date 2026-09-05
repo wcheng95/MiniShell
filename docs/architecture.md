@@ -12,13 +12,14 @@ MiniShell is a resident MCU application environment.
 |                    MiniShell Core                    |
 |                                                      |
 | shell   app manager   resident facilities   services |
-|                         |                            |
-|                     file transfer                    |
+|              |             |                        |
+|              |             +-- file transfer        |
+|              `---------------- power/system          |
 +-------------------- service boundary ----------------+
 |                  Platform Services                   |
 |                                                      |
 | system memory filesystem time/location display input|
-|                 future: audio USB network power     |
+|                 future: audio USB network            |
 +-------------------- platform boundary ---------------+
 |              ESP32-P4 / ESP-IDF / Tab5              |
 +------------------------------------------------------+
@@ -54,7 +55,8 @@ MiniShell/
 |   |-- minishell_shell/
 |   |-- minishell_app/
 |   |-- minishell_services/
-|   `-- minishell_transfer/
+|   |-- minishell_transfer/
+|   `-- minishell_power/
 |-- apps/
 |   `-- cat/
 |-- platform/
@@ -118,10 +120,11 @@ Current responsibilities include:
 - application search/launch;
 - lifecycle stress command;
 - platform/service diagnostics;
-- dispatch of resident provisioning commands such as `put` and `get`.
+- dispatch of resident provisioning commands such as `put` and `get`;
+- dispatch of resident power commands such as `status`, `suspend`, and `poweroff`.
 
-The shell does not own the file-transfer protocol implementation. It delegates to
-`minishell_transfer`.
+The shell does not own file-transfer protocol or board power mechanics. It
+delegates to the relevant resident module.
 
 V1 does not need POSIX pipelines, redirection, background jobs, users, or process
 management.
@@ -182,7 +185,9 @@ Cross-cutting rules include:
 A console is not itself an application ABI. The serial terminal is currently a
 platform implementation of Display/Input plus shell transport behavior.
 
-Later service groups may include audio, USB, network, and power/system control.
+Later application-facing service groups may include audio, USB, network, and
+possibly power if an application requirement justifies it. Resident Task 3 did
+not add a speculative public Power ABI.
 
 ## 8. Filesystem namespace
 
@@ -242,10 +247,47 @@ failed publication attempts rollback the old destination where possible.
 
 Task 2 is complete. Hardware validation proved round-trip transfer, replacement,
 a 524325-byte binary, timeout cleanup, and preservation of the old destination
-after an intentionally interrupted replacement. The full seven-group host suite
-and post-transfer shell/ABI sanity checks also pass.
+after an intentionally interrupted replacement.
 
-## 10. Platform layer
+## 10. Resident power/system
+
+Task 3 established resident power ownership:
+
+```text
+shell status/suspend/poweroff
+        |
+        v
+core/minishell_power
+        |
+        | private normalized callback port
+        v
+Tab5 power backend
+        |
+        +-- charger enable/status via IO expander
+        +-- INA226 battery telemetry
+        +-- ESP32-P4 deep sleep
+        `-- board poweroff pulse
+```
+
+The resident core contains no ESP-IDF or M5Stack types. Board-specific details
+remain below the platform boundary.
+
+The V1 user-visible behaviors are:
+
+```text
+status      battery percentage + charging state
+suspend     deep sleep; restart MiniShell on external wake/reset
+poweroff    board shutdown request with deep-sleep fallback
+```
+
+All three paths pass on real Tab5 hardware. The backend also enables charging
+during normal MiniShell startup. Power-backend initialization failure is non-fatal
+so the shell remains available for diagnostics/recovery.
+
+USB attach/detach detection is intentionally deferred to a later resident-system
+milestone rather than being part of Task-3 completion.
+
+## 11. Platform layer
 
 The platform layer translates MiniShell concepts into hardware/SDK operations.
 
@@ -255,21 +297,24 @@ For Tab5 this currently includes:
 USB Serial/JTAG console transport
 memory allocation support
 SD / POSIX-VFS filesystem support
-monotonic timer / sleep
+monotonic timer / delay
 terminal Display backend
 terminal Input backend
 raw transfer byte stream
 completed-file replace/remove
+battery/charging telemetry
+charger initialization
+suspend/deep sleep
+poweroff control
 ```
 
-Task 3 extends this area with battery status, suspend, and poweroff. Later work
-may add USB attach/detach management, RTC/location persistence, physical LCD/touch,
-audio, and network support.
+Later work may add USB attach/detach management, RTC/location persistence,
+physical LCD/touch, audio, and network support.
 
 Platform code may freely include ESP-IDF/M5Stack types. Public MiniShell headers
 may not.
 
-## 11. Hardware ownership
+## 12. Hardware ownership
 
 MiniShell owns shared hardware after boot.
 
@@ -297,10 +342,20 @@ private transport callbacks
 USB Serial/JTAG driver
 ```
 
+```text
+shell suspend/poweroff
+   |
+resident power module
+   |
+private platform callbacks
+   |
+Tab5 power hardware / ESP32-P4 sleep
+```
+
 Direct hardware access remains technically possible because MiniShell provides no
 protection, but it leaves the portable contract.
 
-## 12. Memory model and protection
+## 13. Memory model and protection
 
 MiniShell and applications share one MCU address space.
 
@@ -315,7 +370,7 @@ Current assumptions:
 
 This is cooperative cleanup, not protection from arbitrary memory corruption.
 
-## 13. Foreground Display/Input model
+## 14. Foreground Display/Input model
 
 ```text
 shell foreground
@@ -331,7 +386,7 @@ MiniShell remains the hardware owner throughout.
 Resident transfer is different: while `put`/`get` runs, the shell synchronously
 hands the serial transport to the transfer protocol; no foreground app is active.
 
-## 14. Testing model
+## 15. Testing model
 
 Testing has three layers:
 
@@ -343,15 +398,17 @@ host unit tests
 
 Task 1's six ABI groups remain the primary service correctness suites.
 
-Task 2 added a resident transfer unit group using a fake byte stream and fake
-filesystem. Hardware testing then verified the real USB Serial/JTAG transport,
-SD persistence, replacement behavior, interruption cleanup, and return to normal
-shell/app operation.
+Task 2 added a resident transfer unit group. Task 3 adds
+`resident_power_unit`, deliberately separate from the public ABI groups because
+no Power ABI was added.
+
+Hardware testing verifies platform behavior after resident/module semantics are
+covered on the host.
 
 Application commands should likewise keep command logic host-testable where
 practical, then validate the separately built ELF on real MiniShell.
 
-## 15. Milestones
+## 16. Milestones
 
 ### Task 0 — Framework proof — COMPLETE
 
@@ -368,17 +425,16 @@ backend, and lifecycle-stress tested through 100 repeated ELF runs.
 
 Resident `put`/`get` over USB Serial/JTAG is implemented and validated. MFT1 uses
 CRC verification, paced multi-block transfer, safe temporary-file publication,
-and FATFS replacement/rollback. Real hardware validation includes large-file
-round trip, replacement, interrupted-transfer cleanup, and post-transfer ABI
-regression.
+and FATFS replacement/rollback.
 
 See `docs/task2.md`.
 
-### Task 3 — Power/System — ACTIVE
+### Task 3 — Power/System — COMPLETE
 
-Add resident battery/charging status, wakeable suspend, and explicit poweroff.
-USB attach/detach detection is planned later in the same system area after the
-resident USB manager is designed.
+Resident battery/charging status, ESP32-P4 deep-sleep suspend, and Tab5 poweroff
+are implemented and validated on real hardware. No public Power ABI was required.
+
+USB attach/detach detection is deferred to a later system milestone.
 
 See `docs/power-system-plan.md`.
 
