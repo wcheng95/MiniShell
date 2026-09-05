@@ -119,7 +119,7 @@ int minishell_app_run(const char *command, int argc, char **argv)
     esp_elf_t elf;
     bool elf_initialized = false;
 
-    printf("app: loading %s (%lld bytes)\n", fullpath, (long long)st.st_size);
+    printf("app: loading %s\n", fullpath);
 
     ret = esp_elf_open(&file, filename);
     if (ret < 0) {
@@ -139,13 +139,10 @@ int minishell_app_run(const char *command, int argc, char **argv)
         printf("app: elf_relocate failed (%d)\n", ret);
         goto cleanup;
     }
-    printf("app: relocate OK\n");
 
     ret = run_relocated_app(&elf, argc, argv);
     if (ret < 0) {
         printf("app: elf_request failed (%d)\n", ret);
-    } else {
-        printf("app: request OK\n");
     }
 
 cleanup:
