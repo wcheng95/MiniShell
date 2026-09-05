@@ -1,6 +1,6 @@
 # MiniShell Filesystem ABI v0
 
-Status: **Task 1 design contract; provisional until implementation and hardware ABI tests pass**
+Status: **Task 1 design contract; provisional until implementation, unit tests, ELF integration, and hardware validation pass**
 
 ## 1. Purpose
 
@@ -366,23 +366,55 @@ added explicitly rather than changing existing operation semantics.
 A future robust editor-save flow may justify `rename()` and `remove()` so a new
 file can be written, synchronized, and then substituted for the old file.
 
-## 19. ABI test requirements
+## 19. Verification requirements
 
-`abi_fs.elf` should validate at least:
+### 19.1 Unit tests — primary
 
-1. open/read/close an existing file;
-2. create/write/sync/close/read-back;
-3. partial read/write behavior;
-4. EOF as successful zero-byte read;
-5. zero-byte read/write;
-6. seek SET/CUR/END;
-7. failed seek leaves position unchanged;
-8. append writes remain at EOF after seek;
-9. stat file and directory types;
-10. invalid/foreign/closed handles fail cleanly;
-11. invalid flag combinations fail cleanly;
-12. intentionally leave a handle open and verify teardown reclaims it;
-13. repeat launch/run/exit without leaking or destabilizing MiniShell.
+The Filesystem service must have comprehensive unit tests using a fake or
+in-memory backend that can deliberately return partial I/O and specific failures.
+They should verify at least:
 
-The ABI remains provisional until the focused test passes through the real
-runtime ABI on the Tab5 reference platform.
+1. path normalization for repeated `/`, `.`, and `..` without escaping root;
+2. invalid/relative paths and backend path-limit translation;
+3. all valid and invalid open-flag combinations;
+4. create/exclusive/truncate/append semantics;
+5. opaque-handle ownership, stale handles, foreign handles, and generation/reuse
+   behavior if the implementation uses reusable slots;
+6. read/write permission enforcement;
+7. partial reads and partial writes;
+8. EOF as `MINI_OK` plus zero bytes;
+9. zero-byte read/write semantics;
+10. read/write output counts initialized correctly on failures;
+11. seek SET/CUR/END, negative-result rejection, and overflow/boundary cases;
+12. failed seek preserving the old position;
+13. APPEND writes beginning at EOF after arbitrary seeks;
+14. sync success/failure translation;
+15. close invalidating the logical handle even when backend close/flush reports an
+    error;
+16. stat file/directory/missing-path behavior and `struct_size` compatibility;
+17. per-app handle ownership and teardown reclamation;
+18. repeated open/close/teardown cycles without leaking bookkeeping state.
+
+### 19.2 Runtime-loaded ELF integration test
+
+`abi_fs.elf` should prove the real ABI/runtime path with a representative subset:
+
+1. service/table discovery;
+2. open/read/close an existing file;
+3. create/write/sync/close/read-back;
+4. one seek case and APPEND behavior;
+5. one representative invalid-handle or invalid-flag case;
+6. stat through the public structure;
+7. leave one handle open and return so teardown cleanup is exercised;
+8. repeat launch/run/exit.
+
+The ELF integration test does not need to duplicate the full unit matrix.
+
+### 19.3 Hardware/platform validation
+
+On Tab5, validate the real SD/FATFS backend, including actual persistence across
+close/remount/restart where relevant and representative physical-media/backend
+errors that can be reproduced safely.
+
+The ABI remains provisional until the unit suite, focused ELF integration test,
+and required hardware validation all pass.
