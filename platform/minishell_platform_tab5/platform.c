@@ -1,11 +1,18 @@
 #include <stdio.h>
 
-#include "bsp/esp-bsp.h"
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
 #include "esp_err.h"
 
 #include "minishell_platform.h"
+
+/*
+ * The current m5stack_tab5_noglib public umbrella header pulls in display.h,
+ * which in turn requires esp_lcd headers that the BSP declares privately.
+ * Task 0 needs only the SD mount entry point, so keep that BSP detail isolated
+ * here instead of leaking display dependencies into MiniShell's platform code.
+ */
+esp_err_t bsp_sdcard_mount(void);
 
 #define MINISHELL_UART UART_NUM_0
 #define MINISHELL_UART_TX 37
