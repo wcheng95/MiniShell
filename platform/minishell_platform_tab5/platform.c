@@ -15,14 +15,10 @@
 #include "freertos/task.h"
 
 #include "minishell_services.h"
+#include "minishell_transfer.h"
 #include "minishell_platform.h"
 #include "terminal_backend.h"
 
-/*
- * The current m5stack_tab5_noglib public umbrella header pulls in display.h,
- * which in turn requires esp_lcd headers that the BSP declares privately.
- * Keep the BSP detail isolated here instead of leaking it into MiniShell.
- */
 esp_err_t bsp_sdcard_mount(void);
 
 static esp_err_t s_console_status = ESP_FAIL;
@@ -68,34 +64,55 @@ static esp_err_t init_console(void)
     return ESP_OK;
 }
 
+static TickType_t console_timeout_ticks(uint32_t timeout_ms)
+{
+    if (timeout_ms == MINI_WAIT_FOREVER) return portMAX_DELAY;
+    if (timeout_ms == MINI_WAIT_NONE) return 0;
+    TickType_t ticks = pdMS_TO_TICKS(timeout_ms);
+    return ticks == 0 ? 1 : ticks;
+}
+
 static int terminal_read_byte(uint32_t timeout_ms)
 {
     uint8_t byte = 0u;
-    TickType_t ticks;
-
-    if (timeout_ms == MINI_WAIT_FOREVER) {
-        ticks = portMAX_DELAY;
-    } else if (timeout_ms == MINI_WAIT_NONE) {
-        ticks = 0;
-    } else {
-        ticks = pdMS_TO_TICKS(timeout_ms);
-        if (ticks == 0) ticks = 1;
-    }
-
-    int count = usb_serial_jtag_read_bytes(&byte, 1u, ticks);
+    int count = usb_serial_jtag_read_bytes(&byte, 1u, console_timeout_ticks(timeout_ms));
     return count == 1 ? (int)byte : -1;
+}
+
+static int transfer_read(void *ctx, uint8_t *buffer, size_t size, uint32_t timeout_ms)
+{
+    (void)ctx;
+    if (buffer == NULL || size == 0u) return 0;
+    return usb_serial_jtag_read_bytes(buffer, size, console_timeout_ticks(timeout_ms));
+}
+
+static int transfer_write(void *ctx, const uint8_t *buffer, size_t size, uint32_t timeout_ms)
+{
+    (void)ctx;
+    if (buffer == NULL || size == 0u) return 0;
+    return usb_serial_jtag_write_bytes(buffer, size, console_timeout_ticks(timeout_ms));
+}
+
+static int transfer_replace_file(void *ctx, const char *temporary_path,
+                                 const char *destination_path)
+{
+    (void)ctx;
+    if (temporary_path == NULL || destination_path == NULL) return -EINVAL;
+    if (rename(temporary_path, destination_path) == 0) return 0;
+    return -errno;
+}
+
+static void transfer_remove_file(void *ctx, const char *path)
+{
+    (void)ctx;
+    if (path == NULL) return;
+    if (unlink(path) != 0 && errno != ENOENT) {
+        /* Best-effort cleanup; the transfer reports the primary error. */
+    }
 }
 
 static esp_err_t mount_sd(void)
 {
-    /*
-     * m5stack_tab5_noglib 1.3.0 still checks the obsolete aggregate symbol
-     * CONFIG_FATFS_LONG_FILENAMES. ESP-IDF 5.5 represents that Kconfig choice
-     * with CONFIG_FATFS_LFN_NONE/HEAP/STACK, so the BSP emits a false warning
-     * even when LFN is enabled. Suppress only WARN/INFO from the BSP tag during
-     * the mount call; real BSP errors remain visible and MiniShell reports the
-     * returned error itself.
-     */
     static const char *const bsp_tag = "M5Stack Tab5";
     esp_log_level_t old_level = esp_log_level_get(bsp_tag);
     esp_log_level_set(bsp_tag, ESP_LOG_ERROR);
@@ -244,12 +261,10 @@ static void configure_services(void)
     const minishell_services_port_t port = {
         .ctx = NULL,
         .system_write = service_system_write,
-
         .memory_alloc = service_memory_alloc,
         .memory_realloc = service_memory_realloc,
         .memory_free = service_memory_free,
         .memory_get_info = NULL,
-
         .fs_open = service_fs_open,
         .fs_close = service_fs_close,
         .fs_read = service_fs_read,
@@ -257,24 +272,34 @@ static void configure_services(void)
         .fs_seek = service_fs_seek,
         .fs_sync = service_fs_sync,
         .fs_stat = service_fs_stat,
-
         .monotonic_us = service_monotonic_us,
         .sleep_ms = service_sleep_ms,
         .time_location_capabilities = 0u,
-
         .display_capabilities = terminal_ready ? MINI_DISPLAY_CAP_TEXT : 0u,
         .display_text_get_info = minishell_terminal_display_get_info,
         .display_text_clear = minishell_terminal_display_clear,
         .display_text_clear_at = minishell_terminal_display_clear_at,
         .display_text_write_at = minishell_terminal_display_write_at,
         .display_present = minishell_terminal_display_present,
-
         .input_capabilities = terminal_ready ? MINI_INPUT_CAP_KEY : 0u,
         .input_wait = minishell_terminal_input_wait,
         .input_flush = service_input_flush,
     };
 
     minishell_services_configure(&port);
+
+    if (terminal_ready) {
+        const minishell_transfer_port_t transfer_port = {
+            .ctx = NULL,
+            .read = transfer_read,
+            .write = transfer_write,
+            .replace_file = transfer_replace_file,
+            .remove_file = transfer_remove_file,
+        };
+        minishell_transfer_configure(&transfer_port);
+    } else {
+        minishell_transfer_configure(NULL);
+    }
 }
 
 int minishell_platform_init(void)
