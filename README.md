@@ -13,7 +13,7 @@ operating-system ideas that are useful on an MCU:
 - reusable system services
 - clear hardware ownership
 - a simple foreground application lifecycle
-- diagnostics, provisioning, and recovery facilities
+- diagnostics, provisioning, recovery, and power/system facilities
 
 Protection is by convention rather than privilege separation. A normal
 application uses MiniShell services and does not own shared system hardware. A
@@ -94,9 +94,10 @@ ELF is the initial loading format, not the MiniShell architecture itself.
 
 Placement follows one primary rule:
 
-> If MiniShell needs a function to manage, provision, diagnose, recover, or own
-> the application environment itself, keep it resident. Ordinary user/domain
-> functionality should normally be a separately built `.elf` application.
+> If MiniShell needs a function to manage, provision, diagnose, recover, power,
+> or own the application environment itself, keep it resident. Ordinary
+> user/domain functionality should normally be a separately built `.elf`
+> application.
 
 Examples:
 
@@ -106,12 +107,17 @@ resident MiniShell
     platform ownership
     diagnostics / recovery
     file transfer
+    battery / suspend / poweroff
+    future USB device-state manager
 
 runtime applications
     cat.elf
     nano.elf
-    calculator.elf
-    radio applications
+    cp.elf
+    mv.elf
+    rm.elf
+    mkdir.elf
+    rmdir.elf
     future MiniFT8
 ```
 
@@ -124,8 +130,9 @@ be unsurprising, but implements only the minimum useful subset rather than tryin
 to reproduce an entire GNU/Linux userland. The planned editor is therefore named
 `nano`, replacing the earlier working name `med`.
 
-See [`docs/resident-vs-app.md`](docs/resident-vs-app.md) and
-[`docs/command-roadmap.md`](docs/command-roadmap.md).
+See [`docs/resident-vs-app.md`](docs/resident-vs-app.md),
+[`docs/command-roadmap.md`](docs/command-roadmap.md), and
+[`docs/power-system-plan.md`](docs/power-system-plan.md).
 
 ## Task 0 — Complete
 
@@ -252,22 +259,27 @@ See [`docs/task2.md`](docs/task2.md).
 Linux is the naming/behavior reference for ordinary MiniShell commands, with
 **minimum/useful** as the selection rule.
 
-Near-term application sequence:
+Planned application command set:
 
 ```text
-cat          implemented
-nano         next editor
-cp / mv / rm
-mkdir / rmdir
-sha256sum / hexdump
-head / tail / wc / grep
+Stage A: cat  nano  cp  mv  rm  mkdir  rmdir
+Stage C: free  date  df
 ```
 
-Commands are added only when the underlying MiniShell concept is useful. Linux
-commands whose system model does not exist here (`sudo`, `ps`, `systemctl`, Unix
-ownership/permission tools, etc.) are not copied merely for familiarity.
+`cat` is kept because it is already implemented, not because it is considered
+essential. Text search belongs inside `nano`; no separate `grep` is planned.
 
-See [`docs/command-roadmap.md`](docs/command-roadmap.md).
+Resident/system additions are independent of the ELF command path:
+
+```text
+status      add battery percentage + charging state
+suspend     wakeable low-power state
+poweroff    actual shutdown
+later       resident USB attach/detach detection
+```
+
+See [`docs/command-roadmap.md`](docs/command-roadmap.md) and
+[`docs/power-system-plan.md`](docs/power-system-plan.md).
 
 ## ABI Documents
 
@@ -294,6 +306,7 @@ Milestones and policy:
 - [`docs/task2.md`](docs/task2.md)
 - [`docs/resident-vs-app.md`](docs/resident-vs-app.md)
 - [`docs/command-roadmap.md`](docs/command-roadmap.md)
+- [`docs/power-system-plan.md`](docs/power-system-plan.md)
 
 ## Current Status
 
