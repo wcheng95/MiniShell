@@ -184,14 +184,52 @@ string primitives its compiled code may need (`memcpy`, `memmove`, `memset`,
 `memcmp`, `strlen`) and does not use formatted libc output such as `snprintf`.
 The Nano component is compiled freestanding with builtins disabled.
 
-Before installation, inspect the generated ELF:
+The ESP-IDF `project_elf()` output is stripped, so normal `nm` inspection may
+report `no symbols`. `readelf` remains useful for checking dynamic relocations;
+Nano and the known-good Cat app both contain one `R_RISCV_JUMP_SLOT` relocation
+for `mini_api_get`.
 
-```bash
-riscv32-esp-elf-nm -u build/nano.app.elf
+## Foreground app execution stack
+
+The first Nano hardware run exposed a runtime limit that the smaller Task-1 apps
+never exercised. Nano successfully loaded and relocated, then the resident main
+task overflowed its approximately 4 KiB stack while servicing terminal Display
+ABI calls. The panic occurred inside Newlib `_vfprintf_r()` after the stack
+pointer crossed the task's lower stack bound.
+
+This is treated as an application-runtime architecture issue rather than a reason
+to permanently enlarge the shell/main stack.
+
+MiniShell now runs a relocated foreground ELF in a dedicated FreeRTOS task:
+
+```text
+shell/main task
+      |
+      | load + relocate
+      v
+foreground app task
+      |  8 KiB execution stack
+      |  MiniShell ABI calls
+      v
+app exits
+      |
+      v
+execution task/stack reclaimed
+      |
+      v
+shell resumes
 ```
 
-The intended unresolved MiniShell symbol is `mini_api_get`; unexpected libc,
-ESP-IDF, or platform symbols are a Task-4 boundary failure.
+Properties:
+
+- still exactly one foreground application;
+- shell behavior remains synchronous;
+- `argc`/`argv` remain valid because the shell waits for completion;
+- `minishell_services_app_begin/end()` bracket execution inside the app task;
+- no public ABI change;
+- app stack memory exists only while an application runs;
+- initial V1 foreground stack size is 8 KiB and may later become a configurable
+  runtime policy if real applications justify it.
 
 ## Testing
 
@@ -220,8 +258,8 @@ It covers the pure `nano_buffer` implementation, including:
 On the Tab5 terminal backend:
 
 1. build `nano.elf` independently;
-2. inspect undefined symbols;
-3. upload it through resident MFT1 without rebuilding MiniShell;
+2. upload it through resident MFT1;
+3. confirm ELF load and relocation;
 4. create a new text file;
 5. type several lines and edit in the middle;
 6. navigate with arrows/Home/End/PageUp/PageDown;
@@ -230,11 +268,11 @@ On the Tab5 terminal backend:
 9. exit with Ctrl-X and return cleanly to `M$>`;
 10. verify the file with existing `cat.elf`;
 11. reopen it, modify it, exercise the dirty-exit save prompt, and verify
-    persistence again.
+    persistence again;
+12. re-run Cat/ABI-app lifecycle sanity after moving ELF execution to the
+    dedicated foreground task.
 
 ## Implementation status
-
-Source implementation is complete enough for the first validation pass:
 
 ```text
 nano app/build skeleton        implemented
@@ -244,9 +282,11 @@ nano_file                      implemented
 nano_ui                        implemented
 nano controller                implemented
 self-contained mini libc       implemented
+ELF build                      PASS
+ELF relocation on Tab5         PASS
+foreground app stack isolation implemented; hardware retest pending
 public ABI changes             none
-host test                      pending
-ELF build/symbol check         pending
+host test                      pending confirmation
 Tab5 interactive validation    pending
 ```
 
@@ -262,5 +302,6 @@ Task 4 is complete when:
 - the real terminal Display/Input backend works without app-side ANSI parsing;
 - saved content is verified independently after editor exit;
 - shell input ownership is clean after the app returns;
+- dedicated foreground app execution does not regress existing runtime apps;
 - no public ABI expansion was made unless hardware testing proves one genuinely
   necessary.
