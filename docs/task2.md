@@ -170,12 +170,27 @@ plus explicit 4096-byte platform RX/TX buffers. The host unit test uses a
 1500-byte payload and withholds the second block until `MFT1 NEXT` is emitted, so
 multi-block pacing is covered by regression testing.
 
+The corrected block-paced protocol then successfully installed the first normal
+utility application:
+
+```text
+python3 tools/minishell_transfer.py /dev/ttyACM0 \
+    put apps/cat/build/cat.app.elf /sd/apps/cat.elf
+put: apps/cat/build/cat.app.elf -> /sd/apps/cat.elf \
+     (1568 bytes, crc32=89be16c8)
+```
+
+`cat.elf` was then launched normally by the MiniShell app manager and successfully
+read the previously uploaded `/sd/test.txt`. This proves multi-block binary
+upload, CRC verification, publication into `/sd/apps`, runtime discovery/load,
+and execution of an independently developed application.
+
 ## Verification plan
 
 1. Run the host unit suite, including `abi_transfer_unit`.
 2. Build MiniShell with the resident module.
 3. Put a small text file and compare its contents. **PASS on real hardware.**
-4. Put a separately built `.elf`, then execute it. **Retest after block-pacing fix.**
+4. Put a separately built `.elf`, then execute it. **PASS on real hardware.**
 5. Get the same file back and compare SHA-256 on the host.
 6. Put over an existing destination and confirm FATFS backup/replace behavior.
 7. Transfer a larger binary file.
