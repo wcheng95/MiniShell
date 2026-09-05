@@ -24,13 +24,13 @@ platform allocator(s)
     `-- other implementation-defined pools
 ```
 
-The default application contract is intentionally simple: an app asks for
-ordinary memory suitable for normal C objects. MiniShell decides where that
-memory comes from.
+The default contract is intentionally simple: the app asks for ordinary memory
+suitable for normal C objects. MiniShell decides which eligible memory pool
+supplies it.
 
-## 2. Scope of v0
+## 2. Scope of V0
 
-Memory ABI v0 contains only:
+Memory ABI V0 contains:
 
 ```text
 alloc
@@ -54,7 +54,7 @@ memory protection
 ```
 
 These may be added later through append-only table extension or a new optional
-sub-API without changing the v0 operations.
+sub-API without changing V0 semantics.
 
 ## 3. Allocation size
 
@@ -62,14 +62,13 @@ V0 uses fixed-width `uint32_t` allocation sizes rather than C `size_t`.
 
 Reasons:
 
-- the ABI remains explicit across RV32, RV64, Xtensa, ARM, and other targets;
-- MiniShell is an MCU-oriented environment where a single allocation above 4 GiB
-  is outside the intended v0 scope;
+- the public ABI remains explicit across RV32, RV64, Xtensa, ARM, and other
+  targets;
+- a single allocation above 4 GiB is outside the intended MCU-oriented V0 scope;
 - current reference targets are far below that limit.
 
-If a future MiniShell platform genuinely needs allocations larger than 4 GiB,
-that capability can be added explicitly rather than silently changing the v0
-contract.
+If a future platform genuinely needs larger individual allocations, add an
+explicit new capability rather than silently changing V0.
 
 ## 4. Service table
 
@@ -104,45 +103,47 @@ mini_result_t alloc(uint32_t size, void **out_ptr);
 
 Semantics:
 
-- `out_ptr` must be non-NULL;
+- `out_ptr` is non-NULL;
 - `size == 0` returns `MINI_ERR_INVALID`;
-- `*out_ptr` is set to NULL before the allocation attempt;
-- success returns `MINI_OK` and a non-NULL pointer;
+- `*out_ptr` is set to NULL before the attempt;
+- success returns `MINI_OK` plus a non-NULL native pointer;
 - allocation failure returns `MINI_ERR_NO_MEMORY`;
 - returned memory is aligned suitably for ordinary C objects required by the
   target ABI;
-- contents are unspecified and are not guaranteed to be zeroed;
+- contents are unspecified and are not guaranteed zeroed;
 - over-aligned, DMA-capable, executable, or otherwise special memory is not
-  promised by v0.
+  promised by V0.
 
-The returned pointer is a native pointer because the application must directly
-read and write the memory. MiniShell binaries are already architecture-specific,
-so this does not violate the project's source-portability model.
+The pointer is native because the application must directly read/write it.
+MiniShell binaries are already architecture-specific, so this is compatible with
+source portability.
 
 ## 6. `realloc()`
 
 ```c
-mini_result_t realloc(void *ptr, uint32_t new_size, void **out_ptr);
+mini_result_t realloc(
+    void *ptr,
+    uint32_t new_size,
+    void **out_ptr);
 ```
 
 Semantics:
 
-- `ptr` must refer to the start of a live MiniShell allocation owned by the
-  current application;
-- `out_ptr` must be non-NULL;
+- `ptr` refers to the start of a live MiniShell allocation owned by the current
+  app;
+- `out_ptr` is non-NULL;
 - `new_size == 0` returns `MINI_ERR_INVALID`;
-- `realloc(NULL, ...)` is not used as an alias for `alloc()` in v0;
+- `realloc(NULL, ...)` is not an alias for `alloc()` in V0;
 - `*out_ptr` is set to NULL before the attempt;
-- existing contents are preserved through
-  `min(old_size, new_size)` bytes;
+- existing contents are preserved through `min(old_size, new_size)` bytes;
 - the allocation may move;
 - on success, the old pointer is invalid and `*out_ptr` is the live allocation;
 - on failure, the original allocation remains valid, unchanged, and owned by the
   application;
-- an invalid, interior, already-freed, or foreign pointer returns
+- invalid, interior, already-freed, or foreign pointers return
   `MINI_ERR_INVALID`.
 
-Keeping failure non-destructive is part of the ABI contract.
+Non-destructive realloc failure is part of the V0 contract.
 
 ## 7. `free()`
 
@@ -153,37 +154,31 @@ mini_result_t free(void *ptr);
 Semantics:
 
 - `free(NULL)` returns `MINI_OK`;
-- a valid pointer must be the start of a live MiniShell allocation owned by the
-  current application;
+- a valid pointer is the start of a live MiniShell allocation owned by the
+  current app;
 - success releases the allocation immediately;
-- an interior pointer, foreign pointer, unknown pointer, or double free returns
+- an interior, foreign, unknown, or already-freed pointer returns
   `MINI_ERR_INVALID`;
-- once `free()` succeeds, the pointer must not be used again.
+- after successful free, the pointer must not be used again.
 
-The Memory ABI can detect ownership mistakes in MiniShell-managed allocations,
-but it cannot prevent arbitrary memory corruption in the shared MCU address
-space.
+Memory ABI bookkeeping can detect ownership mistakes in MiniShell-managed
+allocations, but it cannot prevent arbitrary memory corruption in the shared MCU
+address space.
 
 ## 8. Per-application ownership
 
-Every successful MiniShell allocation is associated with the currently running
-application context.
-
-Conceptually:
+Every successful allocation is associated with the current app context.
 
 ```text
 foreground app context
-    |
     `-- allocations
-        |-- pointer A / size
-        |-- pointer B / size
-        `-- pointer C / size
+        |-- pointer A / requested size
+        |-- pointer B / requested size
+        `-- pointer C / requested size
 ```
 
-When an application returns normally, MiniShell releases any remaining
-MiniShell-managed allocations before unloading the ELF.
-
-Example:
+When the app returns normally, MiniShell releases remaining Memory-ABI
+allocations before unloading the ELF.
 
 ```text
 app starts
@@ -196,14 +191,12 @@ app starts
   -> shell resumes
 ```
 
-This prevents ordinary forgotten `free()` calls from leaking memory across
-application launches. It is cooperative lifecycle cleanup, not process
-isolation.
+This is cooperative lifecycle cleanup, not process isolation.
 
 ## 9. Pointer ownership across other ABIs
 
-Passing an application-owned pointer to another MiniShell service does **not**
-transfer ownership unless that service explicitly documents a transfer.
+Passing an app-owned pointer to another synchronous MiniShell service does **not**
+transfer ownership unless that service explicitly says otherwise.
 
 Examples:
 
@@ -213,18 +206,14 @@ api->display->... /* future buffer-consuming call */
 api->audio->...   /* future buffer-consuming call */
 ```
 
-The called service may use the buffer for the documented duration of the call,
-but the application remains responsible for the allocation afterward unless the
-specific API states otherwise.
-
-For synchronous Task 1 APIs, a service must not retain an application buffer
-after the call returns unless that behavior is explicitly part of the service
-contract.
+The called service may use the buffer for the documented duration of the call.
+For Task 1 synchronous APIs it must not retain the buffer after return unless a
+specific contract explicitly defines retention.
 
 ## 10. Memory information
 
-MiniShell should distinguish information it knows exactly from backend heap
-information that may not be available on every platform.
+MiniShell distinguishes exact per-app accounting from platform allocator-domain
+information that may not be available everywhere.
 
 ```c
 #define MINI_MEM_INFO_APP_USAGE      (1ull << 0)
@@ -245,25 +234,57 @@ typedef struct {
 } mini_memory_info_t;
 ```
 
-The caller zero-initializes the structure and sets `struct_size` before calling
-`get_info()`.
+The caller follows the common extensible-structure rules in
+`docs/abi-foundation.md`: zero-initialize, set `struct_size`, and leave reserved
+input fields zero.
+
+### Exact app accounting
+
+`app_allocated_bytes` is the sum of the **requested live allocation sizes** owned
+by the current app through this ABI.
+
+It does not include:
+
+```text
+allocator metadata
+alignment padding
+heap headers
+platform bookkeeping overhead
+ELF/static/stack memory
+MiniShell resident memory
+```
+
+`app_allocation_count` is the number of live Memory-ABI allocations owned by the
+current app.
+
+Because MiniShell tracks requested sizes itself, these two values can be exact.
+
+### Ordinary-allocation domain information
+
+`free_bytes` and `largest_free_block` describe the memory domain eligible to
+satisfy ordinary `alloc()` calls.
+
+That domain may consist of one physical pool or several eligible pools. The ABI
+does **not** imply one platform heap named "the default pool" and does not expose
+which physical pool would satisfy a future allocation.
 
 Semantics:
 
-- `app_allocated_bytes` and `app_allocation_count` describe allocations owned by
-  the current application through the Memory ABI;
-- MiniShell can report those exactly because it owns the bookkeeping;
-- `free_bytes` and `largest_free_block` refer to the default pool from which
-  ordinary `alloc()` requests are satisfied;
-- platforms that cannot report a backend field leave its validity bit clear;
-- future fields are appended without changing existing offsets or meanings.
+- `free_bytes` is the implementation's best portable measure of currently free
+  ordinary-allocation capacity across the eligible domain;
+- `largest_free_block` is the largest single ordinary allocation the
+  implementation currently believes it can satisfy, subject to normal race/
+  allocator changes between calls;
+- a platform that cannot report one of these meaningfully leaves its validity bit
+  clear;
+- exact values may change immediately after `get_info()` returns.
 
-The ABI intentionally does not expose ESP-IDF heap capability classes, FreeRTOS
-heap structures, PSRAM flags, or other backend-specific concepts.
+The ABI does not expose ESP-IDF heap capability classes, PSRAM flags, FreeRTOS
+heap structures, or backend allocator identities.
 
-## 11. What the Memory ABI does not represent
+## 11. What Memory ABI accounting does not represent
 
-Memory ABI accounting covers dynamic allocations requested by an application
+Memory ABI accounting covers dynamic allocations explicitly requested by the app
 through `mini_memory_api_t`.
 
 It does not represent:
@@ -282,17 +303,22 @@ Those remain runtime/platform implementation details.
 
 ## 12. Extension rule
 
-The v0 table and structures follow the common MiniShell ABI evolution rules:
+V0 follows the common MiniShell ABI evolution rules:
 
 - append fields/functions only;
-- never reorder or repurpose stable fields;
+- never reorder/repurpose established fields;
 - use fixed-width public types;
 - keep platform-specific memory classes below the boundary unless a real portable
   requirement appears;
-- add special memory capabilities as explicit extensions rather than changing the
-  meaning of ordinary `alloc()`.
+- add special-memory capabilities explicitly rather than changing ordinary
+  `alloc()` semantics.
 
-## 13. ABI test requirements
+## 13. Execution context
+
+Memory calls follow the common V0 application-context rule. They are not promised
+ISR-safe or generally reentrant unless a future extension explicitly says so.
+
+## 14. ABI test requirements
 
 `abi_memory.elf` should validate at least:
 
@@ -304,11 +330,13 @@ The v0 table and structures follow the common MiniShell ABI evolution rules:
 6. failed `realloc()` preserves the original allocation;
 7. `alloc(0)` and `realloc(..., 0)` fail cleanly;
 8. `free(NULL)` succeeds;
-9. double free and invalid/interior pointers fail cleanly;
-10. `get_info()` reflects current app allocations;
-11. intentionally leak one allocation, return from the ELF, relaunch the test,
-    and verify teardown reclaimed it;
-12. repeat the test many times without exhausting or destabilizing MiniShell.
+9. double-free and invalid/interior pointers fail cleanly;
+10. `get_info()` counts requested live bytes and allocation count exactly;
+11. if allocator-domain fields are valid, they behave plausibly across
+    allocation/free operations;
+12. intentionally leave one allocation live, return, relaunch, and verify normal
+    teardown reclaimed it;
+13. repeat the test many times without exhausting or destabilizing MiniShell.
 
 The ABI remains provisional until these tests pass through the real runtime ABI
 on the Tab5 reference platform.
