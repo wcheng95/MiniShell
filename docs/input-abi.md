@@ -1,6 +1,6 @@
 # MiniShell Input ABI v0
 
-Status: **Task 1 design contract; provisional until implementation and hardware ABI tests pass**
+Status: **Task 1 design contract; provisional until implementation, unit tests, ELF integration, and hardware validation pass**
 
 ## 1. Purpose
 
@@ -341,22 +341,58 @@ Input ABI calls follow the common V0 execution-context contract in
 Portable apps must not call `read()` from an ISR unless a future extension
 explicitly documents ISR-safe behavior.
 
-## 15. ABI test requirements
+## 15. Verification requirements
 
-`abi_input.elf` should validate at least:
+### 15.1 Unit tests — primary
 
-1. receive a printable ASCII character;
-2. receive each core special-key family;
-3. receive a modifier chord such as Ctrl-S when the platform can generate it;
-4. verify `MINI_WAIT_NONE` returns immediately with `MINI_ERR_NOT_READY` when no
-   event is queued;
-5. verify a finite timeout returns `MINI_ERR_TIMEOUT` after the requested wait;
-6. verify `MINI_WAIT_FOREVER` blocks until an event arrives;
-7. verify queued events arrive in order;
-8. verify a non-ASCII Unicode scalar if the reference input path can generate it;
-9. verify foreground app exit does not leak stale queued input into the shell or
-   next app instance;
-10. repeat load/run/exit cycles without stale state or instability.
+The Input service must have comprehensive deterministic unit tests using a fake
+monotonic clock and synthetic normalized-event source/queue. They should verify
+at least:
 
-The ABI remains provisional until these behaviors are validated through the real
-runtime ABI on the Tab5 reference platform.
+1. character-event construction and delivery;
+2. special-key construction and delivery;
+3. modifiers and unknown future modifier bits;
+4. valid Unicode scalar delivery and rejection/normalization policy for invalid
+   internal scalar values;
+5. queue ordering across many events;
+6. one event returned per `read()`;
+7. `MINI_WAIT_NONE` success and immediate `MINI_ERR_NOT_READY`;
+8. finite timeout success before expiry;
+9. exact finite-timeout expiry producing `MINI_ERR_TIMEOUT` without real sleeping;
+10. `MINI_WAIT_FOREVER` wake-up when an event is injected;
+11. timeout behavior across monotonic wrap/large values as applicable;
+12. too-small event structures and `struct_size` prefix behavior;
+13. capability/sub-API-pointer consistency;
+14. foreground handoff flushing/discarding stale events;
+15. shell-to-app and app-to-shell routing boundaries;
+16. multiple source events normalized into the same logical representation;
+17. repeated queue/handoff cycles without retained stale state.
+
+The fake clock should allow tests to advance time instantly so timeout coverage
+remains fast and deterministic.
+
+### 15.2 Runtime-loaded ELF integration test
+
+`abi_input.elf` should prove the real public binary path with a representative
+subset:
+
+1. discover Input/key capability and table prefix;
+2. receive one printable character and one special key;
+3. exercise a modifier chord when available;
+4. verify nonblocking NOT_READY;
+5. verify one finite timeout;
+6. verify one queued ordering sequence;
+7. return and confirm clean foreground handoff to the shell;
+8. repeat launch/exit without stale events.
+
+The ELF test does not need to reproduce the full timeout/state matrix from unit
+tests.
+
+### 15.3 Hardware/platform validation
+
+On Tab5, validate real input sources independently: USB terminal normalization
+first, then touchscreen/on-screen-keyboard routing when that frontend is added.
+Physical source differences must still produce the same logical key events.
+
+The ABI remains provisional until the unit suite, focused ELF integration test,
+and required hardware validation all pass.
