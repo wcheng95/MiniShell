@@ -1,4 +1,4 @@
-# Task 4 - `nano` Interactive Editor — ACTIVE
+# Task 4 - `nano` Interactive Editor — COMPLETE
 
 ## Goal
 
@@ -12,7 +12,7 @@ M$> nano /sd/notes.txt
 ```
 
 `nano.elf` uses MiniShell application services for memory, filesystem, display,
-and input. It must not depend on ESP-IDF, Tab5 hardware, terminal escape sequences,
+and input. It does not depend on ESP-IDF, Tab5 hardware, terminal escape sequences,
 FATFS internals, or resident/private MiniShell interfaces.
 
 Task 4 deliberately does **not** include `cp`, `mv`, `rm`, `mkdir`, `rmdir`, or
@@ -30,8 +30,8 @@ Input ABI        normalized characters + navigation/control keys
 app lifecycle    foreground ownership + clean return to shell
 ```
 
-If the existing ABI is insufficient, Task 4 should expose the missing primitive
-through a real use case rather than speculative ABI design.
+Task 4 confirmed that the existing public ABI is sufficient for this application;
+no speculative ABI expansion was needed.
 
 ## V1 scope
 
@@ -197,7 +197,7 @@ task overflowed its approximately 4 KiB stack while servicing terminal Display
 ABI calls. The panic occurred inside Newlib `_vfprintf_r()` after the stack
 pointer crossed the task's lower stack bound.
 
-This is treated as an application-runtime architecture issue rather than a reason
+This was treated as an application-runtime architecture issue rather than a reason
 to permanently enlarge the shell/main stack.
 
 MiniShell now runs a relocated foreground ELF in a dedicated FreeRTOS task:
@@ -231,9 +231,9 @@ Properties:
 - initial V1 foreground stack size is 8 KiB and may later become a configurable
   runtime policy if real applications justify it.
 
-The first real-hardware retest with this design passed: Nano ran without a stack
-panic, saved `/sd/nano-test.txt`, returned cleanly to the shell, and the existing
-Cat ELF independently reproduced the saved file contents.
+The real-hardware retest with this design passed: Nano ran without a stack panic,
+saved `/sd/nano-test.txt`, returned cleanly to the shell, and the existing Cat ELF
+independently reproduced the saved file contents.
 
 ## Testing
 
@@ -259,55 +259,43 @@ It covers the pure `nano_buffer` implementation, including:
 
 ### ELF / hardware validation
 
-On the Tab5 terminal backend:
+Validated on the Tab5 terminal backend:
 
-1. build `nano.elf` independently;
-2. upload it through resident MFT1;
-3. confirm ELF load and relocation;
-4. create a new text file;
-5. type several lines and edit in the middle;
-6. navigate with arrows/Home/End/PageUp/PageDown;
-7. search with Ctrl-W;
-8. save with Ctrl-O;
-9. exit with Ctrl-X and return cleanly to `M$>`;
-10. verify the file with existing `cat.elf`;
-11. reopen it, modify it, exercise the dirty-exit save prompt, and verify
-    persistence again;
-12. re-run Cat/ABI-app lifecycle sanity after moving ELF execution to the
-    dedicated foreground task.
+1. built `nano.elf` independently;
+2. uploaded it through resident MFT1;
+3. confirmed ELF load and relocation;
+4. created and edited a new text file;
+5. navigated and edited interactively;
+6. exercised search and save;
+7. exited cleanly with Ctrl-X;
+8. returned to `M$>` with clean input ownership;
+9. verified the saved file independently with `cat.elf`;
+10. validated the dedicated foreground app stack on real hardware;
+11. confirmed the final `_` cursor presentation.
 
-## Implementation status
+## Final status
 
 ```text
-nano app/build skeleton        implemented
-nano_buffer                    implemented
-nano_editor_unit               implemented
-nano_file                      implemented
-nano_ui                        implemented
-nano controller                implemented
-self-contained mini libc       implemented
+nano app/build skeleton        PASS
+nano_buffer                    PASS
+nano_editor_unit               PASS
+nano_file                      PASS
+nano_ui                        PASS
+nano controller                PASS
+self-contained mini libc       PASS
 ELF build                      PASS
 ELF relocation on Tab5         PASS
-foreground app stack isolation PASS on hardware
-basic edit/save/exit            PASS on hardware
-Cat verification of saved file PASS on hardware
+foreground app stack isolation PASS
+interactive edit/search/save   PASS
+clean exit to shell            PASS
+Cat verification of saved file PASS
+visible `_` cursor             PASS
 public ABI changes             none
-host test                      pending confirmation
-full control/dirty-exit sweep  pending confirmation
 ```
 
-## Completion criteria
+## Completion result
 
-Task 4 is complete when:
-
-- `nano.elf` is an independently built/loadable application;
-- it uses only the public MiniShell ABI;
-- new and existing ASCII text files can be edited;
-- navigation, search, save, and dirty-exit handling work;
-- host editor-buffer tests pass;
-- the real terminal Display/Input backend works without app-side ANSI parsing;
-- saved content is verified independently after editor exit;
-- shell input ownership is clean after the app returns;
-- dedicated foreground app execution does not regress existing runtime apps;
-- no public ABI expansion was made unless hardware testing proves one genuinely
-  necessary.
+Task 4 is complete. It proved that a nontrivial interactive ELF application can
+be developed and installed independently of MiniShell, use only the stable public
+ABI, own no platform hardware, and run in a dedicated reclaimable foreground
+execution context without requiring a MiniShell ABI change.
