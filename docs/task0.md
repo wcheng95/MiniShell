@@ -1,4 +1,4 @@
-# Task 0 - UART Shell + Runtime ELF
+# Task 0 - USB Serial/JTAG Shell + Runtime ELF
 
 Task 0 proves the smallest useful vertical slice of MiniShell on the M5Stack
 Tab5 / ESP32-P4.
@@ -7,7 +7,7 @@ Tab5 / ESP32-P4.
 
 Included:
 
-- physical UART0 as the only user console
+- ESP32-P4 built-in USB Serial/JTAG as the user console
 - a resident `$>` shell
 - microSD mounted and owned by MiniShell
 - `help`, `status`, `ls`, and `exec` built-ins
@@ -19,7 +19,6 @@ Included:
 Explicitly excluded from Task 0:
 
 - display and touch
-- Tab5 keyboard
 - Wi-Fi / ESP32-C6
 - USB host
 - audio
@@ -27,36 +26,22 @@ Explicitly excluded from Task 0:
 - internal flash filesystem
 - shell history, pipes, redirection, jobs, or POSIX compatibility
 
-## UART Console
+## USB Serial/JTAG Console
 
-MiniShell uses the Tab5 M5-Bus UART0 signals:
+ESP32-P4 includes a fixed-function USB Serial/JTAG controller. On Tab5, use the
+board's USB connection that exposes this controller to the host. The same
+connection can provide:
 
-```text
-Tab5 G37 / TXD0  -> USB-UART RX
-Tab5 G38 / RXD0  <- USB-UART TX
-Tab5 GND          -> USB-UART GND
-```
+- `idf.py flash`
+- `idf.py monitor`
+- interactive MiniShell stdin/stdout
+- JTAG debugging through OpenOCD/GDB
 
-Use a 3.3 V TTL USB-UART adapter. Do not connect the adapter's VCC unless you
-intentionally want it involved in powering the board.
+On Linux, the serial function normally appears as `/dev/ttyACM*` or under
+`/dev/serial/by-id/`.
 
-Console format:
-
-```text
-115200 baud
-8 data bits
-no parity
-1 stop bit
-```
-
-On Linux, for example:
-
-```bash
-picocom -b 115200 /dev/ttyUSB0
-```
-
-The shell performs its own character echo and backspace handling, so local echo
-should normally be disabled in the terminal program.
+Task 0 configures USB Serial/JTAG as the **primary** ESP-IDF console, not merely a
+secondary log output. This is required for shell input as well as output.
 
 ## SD Card Layout
 
@@ -80,13 +65,20 @@ idf.py set-target esp32p4
 idf.py build
 ```
 
-Flash the Tab5 using the normal ESP32-P4 programming connection:
+For the current Tab5 ESP32-P4 rev v1.x hardware, `sdkconfig.defaults` selects the
+pre-v3 P4 target required by ESP-IDF 5.5.
+
+Flash and monitor through USB Serial/JTAG:
 
 ```bash
-idf.py flash
+idf.py flash monitor
 ```
 
-The runtime console is the separate physical UART0 connection described above.
+Or specify the port explicitly when needed:
+
+```bash
+idf.py -p /dev/ttyACM0 flash monitor
+```
 
 Managed component dependencies are intentionally limited for Task 0:
 
@@ -153,7 +145,7 @@ sd: mounted at /sd
 type 'help' for commands
 $> status
 platform : M5Stack Tab5 / ESP32-P4
-console  : UART0 115200 8N1, TX=G37 RX=G38
+console  : OK - USB Serial/JTAG
 sd       : OK
 app path : /sd/apps
 $> ls /sd/apps
@@ -180,7 +172,7 @@ $>
 
 Task 0 is complete only after it is verified on real Tab5 hardware that:
 
-1. UART is usable as an interactive console.
+1. USB Serial/JTAG is usable as an interactive console.
 2. MiniShell reaches `$>` even when SD initialization fails.
 3. `ls /sd/apps` lists `hello.elf` when the card is valid.
 4. Typing `hello` loads the ELF without rebooting.
@@ -189,4 +181,4 @@ Task 0 is complete only after it is verified on real Tab5 hardware that:
 7. `$>` works again immediately.
 8. `hello` can be run repeatedly without rebooting or leaking obvious memory.
 
-The framework is not considered validated until this hardware test passes.
+The framework is not considered fully validated until this hardware test passes.
