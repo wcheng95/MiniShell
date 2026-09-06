@@ -78,15 +78,51 @@ The Linux backend discovers applications next to the MiniShell executable under 
 
 ## Public ABI
 
-The public header remains:
+The public header is:
 
 ```text
 include/minishell/api.h
 ```
 
-ABI generation 1 defines the established System, Memory, Filesystem, Time/Location, Display, and Input service shapes. The first Linux baseline activates the System service required by `hello`; the remaining service backends will be ported behind the same ABI as application requirements pull them in.
+ABI generation 1 currently provides these established service groups on Linux:
+
+```text
+System
+Memory
+Filesystem
+Time/Location
+Display
+Input
+```
+
+The portable service core is shared with other MiniShell backends. Linux supplies POSIX implementations underneath it; applications never receive POSIX file descriptors, terminal objects, or other host-specific types.
 
 The ABI remains MiniShell-owned: portable applications must not depend on POSIX, NuttX, ESP-IDF, FreeRTOS, or board-specific types.
+
+## Linux service mapping
+
+```text
+MiniShell service      Linux reference backend
+-------------------------------------------------------------
+System                 stdout terminal output
+Memory                 malloc/realloc/free + app accounting
+Filesystem             POSIX files below MiniShell logical root
+Time/Location          CLOCK_MONOTONIC, system UTC, default location
+Display                ANSI terminal text display
+Input                  terminal key events through poll/read
+```
+
+The default logical filesystem root is:
+
+```text
+~/.local/share/minishell/fs/
+    sd/
+    flash/
+```
+
+so an application path such as `/sd/log.txt` remains a MiniShell path rather than a Linux pathname. Set `MINISHELL_ROOT` to override the host directory used as MiniShell `/`.
+
+The Linux backend keeps default-location state under its private `.state` directory. Setting the system UTC clock is intentionally not exposed merely because Linux can do it with sufficient privilege; the Time/Location ABI reports the capabilities the backend can safely provide.
 
 ## Platform policy
 
@@ -105,16 +141,23 @@ The Linux reference baseline proves:
 ```text
 start MiniShell
     -> M$> prompt
-    -> discover hello.so
-    -> load without rebuilding MiniShell
-    -> hello calls mini_api_get()
-    -> hello calls System.write
+    -> discover/load/unload hello.so
+    -> application calls mini_api_get()
+    -> System / Memory / Filesystem / Time-Location / Display / Input
+    -> automatic app-resource cleanup
     -> return to M$>
-    -> unload
 ```
 
-`tests/linux_smoke.py` validates discovery, explicit `run hello`, direct `hello`, return to the shell, and clean process exit.
+Automated tests cover:
+
+- application discovery and explicit/direct launch;
+- Memory allocation/reallocation/free and per-app accounting;
+- logical Filesystem create/read/write/stat/rename/remove/mkdir/rmdir;
+- monotonic time, sleep, system UTC, and persistent default-location operations;
+- terminal Display geometry/write/clear/present;
+- real Input handoff through a pseudo-terminal to a separately loaded app;
+- clean return from the app to `M$>`.
 
 ## Next direction
 
-Port the remaining established service ABIs to the Linux backend, then bring MiniFT8-V3 in as a real MiniShell application. QMX live audio/CAT will enter through MiniShell services; file and simulated backends will implement those same services underneath MiniShell.
+Use this Linux baseline to run the existing portable MiniShell applications natively, then grow new service groups only when real applications require them. MiniFT8-V3 will consume live QMX audio/CAT through future MiniShell services; file and simulated providers will live underneath those same MiniShell boundaries.
