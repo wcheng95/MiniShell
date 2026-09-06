@@ -1,3 +1,5 @@
+#include <stddef.h>
+
 #include "minishell/api.h"
 
 static void write_error(const mini_api_t *api, const char *text)
