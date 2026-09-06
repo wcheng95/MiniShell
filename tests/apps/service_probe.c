@@ -139,8 +139,11 @@ int main(int argc, char **argv)
         return fail(api, "display capability", 21);
     }
     mini_text_display_info_t display_info = {.struct_size = sizeof(display_info)};
+    const char marker[] = "D";
     if (api->display->text->get_info(&display_info) != MINI_OK ||
         display_info.columns == 0u || display_info.rows == 0u ||
+        api->display->text->write_at(0u, 0u, marker, 1u) != MINI_OK ||
+        api->display->text->clear_at(0u, 0u, 1u, 1u) != MINI_OK ||
         api->display->present() != MINI_OK) {
         return fail(api, "display backend", 22);
     }
