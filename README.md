@@ -59,17 +59,19 @@ const mini_api_t *api = mini_api_get();
 
 Requirements: CMake, a C compiler, Python 3, and the normal POSIX dynamic-loader library.
 
+Use a dedicated Linux build directory so an old ESP-IDF or other cross-toolchain CMake cache cannot be reused accidentally:
+
 ```bash
-cmake -S . -B build
-cmake --build build -j"$(nproc)"
-ctest --test-dir build --output-on-failure
-./build/minishell
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+ctest --test-dir build-linux --output-on-failure
+./build-linux/minishell
 ```
 
 The `hello` module is built separately as:
 
 ```text
-build/runtime/apps/hello.so
+build-linux/runtime/apps/hello.so
 ```
 
 The Linux backend discovers applications next to the MiniShell executable under `runtime/apps`. Set `MINISHELL_APP_DIR` to override that location.
