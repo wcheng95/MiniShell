@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 project(MiniShell VERSION 0.1.0 LANGUAGES C)
 
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR
+        "MiniShell reference build targets Linux. "
+        "This build directory appears to contain a non-Linux toolchain cache. "
+        "Use a fresh build directory, for example: cmake -S . -B build-linux")
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
