@@ -60,6 +60,7 @@ add_minishell_app(cp
     apps/cp/main/cp.c
     apps/cp/main/cp_copy.c
 )
+add_minishell_app(ls apps/ls/main/ls.c)
 add_minishell_app(mkdir apps/mkdir/main/mkdir.c)
 add_minishell_app(mv apps/mv/main/mv.c)
 add_minishell_app(rm apps/rm/main/rm.c)
