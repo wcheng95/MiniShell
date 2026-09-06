@@ -1,43 +1,40 @@
 # MiniShell Applications
 
-This directory contains runtime-loaded applications that are intentionally kept
-outside resident MiniShell.
+This directory contains applications that use only the public MiniShell ABI.
 
-Placement rule:
-
-- resident MiniShell owns runtime, recovery, hardware, and bootstrap facilities;
-- ordinary user commands and tools belong here as independently built `.elf`
-  applications.
-
-Each application should use only the public MiniShell ABI under `include/minishell`
-unless it is explicitly documented as a trusted platform-specific application.
-
-MiniShell uses familiar Linux command names when the behavior is close enough to
-be unsurprising, but implements only the minimum useful subset rather than trying
-to reproduce full GNU/Linux userland behavior.
-
-Current Stage-A applications:
+Applications are intentionally separated from the resident MiniShell runtime:
 
 ```text
+application source
+      |
+      v
+MiniShell ABI
+      |
+      v
+MiniShell runtime + platform backend
+```
+
+The same application source can be built for different MiniShell targets. The loader/container format is platform-specific and is not part of the application contract.
+
+On Linux, the reference build produces runtime-loadable `.so` modules under:
+
+```text
+build-linux/runtime/apps/
+```
+
+Current applications:
+
+```text
+hello    minimal ABI example
 cat      simple text-file display utility
-nano     interactive text editor
 cp       binary-safe file copy utility
 mv       no-overwrite regular-file rename
 rm       remove one regular file
 mkdir    create one directory
 rmdir    remove one empty directory
+nano     interactive text editor
 ```
 
-Later planned applications:
+Applications use MiniShell paths such as `/sd/notes.txt`; they do not know the host filesystem path behind that namespace.
 
-```text
-free
-date
-df
-```
-
-Applications are built separately from resident MiniShell and copied or uploaded
-to `/sd/apps/<name>.elf`.
-
-See [`../docs/command-roadmap.md`](../docs/command-roadmap.md) for the command
-selection, naming, placement, and staging policy.
+A portable application must not depend on POSIX, NuttX, ESP-IDF, FreeRTOS, or board-specific types. Platform-specific applications are possible, but they must be explicitly documented as such.
