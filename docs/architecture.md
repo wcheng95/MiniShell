@@ -53,6 +53,8 @@ private backend hook
 platform implementation
 ```
 
+The portable service core owns application-visible handles, validation, capabilities, lifecycle cleanup, and ABI semantics. A platform backend owns only the normalized implementation primitives needed to provide those semantics.
+
 ## 5. Application lifecycle
 
 V1 keeps one foreground application active at a time:
@@ -60,12 +62,13 @@ V1 keeps one foreground application active at a time:
 ```text
 shell
   -> resolve application
+  -> MiniShell app_begin
   -> backend load/prepare
   -> main(argc, argv)
   -> application uses MiniShell ABI
   -> application returns
-  -> MiniShell cleanup
   -> backend unload/release
+  -> MiniShell app_end / resource reclamation
   -> shell
 ```
 
@@ -79,24 +82,31 @@ Tab5/NuttX      NuttX loadable application mechanism where practical
 ADV             compiled-in registry is acceptable if dynamic loading costs too much RAM
 ```
 
-The user-facing model should remain `apps`, `run <app>`, application exit, and return to `M$>`.
+The user-facing model remains `apps`, `run <app>`, application exit, and return to `M$>`.
 
 ## 6. Linux reference backend
 
-The Linux backend is real production infrastructure, not a mock. It currently owns:
+The Linux backend is real production infrastructure, not a mock. It currently provides:
 
-- terminal output for System.write;
-- application discovery;
-- runtime loading of `.so` applications;
-- application unload after return.
+```text
+System          stdout terminal output
+Memory          malloc/realloc/free
+Filesystem      POSIX files under the MiniShell logical root
+Time/Location   CLOCK_MONOTONIC, system UTC, persisted default location
+Display         ANSI terminal text surface
+Input           terminal key events using poll/read
+App loader      .so discovery and dlopen/dlsym/dlclose
+```
 
 The default application directory is `runtime/apps` beside the MiniShell executable. `MINISHELL_APP_DIR` may override it.
 
-The first reference application is `hello.so`.
+The default MiniShell logical filesystem root is `~/.local/share/minishell/fs`; `MINISHELL_ROOT` may override it. Portable applications continue to use MiniShell paths such as `/sd/file.txt` and `/flash/config.ini`.
+
+The shell and foreground application share the terminal deliberately. MiniShell prevents buffered shell input from leaking across foreground handoff, switches the terminal to non-canonical/no-echo mode while an app owns foreground input, then restores normal shell behavior after the app returns.
 
 ## 7. Service ABI
 
-ABI generation 1 retains six established service groups:
+ABI generation 1 has six established service groups:
 
 ```text
 system
@@ -107,7 +117,9 @@ display
 input
 ```
 
-The Linux baseline initially activates System. Remaining service implementations are added behind the same public contracts as real applications require them.
+All six are active on the Linux reference backend. Their public shape remains defined by `include/minishell/api.h` and the canonical service documents.
+
+The Linux port reuses the existing portable service implementations. In particular, MiniShell still tracks and reclaims app-owned allocations and file handles at lifecycle boundaries rather than exposing raw POSIX ownership to applications.
 
 Future application-driven service groups may include:
 
@@ -133,7 +145,7 @@ MiniShell ABI
     +-- simulated-radio backend
 ```
 
-A mock must emulate a MiniShell service, not bypass application logic. For example, mock audio input is appropriate; mock FT8 decode results are not an architectural substitute for exercising the FT8 engine.
+A mock emulates a MiniShell service, not application behavior. Mock audio input is appropriate; mock FT8 decode results are not an architectural substitute for exercising the FT8 engine.
 
 ## 9. Hardware ownership
 
@@ -159,8 +171,20 @@ Cardputer ADV
 
 The application core sees the same MiniShell contract in all cases.
 
-## 11. Reference-development rule
+## 11. Testing model
+
+The Linux reference is tested at three levels:
+
+```text
+portable service semantics
+    -> separately loaded ABI probe applications
+    -> real terminal handoff through a pseudo-terminal
+```
+
+CI builds from a clean Linux environment and exercises application discovery/loading, service calls, filesystem state, time/location behavior, display operations, key input, lifecycle cleanup, and return to the shell.
+
+## 12. Reference-development rule
 
 New application behavior is developed and tested first on Linux unless a feature is inherently target-specific. The Linux implementation establishes golden observable behavior for later ports.
 
-Embedded constraints must still influence core design: bounded buffers, explicit ownership, deterministic lifecycle, and avoidance of accidental dependence on unlimited host resources.
+Embedded constraints still influence core design: bounded buffers, explicit ownership, deterministic lifecycle, and avoidance of accidental dependence on unlimited host resources.
