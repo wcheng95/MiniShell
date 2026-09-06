@@ -2,221 +2,171 @@
 
 ## Goal
 
-MiniShell uses Linux as the naming and behavior reference for ordinary shell
-commands, but it does not try to reproduce a full GNU/Linux userland.
+MiniShell provides a small, familiar command environment without trying to become
+a Linux distribution. Linux command names are reused when MiniShell implements the
+same core idea closely enough to be unsurprising.
 
 The governing criteria are:
 
 ```text
 familiar
 minimal
+portable
 useful
-understandable
 ```
 
-Reuse a Linux command name when MiniShell implements the same core idea closely
-enough that the name will not surprise a Linux user. This reduces unnecessary
-vocabulary and lets existing muscle memory carry over.
+## Resident shell commands
 
-Using a familiar name does **not** promise full GNU or POSIX compatibility. Each
-MiniShell command implements the smallest useful subset first and adds options
-only when a real use case requires them.
+Resident commands exist only when they control MiniShell itself or expose runtime
+state that belongs to MiniShell.
 
-The planned editor previously called `med` is now named `nano`.
+Current Linux baseline:
 
-## Placement rule
-
-The resident-vs-application rule remains unchanged.
-
-Resident commands exist when MiniShell itself needs the capability for shell
-state, bootstrap, provisioning, recovery, diagnostics, power/system ownership,
-or hardware ownership. Ordinary user utilities are independent ELF applications.
-
-### Resident baseline
-
-Current resident commands:
-
-| Command | Reason it is resident |
+| Command | Purpose |
 | --- | --- |
-| `help` | shell control/diagnostics |
-| `status` | platform/runtime diagnostics |
-| `ls` | minimal storage inspection for provisioning/recovery |
-| `exec` | explicit application launch |
-| `repeat` | development/lifecycle diagnostic |
-| `put` | bootstrap/provisioning file transfer |
-| `get` | bootstrap/recovery file transfer |
-| `suspend` | global low-power state |
-| `poweroff` | global device shutdown |
+| `help` | show shell help |
+| `status` | show platform and MiniShell service availability |
+| `apps` | list installed MiniShell applications |
+| `run <app> [...]` | explicitly launch an application |
+| `exit` | leave MiniShell |
 
-Future USB attach/detach detection is also resident system behavior, but no new
-shell command or generic event ABI is defined yet. A resident USB manager should
-first own detection and canonical device state; application notification should
-be designed only when a real app needs it.
-
-Do not add resident commands merely because Linux has them.
-
-`cd` and `pwd` remain deferred until MiniShell has a deliberate working-directory
-model. The current Filesystem ABI is based on absolute logical paths.
-
-## Application command set
-
-The default is one independently built ELF per command under `apps/<name>/`,
-installed as `/sd/apps/<name>.elf`.
-
-### Stage A - minimum useful file environment — COMPLETE
-
-The complete Stage-A set is implemented and validated on the Tab5 reference
-platform.
-
-| Command | Initial MiniShell scope | Status / ABI note |
-| --- | --- | --- |
-| `cat` | display text files | implemented and validated |
-| `nano` | open/edit/search/save text files | implemented and validated |
-| `cp` | copy one file to another path | implemented and validated; original Filesystem ABI sufficient |
-| `mv` | rename one regular file, no overwrite | implemented and validated; uses appended `rename` |
-| `rm` | remove one regular file | implemented and validated; uses appended `remove_file` |
-| `mkdir` | create one directory | implemented and validated; uses appended `mkdir` |
-| `rmdir` | remove one empty directory | implemented and validated; uses appended `rmdir` |
-
-Task 6 also added `MINI_ERR_NOT_EMPTY` so `rmdir` can distinguish a non-empty
-directory from a generic access or I/O error.
-
-`cat` is not considered essential; it remains because it is already implemented
-and useful as a tiny ABI/application example.
-
-`rm -r` is not planned for Stage A. Recursive deletion adds risk and is not
-required for the minimum useful environment.
-
-There is no separate `grep` command in the planned MiniShell set. Text search
-belongs inside `nano`, where it directly supports the main interactive text-work
-use case.
-
-### Stage B
-
-No Stage B command set is currently planned.
-
-Do not add text-processing utilities merely to resemble Unix. Add another command
-only when a concrete MiniShell use case justifies it.
-
-### Stage C - minimal system information
-
-The planned Stage C set is intentionally small:
-
-| Command | Initial MiniShell scope | ABI note |
-| --- | --- | --- |
-| `free` | show useful memory information | builds on Memory ABI |
-| `date` | show/set UTC where supported | builds on Time/Location ABI capabilities |
-| `df` | show storage capacity/free space | requires filesystem/storage information support |
-
-No other Linux system-information ELF commands are currently planned.
-
-Battery information, suspend, and poweroff are intentionally not Stage C ELF
-commands because device power state is resident MiniShell/platform ownership.
-
-## Commands intentionally not planned
-
-Examples include:
+Direct application launch is also supported:
 
 ```text
-grep / head / tail / wc     unnecessary for the current MiniShell goals
-sha256sum / hexdump          not part of the minimal command set
-ps / top / kill / jobs      no Linux-like process model
-sudo                         no users/privilege boundary
-chmod / chown                no Unix permission model
-mount / umount               storage ownership is resident MiniShell policy
-systemctl                    no systemd/service-manager model
+M$> nano /sd/notes.txt
 ```
 
-This is not a permanent ban. A command can be reconsidered if a real use case
-appears later.
+`run <app>` and direct `<app>` use the same internal application-launch path.
+There is no separate user-facing `exec` command in the Linux baseline.
 
-## BusyBox policy
+`put` and `get` are not Linux baseline commands. A platform that needs a serial,
+USB, BLE, or other provisioning/recovery transfer channel may add resident
+transfer commands later behind that platform implementation.
 
-Do not package the command set into a BusyBox-style binary by default.
+Power commands such as `suspend` and `poweroff` are likewise platform capabilities,
+not universal Linux baseline commands.
 
-Use independent applications:
+## Portable applications
+
+Ordinary utilities are applications and use only the public MiniShell ABI.
+
+Current baseline:
 
 ```text
-/sd/apps/cat.elf
-/sd/apps/nano.elf
-/sd/apps/cp.elf
-/sd/apps/mv.elf
-/sd/apps/rm.elf
-/sd/apps/mkdir.elf
-/sd/apps/rmdir.elf
-/sd/apps/free.elf
-/sd/apps/date.elf
-/sd/apps/df.elf
+hello
+cat
+cp
+ls
+mkdir
+mv
+nano
+rm
+rmdir
 ```
 
-This preserves independent development, testing, replacement, and learning.
-Bundle only if future measurement shows a meaningful benefit.
+On Linux these are runtime-loaded `.so` modules. Other platforms may use different
+loading or linking mechanisms while preserving the same application-facing ABI.
+
+### File utilities
+
+| App | Initial behavior |
+| --- | --- |
+| `ls [path]` | enumerate a directory; hide dot-files by default |
+| `cat <file>` | display a text file |
+| `cp <src> <dst>` | binary-safe file copy |
+| `mv <src> <dst>` | rename one regular file; no overwrite |
+| `rm <file>` | remove one regular file |
+| `mkdir <path>` | create one directory |
+| `rmdir <path>` | remove one empty directory |
+| `nano <file>` | small interactive editor |
+
+`ls` is intentionally an application. It uses the same Filesystem ABI directory
+iteration that applications such as MiniFT8 need for discovering logs and other
+files:
+
+```text
+application
+    |
+    v
+Filesystem ABI
+    |
+    +-- dir_open
+    +-- dir_read
+    `-- dir_close
+    |
+    v
+platform filesystem backend
+```
 
 ## ABI growth rule
 
-Command development should drive ABI growth rather than the reverse.
+Real application requirements drive ABI growth.
 
 ```text
-define minimum useful command behavior
+define required app behavior
         |
         v
 check current ABI
         |
-        +-- sufficient -> build the app
+        +-- sufficient -> implement app
         |
         `-- missing primitive
                 |
                 v
-        decide whether the primitive is generally useful
+        is it generally useful to applications?
                 |
-                +-- yes -> extend ABI deliberately + tests
-                `-- no  -> reconsider command/design
+                +-- yes -> append ABI + tests
+                `-- no  -> reconsider design
 ```
 
-Task 5 and Task 6 provide concrete examples:
+Examples:
 
 ```text
-cp       original Filesystem ABI was sufficient
-mv       justified append-only rename
-rm       justified append-only remove_file
-mkdir    justified append-only mkdir
-rmdir    justified append-only rmdir + MINI_ERR_NOT_EMPTY
-df       expected to justify storage-capacity/free-space information
+cp       existing file read/write API was sufficient
+mv       justified rename
+rm       justified remove_file
+mkdir    justified mkdir
+rmdir    justified rmdir + MINI_ERR_NOT_EMPTY
+ls       justified dir_open / dir_read / dir_close because applications also
+         need directory discovery
 ```
 
-Power/system work follows the same rule. Battery information and global
-suspend/poweroff belong to resident ownership; add a public Power ABI only when an
-application needs normalized access to those capabilities.
+Do not expand an ABI merely to imitate POSIX or GNU utilities.
 
-Do not expand an ABI merely to imitate Linux.
+## Deferred commands
 
-## Preferred development sequence
-
-Resident/system path:
+Possible future small utilities should be added only when a real application or
+operational need justifies them. Likely candidates include:
 
 ```text
-Task 2 transfer          COMPLETE
-Task 3 power/system      COMPLETE
-later: USB hardware-change detection
+free     memory information
+UTC/date time display or setting
+df       storage capacity/free-space information
 ```
 
-Application path:
+Their exact form is intentionally deferred until the corresponding ABI behavior
+is required.
+
+`cd` and `pwd` are also deferred. MiniShell currently uses absolute logical paths
+and has no working-directory model.
+
+## Commands not currently needed
+
+Examples:
 
 ```text
-nano                     COMPLETE
-        |
-        v
-cp                       COMPLETE
-        |
-        v
-Filesystem ABI review    COMPLETE
-        |
-        v
-mv / rm / mkdir / rmdir  COMPLETE (Stage A)
-        |
-        v
-free / date / df         PLANNED (Stage C)
+grep / head / tail / wc
+ps / top / kill / jobs
+sudo
+chmod / chown
+mount / umount
+systemctl
 ```
 
-This is intentionally a small command set. MiniShell should become useful without
-becoming a miniature Linux distribution.
+This is not a permanent prohibition. A command is reconsidered when a concrete
+MiniShell use case appears.
+
+## Principle
+
+Keep the shell small. Keep reusable functionality in application-facing services.
+Keep ordinary utilities as applications.
