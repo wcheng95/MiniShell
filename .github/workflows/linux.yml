@@ -2,7 +2,7 @@ name: Linux
 
 on:
   push:
-    branches: [main, linux-base]
+    branches: [main, linux-base, stage2-linux-services]
   pull_request:
 
 jobs:
@@ -11,8 +11,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build-linux
       - name: Build
-        run: cmake --build build -j2
+        run: cmake --build build-linux -j2
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build-linux --output-on-failure
