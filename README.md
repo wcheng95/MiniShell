@@ -27,6 +27,23 @@ Applications
 
 Applications use MiniShell services only. Mocks and simulated devices also live below MiniShell; they do not connect directly to application cores.
 
+## Shell baseline
+
+The resident Linux shell is intentionally small:
+
+```text
+help
+status
+apps
+run <app> [...]
+<app> [...]
+exit
+```
+
+`status` reports platform identity and MiniShell service availability. `run <app>` and direct `<app>` use the same internal application-launch path.
+
+There is no separate user-facing `exec` command in the Linux baseline. `put/get` are also omitted on Linux; platforms that need a serial, USB, BLE, or other provisioning/recovery transfer channel may add them later.
+
 ## Application model
 
 MiniShell keeps one foreground application active at a time. On platforms that support runtime loading, applications can be installed and run without rebuilding MiniShell.
@@ -38,14 +55,16 @@ M$> apps
 cat
 cp
 hello
+ls
 mkdir
 mv
 nano
 rm
 rmdir
 
-M$> cat /sd/notes.txt
-...
+M$> ls /sd
+notes.txt
+logs/
 
 M$> nano /sd/notes.txt
 ...
@@ -94,6 +113,7 @@ The same application source is used through the MiniShell ABI rather than throug
 hello    minimal ABI example
 cat      display a text file
 cp       binary-safe file copy
+ls       enumerate a directory
 mv       no-overwrite regular-file rename
 rm       remove one regular file
 mkdir    create one directory
@@ -128,7 +148,19 @@ Display
 Input
 ```
 
-The portable service core is shared with other MiniShell backends. Linux supplies POSIX implementations underneath it; applications never receive POSIX file descriptors, terminal objects, or other host-specific types.
+The Filesystem ABI supports regular-file operations, namespace operations, and directory iteration:
+
+```text
+dir_open(path)
+dir_read(handle)
+dir_close(handle)
+```
+
+Directory handles are opaque MiniShell handles. Applications receive MiniShell-owned entry types and names, never POSIX `DIR *` or `struct dirent`. Open file and directory handles are reclaimed automatically at application exit.
+
+This directory API is application functionality, not an `ls` special case. MiniFT8 and other applications can use the same primitives to discover logs, configuration files, or other directory contents.
+
+The portable service core is shared with other MiniShell backends. Linux supplies POSIX implementations underneath it; applications never receive POSIX file descriptors, terminal objects, directory objects, or other host-specific types.
 
 ## Linux service mapping
 
@@ -137,7 +169,7 @@ MiniShell service      Linux reference backend
 -------------------------------------------------------------
 System                 stdout terminal output
 Memory                 malloc/realloc/free + app accounting
-Filesystem             POSIX files below MiniShell logical root
+Filesystem             POSIX files/directories below logical root
 Time/Location          CLOCK_MONOTONIC, system UTC, default location
 Display                ANSI terminal text display
 Input                  terminal key events through poll/read
@@ -168,11 +200,14 @@ The user-facing application model should remain consistent even when the impleme
 Automated tests cover:
 
 - application discovery and explicit/direct launch;
+- resident `status` behavior;
 - Memory allocation/reallocation/free and per-app accounting;
 - logical Filesystem create/read/write/stat/rename/remove/mkdir/rmdir;
+- Filesystem directory open/read/close and file/directory classification;
+- `ls` using only the public Filesystem ABI;
 - monotonic time, sleep, system UTC, and persistent default-location operations;
 - terminal Display and real Input handoff through a pseudo-terminal;
-- `cat`, `cp`, `mkdir`, `mv`, `rm`, and `rmdir` as runtime-loaded portable apps;
+- `cat`, `cp`, `ls`, `mkdir`, `mv`, `rm`, and `rmdir` as runtime-loaded portable apps;
 - a real `nano` edit/save/exit session through a pseudo-terminal;
 - automatic app-resource cleanup and clean return to `M$>`.
 
