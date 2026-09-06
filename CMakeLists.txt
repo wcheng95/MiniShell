@@ -58,6 +58,15 @@ set_target_properties(service_probe PROPERTIES
 )
 target_compile_options(service_probe PRIVATE -Wall -Wextra -Wpedantic)
 
+add_library(input_probe MODULE tests/apps/input_probe.c)
+target_include_directories(input_probe PRIVATE include)
+set_target_properties(input_probe PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "input_probe"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-apps"
+)
+target_compile_options(input_probe PRIVATE -Wall -Wextra -Wpedantic)
+
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -75,4 +84,12 @@ add_test(
             ${CMAKE_SOURCE_DIR}/tests/linux_services.py
             $<TARGET_FILE:minishell>
             $<TARGET_FILE_DIR:service_probe>
+)
+
+add_test(
+    NAME linux_input
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/linux_input.py
+            $<TARGET_FILE:minishell>
+            $<TARGET_FILE_DIR:input_probe>
 )
