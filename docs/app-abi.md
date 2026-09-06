@@ -61,6 +61,31 @@ System is the minimum service required by the current reference `hello` app. Opt
 
 New service pointers and service functions are appended under the existing `struct_size` compatibility rules.
 
+### Filesystem directory iteration
+
+The Filesystem service provides opaque directory handles and MiniShell-owned directory-entry records:
+
+```c
+mini_result_t dir_open(const char *path, mini_dir_t *out_dir);
+mini_result_t dir_read(mini_dir_t dir,
+                       mini_fs_dir_entry_t *out_entry,
+                       uint32_t *out_has_entry);
+mini_result_t dir_close(mini_dir_t dir);
+```
+
+`dir_read()` returns `MINI_OK` for both a normal entry and end-of-directory. `out_has_entry` distinguishes them:
+
+```text
+1   out_entry contains one file or directory
+0   end of directory
+```
+
+`.` and `..` are filtered by the portable Filesystem service. Unsupported native entry types are skipped. Applications receive only MiniShell file/directory type values and a fixed-size name field; platform types such as POSIX `DIR *` and `struct dirent` never cross the ABI.
+
+Open directory handles are tracked as application-owned resources and are closed automatically when the foreground application exits, just like MiniShell file handles and managed memory.
+
+This primitive exists for general application needs such as MiniFT8 log discovery. `ls` is simply one application built on the same API.
+
 ## 6. Compatibility
 
 Applications check the ABI generation and only the fields/capabilities they actually require. Compatible append-only expansion does not require an ABI generation bump.
@@ -90,6 +115,7 @@ Portable application headers must not require:
 
 ```text
 POSIX file descriptors
+POSIX DIR / dirent types
 NuttX driver types
 ESP-IDF types
 FreeRTOS handles
@@ -113,6 +139,12 @@ MiniRTTY
 M$> run MiniFT8
 ...
 M$>
+```
+
+Direct application invocation is equivalent:
+
+```text
+M$> MiniFT8
 ```
 
 Constrained platforms may implement the same lifecycle with a compiled-in registry if runtime loading is not economical.
