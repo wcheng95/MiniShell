@@ -65,6 +65,9 @@ typedef struct {
 typedef uint32_t mini_file_t;
 #define MINI_FILE_INVALID ((mini_file_t)0u)
 
+typedef uint32_t mini_dir_t;
+#define MINI_DIR_INVALID ((mini_dir_t)0u)
+
 #define MINI_FS_READ    (1u << 0)
 #define MINI_FS_WRITE   (1u << 1)
 #define MINI_FS_CREATE  (1u << 2)
@@ -78,12 +81,19 @@ typedef uint32_t mini_file_t;
 
 #define MINI_FS_TYPE_FILE       1u
 #define MINI_FS_TYPE_DIRECTORY  2u
+#define MINI_FS_NAME_MAX        255u
 
 typedef struct {
     uint32_t struct_size;
     uint32_t type;
     uint64_t size;
 } mini_fs_stat_t;
+
+typedef struct {
+    uint32_t struct_size;
+    uint32_t type;
+    char name[MINI_FS_NAME_MAX + 1u];
+} mini_fs_dir_entry_t;
 
 typedef struct {
     uint32_t struct_size;
@@ -98,6 +108,10 @@ typedef struct {
     mini_result_t (*remove_file)(const char *path);
     mini_result_t (*mkdir)(const char *path);
     mini_result_t (*rmdir)(const char *path);
+    mini_result_t (*dir_open)(const char *path, mini_dir_t *out_dir);
+    mini_result_t (*dir_read)(mini_dir_t dir, mini_fs_dir_entry_t *out_entry,
+                              uint32_t *out_has_entry);
+    mini_result_t (*dir_close)(mini_dir_t dir);
 } mini_fs_api_t;
 
 #define MINI_TIMELOC_CAP_UTC                   (1ull << 0)
