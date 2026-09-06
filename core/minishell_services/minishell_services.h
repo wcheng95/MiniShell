@@ -13,6 +13,9 @@ extern "C" {
 typedef uintptr_t minishell_backend_file_t;
 #define MINISHELL_BACKEND_FILE_INVALID ((minishell_backend_file_t)0u)
 
+typedef uintptr_t minishell_backend_dir_t;
+#define MINISHELL_BACKEND_DIR_INVALID ((minishell_backend_dir_t)0u)
+
 typedef struct {
     void *ctx;
 
@@ -42,6 +45,12 @@ typedef struct {
     mini_result_t (*fs_remove_file)(void *ctx, const char *path);
     mini_result_t (*fs_mkdir)(void *ctx, const char *path);
     mini_result_t (*fs_rmdir)(void *ctx, const char *path);
+    mini_result_t (*fs_dir_open)(void *ctx, const char *path,
+                                 minishell_backend_dir_t *out_dir);
+    mini_result_t (*fs_dir_read)(void *ctx, minishell_backend_dir_t dir,
+                                 char *out_name, uint32_t name_size,
+                                 uint32_t *out_type, uint32_t *out_has_entry);
+    mini_result_t (*fs_dir_close)(void *ctx, minishell_backend_dir_t dir);
 
     /* Time/location baseline. */
     uint64_t (*monotonic_us)(void *ctx);
