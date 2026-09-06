@@ -1,8 +1,8 @@
 # MiniShell
 
-MiniShell is a platform-adaptive application runtime. Its job is to keep application cores independent of Linux, NuttX, ESP-IDF, board drivers, and other platform details while still providing a small common shell, application lifecycle, and service ABI.
+MiniShell is a platform-adaptive application runtime. Its job is to keep application cores independent of Linux, NuttX, ESP-IDF, board drivers, and other platform details while providing a small common shell, application lifecycle, and service ABI.
 
-Linux Mint on `pc-1` is the reference implementation and a full production target, not a simulator or pre-port environment.
+Linux Mint on `pc-1` is the reference implementation and a full production target.
 
 ## Core model
 
@@ -25,21 +25,31 @@ Applications
       POSIX        Tab5       thick ADV
 ```
 
-Applications use MiniShell services only. Host mocks and simulated devices also live below MiniShell; they do not connect directly to application cores.
+Applications use MiniShell services only. Mocks and simulated devices also live below MiniShell; they do not connect directly to application cores.
 
 ## Application model
 
 MiniShell keeps one foreground application active at a time. On platforms that support runtime loading, applications can be installed and run without rebuilding MiniShell.
 
-Linux uses shared objects and `dlopen()` for the reference runtime-loader implementation. The application-facing contract remains the MiniShell C ABI rather than the Linux loader mechanism.
+Linux uses shared objects and `dlopen()` as its loader implementation. The loader mechanism is private; application source depends only on the MiniShell C ABI.
 
 ```text
 M$> apps
+cat
+cp
 hello
-M$> run hello
-Hello from MiniShell.
-M$> hello
-Hello from MiniShell.
+mkdir
+mv
+nano
+rm
+rmdir
+
+M$> cat /sd/notes.txt
+...
+
+M$> nano /sd/notes.txt
+...
+
 M$>
 ```
 
@@ -68,13 +78,36 @@ ctest --test-dir build-linux --output-on-failure
 ./build-linux/minishell
 ```
 
-The `hello` module is built separately as:
+Runtime applications are built into:
 
 ```text
-build-linux/runtime/apps/hello.so
+build-linux/runtime/apps/
 ```
 
-The Linux backend discovers applications next to the MiniShell executable under `runtime/apps`. Set `MINISHELL_APP_DIR` to override that location.
+The Linux backend discovers `.so` applications in that directory. Set `MINISHELL_APP_DIR` to override it.
+
+## Current portable applications
+
+The same application source is used through the MiniShell ABI rather than through Linux/POSIX APIs:
+
+```text
+hello    minimal ABI example
+cat      display a text file
+cp       binary-safe file copy
+mv       no-overwrite regular-file rename
+rm       remove one regular file
+mkdir    create one directory
+rmdir    remove one empty directory
+nano     small interactive text editor
+```
+
+`nano` uses MiniShell Memory, Filesystem, Display, and Input services. Its basic controls are:
+
+```text
+Ctrl-O   save
+Ctrl-W   search
+Ctrl-X   exit
+```
 
 ## Public ABI
 
@@ -97,8 +130,6 @@ Input
 
 The portable service core is shared with other MiniShell backends. Linux supplies POSIX implementations underneath it; applications never receive POSIX file descriptors, terminal objects, or other host-specific types.
 
-The ABI remains MiniShell-owned: portable applications must not depend on POSIX, NuttX, ESP-IDF, FreeRTOS, or board-specific types.
-
 ## Linux service mapping
 
 ```text
@@ -120,9 +151,7 @@ The default logical filesystem root is:
     flash/
 ```
 
-so an application path such as `/sd/log.txt` remains a MiniShell path rather than a Linux pathname. Set `MINISHELL_ROOT` to override the host directory used as MiniShell `/`.
-
-The Linux backend keeps default-location state under its private `.state` directory. Setting the system UTC clock is intentionally not exposed merely because Linux can do it with sufficient privilege; the Time/Location ABI reports the capabilities the backend can safely provide.
+An application path such as `/sd/log.txt` remains a MiniShell path rather than a Linux pathname. Set `MINISHELL_ROOT` to override the host directory used as MiniShell `/`.
 
 ## Platform policy
 
@@ -134,19 +163,7 @@ MiniShell may be thin or thick depending on the target:
 
 The user-facing application model should remain consistent even when the implementation differs.
 
-## Current baseline
-
-The Linux reference baseline proves:
-
-```text
-start MiniShell
-    -> M$> prompt
-    -> discover/load/unload hello.so
-    -> application calls mini_api_get()
-    -> System / Memory / Filesystem / Time-Location / Display / Input
-    -> automatic app-resource cleanup
-    -> return to M$>
-```
+## Current Linux baseline
 
 Automated tests cover:
 
@@ -154,10 +171,11 @@ Automated tests cover:
 - Memory allocation/reallocation/free and per-app accounting;
 - logical Filesystem create/read/write/stat/rename/remove/mkdir/rmdir;
 - monotonic time, sleep, system UTC, and persistent default-location operations;
-- terminal Display geometry/write/clear/present;
-- real Input handoff through a pseudo-terminal to a separately loaded app;
-- clean return from the app to `M$>`.
+- terminal Display and real Input handoff through a pseudo-terminal;
+- `cat`, `cp`, `mkdir`, `mv`, `rm`, and `rmdir` as runtime-loaded portable apps;
+- a real `nano` edit/save/exit session through a pseudo-terminal;
+- automatic app-resource cleanup and clean return to `M$>`.
 
 ## Next direction
 
-Use this Linux baseline to run the existing portable MiniShell applications natively, then grow new service groups only when real applications require them. MiniFT8-V3 will consume live QMX audio/CAT through future MiniShell services; file and simulated providers will live underneath those same MiniShell boundaries.
+Use this Linux baseline as the application-development reference. New MiniShell service groups are added only when a real application requires them. MiniFT8-V3 will consume live QMX audio/CAT through future MiniShell services; file and simulated providers will live underneath those same MiniShell boundaries.

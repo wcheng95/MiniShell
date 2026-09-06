@@ -40,14 +40,37 @@ target_link_libraries(minishell PRIVATE ${CMAKE_DL_LIBS})
 set_target_properties(minishell PROPERTIES ENABLE_EXPORTS ON)
 target_compile_options(minishell PRIVATE -Wall -Wextra -Wpedantic)
 
-add_library(hello MODULE apps/hello/hello.c)
-target_include_directories(hello PRIVATE include)
-set_target_properties(hello PROPERTIES
-    PREFIX ""
-    OUTPUT_NAME "hello"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/runtime/apps"
+function(add_minishell_app target)
+    add_library(${target} MODULE ${ARGN})
+    target_include_directories(${target} PRIVATE
+        include
+        apps/${target}/main
+    )
+    set_target_properties(${target} PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "${target}"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/runtime/apps"
+    )
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+endfunction()
+
+add_minishell_app(hello apps/hello/hello.c)
+add_minishell_app(cat apps/cat/main/cat.c)
+add_minishell_app(cp
+    apps/cp/main/cp.c
+    apps/cp/main/cp_copy.c
 )
-target_compile_options(hello PRIVATE -Wall -Wextra -Wpedantic)
+add_minishell_app(mkdir apps/mkdir/main/mkdir.c)
+add_minishell_app(mv apps/mv/main/mv.c)
+add_minishell_app(rm apps/rm/main/rm.c)
+add_minishell_app(rmdir apps/rmdir/main/rmdir.c)
+add_minishell_app(nano
+    apps/nano/main/nano.c
+    apps/nano/main/nano_buffer.c
+    apps/nano/main/nano_file.c
+    apps/nano/main/nano_ui.c
+    apps/nano/main/nano_util.c
+)
 
 add_library(service_probe MODULE tests/apps/service_probe.c)
 target_include_directories(service_probe PRIVATE include)
@@ -92,4 +115,20 @@ add_test(
             ${CMAKE_SOURCE_DIR}/tests/linux_input.py
             $<TARGET_FILE:minishell>
             $<TARGET_FILE_DIR:input_probe>
+)
+
+add_test(
+    NAME linux_portable_apps
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/linux_portable_apps.py
+            $<TARGET_FILE:minishell>
+            $<TARGET_FILE_DIR:hello>
+)
+
+add_test(
+    NAME linux_nano
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/linux_nano.py
+            $<TARGET_FILE:minishell>
+            $<TARGET_FILE_DIR:hello>
 )
