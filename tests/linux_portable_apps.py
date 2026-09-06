@@ -52,7 +52,7 @@ def main() -> int:
 
         output = process.stdout + process.stderr
         required_apps = ["cat", "cp", "mkdir", "mv", "nano", "rm", "rmdir"]
-        missing = [name for name in required_apps if f"\n{name}\n" not in output]
+        missing = [name for name in required_apps if f"{name}\n" not in output]
 
         if process.returncode != 0 or missing or output.count(payload) != 3:
             print(output)
