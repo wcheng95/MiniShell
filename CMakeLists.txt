@@ -28,6 +28,7 @@ add_executable(minishell
     core/app_manager.c
     ${MINISHELL_SERVICE_SOURCES}
     platform/linux/linux_backend.c
+    platform/linux/platform_info.c
 )
 
 target_include_directories(minishell PRIVATE
@@ -60,6 +61,7 @@ add_minishell_app(cp
     apps/cp/main/cp.c
     apps/cp/main/cp_copy.c
 )
+add_minishell_app(ls apps/ls/main/ls.c)
 add_minishell_app(mkdir apps/mkdir/main/mkdir.c)
 add_minishell_app(mv apps/mv/main/mv.c)
 add_minishell_app(rm apps/rm/main/rm.c)
@@ -89,6 +91,15 @@ set_target_properties(input_probe PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-apps"
 )
 target_compile_options(input_probe PRIVATE -Wall -Wextra -Wpedantic)
+
+add_library(dir_probe MODULE tests/apps/dir_probe.c)
+target_include_directories(dir_probe PRIVATE include)
+set_target_properties(dir_probe PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "dir_probe"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-apps"
+)
+target_compile_options(dir_probe PRIVATE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -131,4 +142,13 @@ add_test(
             ${CMAKE_SOURCE_DIR}/tests/linux_nano.py
             $<TARGET_FILE:minishell>
             $<TARGET_FILE_DIR:hello>
+)
+
+add_test(
+    NAME linux_directory
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/linux_directory.py
+            $<TARGET_FILE:minishell>
+            $<TARGET_FILE_DIR:hello>
+            $<TARGET_FILE_DIR:dir_probe>
 )

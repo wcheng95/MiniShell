@@ -252,6 +252,17 @@ static int fd_from_file_handle(minishell_backend_file_t file)
     return (int)(file - 1u);
 }
 
+static minishell_backend_dir_t dir_handle_from_ptr(DIR *dir)
+{
+    return (minishell_backend_dir_t)(uintptr_t)dir;
+}
+
+static DIR *dir_from_handle(minishell_backend_dir_t dir)
+{
+    if (dir == MINISHELL_BACKEND_DIR_INVALID) return NULL;
+    return (DIR *)(uintptr_t)dir;
+}
+
 static mini_result_t service_fs_open(void *ctx, const char *path, uint32_t flags,
                                      minishell_backend_file_t *out_file)
 {
@@ -447,6 +458,75 @@ static mini_result_t service_fs_rmdir(void *ctx, const char *path)
     mini_result_t result = host_path(path, native, sizeof(native));
     if (result != MINI_OK) return result;
     return rmdir(native) == 0 ? MINI_OK : result_from_errno(errno);
+}
+
+static mini_result_t service_fs_dir_open(void *ctx, const char *path,
+                                         minishell_backend_dir_t *out_dir)
+{
+    (void)ctx;
+    if (out_dir == NULL) return MINI_ERR_INVALID;
+    *out_dir = MINISHELL_BACKEND_DIR_INVALID;
+
+    char native[PATH_MAX];
+    mini_result_t result = host_path(path, native, sizeof(native));
+    if (result != MINI_OK) return result;
+
+    DIR *dir = opendir(native);
+    if (dir == NULL) return result_from_errno(errno);
+    *out_dir = dir_handle_from_ptr(dir);
+    return MINI_OK;
+}
+
+static mini_result_t service_fs_dir_read(void *ctx, minishell_backend_dir_t dir,
+                                         char *out_name, uint32_t name_size,
+                                         uint32_t *out_type, uint32_t *out_has_entry)
+{
+    (void)ctx;
+    if (out_name == NULL || name_size == 0u || out_type == NULL ||
+        out_has_entry == NULL) {
+        return MINI_ERR_INVALID;
+    }
+    out_name[0] = '\0';
+    *out_type = 0u;
+    *out_has_entry = 0u;
+
+    DIR *native_dir = dir_from_handle(dir);
+    if (native_dir == NULL) return MINI_ERR_BAD_HANDLE;
+
+    for (;;) {
+        errno = 0;
+        struct dirent *entry = readdir(native_dir);
+        if (entry == NULL) {
+            return errno == 0 ? MINI_OK : result_from_errno(errno);
+        }
+
+        struct stat st;
+        int fd = dirfd(native_dir);
+        if (fd < 0) return result_from_errno(errno);
+        if (fstatat(fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+            return result_from_errno(errno);
+        }
+
+        uint32_t type;
+        if (S_ISREG(st.st_mode)) type = MINI_FS_TYPE_FILE;
+        else if (S_ISDIR(st.st_mode)) type = MINI_FS_TYPE_DIRECTORY;
+        else continue;
+
+        size_t length = strlen(entry->d_name);
+        if (length + 1u > (size_t)name_size) return MINI_ERR_NAME_TOO_LONG;
+        memcpy(out_name, entry->d_name, length + 1u);
+        *out_type = type;
+        *out_has_entry = 1u;
+        return MINI_OK;
+    }
+}
+
+static mini_result_t service_fs_dir_close(void *ctx, minishell_backend_dir_t dir)
+{
+    (void)ctx;
+    DIR *native_dir = dir_from_handle(dir);
+    if (native_dir == NULL) return MINI_ERR_BAD_HANDLE;
+    return closedir(native_dir) == 0 ? MINI_OK : result_from_errno(errno);
 }
 
 static uint64_t service_monotonic_us(void *ctx)
@@ -865,6 +945,9 @@ static void configure_services_port(void)
     s_services_port.fs_remove_file = service_fs_remove_file;
     s_services_port.fs_mkdir = service_fs_mkdir;
     s_services_port.fs_rmdir = service_fs_rmdir;
+    s_services_port.fs_dir_open = service_fs_dir_open;
+    s_services_port.fs_dir_read = service_fs_dir_read;
+    s_services_port.fs_dir_close = service_fs_dir_close;
 
     s_services_port.monotonic_us = service_monotonic_us;
     s_services_port.sleep_ms = service_sleep_ms;

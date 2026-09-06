@@ -3,6 +3,7 @@
 #include "services_internal.h"
 
 #define MINI_FS_MAX_OPEN_FILES 32u
+#define MINI_FS_MAX_OPEN_DIRS 16u
 #define MINI_FS_NORMALIZED_PATH_MAX 512u
 #define MINI_FS_KNOWN_FLAGS (MINI_FS_READ | MINI_FS_WRITE | MINI_FS_CREATE | \
                              MINI_FS_EXCL | MINI_FS_TRUNC | MINI_FS_APPEND)
@@ -13,11 +14,22 @@ typedef struct {
     uint32_t flags;
 } file_slot_t;
 
+typedef struct {
+    minishell_backend_dir_t backend;
+    uint16_t generation;
+} dir_slot_t;
+
 static file_slot_t s_files[MINI_FS_MAX_OPEN_FILES];
+static dir_slot_t s_dirs[MINI_FS_MAX_OPEN_DIRS];
 static uint16_t s_generation = 1u;
 static bool s_available;
 
 static mini_file_t make_handle(uint32_t slot_index, uint16_t generation)
+{
+    return ((uint32_t)generation << 16) | (slot_index + 1u);
+}
+
+static mini_dir_t make_dir_handle(uint32_t slot_index, uint16_t generation)
 {
     return ((uint32_t)generation << 16) | (slot_index + 1u);
 }
@@ -34,6 +46,23 @@ static file_slot_t *lookup_handle(mini_file_t file)
     }
     file_slot_t *slot = &s_files[raw_slot - 1u];
     if (slot->backend == MINISHELL_BACKEND_FILE_INVALID || slot->generation != generation) {
+        return NULL;
+    }
+    return slot;
+}
+
+static dir_slot_t *lookup_dir_handle(mini_dir_t dir)
+{
+    if (dir == MINI_DIR_INVALID) {
+        return NULL;
+    }
+    uint32_t raw_slot = dir & 0xFFFFu;
+    uint16_t generation = (uint16_t)(dir >> 16);
+    if (raw_slot == 0u || raw_slot > MINI_FS_MAX_OPEN_DIRS) {
+        return NULL;
+    }
+    dir_slot_t *slot = &s_dirs[raw_slot - 1u];
+    if (slot->backend == MINISHELL_BACKEND_DIR_INVALID || slot->generation != generation) {
         return NULL;
     }
     return slot;
@@ -278,6 +307,95 @@ static mini_result_t fs_rmdir(const char *path)
     return port->fs_rmdir(port->ctx, normalized);
 }
 
+static mini_result_t fs_dir_open(const char *path, mini_dir_t *out_dir)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    if (out_dir == NULL) return MINI_ERR_INVALID;
+    *out_dir = MINI_DIR_INVALID;
+    if (!s_available || port->fs_dir_open == NULL ||
+        port->fs_dir_read == NULL || port->fs_dir_close == NULL) {
+        return MINI_ERR_UNSUPPORTED;
+    }
+
+    char normalized[MINI_FS_NORMALIZED_PATH_MAX];
+    mini_result_t result = normalize_one(path, normalized);
+    if (result != MINI_OK) return result;
+
+    uint32_t index = MINI_FS_MAX_OPEN_DIRS;
+    for (uint32_t i = 0; i < MINI_FS_MAX_OPEN_DIRS; ++i) {
+        if (s_dirs[i].backend == MINISHELL_BACKEND_DIR_INVALID) {
+            index = i;
+            break;
+        }
+    }
+    if (index == MINI_FS_MAX_OPEN_DIRS) return MINI_ERR_TOO_MANY_OPEN;
+
+    minishell_backend_dir_t backend = MINISHELL_BACKEND_DIR_INVALID;
+    result = port->fs_dir_open(port->ctx, normalized, &backend);
+    if (result != MINI_OK) return result;
+    if (backend == MINISHELL_BACKEND_DIR_INVALID) return MINI_ERR_IO;
+
+    s_dirs[index].backend = backend;
+    s_dirs[index].generation = s_generation;
+    *out_dir = make_dir_handle(index, s_generation);
+    return MINI_OK;
+}
+
+static mini_result_t fs_dir_read(mini_dir_t dir, mini_fs_dir_entry_t *out_entry,
+                                 uint32_t *out_has_entry)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    const uint32_t v0_size = MINI_FIELD_END(mini_fs_dir_entry_t, name);
+    if (out_entry == NULL || out_has_entry == NULL || out_entry->struct_size < v0_size) {
+        return MINI_ERR_INVALID;
+    }
+    *out_has_entry = 0u;
+    out_entry->type = 0u;
+    out_entry->name[0] = '\0';
+    if (!s_available || port->fs_dir_read == NULL) return MINI_ERR_UNSUPPORTED;
+
+    dir_slot_t *slot = lookup_dir_handle(dir);
+    if (slot == NULL) return MINI_ERR_BAD_HANDLE;
+
+    for (;;) {
+        char name[MINI_FS_NAME_MAX + 1u] = {0};
+        uint32_t type = 0u;
+        uint32_t has_entry = 0u;
+        mini_result_t result = port->fs_dir_read(port->ctx, slot->backend,
+                                                 name, (uint32_t)sizeof(name),
+                                                 &type, &has_entry);
+        if (result != MINI_OK) return result;
+        if (has_entry == 0u) return MINI_OK;
+
+        name[MINI_FS_NAME_MAX] = '\0';
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+            continue;
+        }
+        if (type != MINI_FS_TYPE_FILE && type != MINI_FS_TYPE_DIRECTORY) {
+            continue;
+        }
+
+        size_t length = strlen(name);
+        if (length > MINI_FS_NAME_MAX) return MINI_ERR_NAME_TOO_LONG;
+        memcpy(out_entry->name, name, length + 1u);
+        out_entry->type = type;
+        *out_has_entry = 1u;
+        return MINI_OK;
+    }
+}
+
+static mini_result_t fs_dir_close(mini_dir_t dir)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    if (!s_available || port->fs_dir_close == NULL) return MINI_ERR_UNSUPPORTED;
+    dir_slot_t *slot = lookup_dir_handle(dir);
+    if (slot == NULL) return MINI_ERR_BAD_HANDLE;
+
+    minishell_backend_dir_t backend = slot->backend;
+    slot->backend = MINISHELL_BACKEND_DIR_INVALID;
+    return port->fs_dir_close(port->ctx, backend);
+}
+
 static const mini_fs_api_t s_fs_api = {
     .struct_size = sizeof(mini_fs_api_t),
     .open = fs_open,
@@ -291,12 +409,16 @@ static const mini_fs_api_t s_fs_api = {
     .remove_file = fs_remove_file,
     .mkdir = fs_mkdir,
     .rmdir = fs_rmdir,
+    .dir_open = fs_dir_open,
+    .dir_read = fs_dir_read,
+    .dir_close = fs_dir_close,
 };
 
 void minishell_filesystem_service_configure(void)
 {
     const minishell_services_port_t *port = minishell_services_port();
     memset(s_files, 0, sizeof(s_files));
+    memset(s_dirs, 0, sizeof(s_dirs));
     s_available = port->fs_open != NULL && port->fs_close != NULL && port->fs_read != NULL &&
                   port->fs_write != NULL && port->fs_seek != NULL && port->fs_sync != NULL && port->fs_stat != NULL;
 }
@@ -316,6 +438,12 @@ void minishell_filesystem_service_app_end(void)
             if (port->fs_close != NULL) (void)port->fs_close(port->ctx, s_files[i].backend);
             s_files[i].backend = MINISHELL_BACKEND_FILE_INVALID;
             s_files[i].flags = 0u;
+        }
+    }
+    for (uint32_t i = 0; i < MINI_FS_MAX_OPEN_DIRS; ++i) {
+        if (s_dirs[i].backend != MINISHELL_BACKEND_DIR_INVALID) {
+            if (port->fs_dir_close != NULL) (void)port->fs_dir_close(port->ctx, s_dirs[i].backend);
+            s_dirs[i].backend = MINISHELL_BACKEND_DIR_INVALID;
         }
     }
 }

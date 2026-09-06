@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "app_manager.h"
+#include "platform_backend.h"
 #include "shell.h"
 
 #define SHELL_LINE_MAX 256
@@ -31,10 +32,23 @@ static void show_app(const char *name, void *ctx)
 static void cmd_help(void)
 {
     puts("help              show this help");
+    puts("status            show MiniShell platform/service status");
     puts("apps              list installed applications");
     puts("run <app> [...]   run an application");
     puts("<app> [...]       run an application directly");
     puts("exit              leave MiniShell");
+}
+
+static void cmd_status(void)
+{
+    const mini_api_t *api = mini_api_get();
+    printf("platform : %s\n", minishell_platform_name());
+    printf("system   : %s\n", api != NULL && api->system != NULL ? "ready" : "unavailable");
+    printf("memory   : %s\n", api != NULL && api->memory != NULL ? "ready" : "unavailable");
+    printf("fs       : %s\n", api != NULL && api->fs != NULL ? "ready" : "unavailable");
+    printf("time     : %s\n", api != NULL && api->time_location != NULL ? "ready" : "unavailable");
+    printf("display  : %s\n", api != NULL && api->display != NULL ? "ready" : "unavailable");
+    printf("input    : %s\n", api != NULL && api->input != NULL ? "ready" : "unavailable");
 }
 
 static int run_app(const char *name, int argc, char **argv, int command_lookup)
@@ -77,6 +91,11 @@ int minishell_shell_run(void)
 
         if (strcmp(argv[0], "help") == 0) {
             cmd_help();
+            continue;
+        }
+
+        if (strcmp(argv[0], "status") == 0) {
+            cmd_status();
             continue;
         }
 
