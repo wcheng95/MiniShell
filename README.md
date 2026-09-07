@@ -2,8 +2,6 @@
 
 MiniShell is a platform-adaptive application runtime. It keeps application cores independent of Linux, NuttX, ESP-IDF, board drivers, and mocks while providing a small shell, application lifecycle, resource policy, and stable service ABI.
 
-Linux Mint on `pc-1` is the reference implementation and a full production target.
-
 ## Core model
 
 ```text
@@ -101,15 +99,11 @@ ctest --test-dir build-linux --output-on-failure
 ./build-linux/minishell
 ```
 
-Use a dedicated Linux build directory so an old ESP-IDF/cross-toolchain CMake cache cannot be reused accidentally.
-
 Runtime Linux modules are built under:
 
 ```text
 build-linux/runtime/apps/
 ```
-
-`MINISHELL_APP_DIR` can override the discovery directory.
 
 ## Resource policy
 
