@@ -19,7 +19,7 @@ Applications
         +-----------+-----------+
         |           |           |
       Linux       NuttX      embedded
-      POSIX        Tab5       thick ADV
+      POSIX        Tab5      ESP32-S3
 ```
 
 Applications use MiniShell services only. Mocks/simulated providers also live below MiniShell.
