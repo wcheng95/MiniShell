@@ -12,6 +12,27 @@ typedef struct {
 static memory_slot_t s_slots[MINI_MEMORY_MAX_TRACKED];
 static bool s_available;
 
+static uint64_t current_usage(uint32_t *out_count)
+{
+    uint64_t bytes = 0u;
+    uint32_t count = 0u;
+    for (uint32_t i = 0; i < MINI_MEMORY_MAX_TRACKED; ++i) {
+        if (s_slots[i].ptr != NULL) {
+            bytes += s_slots[i].requested_size;
+            ++count;
+        }
+    }
+    if (out_count != NULL) *out_count = count;
+    return bytes;
+}
+
+static bool budget_allows(uint64_t used, uint64_t requested_total)
+{
+    uint64_t limit = minishell_memory_limit_bytes();
+    if (limit == 0u) return true;
+    return requested_total <= limit && used <= limit;
+}
+
 static memory_slot_t *find_slot(void *ptr)
 {
     for (uint32_t i = 0; i < MINI_MEMORY_MAX_TRACKED; ++i) {
@@ -41,6 +62,11 @@ static mini_result_t memory_alloc(uint32_t size, void **out_ptr)
     *out_ptr = NULL;
     if (!s_available || size == 0u) {
         return size == 0u ? MINI_ERR_INVALID : MINI_ERR_UNSUPPORTED;
+    }
+
+    uint64_t used = current_usage(NULL);
+    if ((uint64_t)size > UINT64_MAX - used || !budget_allows(used, used + size)) {
+        return MINI_ERR_NO_MEMORY;
     }
 
     memory_slot_t *slot = find_free_slot();
@@ -76,6 +102,13 @@ static mini_result_t memory_realloc(void *ptr, uint32_t new_size, void **out_ptr
     memory_slot_t *slot = find_slot(ptr);
     if (slot == NULL) {
         return MINI_ERR_INVALID;
+    }
+
+    uint64_t used = current_usage(NULL);
+    uint64_t without_old = used - slot->requested_size;
+    if ((uint64_t)new_size > UINT64_MAX - without_old ||
+        !budget_allows(used, without_old + new_size)) {
+        return MINI_ERR_NO_MEMORY;
     }
 
     void *new_ptr = port->memory_realloc(port->ctx, ptr, new_size);
@@ -127,18 +160,18 @@ static mini_result_t memory_get_info(mini_memory_info_t *out_info)
            v0_size - sizeof(out_info->struct_size));
     out_info->struct_size = caller_size;
 
-    uint64_t bytes = 0u;
     uint32_t count = 0u;
-    for (uint32_t i = 0; i < MINI_MEMORY_MAX_TRACKED; ++i) {
-        if (s_slots[i].ptr != NULL) {
-            bytes += s_slots[i].requested_size;
-            ++count;
-        }
-    }
-
+    uint64_t bytes = current_usage(&count);
     out_info->app_allocated_bytes = bytes;
     out_info->app_allocation_count = count;
     out_info->valid_fields |= MINI_MEM_INFO_APP_USAGE;
+
+    uint64_t limit = minishell_memory_limit_bytes();
+    if (limit != 0u) {
+        out_info->free_bytes = bytes < limit ? limit - bytes : 0u;
+        out_info->valid_fields |= MINI_MEM_INFO_FREE_BYTES;
+        return MINI_OK;
+    }
 
     if (port->memory_get_info != NULL) {
         uint64_t free_bytes = 0u;
