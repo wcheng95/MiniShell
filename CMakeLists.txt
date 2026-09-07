@@ -78,6 +78,24 @@ add_minishell_app(nano
     apps/nano/main/nano_util.c
 )
 
+add_minishell_app(MiniFT8
+    apps/MiniFT8/main/minift8_main.c
+    apps/MiniFT8/main/minishell_ui_adapter.c
+    apps/MiniFT8/src/app_controller/app_controller.c
+    apps/MiniFT8/src/config_service/config_service.c
+    apps/MiniFT8/src/qso_scheduler/qso_scheduler.c
+    apps/MiniFT8/src/storage_service/storage_service.c
+    apps/MiniFT8/src/ui_shell/ui_shell.c
+)
+target_include_directories(MiniFT8 PRIVATE
+    apps/MiniFT8/include
+    apps/MiniFT8/src/app_controller
+    apps/MiniFT8/src/config_service
+    apps/MiniFT8/src/qso_scheduler
+    apps/MiniFT8/src/storage_service
+    apps/MiniFT8/src/ui_shell
+)
+
 add_library(service_probe MODULE tests/apps/service_probe.c)
 target_include_directories(service_probe PRIVATE include)
 set_target_properties(service_probe PROPERTIES
@@ -113,6 +131,16 @@ set_target_properties(resource_probe PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-apps"
 )
 target_compile_options(resource_probe PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(minift8_ui_smoke
+    tests/minift8_ui_smoke.c
+    apps/MiniFT8/src/ui_shell/ui_shell.c
+)
+target_include_directories(minift8_ui_smoke PRIVATE
+    apps/MiniFT8/include
+    apps/MiniFT8/src/ui_shell
+)
+target_compile_options(minift8_ui_smoke PRIVATE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -173,4 +201,14 @@ add_test(
             $<TARGET_FILE:minishell>
             $<TARGET_FILE_DIR:hello>
             $<TARGET_FILE_DIR:resource_probe>
+)
+
+add_test(NAME minift8_ui_smoke COMMAND minift8_ui_smoke)
+
+add_test(
+    NAME linux_minift8
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/linux_minift8.py
+            $<TARGET_FILE:minishell>
+            $<TARGET_FILE_DIR:MiniFT8>
 )
