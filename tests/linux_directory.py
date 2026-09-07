@@ -52,6 +52,18 @@ def main() -> int:
             print(probe_output)
             return 1
 
+        root_listing = run_minishell(
+            minishell,
+            runtime_app_dir,
+            root,
+            "ls\nexit\n",
+        )
+        root_output = root_listing.stdout + root_listing.stderr
+        if root_listing.returncode != 0 or "/sd/" not in root_output or "/flash/" not in root_output:
+            print("ls root entries should be complete MiniShell paths")
+            print(root_output)
+            return 1
+
         listing = run_minishell(
             minishell,
             runtime_app_dir,
@@ -68,6 +80,7 @@ def main() -> int:
             return 1
 
         print(probe_output)
+        print(root_output)
         print(listing_output)
     return 0
 
