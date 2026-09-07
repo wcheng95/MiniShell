@@ -29,6 +29,8 @@ add_executable(minishell
     core/app_manager.c
     ${MINISHELL_SERVICE_SOURCES}
     platform/linux/linux_backend.c
+    platform/linux/linux_services.c
+    platform/linux/linux_audio_wav.c
     platform/linux/platform_info.c
     platform/linux/resource_config.c
 )
@@ -37,6 +39,7 @@ target_include_directories(minishell PRIVATE
     include
     core
     core/minishell_services
+    platform/linux
 )
 
 target_link_libraries(minishell PRIVATE ${CMAKE_DL_LIBS})
@@ -133,6 +136,15 @@ set_target_properties(resource_probe PROPERTIES
 )
 target_compile_options(resource_probe PRIVATE -Wall -Wextra -Wpedantic)
 
+add_library(audio_probe MODULE tests/apps/audio_probe.c)
+target_include_directories(audio_probe PRIVATE include)
+set_target_properties(audio_probe PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "audio_probe"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-apps"
+)
+target_compile_options(audio_probe PRIVATE -Wall -Wextra -Wpedantic)
+
 add_executable(minift8_ui_smoke
     tests/minift8_ui_smoke.c
     apps/MiniFT8/src/ui_shell/ui_shell.c
@@ -202,6 +214,15 @@ add_test(
             $<TARGET_FILE:minishell>
             $<TARGET_FILE_DIR:hello>
             $<TARGET_FILE_DIR:resource_probe>
+)
+
+add_test(
+    NAME linux_audio
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/linux_audio.py
+            $<TARGET_FILE:minishell>
+            $<TARGET_FILE_DIR:audio_probe>
+            ${CMAKE_SOURCE_DIR}/tests/kfs16b12k.wav
 )
 
 add_test(NAME minift8_ui_smoke COMMAND minift8_ui_smoke)
