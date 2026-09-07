@@ -69,7 +69,7 @@ include/minishell/api.h        public app ABI
 apps/*                         portable runtime applications
 ```
 
-Earlier ESP-IDF/Tab5 source trees still exist in the repository but are not part of the current root Linux build. They are historical/pre-pivot code until deliberately reused or removed.
+The earlier ESP-IDF/Tab5 implementation path has been removed from active `main`. Its complete pre-cleanup state is preserved in branch `archive/tab5-legacy` for historical reference and future porting work.
 
 ## 6. Ownership
 
@@ -258,7 +258,7 @@ The architecture does not equate "one owner" with "one giant file." An owner may
 
 The current audit identifies internal cleanup needs in `platform/linux/linux_backend.c`, `core/minishell_services/filesystem_service.c`, and the shell/private-loader boundary. These do not require a public ABI redesign.
 
-See `docs/consistency-check.md` for the current audit and prioritized housekeeping list.
+See `../project/consistency-check.md` for the current audit and prioritized housekeeping list.
 
 ## 17. Reference-development rule
 
