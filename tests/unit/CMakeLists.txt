@@ -13,6 +13,7 @@ add_executable(minishell_unit_tests
     ../../core/minishell_services/time_location_service.c
     ../../core/minishell_services/display_service.c
     ../../core/minishell_services/input_service.c
+    ../../core/minishell_services/audio_service.c
     ../../apps/nano/main/nano_buffer.c
     ../../apps/cp/main/cp_copy.c
     test_support.c
@@ -22,6 +23,7 @@ add_executable(minishell_unit_tests
     test_time_location.c
     test_display.c
     test_input.c
+    test_audio.c
     test_nano_buffer.c
     test_cp_copy.c
     test_main.c
@@ -37,7 +39,7 @@ target_include_directories(minishell_unit_tests PRIVATE
 target_compile_options(minishell_unit_tests PRIVATE -Wall -Wextra -Werror)
 
 enable_testing()
-foreach(group system memory filesystem time_location display input)
+foreach(group system memory filesystem time_location display input audio)
     add_test(NAME abi_${group}_unit COMMAND minishell_unit_tests ${group})
 endforeach()
 add_test(NAME nano_editor_unit COMMAND minishell_unit_tests nano_buffer)
