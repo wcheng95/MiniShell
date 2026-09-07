@@ -2,9 +2,9 @@
 
 ## Current phase
 
-MiniFT8-V3 is developed as a MiniShell application rather than as a standalone Linux/ESP-IDF application with its own platform layer.
+MiniFT8-V3 is now developed as a MiniShell application rather than as a standalone Linux/ESP-IDF application with its own platform layer.
 
-The first integrated application milestone remains:
+Current integrated milestone:
 
 ```text
 MiniShell launch
@@ -16,53 +16,48 @@ MiniShell launch
     -> M$>
 ```
 
-The first Audio infrastructure milestone is now established:
+The next architecture baseline is also now defined:
 
 ```text
-MiniShell Audio ABI/service core
-    -> independent RX/TX stream contracts
-    -> 12 kHz / S16 / 2-channel MiniFT8 transport request
-    -> Linux deterministic WAV RX provider
-    -> runtime-loaded Audio probe
+RX Audio Path
+TX Audio Path
+Control Path
 ```
 
-RX Audio, TX Audio, and Control remain independent resources. MiniFT8 does not configure one monolithic `Radio` object that implicitly chooses all three.
+These are independent resources. MiniFT8 does not configure one monolithic `Radio` object that implicitly chooses all three.
 
 ## Tests
 
-### Existing MiniFT8 tests
+Two MiniFT8-specific tests are currently part of the MiniShell reference suite.
 
-`minift8_ui_smoke` is a pure UI-state test. `linux_minift8` is the PTY integration test through the real MiniShell runtime and verifies UI/config/persistence lifecycle.
+### `minift8_ui_smoke`
 
-### Audio ABI unit test
+Pure UI-state test. It drives `UiInput` directly and checks `UiFrame`/`AppAction` behavior without a platform or MiniShell backend.
 
-`abi_audio_unit` exercises the public Audio service contract against a fake provider. It covers:
+It covers:
 
-- RX-only, TX-only, and RX+TX capability exposure;
-- `struct_size` and invalid argument handling;
-- exact-format rejection;
-- independent RX and TX lifecycles;
-- frame-count semantics;
-- exact two-channel ordering;
-- finite-source end-of-stream behavior;
-- stale handles;
-- idempotent start/stop;
-- TX abort and RX/TX cleanup at application teardown.
+- initial RX frame;
+- O screen structure;
+- mode action generation;
+- TX submenu and scheduler controls;
+- S screen grouping;
+- V/System platform-neutral presentation.
 
-### Linux WAV Audio integration test
+### `linux_minift8`
 
-`linux_audio` uses the runtime-loaded `audio_probe` application and the checked-in fixture:
+PTY integration test through the real MiniShell runtime. It changes settings, verifies safe persistence, exits to `M$>`, relaunches, and verifies saved state is restored.
+
+### FT8 audio reference fixture
+
+`tests/kfs16b12k.wav` is the canonical first RX fixture. Its WAV header is:
 
 ```text
-tests/kfs16b12k.wav
 12000 Hz
 PCM signed 16-bit
 2 channels
 ```
 
-The test copies the fixture into the MiniShell logical filesystem and opens it through a logical path. The WAV provider streams the two channels unchanged through the Audio ABI. `audio_probe` hashes every PCM byte and checks the complete frame count. The probe is run twice in one MiniShell session to verify cleanup and reopen behavior.
-
-No wall-clock pacing is used for file replay.
+The Linux WAV provider validates and streams the two channels without downmixing. Channel meaning belongs above MiniShell: a normal-audio MiniFT8 source profile may select or downmix the channels, while an I/Q profile may interpret channel 0 as I and channel 1 as Q.
 
 ## Development rule
 
@@ -83,7 +78,7 @@ Do not add broad generic services speculatively.
 
 ## Audio baseline
 
-The MiniShell Audio interface is format-capable. MiniFT8 V1 requests:
+MiniFT8 V1 requests:
 
 ```text
 12000 Hz
@@ -91,9 +86,7 @@ signed 16-bit PCM
 2 channels
 ```
 
-MiniShell does not define whether the two channels mean stereo, duplicated mono, or I/Q. It preserves channel ordering and transports the samples. MiniFT8 and its selected RX/TX source profile assign channel meaning.
-
-RX ownership:
+MiniShell preserves channel ordering but does not define whether the two channels mean stereo, duplicated mono, or I/Q. MiniFT8 and its selected RX/TX source profile assign channel meaning.
 
 ```text
 source-native audio
@@ -102,23 +95,21 @@ source-native audio
     -> MiniFT8 source/profile interpretation
 ```
 
-The deterministic host path is now:
+For the checked-in fixture:
 
 ```text
 tests/kfs16b12k.wav
-12 kHz / S16 / 2-channel
-    -> MiniShell Linux WAV provider
+    -> MiniShell WAV Audio provider
     -> unchanged two-channel Audio ABI stream
-    -> MiniFT8 normal-audio interpretation        # next application step
-    -> select/downmix
-    -> FT8 decoder
+    -> MiniFT8 normal-audio profile
+    -> select/downmix for current FT8 decoder
 ```
 
 For live QMX ordinary audio:
 
 ```text
 QMX UAC 48 kHz / 24-bit / 2-channel
-    -> future MiniShell QMX Audio provider
+    -> MiniShell QMX Audio backend
     -> 12 kHz / S16 / 2-channel
     -> MiniFT8 QMX-AUDIO profile
 ```
@@ -127,7 +118,7 @@ For a future I/Q source:
 
 ```text
 QMX-IQ / SDR-IQ
-    -> MiniShell Audio provider
+    -> MiniShell Audio backend
     -> 12 kHz / S16 / 2-channel
     -> MiniFT8 source profile
        channel 0 = I
@@ -137,11 +128,9 @@ QMX-IQ / SDR-IQ
 
 If the current FT8 decoder internally prefers 6 kHz mono float, the ordinary-audio select/downmix plus `12 kHz S16 -> 6 kHz float` conversion stays inside MiniFT8/`ft8_engine`.
 
-For audio TX, MiniFT8 synthesizes the FT8/FT4 waveform, applies the selected TX profile's channel mapping, and writes 12 kHz / S16 / 2-channel PCM to MiniShell. For ordinary audio TX the default may be the same waveform in both channels. Hardware-native conversion stays below the ABI.
+For audio TX, MiniFT8 synthesizes the FT8/FT4 waveform, applies the selected TX profile's channel mapping, and writes 12 kHz / S16 / 2-channel PCM to MiniShell. Hardware-native conversion stays below the ABI.
 
 ## Control baseline
-
-The first Control ABI requirement is defined but not yet implemented.
 
 Conceptual operations:
 
@@ -164,15 +153,25 @@ Important rules:
 - Tune is composed by MiniFT8 from normal TX primitives rather than added as a dedicated Control operation.
 - device/radio `set_time` is a valid future capability, but V1 defers it; when added it should reuse MiniShell Time/Location types.
 
-## Next major vertical slice
+## Housekeeping gate before DSP expansion
 
-With the Audio ABI and deterministic WAV provider established, the next application-driven boundary is inside MiniFT8:
+The Audio ABI/service and deterministic Linux WAV RX provider are implemented and tested. Before extending MiniFT8 into `ft8_engine` replay or live QMX/UAC, MiniShell is paying the internal architecture debt recorded in `docs/project/consistency-check.md`:
+
+```text
+H1 split the Linux backend
+H2 remove POSIX loader details from portable core
+H3 split Filesystem private helpers while preserving one owner
+```
+
+After those are complete, evaluate the cost of H5, the stateful ANSI/CSI parser, before deciding whether to implement it immediately.
+
+## Next major vertical slice after housekeeping
 
 ```text
 tests/kfs16b12k.wav
-        -> MiniShell WAV Audio provider          DONE
-        -> 12 kHz / S16 / 2-channel Audio ABI   DONE
-        -> MiniFT8 normal-audio interpretation
+        -> MiniShell WAV Audio provider
+        -> 12 kHz / S16 / 2-channel Audio ABI
+        -> MiniFT8 normal-audio source profile
         -> select/downmix
         -> app_controller
         -> ft8_engine
@@ -181,18 +180,18 @@ tests/kfs16b12k.wav
         -> RX screen
 ```
 
-The next useful test layers are therefore:
+Desired test layers:
 
 ```text
-1. MiniFT8 normal-audio channel-selection/downmix unit test
-2. ft8_engine regression test using the resulting decode stream
-3. MiniFT8 integration test through app_controller
-4. live QMX Audio provider after deterministic replay/decode is stable
+1. Audio ABI unit tests                         DONE
+2. WAV-provider exact two-channel replay       DONE
+3. MiniFT8 normal-audio channel-selection/downmix test
+4. ft8_engine regression test using normalized decode stream
+5. MiniFT8 integration test through app_controller
+6. live QMX Audio backend test after deterministic replay is stable
 ```
 
-A later I/Q test reuses the exact same Audio ABI and substitutes a MiniFT8 source profile that interprets channel 0/1 as I/Q.
-
-Control can be implemented/tested independently because RX Audio, TX Audio, and Control are separate resources.
+A later I/Q test can reuse the same Audio ABI and substitute a MiniFT8 source profile that interprets channel 0/1 as I/Q.
 
 ## Timing direction
 
@@ -202,20 +201,10 @@ For framed digital audio modes:
 - audio sample count is the preferred progression clock inside the slot;
 - OS scheduling/ticks are execution mechanics, not protocol timing.
 
-For deterministic WAV replay, replay-start UTC plus samples consumed can provide deterministic virtual UTC progression. File replay should run as fast as the host can process it rather than sleeping to imitate real time.
+For deterministic WAV replay, replay-start UTC plus samples consumed can provide deterministic virtual UTC progression.
 
 ## Migration policy
 
 Mini-FT8 V2 remains a behavioral and algorithmic reference. Proven code may be migrated, but every reused block must fit the current MiniFT8/MiniShell ownership boundaries.
 
-Especially review `ft8_engine`/ft8_lib structure rather than treating old source-file boundaries as architectural requirements.
-
-The old V2 QDX UAC implementation mixes waveform synthesis with USB audio transport. In V3, preserve the proven CPFSK/DDS behavior where useful but move protocol waveform synthesis above MiniShell; the Audio backend receives normalized PCM only.
-
-## Focused code-reading targets
-
-For the Audio service/provider slice, the highest-value files to read are:
-
-1. `include/minishell/api.h` — public Audio ABI shape and append-only top-level extension.
-2. `core/minishell_services/audio_service.c` — stream ownership, lifecycle, capability exposure, and fail-safe teardown.
-3. `platform/linux/linux_audio_wav.c` — provider boundary: WAV parsing and exact frame transport without channel interpretation.
+The old V2 QDX UAC implementation mixes waveform synthesis with USB audio transport. In V3, preserve the proven CPFSK/DDS behavior where useful but move protocol waveform synthesis above MiniShell; the Audio backend should receive normalized PCM only.
