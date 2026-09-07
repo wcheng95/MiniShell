@@ -101,19 +101,19 @@ sample format signed 16-bit PCM (S16)
 channels      1 (mono)
 ```
 
-The interface should carry an explicit format description so later formats can be appended without redesigning the ABI. V1 implementations may support only `12000 / S16 / mono` and return `UNSUPPORTED` for other requested formats.
+The interface should carry an explicit format description so later formats can be appended without redesigning the ABI. V1 implementations may support only `12000 / S16 / mono` at the application-facing boundary and return `UNSUPPORTED` for other requested formats where conversion is not provided.
 
 ### RX ownership
 
 The RX contract presented to MiniFT8 is normalized PCM:
 
 ```text
-physical audio source
+physical/file audio source
         |
         v
-MiniShell Audio backend
+MiniShell Audio backend/provider
         |
-        | hardware-native conversion
+        | source/native format conversion
         v
 12 kHz / S16 / mono
         |
@@ -121,7 +121,9 @@ MiniShell Audio backend
 MiniFT8 RX
 ```
 
-Hardware-format conversion belongs below the MiniShell Audio ABI. For QMX, the native UAC stream is 48 kHz / 24-bit / stereo, so the QMX MiniShell backend converts it to 12 kHz / S16 / mono before MiniFT8 receives it.
+Source/hardware-format conversion belongs below the MiniShell Audio ABI. For QMX, the native UAC stream is 48 kHz / 24-bit / stereo, so the QMX MiniShell backend converts it to 12 kHz / S16 / mono before MiniFT8 receives it.
+
+The checked-in reference fixture `tests/kfs16b12k.wav` is PCM 12 kHz / S16 / **stereo**. The WAV Audio provider therefore downmixes its two channels to the canonical mono ABI stream. This intentionally tests that source format does not leak into MiniFT8.
 
 Any later conversion needed only by the FT8 implementation remains above MiniShell. For example, if `ft8_engine` continues to process 6 kHz mono float internally, `12 kHz S16 -> 6 kHz float` is a MiniFT8 DSP detail rather than a MiniShell format.
 
@@ -139,7 +141,7 @@ FT8 message
     -> physical audio device
 ```
 
-MiniShell Audio must not know FT8, FT4, symbol counts, tone spacing, CPFSK, or QSO policy. It transports normalized PCM and performs only hardware/OS format conversion and buffering.
+MiniShell Audio must not know FT8, FT4, symbol counts, tone spacing, CPFSK, or QSO policy. It transports normalized PCM and performs only source/hardware/OS format conversion and buffering.
 
 This also creates a deterministic host test path where the TX Audio backend writes the generated PCM to a WAV file for independent decoding/regression checks.
 
@@ -300,8 +302,10 @@ The Audio and Control requirements above are now architecturally defined. They a
 The next RX vertical slice is:
 
 ```text
-deterministic 12 kHz / S16 / mono WAV source
-        -> MiniShell Audio ABI/provider
+tests/kfs16b12k.wav
+12 kHz / S16 / stereo
+        -> MiniShell WAV Audio provider
+        -> downmix to 12 kHz / S16 / mono
         -> app_controller
         -> ft8_engine
         -> decoded messages
@@ -326,7 +330,7 @@ Control can be implemented and tested independently because RX Audio, TX Audio, 
 2. Add a MiniShell primitive only when it is generally reusable and justified by a real application requirement.
 3. RX Audio, TX Audio, and Control are independent logical resources; physical device identity must not couple them at the application boundary.
 4. MiniFT8 owns protocol-specific DSP, modulation, timing, symbol meaning, and TX waveform synthesis.
-5. MiniShell owns platform/hardware transport, normalized audio delivery, hardware-format conversion, and radio-specific control realization.
+5. MiniShell owns platform/hardware transport, normalized audio delivery, source/hardware-format conversion, and radio-specific control realization.
 6. Keep one authoritative owner for mutable state/resource policy.
 7. Keep platform implementation below MiniShell.
 8. Prefer synchronous explicit calls until concurrency is actually required.

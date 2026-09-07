@@ -69,15 +69,15 @@ The test then verifies:
 
 ### FT8 audio reference fixture
 
-`tests/kfs16b12k.wav` is the canonical first RX fixture for the new Audio path. It is already normalized to the MiniFT8 V1 application-facing format:
+`tests/kfs16b12k.wav` is the canonical first RX fixture for the new Audio path. Its WAV header is:
 
 ```text
 12000 Hz
-signed 16-bit PCM
-mono
+PCM signed 16-bit
+2 channels (stereo)
 ```
 
-Using a normalized checked-in fixture lets the first decoder integration avoid resampling/device uncertainty and makes host regression behavior repeatable.
+The MiniFT8 Audio ABI boundary remains **12 kHz / S16 / mono**. The WAV Audio provider therefore downmixes this fixture to mono before MiniFT8 receives it. This gives the provider a small real format-conversion responsibility while keeping the application boundary deterministic.
 
 ## Development rule
 
@@ -106,13 +106,24 @@ signed 16-bit PCM
 mono
 ```
 
-A V1 backend may support only this format and return `UNSUPPORTED` for others.
+A V1 backend may support only this application-facing format and return `UNSUPPORTED` for other requested formats where conversion is not provided.
 
 RX ownership:
 
 ```text
 source-native audio
-    -> MiniShell backend conversion
+    -> MiniShell backend/provider conversion
+    -> 12 kHz / S16 / mono
+    -> MiniFT8
+```
+
+For the checked-in WAV fixture:
+
+```text
+tests/kfs16b12k.wav
+12 kHz / S16 / stereo
+    -> MiniShell WAV Audio provider
+    -> downmix
     -> 12 kHz / S16 / mono
     -> MiniFT8
 ```
@@ -161,7 +172,8 @@ The next application-driven slice is deterministic FT8 RX:
 
 ```text
 tests/kfs16b12k.wav
-        -> MiniShell Audio ABI/provider
+        -> MiniShell WAV Audio provider
+        -> 12 kHz / S16 / mono Audio ABI
         -> app_controller
         -> ft8_engine
         -> decoded messages
@@ -173,8 +185,8 @@ Desired test layers:
 
 ```text
 1. Audio ABI unit tests
-2. WAV-provider tests using tests/kfs16b12k.wav
-3. ft8_engine regression test using the same reference WAV
+2. WAV-provider tests using tests/kfs16b12k.wav, including stereo -> mono conversion
+3. ft8_engine regression test using the normalized stream
 4. MiniFT8 integration test through app_controller
 5. live QMX Audio backend test after deterministic replay is stable
 ```
