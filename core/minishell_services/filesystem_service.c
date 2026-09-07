@@ -5,6 +5,7 @@
 #define MINI_FS_MAX_OPEN_FILES 32u
 #define MINI_FS_MAX_OPEN_DIRS 16u
 #define MINI_FS_NORMALIZED_PATH_MAX 512u
+#define MINI_FS_SCAN_MAX_DEPTH 32u
 #define MINI_FS_KNOWN_FLAGS (MINI_FS_READ | MINI_FS_WRITE | MINI_FS_CREATE | \
                              MINI_FS_EXCL | MINI_FS_TRUNC | MINI_FS_APPEND)
 
@@ -12,6 +13,9 @@ typedef struct {
     minishell_backend_file_t backend;
     uint16_t generation;
     uint32_t flags;
+    uint64_t logical_size;
+    uint64_t position;
+    uint64_t path_hash;
 } file_slot_t;
 
 typedef struct {
@@ -23,6 +27,18 @@ static file_slot_t s_files[MINI_FS_MAX_OPEN_FILES];
 static dir_slot_t s_dirs[MINI_FS_MAX_OPEN_DIRS];
 static uint16_t s_generation = 1u;
 static bool s_available;
+static bool s_storage_usage_valid;
+static uint64_t s_storage_used;
+
+static uint64_t hash_path(const char *text)
+{
+    uint64_t hash = 1469598103934665603ull;
+    while (*text != '\0') {
+        hash ^= (uint8_t)*text++;
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
 
 static mini_file_t make_handle(uint32_t slot_index, uint16_t generation)
 {
@@ -36,14 +52,10 @@ static mini_dir_t make_dir_handle(uint32_t slot_index, uint16_t generation)
 
 static file_slot_t *lookup_handle(mini_file_t file)
 {
-    if (file == MINI_FILE_INVALID) {
-        return NULL;
-    }
+    if (file == MINI_FILE_INVALID) return NULL;
     uint32_t raw_slot = file & 0xFFFFu;
     uint16_t generation = (uint16_t)(file >> 16);
-    if (raw_slot == 0u || raw_slot > MINI_FS_MAX_OPEN_FILES) {
-        return NULL;
-    }
+    if (raw_slot == 0u || raw_slot > MINI_FS_MAX_OPEN_FILES) return NULL;
     file_slot_t *slot = &s_files[raw_slot - 1u];
     if (slot->backend == MINISHELL_BACKEND_FILE_INVALID || slot->generation != generation) {
         return NULL;
@@ -53,14 +65,10 @@ static file_slot_t *lookup_handle(mini_file_t file)
 
 static dir_slot_t *lookup_dir_handle(mini_dir_t dir)
 {
-    if (dir == MINI_DIR_INVALID) {
-        return NULL;
-    }
+    if (dir == MINI_DIR_INVALID) return NULL;
     uint32_t raw_slot = dir & 0xFFFFu;
     uint16_t generation = (uint16_t)(dir >> 16);
-    if (raw_slot == 0u || raw_slot > MINI_FS_MAX_OPEN_DIRS) {
-        return NULL;
-    }
+    if (raw_slot == 0u || raw_slot > MINI_FS_MAX_OPEN_DIRS) return NULL;
     dir_slot_t *slot = &s_dirs[raw_slot - 1u];
     if (slot->backend == MINISHELL_BACKEND_DIR_INVALID || slot->generation != generation) {
         return NULL;
@@ -117,29 +125,158 @@ static mini_result_t normalize_one(const char *path, char *normalized)
     return normalize_path(path, normalized, MINI_FS_NORMALIZED_PATH_MAX);
 }
 
+static mini_result_t join_child(const char *parent, const char *name, char *out)
+{
+    size_t parent_len = strlen(parent);
+    size_t name_len = strlen(name);
+    bool root = parent_len == 1u && parent[0] == '/';
+    size_t total = parent_len + (root ? 0u : 1u) + name_len + 1u;
+    if (total > MINI_FS_NORMALIZED_PATH_MAX) return MINI_ERR_NAME_TOO_LONG;
+
+    memcpy(out, parent, parent_len);
+    size_t pos = parent_len;
+    if (!root) out[pos++] = '/';
+    memcpy(out + pos, name, name_len + 1u);
+    return MINI_OK;
+}
+
+static mini_result_t scan_usage_path(const char *path, uint32_t depth, uint64_t *inout_used)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    if (depth > MINI_FS_SCAN_MAX_DEPTH) return MINI_ERR_IO;
+
+    uint32_t type = 0u;
+    uint64_t size = 0u;
+    mini_result_t result = port->fs_stat(port->ctx, path, &type, &size);
+    if (result != MINI_OK) return result;
+
+    if (type == MINI_FS_TYPE_FILE) {
+        if (UINT64_MAX - *inout_used < size) return MINI_ERR_NO_SPACE;
+        *inout_used += size;
+        return MINI_OK;
+    }
+    if (type != MINI_FS_TYPE_DIRECTORY) return MINI_OK;
+    if (port->fs_dir_open == NULL || port->fs_dir_read == NULL || port->fs_dir_close == NULL) {
+        return MINI_ERR_UNSUPPORTED;
+    }
+
+    minishell_backend_dir_t dir = MINISHELL_BACKEND_DIR_INVALID;
+    result = port->fs_dir_open(port->ctx, path, &dir);
+    if (result != MINI_OK) return result;
+
+    for (;;) {
+        char name[MINI_FS_NAME_MAX + 1u] = {0};
+        uint32_t child_type = 0u;
+        uint32_t has_entry = 0u;
+        result = port->fs_dir_read(port->ctx, dir, name, (uint32_t)sizeof(name),
+                                   &child_type, &has_entry);
+        if (result != MINI_OK || has_entry == 0u) break;
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+
+        char child[MINI_FS_NORMALIZED_PATH_MAX];
+        result = join_child(path, name, child);
+        if (result != MINI_OK) break;
+        result = scan_usage_path(child, depth + 1u, inout_used);
+        if (result != MINI_OK) break;
+    }
+
+    mini_result_t close_result = port->fs_dir_close(port->ctx, dir);
+    if (result == MINI_OK && close_result != MINI_OK) result = close_result;
+    return result;
+}
+
+static mini_result_t refresh_storage_usage(void)
+{
+    if (minishell_storage_limit_bytes() == 0u) {
+        s_storage_usage_valid = false;
+        s_storage_used = 0u;
+        return MINI_OK;
+    }
+
+    uint64_t used = 0u;
+    mini_result_t result = scan_usage_path("/", 0u, &used);
+    if (result != MINI_OK) {
+        s_storage_usage_valid = false;
+        return result;
+    }
+    s_storage_used = used;
+    s_storage_usage_valid = true;
+    return MINI_OK;
+}
+
+static bool writable_hash_in_use(uint64_t path_hash)
+{
+    for (uint32_t i = 0; i < MINI_FS_MAX_OPEN_FILES; ++i) {
+        if (s_files[i].backend != MINISHELL_BACKEND_FILE_INVALID &&
+            (s_files[i].flags & MINI_FS_WRITE) != 0u &&
+            s_files[i].path_hash == path_hash) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static mini_result_t fs_open(const char *path, uint32_t flags, mini_file_t *out_file)
 {
     const minishell_services_port_t *port = minishell_services_port();
     if (out_file == NULL) return MINI_ERR_INVALID;
     *out_file = MINI_FILE_INVALID;
     if (!s_available) return MINI_ERR_UNSUPPORTED;
+
     mini_result_t result = validate_flags(flags);
     if (result != MINI_OK) return result;
+
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
     result = normalize_one(path, normalized);
     if (result != MINI_OK) return result;
+
+    uint64_t path_hash = hash_path(normalized);
+    if ((flags & MINI_FS_WRITE) != 0u && writable_hash_in_use(path_hash)) {
+        return MINI_ERR_ACCESS;
+    }
+
+    uint32_t old_type = 0u;
+    uint64_t old_size = 0u;
+    bool old_exists = false;
+    result = port->fs_stat(port->ctx, normalized, &old_type, &old_size);
+    if (result == MINI_OK) {
+        old_exists = true;
+    } else if (result != MINI_ERR_NOT_FOUND) {
+        return result;
+    }
+
     uint32_t index = MINI_FS_MAX_OPEN_FILES;
     for (uint32_t i = 0; i < MINI_FS_MAX_OPEN_FILES; ++i) {
-        if (s_files[i].backend == MINISHELL_BACKEND_FILE_INVALID) { index = i; break; }
+        if (s_files[i].backend == MINISHELL_BACKEND_FILE_INVALID) {
+            index = i;
+            break;
+        }
     }
     if (index == MINI_FS_MAX_OPEN_FILES) return MINI_ERR_TOO_MANY_OPEN;
+
+    if (minishell_storage_limit_bytes() != 0u && refresh_storage_usage() != MINI_OK) {
+        return MINI_ERR_IO;
+    }
+
     minishell_backend_file_t backend = MINISHELL_BACKEND_FILE_INVALID;
     result = port->fs_open(port->ctx, normalized, flags, &backend);
     if (result != MINI_OK) return result;
     if (backend == MINISHELL_BACKEND_FILE_INVALID) return MINI_ERR_IO;
+
+    uint64_t logical_size = (old_exists && old_type == MINI_FS_TYPE_FILE) ? old_size : 0u;
+    if ((flags & MINI_FS_TRUNC) != 0u && old_exists && old_type == MINI_FS_TYPE_FILE) {
+        if (s_storage_usage_valid) {
+            s_storage_used = old_size <= s_storage_used ? s_storage_used - old_size : 0u;
+        }
+        logical_size = 0u;
+    }
+
     s_files[index].backend = backend;
     s_files[index].generation = s_generation;
     s_files[index].flags = flags;
+    s_files[index].logical_size = logical_size;
+    s_files[index].position = (flags & MINI_FS_APPEND) != 0u ? logical_size : 0u;
+    s_files[index].path_hash = path_hash;
     *out_file = make_handle(index, s_generation);
     return MINI_OK;
 }
@@ -151,8 +288,7 @@ static mini_result_t fs_close(mini_file_t file)
     if (!s_available) return MINI_ERR_UNSUPPORTED;
     if (slot == NULL) return MINI_ERR_BAD_HANDLE;
     minishell_backend_file_t backend = slot->backend;
-    slot->backend = MINISHELL_BACKEND_FILE_INVALID;
-    slot->flags = 0u;
+    memset(slot, 0, sizeof(*slot));
     return port->fs_close(port->ctx, backend);
 }
 
@@ -167,7 +303,13 @@ static mini_result_t fs_read(mini_file_t file, void *buffer, uint32_t size, uint
     if (slot == NULL) return MINI_ERR_BAD_HANDLE;
     if ((slot->flags & MINI_FS_READ) == 0u) return MINI_ERR_ACCESS;
     if (size == 0u) return MINI_OK;
-    return port->fs_read(port->ctx, slot->backend, buffer, size, out_read);
+
+    mini_result_t result = port->fs_read(port->ctx, slot->backend, buffer, size, out_read);
+    if (result == MINI_OK) {
+        if (UINT64_MAX - slot->position < *out_read) return MINI_ERR_IO;
+        slot->position += *out_read;
+    }
+    return result;
 }
 
 static mini_result_t fs_write(mini_file_t file, const void *buffer, uint32_t size, uint32_t *out_written)
@@ -181,9 +323,32 @@ static mini_result_t fs_write(mini_file_t file, const void *buffer, uint32_t siz
     if (slot == NULL) return MINI_ERR_BAD_HANDLE;
     if ((slot->flags & MINI_FS_WRITE) == 0u) return MINI_ERR_ACCESS;
     if (size == 0u) return MINI_OK;
+
+    uint64_t start = (slot->flags & MINI_FS_APPEND) != 0u
+                         ? slot->logical_size : slot->position;
+    if ((uint64_t)size > UINT64_MAX - start) return MINI_ERR_NO_SPACE;
+    uint64_t requested_end = start + size;
+    uint64_t requested_growth = requested_end > slot->logical_size
+                                    ? requested_end - slot->logical_size : 0u;
+
+    uint64_t limit = minishell_storage_limit_bytes();
+    if (limit != 0u) {
+        if (refresh_storage_usage() != MINI_OK) return MINI_ERR_IO;
+        uint64_t free_bytes = s_storage_used < limit ? limit - s_storage_used : 0u;
+        if (requested_growth > free_bytes) return MINI_ERR_NO_SPACE;
+    }
+
     mini_result_t result = port->fs_write(port->ctx, slot->backend, buffer, size, out_written);
-    if (result == MINI_OK && *out_written == 0u) return MINI_ERR_IO;
-    return result;
+    if (result != MINI_OK) return result;
+    if (*out_written == 0u || *out_written > size) return MINI_ERR_IO;
+
+    uint64_t actual_end = start + *out_written;
+    uint64_t actual_growth = actual_end > slot->logical_size
+                                 ? actual_end - slot->logical_size : 0u;
+    if (s_storage_usage_valid) s_storage_used += actual_growth;
+    if (actual_end > slot->logical_size) slot->logical_size = actual_end;
+    slot->position = actual_end;
+    return MINI_OK;
 }
 
 static mini_result_t fs_seek(mini_file_t file, int64_t offset, uint32_t origin, uint64_t *out_position)
@@ -195,7 +360,10 @@ static mini_result_t fs_seek(mini_file_t file, int64_t offset, uint32_t origin, 
     if (origin != MINI_FS_SEEK_SET && origin != MINI_FS_SEEK_CUR && origin != MINI_FS_SEEK_END) return MINI_ERR_INVALID;
     file_slot_t *slot = lookup_handle(file);
     if (slot == NULL) return MINI_ERR_BAD_HANDLE;
-    return port->fs_seek(port->ctx, slot->backend, offset, origin, out_position);
+
+    mini_result_t result = port->fs_seek(port->ctx, slot->backend, offset, origin, out_position);
+    if (result == MINI_OK) slot->position = *out_position;
+    return result;
 }
 
 static mini_result_t fs_sync(mini_file_t file)
@@ -272,7 +440,12 @@ static mini_result_t fs_remove_file(const char *path)
     result = port->fs_stat(port->ctx, normalized, &type, &size);
     if (result != MINI_OK) return result;
     if (type != MINI_FS_TYPE_FILE) return MINI_ERR_IS_DIR;
-    return port->fs_remove_file(port->ctx, normalized);
+
+    result = port->fs_remove_file(port->ctx, normalized);
+    if (result == MINI_OK && s_storage_usage_valid) {
+        s_storage_used = size <= s_storage_used ? s_storage_used - size : 0u;
+    }
+    return result;
 }
 
 static mini_result_t fs_mkdir(const char *path)
@@ -368,12 +541,8 @@ static mini_result_t fs_dir_read(mini_dir_t dir, mini_fs_dir_entry_t *out_entry,
         if (has_entry == 0u) return MINI_OK;
 
         name[MINI_FS_NAME_MAX] = '\0';
-        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
-            continue;
-        }
-        if (type != MINI_FS_TYPE_FILE && type != MINI_FS_TYPE_DIRECTORY) {
-            continue;
-        }
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+        if (type != MINI_FS_TYPE_FILE && type != MINI_FS_TYPE_DIRECTORY) continue;
 
         size_t length = strlen(name);
         if (length > MINI_FS_NAME_MAX) return MINI_ERR_NAME_TOO_LONG;
@@ -396,6 +565,37 @@ static mini_result_t fs_dir_close(mini_dir_t dir)
     return port->fs_dir_close(port->ctx, backend);
 }
 
+static mini_result_t fs_space(const char *path, mini_fs_space_t *out_space)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    const uint32_t v0_size = MINI_FIELD_END(mini_fs_space_t, free_bytes);
+    if (!s_available) return MINI_ERR_UNSUPPORTED;
+    if (path == NULL || out_space == NULL || out_space->struct_size < v0_size) {
+        return MINI_ERR_INVALID;
+    }
+
+    uint64_t limit = minishell_storage_limit_bytes();
+    if (limit == 0u) return MINI_ERR_UNSUPPORTED;
+
+    char normalized[MINI_FS_NORMALIZED_PATH_MAX];
+    mini_result_t result = normalize_one(path, normalized);
+    if (result != MINI_OK) return result;
+
+    uint32_t type = 0u;
+    uint64_t size = 0u;
+    result = port->fs_stat(port->ctx, normalized, &type, &size);
+    if (result != MINI_OK) return result;
+
+    result = refresh_storage_usage();
+    if (result != MINI_OK) return result;
+
+    out_space->reserved0 = 0u;
+    out_space->total_bytes = limit;
+    out_space->used_bytes = s_storage_used;
+    out_space->free_bytes = s_storage_used < limit ? limit - s_storage_used : 0u;
+    return MINI_OK;
+}
+
 static const mini_fs_api_t s_fs_api = {
     .struct_size = sizeof(mini_fs_api_t),
     .open = fs_open,
@@ -412,6 +612,7 @@ static const mini_fs_api_t s_fs_api = {
     .dir_open = fs_dir_open,
     .dir_read = fs_dir_read,
     .dir_close = fs_dir_close,
+    .space = fs_space,
 };
 
 void minishell_filesystem_service_configure(void)
@@ -419,8 +620,14 @@ void minishell_filesystem_service_configure(void)
     const minishell_services_port_t *port = minishell_services_port();
     memset(s_files, 0, sizeof(s_files));
     memset(s_dirs, 0, sizeof(s_dirs));
+    s_storage_used = 0u;
+    s_storage_usage_valid = false;
     s_available = port->fs_open != NULL && port->fs_close != NULL && port->fs_read != NULL &&
-                  port->fs_write != NULL && port->fs_seek != NULL && port->fs_sync != NULL && port->fs_stat != NULL;
+                  port->fs_write != NULL && port->fs_seek != NULL && port->fs_sync != NULL &&
+                  port->fs_stat != NULL;
+    if (s_available && minishell_storage_limit_bytes() != 0u) {
+        (void)refresh_storage_usage();
+    }
 }
 
 void minishell_filesystem_service_app_begin(void)
@@ -436,8 +643,7 @@ void minishell_filesystem_service_app_end(void)
     for (uint32_t i = 0; i < MINI_FS_MAX_OPEN_FILES; ++i) {
         if (s_files[i].backend != MINISHELL_BACKEND_FILE_INVALID) {
             if (port->fs_close != NULL) (void)port->fs_close(port->ctx, s_files[i].backend);
-            s_files[i].backend = MINISHELL_BACKEND_FILE_INVALID;
-            s_files[i].flags = 0u;
+            memset(&s_files[i], 0, sizeof(s_files[i]));
         }
     }
     for (uint32_t i = 0; i < MINI_FS_MAX_OPEN_DIRS; ++i) {
