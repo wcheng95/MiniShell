@@ -14,6 +14,7 @@ static mini_api_t s_api = {
     .time_location = NULL,
     .display = NULL,
     .input = NULL,
+    .audio = NULL,
 };
 
 const minishell_services_port_t *minishell_services_port(void)
@@ -51,6 +52,7 @@ static void refresh_api_table(void)
                               : NULL;
     s_api.display = minishell_display_service_available() ? minishell_display_service_api() : NULL;
     s_api.input = minishell_input_service_available() ? minishell_input_service_api() : NULL;
+    s_api.audio = minishell_audio_service_available() ? minishell_audio_service_api() : NULL;
 }
 
 void minishell_services_configure(const minishell_services_port_t *port)
@@ -68,6 +70,7 @@ void minishell_services_configure(const minishell_services_port_t *port)
     minishell_time_location_service_configure();
     minishell_display_service_configure();
     minishell_input_service_configure();
+    minishell_audio_service_configure();
     refresh_api_table();
 }
 
@@ -76,10 +79,12 @@ void minishell_services_app_begin(void)
     minishell_memory_service_app_begin();
     minishell_filesystem_service_app_begin();
     minishell_input_service_app_begin();
+    minishell_audio_service_app_begin();
 }
 
 void minishell_services_app_end(void)
 {
+    minishell_audio_service_app_end();
     minishell_filesystem_service_app_end();
     minishell_memory_service_app_end();
     minishell_input_service_app_end();
