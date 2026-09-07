@@ -97,6 +97,14 @@ typedef struct {
 
 typedef struct {
     uint32_t struct_size;
+    uint32_t reserved0;
+    uint64_t total_bytes;
+    uint64_t used_bytes;
+    uint64_t free_bytes;
+} mini_fs_space_t;
+
+typedef struct {
+    uint32_t struct_size;
     mini_result_t (*open)(const char *path, uint32_t flags, mini_file_t *out_file);
     mini_result_t (*close)(mini_file_t file);
     mini_result_t (*read)(mini_file_t file, void *buffer, uint32_t size, uint32_t *out_read);
@@ -112,6 +120,7 @@ typedef struct {
     mini_result_t (*dir_read)(mini_dir_t dir, mini_fs_dir_entry_t *out_entry,
                               uint32_t *out_has_entry);
     mini_result_t (*dir_close)(mini_dir_t dir);
+    mini_result_t (*space)(const char *path, mini_fs_space_t *out_space);
 } mini_fs_api_t;
 
 #define MINI_TIMELOC_CAP_UTC                   (1ull << 0)
