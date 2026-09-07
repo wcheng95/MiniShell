@@ -29,6 +29,7 @@ add_executable(minishell
     ${MINISHELL_SERVICE_SOURCES}
     platform/linux/linux_backend.c
     platform/linux/platform_info.c
+    platform/linux/resource_config.c
 )
 
 target_include_directories(minishell PRIVATE
@@ -61,6 +62,9 @@ add_minishell_app(cp
     apps/cp/main/cp.c
     apps/cp/main/cp_copy.c
 )
+add_minishell_app(date apps/date/main/date.c)
+add_minishell_app(df apps/df/main/df.c)
+add_minishell_app(free apps/free/main/free.c)
 add_minishell_app(ls apps/ls/main/ls.c)
 add_minishell_app(mkdir apps/mkdir/main/mkdir.c)
 add_minishell_app(mv apps/mv/main/mv.c)
@@ -100,6 +104,15 @@ set_target_properties(dir_probe PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-apps"
 )
 target_compile_options(dir_probe PRIVATE -Wall -Wextra -Wpedantic)
+
+add_library(resource_probe MODULE tests/apps/resource_probe.c)
+target_include_directories(resource_probe PRIVATE include)
+set_target_properties(resource_probe PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "resource_probe"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-apps"
+)
+target_compile_options(resource_probe PRIVATE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -151,4 +164,13 @@ add_test(
             $<TARGET_FILE:minishell>
             $<TARGET_FILE_DIR:hello>
             $<TARGET_FILE_DIR:dir_probe>
+)
+
+add_test(
+    NAME linux_resources
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/linux_resources.py
+            $<TARGET_FILE:minishell>
+            $<TARGET_FILE_DIR:hello>
+            $<TARGET_FILE_DIR:resource_probe>
 )
