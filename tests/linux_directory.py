@@ -59,8 +59,10 @@ def main() -> int:
             "ls\nexit\n",
         )
         root_output = root_listing.stdout + root_listing.stderr
-        if root_listing.returncode != 0 or "/sd/" not in root_output or "/flash/" not in root_output:
-            print("ls root entries should be complete MiniShell paths")
+        if (root_listing.returncode != 0 or
+                "/sd\n" not in root_output or "/flash\n" not in root_output or
+                "/sd/\n" in root_output or "/flash/\n" in root_output):
+            print("ls root entries should be /sd and /flash")
             print(root_output)
             return 1
 
