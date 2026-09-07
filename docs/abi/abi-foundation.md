@@ -2,94 +2,41 @@
 
 Status: **foundational cross-ABI contract; append-only growth active**
 
-MiniShell exists to provide a small, reusable, platform-neutral ABI between applications and platform implementations. The ABI is the main architectural product of MiniShell, not an implementation detail.
+MiniShell provides a small platform-neutral ABI between applications and platform implementations.
 
-## 1. Service set
+## Service set
 
-The six foundational Task-1 ABIs are:
+The six foundational services are System, Memory, Filesystem, Time/Location, Display, and Input. Audio was added later as the first application-driven append-only top-level extension.
 
-```text
-system
-memory
-filesystem
-time/location
-display
-input
-```
-
-Audio was added later as the first application-driven append-only top-level service extension.
-
-Canonical detailed contracts live under `docs/abi/`, including `audio-abi.md`.
-
-## 2. Layering
+## Layering
 
 ```text
 application
-    |
-    | MiniShell ABI
-    v
-MiniShell resident services
-    |
-    | platform-private boundary
-    v
-SDK / RTOS / bare-metal support / drivers
-    |
-    v
-hardware
+    -> MiniShell ABI
+    -> resident MiniShell services
+    -> private platform/backend boundary
+    -> OS/RTOS/SDK/drivers
+    -> hardware
 ```
 
-Normal applications do not depend on platform-private handles or SDK types.
+Applications do not receive platform-private handles/types.
 
-## 3. Top-level API
+## Top-level table
 
-The public table is append-only. Its current tail includes Audio after the original service prefix:
+`mini_api_t` is append-only. Audio is appended after the original prefix. Runtime binding is through `mini_api_get()`.
 
-```c
-typedef struct {
-    uint32_t abi_version;
-    uint32_t struct_size;
+`system` is mandatory; other service pointers may be NULL on targets that do not provide them.
 
-    const mini_system_api_t        *system;
-    const mini_memory_api_t        *memory;
-    const mini_fs_api_t            *fs;
-    const mini_time_location_api_t *time_location;
-    const mini_display_api_t       *display;
-    const mini_input_api_t         *input;
-    const mini_audio_api_t         *audio;
-} mini_api_t;
-```
+## Compatibility rules
 
-Runtime binding is through `mini_api_get()`.
+- `abi_version` changes only for an incompatible generation.
+- Compatible growth uses append-only tables, `struct_size`, capability bits, and optional sub-APIs.
+- Existing fields/numeric meanings are never repurposed after stabilization.
+- Applications check that `struct_size` reaches the field they need rather than requiring the newest whole structure.
+- Caller-owned extensible structures begin with `struct_size`; MiniShell reads/writes only covered fields.
+- Avoid extensible structs nested by value when future growth would shift outer offsets.
 
-`system` is mandatory. Other service pointers may be NULL when the target does not provide that service.
-
-## 4. API acquisition and lifetime
-
-Resident API/service-table pointers are MiniShell-owned, read-only to applications, valid for the current app execution, and must not be persisted across app instances.
-
-## 5. ABI version meaning
-
-`abi_version` identifies an incompatible ABI generation. Ordinary compatible growth does not bump it. Compatible additions use append-only tables, `struct_size`, capability bits, and optional sub-APIs.
-
-Filesystem namespace growth and the later Audio service are examples of compatible append-only extension.
-
-## 6. Append-only tables
-
-Every public service function table begins with `uint32_t struct_size`. Existing fields are never reordered, removed, repurposed, or given incompatible semantics after stabilization. New top-level service pointers are appended to `mini_api_t`.
-
-## 7. Correct `struct_size` use
-
-Applications check that `struct_size` reaches the specific field they need rather than requiring the newest complete structure size.
-
-## 8. Caller-owned extensible structures
-
-Caller-owned public structures begin with `struct_size`. Callers zero-initialize, set the size they know, and leave reserved input fields zero. MiniShell reads/writes only fields covered by that size.
-
-## 9. Do not nest extensible structs by value
-
-Avoid embedding one extensible public structure by value inside another when future growth would shift outer-field offsets. Prefer flat fields or pointers to separate structures.
-
-## 10. Capability rules
+## Capability rules
 
 ```text
 missing top-level pointer      => service unavailable
@@ -98,77 +45,48 @@ unknown future capability bits => ignored by older apps
 unsupported optional operation => MINI_ERR_UNSUPPORTED
 ```
 
-This applies to optional families such as Display text, Input key, and Audio RX/TX.
+This applies to Display text, Input key, Audio RX/TX, and future optional families.
 
-## 11. Public ABI-owned types
+## Public types
 
-Public signatures use fixed-width integers, MiniShell-defined result/scalar types, opaque MiniShell handles, native application pointers when direct memory access is required, and documented byte strings/UTF-8 where appropriate. Platform-private types do not cross the public boundary.
+Public signatures use fixed-width integers, MiniShell result/scalar types, opaque MiniShell handles, application pointers where direct buffer access is intended, and documented UTF-8/byte strings. Backend-native types/errors never cross the ABI.
 
-## 12. Stable numeric meanings
+## Synchronous first
 
-Numeric meanings are never reused after stabilization, including result codes, capability bits, flags, key/event values, file types, seek origins, and sample formats.
+Calls are synchronous unless a service explicitly documents otherwise. Application buffers remain application-owned and are not retained after a synchronous call returns.
 
-## 13. Shared result codes
+## Ownership/lifecycle
 
-`mini_result_t` is shared by all services. Backend-native values such as `errno`, FATFS `FRESULT`, or SDK-specific error types never cross the public boundary.
-
-`MINI_ERR_END_OF_STREAM` is used by finite providers such as WAV Audio RX. Add result codes only when a real portable distinction is needed.
-
-## 14. Synchronous first
-
-Calls are synchronous unless a service explicitly says otherwise. Application-owned buffers remain application-owned and are not retained after synchronous calls return.
-
-## 15. Ownership and application context
-
-MiniShell-managed resources belong to the current foreground app context where practical:
+MiniShell-managed resources are associated with the current foreground application where practical:
 
 ```text
 foreground app
-    +-- MiniShell-managed allocations
-    +-- open file handles
-    +-- open audio streams
+    +-- allocations
+    +-- file/directory handles
+    +-- audio streams
     `-- future logical resources
 ```
 
-App teardown reclaims resources before unload; active Audio TX is aborted before close.
+App teardown reclaims remaining resources; active Audio TX is aborted before close.
 
-## 16. Foreground service routing
+## Execution context
 
-MiniShell has one foreground application at a time. Display and Input therefore route to the foreground without explicit app-level acquire/release handles. MiniShell remains the hardware owner.
+Unless documented otherwise, ABI calls are application-context calls, not guaranteed ISR-safe/reentrant, and callers serialize mutations of the same logical resource.
 
-## 17. Execution-context rule
+## Portability
 
-Unless a service says otherwise, ABI calls are application-context calls, not guaranteed ISR-safe or reentrant, and callers should serialize mutations of the same logical resource.
+The same source should rebuild against the same API on supported architectures; native application binaries are not promised to be cross-architecture compatible.
 
-## 18. Source portability, architecture-specific binaries
-
-The same source should rebuild against the same MiniShell API on supported RV32/RV64/Xtensa/ARM/etc. targets. Native app binaries are not expected to be cross-architecture compatible.
-
-## 19. Verification hierarchy
-
-Primary correctness comes from comprehensive unit tests against mock/fake platform backends. Runtime-loaded native app tests then prove separate compilation, table layout/binding, representative calls, and teardown. Finally, platform/hardware tests validate backend-specific effects.
+## Verification hierarchy
 
 ```text
-implement/refactor
-    -> unit tests
-    -> native app ABI integration
-    -> real platform/hardware validation
+comprehensive unit tests
+    -> runtime-loaded native-app ABI tests
+    -> platform/hardware validation
 ```
 
-Unit-test failures block progress even if a smoke test appears to work.
+Unit tests are primary and block progress when failing.
 
-## 20. Compatibility philosophy
+## Compatibility philosophy
 
-MiniShell compatibility is based on:
-
-```text
-append-only tables
-struct_size
-capability bits
-optional sub-APIs
-stable numeric meanings
-explicit ownership/lifetime
-fixed-width public types
-```
-
-A compatible appended service/function is not a reason to bump the ABI generation.
+MiniShell compatibility relies on append-only tables, `struct_size`, capability bits, optional sub-APIs, stable numeric meanings, explicit ownership/lifetime, and fixed-width public types. Compatible additions do not require an ABI-generation bump.
