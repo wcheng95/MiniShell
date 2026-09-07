@@ -2,142 +2,143 @@
 
 ## Purpose
 
-MiniShell and runtime-loaded applications are intentionally developed on opposite
-sides of a stable ABI. New functionality therefore needs an explicit placement
-decision rather than automatically becoming either a shell built-in or an ELF
-application.
+New functionality needs an explicit placement decision. MiniShell should remain a small runtime/control plane; ordinary tools and domain behavior should remain applications.
 
 ## Primary rule
 
-Keep a function resident in MiniShell when MiniShell needs it to manage,
-provision, diagnose, recover, or own the application environment itself.
+Keep functionality resident when MiniShell itself needs it to:
 
-Make ordinary user/domain functionality a runtime-loaded application when
-MiniShell can remain a healthy application environment without that function.
+```text
+start/stop applications
+own shared state/resources
+bootstrap or recover the platform
+diagnose MiniShell/platform health
+apply trusted runtime policy
+```
+
+Make functionality an application when MiniShell remains a healthy and usable runtime without it.
 
 A useful question is:
 
-> If this feature disappeared, would MiniShell still be a usable and recoverable
-> application environment?
+> If this feature disappeared, would MiniShell still be able to host, diagnose, and recover applications on this platform?
 
-If yes, it probably belongs in an application. If no, it probably belongs in the
-resident runtime.
-
-## Resident responsibilities
-
-Typical resident functionality includes:
+## Current Linux resident shell
 
 ```text
-shell and command dispatch
-application loader / lifecycle
-stable ABI services
-platform and shared-hardware ownership
-platform/service diagnostics
-bootstrap and recovery facilities
-file transfer / provisioning
-trusted system configuration
+help
+status
+apps
+run <app>
+exit
 ```
 
-Resident does not mean monolithic. A resident command should normally delegate
-to a small MiniShell module rather than embedding its implementation in the shell
-parser.
+Direct `<app>` invocation uses the same internal launcher as `run <app>`.
 
-For example:
+The shell is a control plane. It should dispatch to small owners rather than become the implementation home for unrelated features.
+
+## Current portable applications
 
 ```text
-shell `put` / `get`
-        |
-        v
-resident file-transfer module
-        |
-        +-- console transport ownership
-        `-- filesystem service
+hello
+cat
+cp
+date
+df
+free
+ls
+mkdir
+mv
+nano
+rm
+rmdir
 ```
 
-The shell remains a control plane, not the implementation home for every built-in
-facility.
+These use only the public MiniShell ABI and can be rebuilt for another MiniShell platform with the required capabilities.
 
-## Runtime application responsibilities
+Large domain applications such as MiniFT8, MiniCW, and MiniRTTY belong on this side of the boundary as well.
 
-Ordinary functionality should normally remain independently built and loaded:
+## Platform-dependent resident functions
+
+Resident does not mean universal.
+
+Some bootstrap/system operations exist only where a platform needs them:
 
 ```text
-nano.elf
-calculator.elf
-radio applications
-analysis tools
-games
-future MiniFT8
+put/get or another recovery-transfer protocol
+suspend
+poweroff
+board-specific recovery/bootstrap commands
 ```
 
-MiniShell uses familiar Linux command names when the implemented behavior is
-close enough to the familiar command to avoid surprise. The planned editor is
-therefore named `nano`, not the earlier working name `med`.
+Linux Mint does not need MiniShell `put/get` because normal host file access already exists. A small embedded target may need a serial/USB/BLE transfer command to provision or recover its storage.
 
-These applications consume MiniShell services and can evolve independently of
-the resident runtime.
+Likewise, a desktop MiniShell does not need a fake `poweroff` command merely because an embedded target may have one.
 
-## Why file transfer is resident
+The correct rule is:
 
-File transfer is a bootstrap/recovery capability. Requiring
-`file_transfer.elf` in order to copy `file_transfer.elf` or another application
-onto an empty/repaired SD card would create the wrong dependency direction.
+> Platform-specific resident capability is allowed when it serves the platform; fake parity is not a goal.
 
-Transfer also temporarily owns the serial byte stream as a protocol transport:
+## Why ordinary utilities are apps
+
+Utilities such as `ls`, `free`, `df`, and `date` are useful consumers of reusable services:
 
 ```text
-normal shell mode
-USB Serial/JTAG -> shell line input/output
-
-transfer mode
-USB Serial/JTAG -> resident transfer protocol -> filesystem
+ls    -> Filesystem dir_open/read/close
+free  -> Memory get_info
+df    -> Filesystem space
+date  -> Time/Location UTC
 ```
 
-That ownership handoff is a MiniShell responsibility.
+Keeping them as apps tests the same ABI that real applications will use instead of creating privileged shell-only paths.
 
-## BusyBox-style packaging
+## Loader/container independence
 
-Do not begin with a BusyBox-style all-tools binary.
+Do not describe applications conceptually as "ELF apps" or ".so apps". Those are backend packaging choices.
 
-MiniShell currently values:
+```text
+Linux/Mint      .so
+NuttX           native loadable mechanism where practical
+ADV             compiled-in registry acceptable when necessary
+```
+
+The application contract remains `main(argc, argv)` plus `mini_api_get()` for the current native ABI.
+
+## One-owner rule still applies to resident functionality
+
+Resident functionality must still have:
+
+- one clear state/resource owner;
+- a small internal interface;
+- platform-private implementation below the backend boundary;
+- focused tests;
+- no unnecessary public ABI expansion.
+
+Moving a feature resident is not permission to put its implementation into `shell.c`.
+
+## Packaging small tools
+
+Keep ordinary tools separate first because that gives:
 
 ```text
 clear ownership
-small independently understandable programs
-independent builds/releases
-simple testing
+small understandable source
+independent testing
 load only what is needed
 ```
 
-The default remains one ELF per ordinary application/tool. If later measurement
-shows that many tiny programs waste meaningful flash/SD space or create excessive
-maintenance overhead, a related group may be bundled into a `minitools.elf`
-style application. That is an optimization, not the base architecture.
+A future grouped `minitools` package is acceptable only if measurement shows that individual packaging creates meaningful cost. It is an optimization, not the base architecture.
 
-## Placement categories
+## Placement examples
 
-| Category | Examples | Default placement |
-| --- | --- | --- |
-| Runtime/bootstrap/recovery | loader, file transfer, essential diagnostics | resident MiniShell |
-| Shared hardware/service owner | filesystem backend, input routing, time service | resident MiniShell |
-| Ordinary standalone tool | editor, calculator, radio utility | separate `.elf` |
-| Large domain application | MiniFT8 | separate `.elf` |
-| Many closely related tiny tools | future text/file utilities | separate `.elf` first; bundle only if measurements justify it |
+| Function | Default placement |
+| --- | --- |
+| Shell dispatch | resident |
+| App lifecycle/loader contract | resident |
+| Memory/FS/Time/Display/Input service semantics | resident |
+| `status` | resident diagnostic |
+| `ls`, `cat`, `cp`, `nano`, `free`, `df`, `date` | portable app |
+| MiniFT8/MiniCW/MiniRTTY | portable/domain app |
+| Recovery transfer | platform-dependent resident function |
+| Power/system control | platform-dependent resident function |
 
-## Boundary rule
-
-Placement must not be used as an excuse to blur module boundaries.
-
-Resident functionality should still have:
-
-- one clear owner;
-- a small internal interface;
-- platform-private code below the platform boundary;
-- tests appropriate to its semantics;
-- no unnecessary expansion of the public application ABI.
-
-Runtime applications should continue to use the public MiniShell ABI rather than
-reaching around it to resident internals.
-
-See `docs/command-roadmap.md` for the Linux-inspired command naming and staged
-utility plan.
+See `docs/command-roadmap.md` for the current command baseline and `docs/consistency-check.md` for internal architecture debt.

@@ -1,251 +1,128 @@
-# MiniShell Time/Location ABI v0
+# MiniShell Time/Location ABI
 
-Status: **Task 1 design contract; provisional until implementation, unit tests, ELF integration, and hardware validation pass**
+Status: **implemented and exercised on the Linux reference backend.**
 
-## 1. Purpose
+## Purpose
 
-The Time/Location ABI provides applications with a stable platform-neutral
-interface for:
+Time/Location gives applications one platform-neutral owner for:
 
 ```text
 monotonic time
 sleep/delay
 UTC wall-clock time
-configured/default geographic location
-live geographic location
-a coherent time/location snapshot
+configured/default location
+live location state
+coherent snapshots
 ```
 
-The service owns the platform details behind these functions, including hardware
-timers, RTC devices, GPS-derived state, NTP-derived state, UTC correction policy,
-and persistence of configured location.
+Applications do not access RTC registers, GPS drivers, NTP libraries, host clocks, or persistence mechanisms directly when using this ABI.
 
-Applications do not access RTC registers, GPS drivers, timer peripherals, NTP
-libraries, or platform-private configuration storage directly when using this
-ABI.
+## Service model
 
 ```text
-GPS / RTC / NTP / manual setting / platform timer
-                  |
-                  v
-       MiniShell Time/Location service
-                  |
-                  v
-             application ABI
+RTC / host clock / GPS / NTP / manual correction
+                   |
+                   v
+        MiniShell Time/Location
+                   |
+                   v
+              application
 ```
 
-## 2. Core boundary
+Monotonic time is independent of UTC correction.
 
-The service groups time and location because they are often produced, corrected,
-and consumed together while keeping monotonic time logically independent from
-UTC and geographic position.
-
-```text
-time/location
-|-- monotonic time
-|-- sleep
-|-- UTC
-|-- configured/default location
-|-- live location
-`-- snapshot
-```
-
-Monotonic time is never corrected when UTC changes.
-
-UTC may be established/corrected by RTC, GPS, NTP, shell command, or a trusted
-application request.
-
-Location may come from persistent configured state, a live source such as GPS, or
-both.
-
-## 3. Service presence and capabilities
-
-If the service is absent:
+## Capabilities
 
 ```c
-api->time_location == NULL
+MINI_TIMELOC_CAP_UTC
+MINI_TIMELOC_CAP_LOCATION
+MINI_TIMELOC_CAP_SET_UTC
+MINI_TIMELOC_CAP_DEFAULT_LOCATION
+MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION
 ```
 
-If present, V0 requires monotonic time, sleep, and snapshot support.
+Applications check capability bits rather than platform identity.
 
-Optional features use capability bits:
-
-```c
-#define MINI_TIMELOC_CAP_UTC                   (1ull << 0)
-#define MINI_TIMELOC_CAP_LOCATION              (1ull << 1)
-#define MINI_TIMELOC_CAP_SET_UTC               (1ull << 2)
-#define MINI_TIMELOC_CAP_DEFAULT_LOCATION      (1ull << 3)
-#define MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION  (1ull << 4)
-```
-
-Capability dependencies are:
-
-```text
-SET_UTC              implies UTC
-DEFAULT_LOCATION     implies LOCATION
-SET_DEFAULT_LOCATION implies DEFAULT_LOCATION and LOCATION
-```
-
-`LOCATION` means `location_get()` can provide an effective location when one is
-available. The platform may implement that capability using only a configured
-default location, only a live source, or both.
-
-`DEFAULT_LOCATION` means persistent configured location can be read. The separate
-`SET_DEFAULT_LOCATION` bit means trusted applications are allowed to change or
-clear it.
-
-Future capability bits may describe accuracy, altitude, heading, speed, timezone
-support, alarms, higher-resolution timing, or other additions. Existing numeric
-meanings are never reused after ABI stabilization.
-
-## 4. Monotonic time
+## Monotonic time
 
 ```c
 uint64_t (*monotonic_us)(void);
 ```
 
-Semantics:
+- unit: microseconds;
+- zero point unspecified;
+- must not go backward during normal runtime;
+- never changed by `utc_set()`;
+- used for elapsed time, timeouts, scheduling, and freshness.
 
-- unit is microseconds;
-- zero point is unspecified and normally related to boot/timer initialization;
-- the value must not go backward during normal execution;
-- UTC corrections, RTC writes, GPS/NTP synchronization, or manual UTC setting do
-  not change the monotonic timeline;
-- implementations should use a free-running hardware counter where practical;
-- V0 must not require a high-frequency periodic software tick solely to maintain
-  microsecond monotonic time.
+Linux maps this to `CLOCK_MONOTONIC` below MiniShell.
 
-A platform may perform rare software bookkeeping when necessary to extend a
-narrower hardware counter across wraparound. That does not violate the rule above;
-the intent is to avoid continuous microsecond/millisecond software timekeeping
-when hardware can count autonomously.
-
-Monotonic time is the reference for elapsed-time measurement, timeouts,
-application scheduling, and freshness calculations.
-
-## 5. Sleep
+## Sleep
 
 ```c
 mini_result_t (*sleep_ms)(uint32_t milliseconds);
 ```
 
-Semantics:
+Synchronous approximate sleep/delay. It is not a hard real-time guarantee. A zero duration is a successful no-op/yield-style request.
 
-- delays/suspends the current foreground application for approximately the
-  requested duration;
-- synchronous in V0;
-- not a hard real-time guarantee;
-- `sleep_ms(0)` is a successful no-op or cooperative yield;
-- future precise timers, alarms, or sleep-until operations are added without
-  changing this V0 function.
-
-## 6. UTC representation
-
-UTC uses integer Unix/POSIX-style representation rather than a broken-down
-calendar structure.
+## UTC representation
 
 ```c
 typedef struct {
     uint32_t struct_size;
-    int64_t  unix_seconds;
+    int64_t unix_seconds;
     uint32_t nanoseconds;
 } mini_utc_time_t;
 ```
 
-`unix_seconds` is seconds since:
+UTC uses Unix/POSIX-style seconds since 1970-01-01 00:00:00 UTC plus a fractional nanosecond field. The field does not imply nanosecond accuracy. Leap seconds are not represented as `23:59:60`.
 
-```text
-1970-01-01 00:00:00 UTC
-```
+## UTC runtime model
 
-`nanoseconds` is the fractional part:
-
-```text
-0 .. 999,999,999
-```
-
-The field does not imply nanosecond accuracy. A system whose effective runtime
-resolution is one microsecond may return fractional values only in multiples of
-1000 ns.
-
-Leap seconds are not represented as a distinct `23:59:60` civil-time value.
-Local timezone and broken-down calendar conversion are outside the fundamental
-V0 representation.
-
-## 7. UTC runtime model
-
-MiniShell should normally represent running UTC using a UTC anchor plus a
-monotonic anchor.
+MiniShell maintains UTC from an anchor and the monotonic clock:
 
 ```text
 trusted UTC sample
-      |
-      v
-utc_anchor
-mono_anchor
-      |
-      | free-running monotonic counter advances
-      v
-utc_get() = utc_anchor + (monotonic_now - mono_anchor)
+    -> utc_anchor + mono_anchor
+    -> monotonic clock advances
+    -> utc_get = anchor + elapsed monotonic time
 ```
 
-This avoids periodic software UTC bookkeeping.
+This avoids continuously reading or rewriting a wall clock.
 
-If a hardware RTC exists:
+### Linux behavior
 
-- the RTC keeps ticking autonomously;
-- MiniShell Time/Location exclusively owns the RTC driver;
-- MiniShell may read RTC at boot to establish UTC;
-- MiniShell may correct/write RTC when a trusted UTC source materially changes
-  system UTC;
-- applications use the ABI rather than manipulating RTC hardware directly.
+At MiniShell startup, Linux system UTC is assumed correct and is used to establish the initial anchor.
 
-## 8. UTC access and setting
+`date`/`utc_set()` may re-anchor MiniShell UTC for the current process when a few seconds of correction are needed. This does **not** change Linux system time and does **not** persist an offset. Restarting MiniShell reads Linux UTC again.
+
+### Embedded behavior
+
+A backend that owns a writable RTC may use the same `utc_set()` request to update its persistent RTC as part of its normal policy.
+
+Therefore `MINI_TIMELOC_CAP_SET_UTC` means MiniShell UTC is settable; durability is a backend/platform policy, not a promise that every target persists the change.
+
+## UTC access
 
 ```c
-mini_result_t (*utc_get)(mini_utc_time_t *out_time);
-mini_result_t (*utc_set)(const mini_utc_time_t *time);
+utc_get
+utc_set
 ```
 
-`utc_get()` semantics:
+Typical results:
 
 ```text
-MINI_OK              valid UTC returned
-MINI_ERR_NOT_READY   UTC is supported but not yet established
-MINI_ERR_UNSUPPORTED UTC capability is absent
+MINI_OK              valid operation
+MINI_ERR_NOT_READY   supported state not yet established
+MINI_ERR_UNSUPPORTED capability absent
+MINI_ERR_INVALID     malformed input
 ```
 
-`utc_set()` is supported only when `MINI_TIMELOC_CAP_SET_UTC` is present. If the
-capability is absent, calling it returns `MINI_ERR_UNSUPPORTED`.
+`nanoseconds` must be below one billion.
 
-The input structure follows the common `struct_size` rules and
-`nanoseconds >= 1000000000` returns `MINI_ERR_INVALID`.
+## Location representation
 
-`utc_set()` means:
-
-> Request that MiniShell set/correct global system UTC.
-
-On `MINI_OK`:
-
-- the runtime UTC anchor has been updated;
-- monotonic time is unchanged;
-- if the platform has a writable hardware RTC that MiniShell uses as persistent
-  UTC state, MiniShell has completed its normal RTC update before returning.
-
-If the operation fails before the new UTC can be committed, the previous runtime
-UTC remains the API-visible value. Low-level hardware failures are translated to
-an appropriate MiniShell error such as `MINI_ERR_IO`.
-
-Applications using `utc_set()` are trusted. Changing UTC may affect all
-applications and persistent RTC state.
-
-A shell command such as `date` may use the same operation.
-
-## 9. Geographic coordinate value
-
-V0 uses WGS-84 latitude/longitude with fixed-point integer representation.
-
-For configured/default location input/output, use a value-only structure:
+Configured/default location uses fixed-point WGS-84 coordinates:
 
 ```c
 typedef struct {
@@ -255,344 +132,106 @@ typedef struct {
 } mini_geo_point_t;
 ```
 
-Scaling:
+Scaling is degrees × 10^7.
+
+Runtime effective location also carries:
 
 ```text
-latitude_e7  = latitude degrees  * 10^7
-longitude_e7 = longitude degrees * 10^7
+source
+updated_monotonic_us
 ```
 
-Ranges:
+Current source values are DEFAULT and LIVE.
+
+## Default location
+
+```c
+location_default_get
+location_default_set
+location_default_clear
+```
+
+Configured location is MiniShell-owned persistent state. On Linux it is stored privately under MiniShell state; the application does not know or depend on the storage mechanism.
+
+The ABI stores coordinates, not human-readable names. A shell/UI may translate `Los Angeles, CA` to coordinates outside this low-level ABI.
+
+## Effective location
+
+```c
+location_get
+```
+
+Conceptually:
 
 ```text
-latitude_e7   -900000000 ..  +900000000
-longitude_e7 -1800000000 .. +1800000000
+usable retained/live location -> LIVE
+otherwise configured fallback -> DEFAULT
+otherwise                    -> NOT_READY
 ```
 
-Out-of-range coordinates return `MINI_ERR_INVALID` when accepted as setter input.
+V1 does not impose one universal freshness age; applications can judge `updated_monotonic_us` according to their needs.
 
-This structure deliberately contains only coordinates. Runtime source/freshness
-metadata is not accepted as configuration input.
-
-## 10. Effective/live location structure
-
-`location_get()` returns coordinates plus runtime metadata:
+## Snapshot
 
 ```c
-typedef struct {
-    uint32_t struct_size;
-
-    int32_t latitude_e7;
-    int32_t longitude_e7;
-
-    uint32_t source;
-    uint32_t reserved0;
-
-    uint64_t updated_monotonic_us;
-} mini_location_t;
+snapshot_get
 ```
 
-V0 sources:
-
-```c
-#define MINI_LOCATION_SOURCE_DEFAULT  1u
-#define MINI_LOCATION_SOURCE_LIVE     2u
-```
-
-For LIVE, `updated_monotonic_us` identifies when MiniShell last updated the live
-fix.
-
-For DEFAULT, `updated_monotonic_us` is zero because configured persistent
-location is not a live observation and cannot use the current boot's monotonic
-clock as a meaningful age.
-
-Future source values may be appended. Existing values are never reused.
-
-## 11. Configured/default location
-
-```c
-mini_result_t (*location_default_get)(
-    mini_geo_point_t *out_location);
-
-mini_result_t (*location_default_set)(
-    const mini_geo_point_t *location);
-
-mini_result_t (*location_default_clear)(void);
-```
-
-`location_default_get()` requires
-`MINI_TIMELOC_CAP_DEFAULT_LOCATION`; otherwise it returns
-`MINI_ERR_UNSUPPORTED`.
-
-Its read semantics are:
+The flat snapshot includes:
 
 ```text
-MINI_OK              configured coordinates returned
-MINI_ERR_NOT_READY   default-location feature exists but no value is configured
-MINI_ERR_UNSUPPORTED feature is absent
+monotonic instant
+optional UTC
+optional effective location
+location source/freshness
+valid_fields
 ```
 
-`location_default_set()` and `location_default_clear()` require
-`MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION`; otherwise they return
-`MINI_ERR_UNSUPPORTED`.
+It is deliberately flat so future growth of nested value structures does not shift established offsets.
 
-Setting default location means:
+## Ownership
 
-> Store persistent fallback coordinates owned by MiniShell.
-
-Clearing default location means:
-
-> Remove that persistent fallback so the system returns to having no configured
-> default location.
-
-On `MINI_OK`, set/clear has been committed to MiniShell's normal persistent
-configuration mechanism and is expected to survive a normal restart. If the
-operation fails, the previously configured API-visible default remains in force.
-
-The ABI stores coordinates, not a human-readable place name. A shell/UI layer may
-translate a name such as `Los Angeles, CA` into coordinates before calling the
-setter.
-
-MiniShell owns persistence. The application does not depend on whether storage is
-NVS, flash file, another filesystem, or another platform-private mechanism.
-
-Changing configured location modifies global system state and is trusted app
-behavior.
-
-## 12. Effective location
-
-```c
-mini_result_t (*location_get)(mini_location_t *out_location);
-```
-
-`location_get()` returns the currently effective application location.
-
-Priority is conceptually:
+Time/Location is the sole application-facing owner of:
 
 ```text
-retained/current live location state
-        |
-        v
-     return LIVE
-
-otherwise
-
-configured default location
-        |
-        v
-    return DEFAULT
-```
-
-Semantics:
-
-```text
-MINI_OK              effective location returned
-MINI_ERR_NOT_READY   location supported but no effective location exists
-MINI_ERR_UNSUPPORTED location capability absent
-```
-
-Loss of a live source does not necessarily erase the most recent live fix.
-MiniShell may retain it and expose its age through `updated_monotonic_us`.
-
-There is no universal age threshold in V0. Freshness policy belongs to the
-application. One app may consider a ten-minute-old fix useful while another may
-reject it.
-
-## 13. Snapshot
-
-A snapshot provides a coherent read of current Time/Location service state.
-
-It does **not** promise that UTC and location originated from the same GPS
-observation or physical source.
-
-The structure is deliberately flat rather than embedding extensible public
-structures by value.
-
-```c
-#define MINI_TIMELOC_SNAPSHOT_UTC_VALID       (1ull << 0)
-#define MINI_TIMELOC_SNAPSHOT_LOCATION_VALID  (1ull << 1)
-
-typedef struct {
-    uint32_t struct_size;
-    uint32_t reserved_header;
-    uint64_t valid_fields;
-
-    uint64_t monotonic_us;
-
-    int64_t  utc_unix_seconds;
-    uint32_t utc_nanoseconds;
-    uint32_t reserved0;
-
-    int32_t latitude_e7;
-    int32_t longitude_e7;
-    uint32_t location_source;
-    uint32_t reserved1;
-
-    uint64_t location_updated_monotonic_us;
-} mini_time_location_snapshot_t;
-```
-
-`valid_fields` is 64-bit so future snapshot-validity bits can grow without
-replacing the field.
-
-The structure is flat because embedding `mini_utc_time_t` or `mini_location_t` by
-value would make future growth of those inner structures shift later offsets in
-the snapshot.
-
-## 14. Snapshot semantics
-
-```c
-mini_result_t (*snapshot_get)(
-    mini_time_location_snapshot_t *out_snapshot);
-```
-
-`monotonic_us` represents the snapshot instant.
-
-If UTC is valid, returned UTC should correspond as closely as practical to that
-same monotonic instant.
-
-If location is valid, the location fields contain the effective location while
-`location_updated_monotonic_us` preserves freshness information for a live
-source.
-
-`snapshot_get()` returns `MINI_OK` when the Time/Location service itself is
-operating. `valid_fields` tells the caller whether UTC/location fields are
-meaningful.
-
-## 15. Service table
-
-The intended V0 table is:
-
-```c
-typedef struct {
-    uint32_t struct_size;
-    uint64_t capabilities;
-
-    uint64_t (*monotonic_us)(void);
-
-    mini_result_t (*sleep_ms)(uint32_t milliseconds);
-
-    mini_result_t (*utc_get)(mini_utc_time_t *out_time);
-    mini_result_t (*utc_set)(const mini_utc_time_t *time);
-
-    mini_result_t (*location_get)(mini_location_t *out_location);
-
-    mini_result_t (*location_default_get)(
-        mini_geo_point_t *out_location);
-
-    mini_result_t (*location_default_set)(
-        const mini_geo_point_t *location);
-
-    mini_result_t (*location_default_clear)(void);
-
-    mini_result_t (*snapshot_get)(
-        mini_time_location_snapshot_t *out_snapshot);
-} mini_time_location_api_t;
-```
-
-The V0 fields above are present when the service exists. Optional flat operations
-return `MINI_ERR_UNSUPPORTED` when their capability is absent.
-
-After ABI stabilization, existing fields/functions are never reordered, removed,
-or incompatibly repurposed. Future operations are appended.
-
-## 16. Ownership boundary
-
-MiniShell owns:
-
-```text
-free-running monotonic timer abstraction
+monotonic abstraction
 UTC anchor/correction state
-hardware RTC driver, if present
-GPS/live location state, if present
-NTP-derived correction state, if present
-configured/default location persistence
+RTC access where present
+live location state
+configured location persistence
 source-selection policy
 ```
 
-Applications consume state or request trusted changes through the ABI.
+Apps request state/changes through this service instead of touching a platform clock/RTC/GPS directly.
 
-Direct hardware access remains possible only through MiniShell's general escape
-hatch, in which case the application owns the consequences and may violate
-MiniShell assumptions.
+## Compatibility
 
-## 17. What V0 deliberately excludes
+The table and structures use `struct_size`, fixed-width types, capability bits, and append-only growth rules. Applications require only the prefix/capabilities they actually use.
 
-V0 does not standardize:
+## Current verification
+
+Linux integration tests cover:
+
+- monotonic advancement and sleep;
+- UTC availability;
+- session-only UTC correction and progression;
+- default-location set/get/clear persistence behavior;
+- public service discovery.
+
+`date` is a portable application using the same UTC operations.
+
+## Deferred functionality
+
+No current ABI requirement for:
 
 ```text
-timezone databases
-local civil time
-calendar formatting/parsing
-UTC accuracy/uncertainty metadata
-RTC identity
-GPS identity
-NTP identity
-altitude
-horizontal accuracy
-speed
-heading
-alarms
-periodic timers
-high-resolution sleep-until
+time zones/local civil time
+calendar formatting/parsing inside the service
+accuracy/uncertainty metadata
+altitude/speed/heading
+alarms/periodic timers
 raw GNSS data
 location names/geocoding
 ```
 
-These may be added later through append-only fields, capability bits, or new
-optional sub-APIs when a real portable need appears.
-
-## 18. Verification requirements
-
-### 18.1 Unit tests — primary
-
-The Time/Location service must have comprehensive deterministic unit tests using
-fake monotonic clock, RTC, persistence, and live-location backends. They should
-verify at least:
-
-1. monotonic values never go backward under normal fake-clock advancement;
-2. counter-wrap extension logic where the platform abstraction requires it;
-3. `sleep_ms(0)` and finite sleep behavior against a fake scheduler/clock;
-4. capability dependency combinations and unsupported-operation behavior;
-5. UTC NOT_READY/valid transitions;
-6. UTC anchor arithmetic across second/nanosecond carry boundaries;
-7. UTC progression from monotonic elapsed time without periodic software UTC
-   updates;
-8. `utc_set()` validation, including invalid nanoseconds and too-small structs;
-9. successful UTC correction without changing monotonic time;
-10. failed RTC/persistence commit preserving previous API-visible UTC;
-11. default-location NOT_READY, set, get, clear, and persistence-failure paths;
-12. latitude/longitude boundary and out-of-range validation;
-13. live/default effective-location priority;
-14. retained live-fix freshness using `updated_monotonic_us`;
-15. no-live/no-default NOT_READY behavior;
-16. snapshot validity-bit combinations;
-17. snapshot UTC/monotonic coherence and flat-structure `struct_size` behavior;
-18. repeated state changes without leaked/stale service state.
-
-The fake backends should let tests advance time instantly rather than sleeping in
-real time.
-
-### 18.2 Runtime-loaded ELF integration test
-
-`abi_time_location.elf` should be a focused integration test proving:
-
-1. service/table/capability discovery;
-2. monotonic time and one finite sleep path;
-3. representative UTC get/set behavior when supported;
-4. representative default-location get/set/clear behavior when supported;
-5. effective location and snapshot reads through public structures;
-6. one unsupported/not-ready path;
-7. normal return and repeated launch/exit.
-
-It does not need to duplicate the full fake-clock/failure matrix from unit tests.
-
-### 18.3 Hardware/platform validation
-
-On Tab5, validate the actual free-running timer behavior, hardware RTC retention
-and correction, persistent configured location, and any available live-location
-source. Power-cycle/restart persistence belongs here rather than in host unit
-tests.
-
-The ABI remains provisional until the unit suite, focused ELF integration test,
-and required hardware validation all pass.
+These should be added only when real application behavior requires a generally useful contract.

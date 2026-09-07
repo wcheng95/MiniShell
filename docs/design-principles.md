@@ -2,259 +2,238 @@
 
 ## Purpose
 
-MiniShell exists to reduce repeated platform work in MCU applications.
-Applications should focus on domain logic instead of repeatedly bringing up and
-debugging RTC, storage, display, input, audio, USB, networking, and other common
-hardware.
+MiniShell is a platform-adaptive application runtime. Its purpose is to keep application cores independent of Linux, NuttX, ESP-IDF, board drivers, and mocks while providing stable services and an application lifecycle.
 
-The project intentionally adopts a subset of useful operating-system ideas while
-remaining an MCU application environment rather than a protected multi-process
-OS.
+Linux Mint on `pc-1` is the reference implementation and a full production target. Portability shapes the interfaces; it does not require every platform implementation to be identical.
 
-## 1. One hardware owner
+## 1. Top-down design
 
-Shared hardware is owned by MiniShell.
-
-Normal applications do not initialize or reconfigure shared peripherals. They
-request services from MiniShell.
+Start from required application behavior, then define responsibilities downward:
 
 ```text
-BAD
-
-App A ----> SD driver
-App B ----> SD driver
-Shell ----> SD driver
-
-GOOD
-
-App A --\
-App B ----> Filesystem ABI ----> MiniShell ----> SD/FATFS
-Shell --/
-```
-
-The same ownership rule applies to display, input devices, audio, USB,
-networking, RTC, timers, power management, buses, and other shared resources.
-
-A trusted application may request a global state change through a supported ABI
-operation such as setting UTC or the configured default location. MiniShell still
-owns the underlying RTC, persistence mechanism, or other hardware.
-
-## 2. Protection by convention
-
-MiniShell does not provide process isolation or memory protection.
-
-Applications and MiniShell execute in the same MCU address space. A defective app
-can corrupt memory, reconfigure hardware, or crash the entire system.
-
-That is accepted by design.
-
-The contract is:
-
-- MiniShell owns shared hardware.
-- Portable applications use MiniShell services.
-- Applications release resources and return cleanly.
-- MiniShell performs cooperative cleanup of remaining MiniShell-managed app
-  resources where practical.
-- Direct hardware access is allowed only when the developer intentionally leaves
-  the portable contract.
-- The developer owns the consequences of violating MiniShell assumptions.
-
-MiniShell provides structure and convenience, not protection from arbitrary app
-code.
-
-## 3. Runtime API instead of repeated platform integration
-
-Traditional MCU applications commonly compile platform libraries directly into
-each firmware image. MiniShell keeps common service implementations resident and
-makes them available to runtime-loaded applications.
-
-An app includes MiniShell public headers to know the ABI, but the service
-implementation belongs to MiniShell.
-
-```text
-application source
-      |
-      | MiniShell ABI declarations
-      v
-application.elf
-      |
-      | mini_api_get() + service-table calls
-      v
-resident MiniShell
-```
-
-This lets MiniShell and apps evolve independently while retaining a stable
-contract.
-
-## 4. Keep platform SDKs below the boundary
-
-The ESP32-P4 reference implementation may use ESP-IDF extensively. That is
-desirable: MiniShell should reuse mature MCU support rather than rewrite drivers
-and libraries unnecessarily.
-
-The public ABI must not expose platform-private types.
-
-Bad public API:
-
-```c
-esp_err_t mini_file_open(...);
-TaskHandle_t mini_task_create(...);
-```
-
-Preferred public API:
-
-```c
-mini_result_t ...;
-mini_file_t ...;
-```
-
-The platform layer translates MiniShell concepts into platform SDK concepts.
-
-## 5. Three application levels
-
-### Portable application
-
-Uses only the standard MiniShell ABI.
-
-Goal: source can be rebuilt for any MiniShell platform that implements the
-required services/capabilities.
-
-### Platform-aware application
-
-Uses the standard ABI plus documented platform-specific extensions.
-
-Goal: exploit useful hardware while keeping most logic portable.
-
-### Bare-hardware application
-
-Directly accesses MCU peripherals, registers, or platform SDK APIs.
-
-Goal: maximum control where necessary. Portability and system-state safety become
-the application developer's responsibility.
-
-## 6. Diagnostics are a system feature
-
-MiniShell should make service/platform state inspectable before a user app runs.
-
-Examples:
-
-```text
-M$> status
-M$> mem
-M$> storage status
-M$> ls /sd
-M$> date
-M$> location
-M$> rtc status
-M$> usb status
-```
-
-If a service works from the shell or focused ABI test, a later application should
-not need to rediscover or reinitialize the hardware.
-
-## 7. Runtime-loadable apps
-
-V1 uses native ELF applications.
-
-An app should feel like a shell command:
-
-```text
-M$> minift8 --band 20m
-[application runs]
-[application returns]
-M$>
-```
-
-The current native model is ordinary `main(argc, argv)` plus runtime API
-acquisition through `mini_api_get()`.
-
-ELF is a loading/container choice, not the conceptual service architecture.
-
-## 8. Top-down modular design
-
-Architecture is defined from responsibilities downward:
-
-```text
-application
+application behavior
     |
-MiniShell ABI
+MiniShell public ABI
     |
-resident services
+portable service/runtime semantics
     |
-platform implementation
+private platform backend
     |
-SDK / RTOS / bare-metal support
+OS / RTOS / SDK / drivers
     |
 hardware
 ```
 
-Each hardware resource has one clear owner. Each module has one clear
-responsibility.
+Do not start from a platform API and expose it upward merely because it exists.
 
-## 9. Small stable ABI
+## 2. Application core stays platform-independent
 
-The ABI should expose useful, portable capabilities without mirroring every
-function of the underlying SDK.
+A portable application depends only on `include/minishell/api.h` and its own internal modules.
 
-Task 1 foundational services are:
+Platform types must not cross the public boundary:
 
 ```text
-system
-memory
-filesystem
-time/location
-display
-input
+POSIX fd / DIR *
+errno
+ESP-IDF types
+FreeRTOS handles
+NuttX driver objects
+board-driver objects
 ```
 
-Likely later services include:
+MiniShell-owned fixed-width structures, result codes, capability bits, and opaque handles are the public contract.
+
+## 3. One owner per shared resource/state domain
+
+Each application-visible resource has one MiniShell owner.
+
+Examples:
 
 ```text
-audio
-USB
-network
-power/system control
+Memory service       app allocation bookkeeping/policy
+Filesystem service   logical paths, handles, quota semantics
+Time/Location        UTC/location state and correction policy
+Display service      logical display semantics
+Input service        normalized logical input queue
+App manager          foreground app lifecycle
 ```
 
-`console` is a higher-level composition, not a foundational ABI.
+On Linux the kernel/OS physically owns many resources. The one-owner rule means applications still have exactly one MiniShell gateway and one MiniShell module owns the application-visible semantics.
 
-New surface area should be added only when a real application or system need
-justifies it.
+On a thick embedded backend MiniShell may also directly own the driver/hardware.
 
-## 10. Design for compatible growth
+## 4. Clean public and private boundaries
 
-ABI evolution should prefer:
+There are two important contracts:
+
+- **Public ABI:** application-facing and deliberately stable.
+- **Private backend boundary:** MiniShell-internal and free to evolve as implementations are cleaned up.
+
+Backends may freely use POSIX, NuttX, ESP-IDF, or simulation code below the private boundary. Applications may not.
+
+## 5. Stable ABI, small surface
+
+Add public surface only for a demonstrated application need.
+
+Prefer:
 
 ```text
 append-only tables
 struct_size
 capability bits
 optional sub-APIs
-stable numeric meanings
-explicit ownership and lifetime
 fixed-width public types
+explicit ownership/lifetime
+stable result values
 ```
 
-Do not change an established function's meaning to add a new feature.
+Do not expand the ABI merely to imitate POSIX, Linux, or an SDK.
 
-Do not embed one extensible public struct by value inside another when future
-growth would shift established field offsets.
+Recent examples of justified growth:
 
-## 11. Synchronous and understandable first
+```text
+MiniFT8/file management -> dir_open/read/close
+storage/resource needs  -> filesystem space(path)
+nano cursor             -> optional inverse text attribute
+```
 
-Task 1 APIs are synchronous unless explicitly documented otherwise.
+## 6. Platform-dependent capability is allowed
 
-V0 does not promise general ISR safety, reentrancy, or multi-thread safety.
-Portable apps should serialize use of shared logical resources.
+MiniShell is not a lowest-common-denominator abstraction.
 
-More complex asynchronous/concurrent behavior should be added only when a real
-need justifies the additional contract.
+Some functions are inherently platform-dependent:
 
-## 12. First make one platform work well
+```text
+serial/USB/BLE recovery transfer
+suspend/poweroff
+special hardware controls
+```
 
-Tab5 / ESP32-P4 is the reference platform for V1.
+A platform may provide them when useful and omit them when meaningless. Do not create fake behavior simply so command sets look identical.
 
-Portability should shape boundaries, but the project should not build several
-incomplete ports merely to prove abstraction. Once the Tab5 foundation is stable,
-a second architecture can validate the design without forcing premature
-lowest-common-denominator choices.
+Portable applications should use capability discovery rather than assume optional functionality exists.
+
+## 7. Resource policy must be real
+
+A reported resource limit should correspond to an enforced resource domain.
+
+On Linux the host has far more RAM and storage than an embedded target, so MiniShell can intentionally constrain the application environment. `free` and `df` report MiniShell-visible resources, not the raw PC capacity.
+
+Resource policy belongs to MiniShell, below applications. Applications experience it through ordinary Memory/Filesystem service results.
+
+## 8. Runtime packaging is a backend detail
+
+The application model is:
+
+```text
+apps
+run <app>
+<app>
+app returns
+shell resumes
+```
+
+The physical form differs by target:
+
+```text
+Linux/Mint      .so + dlopen/dlsym/dlclose
+Tab5/NuttX      loadable-app mechanism where practical
+Cardputer ADV   compiled-in registry acceptable when dynamic loading costs too much
+```
+
+Application source does not contain loader-specific logic.
+
+## 9. Resident versus application
+
+Keep functionality resident when MiniShell itself needs it to manage the runtime, own shared state, diagnose the platform, or bootstrap/recover a target.
+
+Make ordinary user/domain functionality an application.
+
+Current Linux resident shell is intentionally small:
+
+```text
+help
+status
+apps
+run <app>
+exit
+```
+
+Current ordinary tools (`ls`, `cat`, `cp`, `nano`, `free`, `df`, `date`, etc.) are portable applications.
+
+## 10. Mocks stay below MiniShell
+
+Mocks emulate MiniShell providers, not domain application results.
+
+Good:
+
+```text
+mock audio samples
+mock radio transport
+mock UTC/location source
+mock filesystem backend
+```
+
+Bad architectural shortcut:
+
+```text
+mock FT8 decode result
+mock scheduler decision
+mock completed QSO
+```
+
+The application core should still execute its real domain logic.
+
+## 11. Small understandable modules
+
+There is no rigid line-count rule. A module should have one explainable responsibility and one coherent state/ownership domain.
+
+Split when:
+
+- several unrelated responsibilities accumulate;
+- tests naturally separate into unrelated groups;
+- changing one concern repeatedly risks another;
+- understanding one file requires understanding several independent subsystems.
+
+Do not split a coherent state machine merely to hit a size number, and do not accept a mixed-responsibility file merely because it is short.
+
+`docs/consistency-check.md` records current modules that need decomposition.
+
+## 12. Synchronous and understandable first
+
+Prefer synchronous APIs and explicit lifecycle until a real requirement justifies concurrency or asynchronous contracts.
+
+Do not add ISR safety, general reentrancy, worker tasks, queues, callbacks, or async state machines speculatively.
+
+## 13. Tests at the boundary that matters
+
+For each service:
+
+1. test service semantics independently;
+2. test the public ABI through a separately loaded application/probe;
+3. test real platform behavior where platform-specific behavior matters.
+
+Linux CI is the reference regression gate. Embedded ports should validate the same observable contract against their hardware/backend.
+
+## 14. Linux first, embedded constraints always visible
+
+New portable behavior is normally developed on Linux first because it gives fast builds, sanitizers/debugging, deterministic tests, CI, and easy mocks.
+
+That does not mean designing like a desktop application. Keep embedded suitability visible:
+
+```text
+bounded resources
+explicit ownership
+controlled allocation
+deterministic lifecycle
+small interfaces
+no accidental dependence on host-only facilities
+```
+
+## Review question
+
+Before merging a new feature, ask:
+
+> Does this make the application depend more strongly on MiniShell concepts, or more strongly on a particular platform?
+
+The desired direction is always toward MiniShell concepts.

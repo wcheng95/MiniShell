@@ -1,6 +1,6 @@
 # MiniShell
 
-MiniShell is a platform-adaptive application runtime. Its job is to keep application cores independent of Linux, NuttX, ESP-IDF, board drivers, and other platform details while providing a small common shell, application lifecycle, and service ABI.
+MiniShell is a platform-adaptive application runtime. It keeps application cores independent of Linux, NuttX, ESP-IDF, board drivers, and mocks while providing a small shell, application lifecycle, resource policy, and stable service ABI.
 
 Linux Mint on `pc-1` is the reference implementation and a full production target.
 
@@ -8,16 +8,12 @@ Linux Mint on `pc-1` is the reference implementation and a full production targe
 
 ```text
 Applications
-    MiniFT8 / MiniCW / MiniRTTY / tools
+  MiniFT8 / MiniCW / MiniRTTY / tools
                     |
               MiniShell ABI
                     |
-        +-----------+-----------+
-        |      MiniShell Core    |
-        | shell / app lifecycle  |
-        | portable service ABI   |
-        | resource policy        |
-        +-----------+-----------+
+        portable MiniShell core
+  shell / lifecycle / services / policy
                     |
            private backend API
         +-----------+-----------+
@@ -26,11 +22,11 @@ Applications
       POSIX        Tab5       thick ADV
 ```
 
-Applications use MiniShell services only. Mocks and simulated devices also live below MiniShell; they do not connect directly to application cores.
+Applications use MiniShell services only. Mocks/simulated providers also live below MiniShell.
 
-## Shell baseline
+## Linux shell baseline
 
-The resident Linux shell is intentionally small:
+Resident commands are intentionally small:
 
 ```text
 help
@@ -41,30 +37,31 @@ run <app> [...]
 exit
 ```
 
-`status` reports platform identity and MiniShell service availability. `run <app>` and direct `<app>` use the same internal application-launch path.
+`put/get`, `suspend`, `poweroff`, and similar functions are platform-dependent. Mint does not provide fake versions merely for command-set parity.
 
-There is no separate user-facing `exec` command in the Linux baseline. `put/get`, `suspend`, and `poweroff` are platform-dependent operations and are not faked on Mint merely to make command sets identical.
-
-## Application model
-
-MiniShell keeps one foreground application active at a time. On platforms that support runtime loading, applications can be installed and run without rebuilding MiniShell.
-
-Linux uses shared objects and `dlopen()` as its loader implementation. The loader mechanism is private; application source depends only on the MiniShell C ABI.
+Current portable applications:
 
 ```text
-M$> apps
+hello
 cat
 cp
 date
 df
 free
-hello
 ls
 mkdir
 mv
 nano
 rm
 rmdir
+```
+
+Example:
+
+```text
+M$> ls
+/sd
+/flash
 
 M$> ls /sd
 notes.txt
@@ -75,10 +72,9 @@ used 0B  free 8.0M  total 8.0M
 
 M$> df
 used 0B  free 64.0M  total 64.0M
-
-M$> date
-2026-09-07 00:10:00 UTC
 ```
+
+## Application model
 
 A native application currently exposes:
 
@@ -86,17 +82,23 @@ A native application currently exposes:
 int main(int argc, char **argv);
 ```
 
-and obtains services with:
+and acquires services through:
 
 ```c
 const mini_api_t *api = mini_api_get();
 ```
 
+Physical packaging/loading is backend-private:
+
+```text
+Linux/Mint      .so + dlopen/dlsym/dlclose
+Tab5/NuttX      loadable-app mechanism where practical
+Cardputer ADV   compiled-in registry acceptable when loading is too expensive
+```
+
+The user model remains `apps`, `run <app>`, direct `<app>`, application return, then `M$>`.
+
 ## Build on Linux Mint
-
-Requirements: CMake, a C compiler, Python 3, and the normal POSIX dynamic-loader library.
-
-Use a dedicated Linux build directory so an old ESP-IDF or other cross-toolchain CMake cache cannot be reused accidentally:
 
 ```bash
 cmake -S . -B build-linux
@@ -105,83 +107,58 @@ ctest --test-dir build-linux --output-on-failure
 ./build-linux/minishell
 ```
 
-Runtime applications are built into:
+Use a dedicated Linux build directory so an old ESP-IDF/cross-toolchain CMake cache cannot be reused accidentally.
+
+Runtime Linux modules are built under:
 
 ```text
 build-linux/runtime/apps/
 ```
 
-The Linux backend discovers `.so` applications in that directory. Set `MINISHELL_APP_DIR` to override it.
+`MINISHELL_APP_DIR` can override the discovery directory.
 
 ## Resource policy
 
-MiniShell deliberately reports and enforces the resources available through MiniShell rather than exposing the much larger host machine directly.
+Linux deliberately constrains the MiniShell application environment instead of reporting the host PC's huge resources.
 
-Linux defaults are:
+Defaults:
 
 ```text
 memory   8 MiB
 storage 64 MiB
 ```
 
-Override them for experiments with:
+Override for experiments:
 
 ```bash
-MINISHELL_MEMORY_LIMIT=16M MINISHELL_STORAGE_LIMIT=128M ./build-linux/minishell
+MINISHELL_MEMORY_LIMIT=16M \
+MINISHELL_STORAGE_LIMIT=128M \
+./build-linux/minishell
 ```
 
-Accepted suffixes are `K`, `M`, and `G`; `0` means unlimited.
+Suffixes `K`, `M`, `G` are accepted; `0` means unlimited.
 
-The Memory service rejects MiniShell allocations beyond the memory budget. The Filesystem service accounts regular files under the logical MiniShell root and rejects writes that would exceed the storage budget. `free` and `df` report those same enforced budgets.
-
-These limits apply to resources acquired through the MiniShell ABI. Portable applications should therefore use MiniShell Memory and Filesystem services rather than bypassing them with host APIs.
-
-## Current portable applications
-
-The same application source is used through the MiniShell ABI rather than through Linux/POSIX APIs:
-
-```text
-hello    minimal ABI example
-cat      display a text file
-cp       binary-safe file copy
-date     show/set MiniShell UTC
-df       MiniShell storage used/free/total
-free     MiniShell memory used/free/total
-ls       enumerate a directory
-mv       no-overwrite regular-file rename
-rm       remove one regular file
-mkdir    create one directory
-rmdir    remove one empty directory
-nano     small interactive text editor
-```
-
-`nano` uses MiniShell Memory, Filesystem, Display, and Input services. Its basic controls are:
-
-```text
-Ctrl-O   save
-Ctrl-W   search
-Ctrl-X   exit
-```
+The Memory and Filesystem services enforce these budgets. `free` and `df` report the same resource domains applications can actually use.
 
 ## Time model
 
-On Linux, MiniShell reads system UTC at startup and anchors it to `CLOCK_MONOTONIC`.
+On Linux, MiniShell reads system UTC at startup and anchors it to monotonic time.
 
 ```text
 MiniShell UTC = startup UTC anchor + monotonic elapsed
 ```
 
-`date YYYY-MM-DD HH:MM:SS` re-anchors MiniShell UTC for the current session. It does not change Linux system time and the correction is not persisted across MiniShell restarts. A backend that owns a writable RTC may persist the same Time/Location ABI set operation.
+`date YYYY-MM-DD HH:MM:SS` re-anchors MiniShell UTC for the current session only. It does not change Linux system time and does not persist an offset. A backend owning a writable RTC may persist the equivalent `utc_set()` operation.
 
 ## Public ABI
 
-The public header is:
+Source of truth:
 
 ```text
 include/minishell/api.h
 ```
 
-ABI generation 1 currently provides these established service groups on Linux:
+ABI generation 1 currently exposes:
 
 ```text
 System
@@ -192,72 +169,69 @@ Display
 Input
 ```
 
-The Filesystem ABI supports regular-file operations, namespace operations, directory iteration, and storage-space reporting:
+Notable application-driven extensions already implemented:
 
 ```text
-dir_open(path)
-dir_read(handle)
-dir_close(handle)
-space(path)
+Filesystem     dir_open / dir_read / dir_close
+Filesystem     space(path)
+Display text   optional write_at_attr(..., MINI_TEXT_ATTR_INVERSE)
 ```
 
-Directory handles are opaque MiniShell handles. Applications receive MiniShell-owned entry types and names, never POSIX `DIR *` or `struct dirent`. Open file and directory handles are reclaimed automatically at application exit.
+`ls`, `df`, and nano's inverse cursor are ordinary consumers of these reusable primitives, not privileged shell special cases.
 
-The directory and space APIs are application functionality, not command-specific special cases. MiniFT8 and other applications can use them to discover logs and to reason about available MiniShell storage.
-
-The portable service core is shared with other MiniShell backends. Linux supplies POSIX implementations underneath it; applications never receive POSIX file descriptors, terminal objects, directory objects, or other host-specific types.
-
-## Linux service mapping
+## Ownership model
 
 ```text
-MiniShell service      Linux reference backend
--------------------------------------------------------------
-System                 stdout terminal output
-Memory                 malloc/realloc/free beneath MiniShell quota
-Filesystem             POSIX files below logical root + MiniShell quota
-Time/Location          CLOCK_MONOTONIC + startup system UTC anchor
-Display                ANSI terminal text display
-Input                  terminal key events through poll/read
+app lifecycle       app_manager
+app allocations     Memory service
+files/dirs/quota    Filesystem service
+UTC/location        Time/Location service
+logical display     Display service
+logical key queue   Input service
 ```
 
-The default logical filesystem root is:
+Backends provide primitives; portable services own application-visible semantics and lifecycle.
+
+## Nano
+
+`nano` is intentionally split into understandable modules for orchestration, buffer editing, file persistence, UI, and utilities. It uses only MiniShell services.
+
+Basic controls:
 
 ```text
-~/.local/share/minishell/fs/
-    sd/
-    flash/
+Ctrl-O   save
+Ctrl-W   search
+Ctrl-X   exit
 ```
 
-An application path such as `/sd/log.txt` remains a MiniShell path rather than a Linux pathname. Set `MINISHELL_ROOT` to override the host directory used as MiniShell `/`.
+Its cursor is rendered with the portable `MINI_TEXT_ATTR_INVERSE` attribute when supported; Linux maps that to reverse video below MiniShell.
 
-## Platform policy
+## Linux tests
 
-MiniShell may be thin or thick depending on the target:
+The current reference suite has 7 tests covering:
 
-- **Linux/Mint:** thin POSIX backend; runtime-loaded external apps.
-- **Tab5/ESP32-P4:** thin MiniShell layer over NuttX where practical; loadable apps are preferred.
-- **Cardputer ADV:** thick MiniShell backend is preferred because RAM is scarce. Apps may be compiled together if runtime loading is too expensive.
+1. shell/application loading;
+2. service semantics/lifecycle;
+3. terminal Input;
+4. portable utilities;
+5. nano PTY edit/save/exit and inverse cursor;
+6. directory iteration/root `ls` behavior;
+7. resource quota plus `free`/`df`/`date` behavior.
 
-The user-facing application model should remain consistent where that is useful, but platform-dependent operations are allowed to remain platform-dependent rather than being represented by fake implementations.
+## Documentation
 
-## Current Linux baseline
+Start with:
 
-Automated tests cover:
+- `docs/README.md` — documentation map and source-of-truth order.
+- `docs/architecture.md` — current architecture.
+- `docs/design-principles.md` — review/design rules.
+- `docs/consistency-check.md` — latest architecture audit and housekeeping debt.
+- `docs/progress.md` — milestone log.
 
-- application discovery and explicit/direct launch;
-- resident `status` behavior;
-- Memory allocation/reallocation/free, accounting, and quota enforcement;
-- logical Filesystem create/read/write/stat/rename/remove/mkdir/rmdir;
-- Filesystem directory open/read/close and file/directory classification;
-- Filesystem storage accounting and quota enforcement;
-- `free`, `df`, and `date` through the public ABI;
-- session-only `date` correction on Linux and reload from system UTC after restart;
-- monotonic time, sleep, system UTC, and persistent default-location operations;
-- terminal Display and real Input handoff through a pseudo-terminal;
-- `cat`, `cp`, `ls`, `mkdir`, `mv`, `rm`, and `rmdir` as runtime-loaded portable apps;
-- a real `nano` edit/save/exit session through a pseudo-terminal;
-- automatic app-resource cleanup and clean return to `M$>`.
+Older `task*.md` files document the original Tab5/ESP-IDF proof-of-concept path and are historical records, not the current roadmap.
 
-## Next direction
+## Current status
 
-The generic Linux MiniShell baseline is now complete. The next phase should be driven top-down by MiniFT8-V3 requirements. New service groups such as Audio or Radio/CAT should be added only when the application boundary has been defined and a real MiniFT8 vertical slice requires them.
+The generic Linux MiniShell baseline is complete and working. The architecture audit found the public/application design sound, with internal housekeeping debt mainly in the oversized Linux backend, the large Filesystem service implementation, small POSIX assumptions in shell/core, dormant pre-Linux source trees, and terminal CSI parser robustness.
+
+Those items are tracked in `docs/consistency-check.md`. After housekeeping, new service work should again be driven top-down by MiniFT8-V3 requirements rather than generic feature accumulation.
