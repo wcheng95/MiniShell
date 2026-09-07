@@ -2,7 +2,7 @@ name: Linux
 
 on:
   push:
-    branches: [main, linux-base, stage2-linux-services]
+    branches: [main]
   pull_request:
 
 jobs:
@@ -16,3 +16,9 @@ jobs:
         run: cmake --build build-linux -j2
       - name: Test
         run: ctest --test-dir build-linux --output-on-failure
+      - name: Configure unit tests
+        run: cmake -S tests/unit -B build-unit
+      - name: Build unit tests
+        run: cmake --build build-unit -j2
+      - name: Run unit tests
+        run: ctest --test-dir build-unit --output-on-failure

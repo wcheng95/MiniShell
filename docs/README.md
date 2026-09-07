@@ -1,54 +1,34 @@
 # MiniShell Documentation Map
 
-This directory contains both the current MiniShell design and historical milestone records. The distinction matters because the project pivoted from a Tab5/ESP-IDF-first implementation to Linux Mint as the reference/production platform.
+This directory contains the current MiniShell design for the Linux-first reference implementation.
 
 ## Source of truth
 
 When documents disagree, use this order:
 
-1. `include/minishell/api.h` — public application ABI as implemented.
-2. `docs/architecture.md` and `docs/design-principles.md` — current architecture and design rules.
-3. Current service documents such as `filesystem-abi.md`, `memory-abi.md`, `display-abi.md`, `input-abi.md`, `system-abi.md`, and `time-location-abi.md`.
-4. `docs/app-abi.md`, `docs/command-roadmap.md`, and `docs/resident-vs-app.md` for runtime/application placement and shell policy.
-5. Historical task/milestone documents.
+1. `include/minishell/api.h` — implemented public application ABI.
+2. `architecture.md` and `design-principles.md` — current architecture and design rules.
+3. Service documents: `system-abi.md`, `memory-abi.md`, `filesystem-abi.md`, `time-location-abi.md`, `display-abi.md`, and `input-abi.md`.
+4. `app-abi.md`, `command-roadmap.md`, and `resident-vs-app.md` — application/runtime placement and shell policy.
+5. `consistency-check.md` and `progress.md` — audit/debt and milestone record.
 
-`docs/consistency-check.md` records the latest architecture audit. `docs/progress.md` records major completed milestones.
+`abi-foundation.md` remains a useful foundational design record, but the public header and current service documents win if details have evolved.
 
-## Current canonical documents
+## Legacy Tab5 work
 
-- `architecture.md` — system layers, dependency direction, ownership, platform model.
-- `design-principles.md` — rules used for new code and reviews.
-- `app-abi.md` — runtime application contract and lifecycle.
-- `command-roadmap.md` — resident shell versus portable utility behavior.
-- `resident-vs-app.md` — placement rules.
-- `system-abi.md`
-- `memory-abi.md`
-- `filesystem-abi.md`
-- `time-location-abi.md`
-- `display-abi.md`
-- `input-abi.md`
-- `consistency-check.md` — current audit/debt list.
-- `progress.md` — current project progress log.
+The earlier Tab5/ESP-IDF-first implementation, milestone documents, ELF tests, transfer/power experiments, and associated build files were removed from active `main` after the Linux baseline became canonical.
 
-`abi-foundation.md` remains a useful foundational design record, but the current public header and service documents win if details have evolved.
+They remain available in the Git branch:
 
-## Historical milestone records
+```text
+archive/tab5-legacy
+```
 
-The following describe the earlier Tab5/ESP-IDF development path. They are retained as engineering history and validation evidence; they are not the current implementation roadmap:
-
-- `task0.md`
-- `task1.md`
-- `task2.md`
-- `task4.md`
-- `task5.md`
-- `task6.md`
-- `power-system-plan.md`
-
-The repository also still contains dormant pre-pivot ESP-IDF/Tab5 source trees. The root Linux CMake build does not compile them. Their eventual removal or archival is tracked in `consistency-check.md` rather than silently treating them as active code.
+Use that branch only when historical implementation details are needed for comparison or a future port.
 
 ## Current reference platform
 
-Linux Mint on `pc-1` is the reference implementation and a full production target. Later ports adapt the same application-facing contract:
+Linux Mint on `pc-1` is the reference implementation and a full production target:
 
 ```text
 Application
