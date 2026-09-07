@@ -34,6 +34,7 @@ Direct application launch is also supported:
 
 ```text
 M$> nano /sd/notes.txt
+M$> MiniFT8
 ```
 
 `run <app>` and direct `<app>` use the same internal application-launch path.
@@ -47,9 +48,9 @@ make command sets identical.
 
 ## Portable applications
 
-Ordinary utilities are applications and use only the public MiniShell ABI.
+Ordinary utilities and domain programs are applications and use the public MiniShell ABI.
 
-Current generic baseline:
+Current generic utilities:
 
 ```text
 hello
@@ -66,7 +67,9 @@ rm
 rmdir
 ```
 
-On Linux these are runtime-loaded `.so` modules. Other platforms may use different
+MiniFT8 is the first substantial domain application hosted by the same runtime.
+
+On Linux applications are runtime-loaded `.so` modules. Other platforms may use different
 loading or linking mechanisms while preserving the same application-facing ABI.
 
 ### File utilities
@@ -76,7 +79,7 @@ loading or linking mechanisms while preserving the same application-facing ABI.
 | `ls [path]` | enumerate a directory; hide dot-files by default |
 | `cat <file>` | display a text file |
 | `cp <src> <dst>` | binary-safe file copy |
-| `mv <src> <dst>` | rename one regular file; no overwrite |
+| `mv <src> <dst>` | rename one regular file; replace an existing regular-file destination |
 | `rm <file>` | remove one regular file |
 | `mkdir <path>` | create one directory |
 | `rmdir <path>` | remove one empty directory |
@@ -136,7 +139,7 @@ check current ABI
                 v
         is it generally useful to applications?
                 |
-                +-- yes -> append ABI + tests
+                +-- yes -> append/clarify ABI + tests
                 `-- no  -> reconsider design
 ```
 
@@ -152,6 +155,7 @@ ls       justified dir_open / dir_read / dir_close because applications need dis
 free     existing Memory ABI was sufficient once MiniShell resource policy existed
 date     existing Time/Location ABI was sufficient
 df       justified append-only Filesystem space(path)
+MiniFT8  justified replacement rename semantics for safe Station.txt saves
 ```
 
 Do not expand an ABI merely to imitate POSIX or GNU utilities.
@@ -176,6 +180,6 @@ systemctl
 ## Principle
 
 Keep the shell small. Keep reusable functionality in application-facing services.
-Keep ordinary utilities as applications. Platform-specific functionality is
-allowed to remain platform-specific when a universal abstraction would add no
-value.
+Keep ordinary utilities and domain programs as applications. Platform-specific
+functionality is allowed to remain platform-specific when a universal abstraction
+would add no value.
