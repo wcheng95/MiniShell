@@ -82,6 +82,16 @@ loading or linking mechanisms while preserving the same application-facing ABI.
 | `rmdir <path>` | remove one empty directory |
 | `nano <file>` | small interactive editor |
 
+At MiniShell root, `ls` displays the logical top-level paths directly:
+
+```text
+M$> ls
+/sd
+/flash
+```
+
+Inside a directory it uses ordinary relative entry names (`file.txt`, `folder/`).
+
 `ls` uses the same Filesystem ABI directory iteration that applications such as
 MiniFT8 need for discovering logs:
 
