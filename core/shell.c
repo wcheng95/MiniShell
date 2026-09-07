@@ -1,4 +1,3 @@
-#include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -10,15 +9,23 @@
 #define SHELL_LINE_MAX 256
 #define SHELL_ARG_MAX 16
 
+static int is_shell_space(char ch)
+{
+    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+}
+
 static int split_args(char *line, char **argv, int max_args)
 {
     int argc = 0;
-    char *save = NULL;
-    char *token = strtok_r(line, " \t\r\n", &save);
+    char *p = line;
 
-    while (token != NULL && argc < max_args) {
-        argv[argc++] = token;
-        token = strtok_r(NULL, " \t\r\n", &save);
+    while (*p != '\0' && argc < max_args) {
+        while (is_shell_space(*p)) ++p;
+        if (*p == '\0') break;
+
+        argv[argc++] = p;
+        while (*p != '\0' && !is_shell_space(*p)) ++p;
+        if (*p != '\0') *p++ = '\0';
     }
 
     return argc;
@@ -62,17 +69,26 @@ static void cmd_status(void)
 
 static int run_app(const char *name, int argc, char **argv, int command_lookup)
 {
-    int ret = minishell_app_run(name, argc, argv);
+    int app_result = 0;
+    minishell_platform_result_t launch =
+        minishell_app_run(name, argc, argv, &app_result);
 
-    if (ret == -ENOENT && command_lookup) {
+    if (launch == MINISHELL_PLATFORM_ERR_NOT_FOUND && command_lookup) {
         printf("%s: command not found\n", name);
-    } else if (ret == -ENOENT) {
-        printf("run: %s not found\n", name);
-    } else if (ret != 0) {
-        printf("app: %s returned %d\n", name, ret);
+        return (int)launch;
     }
-
-    return ret;
+    if (launch == MINISHELL_PLATFORM_ERR_NOT_FOUND) {
+        printf("run: %s not found\n", name);
+        return (int)launch;
+    }
+    if (launch != MINISHELL_PLATFORM_OK) {
+        printf("app: %s launch failed (%d)\n", name, (int)launch);
+        return (int)launch;
+    }
+    if (app_result != 0) {
+        printf("app: %s returned %d\n", name, app_result);
+    }
+    return app_result;
 }
 
 int minishell_shell_run(void)
@@ -90,38 +106,27 @@ int minishell_shell_run(void)
         }
 
         int argc = split_args(line, argv, SHELL_ARG_MAX);
-        if (argc == 0) {
-            continue;
-        }
+        if (argc == 0) continue;
 
-        if (strcmp(argv[0], "exit") == 0) {
-            return 0;
-        }
-
+        if (strcmp(argv[0], "exit") == 0) return 0;
         if (strcmp(argv[0], "help") == 0) {
             cmd_help();
             continue;
         }
-
         if (strcmp(argv[0], "status") == 0) {
             cmd_status();
             continue;
         }
-
         if (strcmp(argv[0], "apps") == 0) {
-            int ret = minishell_app_list(show_app, NULL);
-            if (ret != 0) {
-                printf("apps: failed (%d)\n", ret);
+            minishell_platform_result_t result = minishell_app_list(show_app, NULL);
+            if (result != MINISHELL_PLATFORM_OK) {
+                printf("apps: failed (%d)\n", (int)result);
             }
             continue;
         }
-
         if (strcmp(argv[0], "run") == 0) {
-            if (argc < 2) {
-                puts("usage: run <app> [args...]");
-            } else {
-                (void)run_app(argv[1], argc - 1, &argv[1], 0);
-            }
+            if (argc < 2) puts("usage: run <app> [args...]");
+            else (void)run_app(argv[1], argc - 1, &argv[1], 0);
             continue;
         }
 
