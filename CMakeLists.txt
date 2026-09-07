@@ -20,6 +20,7 @@ set(MINISHELL_SERVICE_SOURCES
     core/minishell_services/time_location_service.c
     core/minishell_services/display_service.c
     core/minishell_services/input_service.c
+    core/minishell_services/audio_service.c
 )
 
 add_executable(minishell
