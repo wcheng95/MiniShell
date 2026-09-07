@@ -22,7 +22,10 @@ int main(void)
         return 1;
     }
     minishell_services_set_resource_limits(&limits);
-    minishell_services_configure(minishell_platform_services_port());
+
+    minishell_services_port_t services_port;
+    minishell_platform_services_prepare(&services_port);
+    minishell_services_configure(&services_port);
 
     puts("MiniShell");
     int result = minishell_shell_run();
