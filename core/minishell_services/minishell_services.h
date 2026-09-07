@@ -80,6 +80,9 @@ typedef struct {
                                            uint32_t rows, uint32_t columns);
     mini_result_t (*display_text_write_at)(void *ctx, uint32_t row, uint32_t column,
                                            const char *text, uint32_t byte_count);
+    mini_result_t (*display_text_write_at_attr)(void *ctx, uint32_t row, uint32_t column,
+                                                const char *text, uint32_t byte_count,
+                                                uint32_t attributes);
     mini_result_t (*display_present)(void *ctx);
 
     /* Input. The service owns the logical queue; the port provides waiting. */
