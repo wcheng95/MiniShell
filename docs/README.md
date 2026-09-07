@@ -7,10 +7,11 @@ MiniShell documentation is grouped by purpose so the active design stays easy to
 When documents disagree, use this order:
 
 1. `include/minishell/api.h` — implemented public application ABI.
-2. `architecture/architecture.md` and `architecture/design-principles.md` — current architecture and design rules.
+2. `architecture/architecture.md` and `architecture/design-principles.md` — current MiniShell architecture and design rules.
 3. Current ABI documents under `abi/`.
 4. `architecture/resident-vs-app.md` and `project/command-roadmap.md` — runtime/application placement and shell policy.
-5. `project/consistency-check.md` and `project/progress.md` — audit/debt and milestone record.
+5. Application documentation under `apps/` or a large application's own subtree such as `MiniFT8/`.
+6. `project/consistency-check.md` and `project/progress.md` — audit/debt and milestone record.
 
 `abi/abi-foundation.md` remains a useful foundational design record, but the public header and current service documents win if details have evolved.
 
@@ -40,6 +41,28 @@ abi/
 ```
 
 `include/minishell/api.h` remains the executable source of truth. The documents explain intent, semantics, ownership, and compatibility rules.
+
+## Application documentation
+
+Small and medium applications share:
+
+```text
+apps/
+├── utilities.md
+└── nano.md
+```
+
+Large domain applications may have their own documentation subtree when that keeps their architecture and development records understandable. MiniFT8 uses:
+
+```text
+MiniFT8/
+├── README.md
+├── architecture.md
+├── development.md
+└── ui.md
+```
+
+The application source still lives under `apps/`; keeping documentation under the single top-level `docs/` tree is a repository-organization choice, not an architectural dependency.
 
 ## Project records
 
