@@ -39,9 +39,10 @@ exit
 
 `put/get`, `suspend`, `poweroff`, and similar functions are platform-dependent. Mint does not provide fake versions merely for command-set parity.
 
-Current portable applications:
+Current portable applications include the small utilities plus the first substantial domain application:
 
 ```text
+MiniFT8
 hello
 cat
 cp
@@ -63,15 +64,10 @@ M$> ls
 /sd
 /flash
 
-M$> ls /sd
-notes.txt
-logs/
-
-M$> free
-used 0B  free 8.0M  total 8.0M
-
-M$> df
-used 0B  free 64.0M  total 64.0M
+M$> MiniFT8
+... 30x8 MiniFT8 UI ...
+q
+M$>
 ```
 
 ## Application model
@@ -136,8 +132,6 @@ MINISHELL_STORAGE_LIMIT=128M \
 ./build-linux/minishell
 ```
 
-Suffixes `K`, `M`, `G` are accepted; `0` means unlimited.
-
 The Memory and Filesystem services enforce these budgets. `free` and `df` report the same resource domains applications can actually use.
 
 ## Time model
@@ -169,15 +163,16 @@ Display
 Input
 ```
 
-Notable application-driven extensions already implemented:
+Notable application-driven behavior/extensions include:
 
 ```text
 Filesystem     dir_open / dir_read / dir_close
 Filesystem     space(path)
+Filesystem     rename replaces an existing regular-file destination
 Display text   optional write_at_attr(..., MINI_TEXT_ATTR_INVERSE)
 ```
 
-`ls`, `df`, and nano's inverse cursor are ordinary consumers of these reusable primitives, not privileged shell special cases.
+The replacement `rename()` semantics were justified by MiniFT8's safe configuration-save path, not added speculatively.
 
 ## Ownership model
 
@@ -192,55 +187,60 @@ logical key queue   Input service
 
 Backends provide primitives; portable services own application-visible semantics and lifecycle.
 
-## Nano
+## MiniFT8
 
-`nano` is intentionally split into understandable modules for orchestration, buffer editing, file persistence, UI, and utilities. It uses only MiniShell services.
-
-Basic controls:
+MiniFT8-V3 is now developed directly as a MiniShell application. Its first integrated slice uses only existing Display/Input plus Filesystem services:
 
 ```text
-Ctrl-O   save
-Ctrl-W   search
-Ctrl-X   exit
+M$> MiniFT8
+    -> 30x8 UI
+    -> config/scheduler settings
+    -> /flash/MiniFT8/Station.txt
+    -> q
+M$>
 ```
 
-Its cursor is rendered with the portable `MINI_TEXT_ATTR_INVERSE` attribute when supported; Linux maps that to reverse video below MiniShell.
+The standalone Linux/ncurses edge is gone from the active implementation. Audio, Radio/CAT, QMX, FT8 decoding/TX, and logging are intentionally deferred until their application boundaries are designed.
+
+See `docs/MiniFT8/README.md`.
+
+## Nano
+
+`nano` is intentionally split into understandable modules for orchestration, buffer editing, file persistence, UI, and utilities. It uses only MiniShell services. See `docs/apps/nano.md`.
 
 ## Linux tests
 
-The current reference suite has 7 tests covering:
+The reference CTest suite now has 9 tests:
 
 1. shell/application loading;
 2. service semantics/lifecycle;
 3. terminal Input;
-4. portable utilities;
+4. portable utilities, including replacement `mv`;
 5. nano PTY edit/save/exit and inverse cursor;
 6. directory iteration/root `ls` behavior;
-7. resource quota plus `free`/`df`/`date` behavior.
+7. resource quota plus `free`/`df`/`date` and rename-accounting behavior;
+8. pure MiniFT8 UI state/action smoke test;
+9. MiniFT8 PTY launch/navigation/persistence/relaunch/exit integration.
+
+CI also runs the retained platform-neutral service/unit suite.
 
 ## Documentation
 
-Start with `docs/README.md`. The documentation is grouped by purpose:
+Start with `docs/README.md`:
 
 ```text
 docs/
-├── architecture/   system model, ownership, design rules
-├── abi/            public application contracts
+├── architecture/   MiniShell system model, ownership, design rules
+├── abi/            MiniShell public application contracts
+├── apps/           small/medium application docs
+├── MiniFT8/        MiniFT8 application architecture/UI/development
 └── project/        roadmap, audit/debt, progress log
 ```
 
-Key files:
-
-- `docs/architecture/architecture.md` — current architecture.
-- `docs/architecture/design-principles.md` — review/design rules.
-- `docs/abi/app-abi.md` — application ABI/lifecycle contract.
-- `docs/project/consistency-check.md` — latest architecture audit and housekeeping debt.
-- `docs/project/progress.md` — milestone log.
-
-The earlier Tab5/ESP-IDF-first implementation is preserved separately in branch `archive/tab5-legacy` and is not part of active `main`.
+The earlier Tab5/ESP-IDF-first MiniShell implementation is preserved in branch `archive/tab5-legacy` and is not part of active `main`.
 
 ## Current status
 
-The generic Linux MiniShell baseline is complete and working. The active tree has been cleaned of the old Tab5/ESP-IDF implementation path. Remaining internal housekeeping debt is mainly the oversized Linux backend, the large Filesystem service implementation, small POSIX assumptions in shell/core, and terminal CSI parser robustness.
+The generic Linux MiniShell baseline is complete. MiniFT8-V3 is now the first substantial domain application developed against that baseline, and it has already supplied one concrete Filesystem semantic requirement: replacement `rename()` for safe saves.
 
-Those items are tracked in `docs/project/consistency-check.md`. New service work should be driven top-down by real application requirements, with MiniFT8-V3 expected to drive the next major ABI decisions.
+Remaining MiniShell internal housekeeping debt can wait; the next major service work should be driven by MiniFT8's live/replayed RX vertical slice, beginning with a deliberately designed Audio ABI.

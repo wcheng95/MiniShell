@@ -53,11 +53,11 @@ platform implementation
 
 No application-visible handle is a POSIX descriptor, `DIR *`, NuttX object, ESP-IDF object, or board-driver object.
 
-The private backend boundary is allowed to evolve as implementation structure improves; the public ABI is intentionally much more stable.
+The private backend boundary may evolve freely; the public ABI is intentionally much more stable.
 
 ## 5. Current composition
 
-The active Linux root build is composed from:
+The active Linux build is composed from:
 
 ```text
 core/main.c                    composition/startup
@@ -66,10 +66,10 @@ core/app_manager.c             foreground app lifecycle
 core/minishell_services/*      portable service semantics
 platform/linux/*               Linux private backend
 include/minishell/api.h        public app ABI
-apps/*                         portable runtime applications
+apps/*                         portable/domain runtime applications
 ```
 
-The earlier ESP-IDF/Tab5 implementation path has been removed from active `main`. Its complete pre-cleanup state is preserved in branch `archive/tab5-legacy` for historical reference and future porting work.
+The earlier ESP-IDF/Tab5 implementation path has been removed from active `main`. Its complete pre-cleanup state is preserved in branch `archive/tab5-legacy`.
 
 ## 6. Ownership
 
@@ -117,6 +117,15 @@ Cardputer ADV   compiled-in registry acceptable when loading costs too much RAM
 
 User-visible behavior remains `apps`, `run <app>`, direct `<app>`, return to `M$>`.
 
+MiniFT8 now exercises this lifecycle as the first substantial domain application:
+
+```text
+M$> MiniFT8
+... application ...
+q
+M$>
+```
+
 ## 8. Current public services
 
 ABI generation 1 currently exposes:
@@ -130,15 +139,16 @@ Display
 Input
 ```
 
-Current notable extensions include:
+Notable application-driven behavior/extensions include:
 
 ```text
 Filesystem     dir_open / dir_read / dir_close
 Filesystem     space(path)
+Filesystem     rename replaces an existing regular-file destination
 Display text   optional write_at_attr(..., MINI_TEXT_ATTR_INVERSE)
 ```
 
-ABI growth remains append-only where compatible.
+ABI growth remains append-only where compatible. Semantic clarification/growth must still be justified by a real application requirement; replacement rename was added for MiniFT8 safe configuration saves.
 
 ## 9. Resource policy
 
@@ -170,11 +180,14 @@ Typical paths:
 ```text
 /sd/log.txt
 /flash/config.ini
+/flash/MiniFT8/Station.txt
 ```
 
 Linux maps the namespace underneath a private host directory, by default `~/.local/share/minishell/fs`. Applications never see the host path.
 
-Filesystem service owns normalization, logical file/directory handles, lifecycle cleanup, namespace semantics, and quota behavior. The backend supplies POSIX primitives.
+Filesystem service owns normalization, logical file/directory handles, lifecycle cleanup, namespace semantics, replacement rename semantics, and quota behavior. The backend supplies native filesystem primitives.
+
+A domain application may own file *policy* without owning the filesystem. For example, MiniFT8's `storage_service` owns its Station.txt naming and temporary-file save sequence, while all file handles and namespace semantics remain owned by MiniShell Filesystem.
 
 ## 11. Time model
 
@@ -190,16 +203,22 @@ Configured default location is MiniShell-owned persistent state; live location m
 
 Display and Input remain separate logical services.
 
-Linux maps text Display calls to terminal output/ANSI behavior and normalizes terminal bytes into logical Input events. Applications such as `nano` never embed terminal escape sequences.
+Linux maps text Display calls to terminal output/ANSI behavior and normalizes terminal bytes into logical Input events. Applications never embed terminal escape sequences.
 
-The optional inverse text attribute demonstrates the intended direction:
+Examples:
 
 ```text
-nano cursor requirement
+nano cursor
     -> MINI_TEXT_ATTR_INVERSE
-    -> Linux reverse-video ANSI below MiniShell
-    -> future framebuffer backend renders inverse cells natively
+    -> Linux reverse video below MiniShell
+
+MiniFT8 UiFrame / UiInput
+    -> MiniShell Display / Input
+    -> Linux terminal today
+    -> future framebuffer/touch backend later
 ```
+
+MiniFT8's application UI therefore has no ncurses/Linux dependency.
 
 ## 13. Resident shell versus applications
 
@@ -213,9 +232,10 @@ run <app>
 exit
 ```
 
-Ordinary utilities are portable apps:
+Portable/domain applications include:
 
 ```text
+MiniFT8
 hello cat cp date df free ls mkdir mv nano rm rmdir
 ```
 
@@ -234,29 +254,33 @@ MiniShell ABI
     +-- simulated-radio provider
 ```
 
-Mocks emulate service providers, not application-domain outcomes.
+Mocks emulate service providers, not application-domain outcomes. Do not bypass the MiniFT8 decoder/scheduler with fake decoded QSOs when testing those modules.
 
 ## 15. Testing model
 
-Linux CI currently runs seven integration/service tests covering:
+The Linux CTest suite currently has nine tests covering:
 
 ```text
 shell/app loading
 portable service semantics and lifecycle
 terminal input handoff
-portable utility applications
+portable utility applications + replacement mv
 nano PTY edit/save/exit + inverse cursor
 directory iteration + ls
-resource quota + free/df/date
+resource quota + free/df/date + rename accounting
+MiniFT8 pure UI state/action behavior
+MiniFT8 runtime launch/navigation/persistence/relaunch/exit
 ```
 
-Service unit/integration tests remain more important than merely proving that one native app can load.
+CI also runs the retained platform-neutral MiniShell service/unit suite.
+
+Service/unit tests remain more important than merely proving that one native app can load.
 
 ## 16. Module-size and internal-debt policy
 
 The architecture does not equate "one owner" with "one giant file." An owner may be implemented by several private helper modules while presenting one semantic service.
 
-The current audit identifies internal cleanup needs in `platform/linux/linux_backend.c`, `core/minishell_services/filesystem_service.c`, and the shell/private-loader boundary. These do not require a public ABI redesign.
+The current audit identifies internal cleanup needs in `platform/linux/linux_backend.c`, `core/minishell_services/filesystem_service.c`, and the shell/private-loader boundary. These can wait while application-driven development continues; they do not require a public ABI redesign.
 
 See `../project/consistency-check.md` for the current audit and prioritized housekeeping list.
 
@@ -275,4 +299,4 @@ controlled allocation
 no host-specific types in application code
 ```
 
-New service groups are added only when a real application requirement justifies them. MiniFT8-V3 is expected to drive the next major service decisions.
+MiniFT8-V3 now actively drives major service decisions. The next expected new service is Audio, but its ABI should be defined only from the concrete live/replayed FT8 RX vertical slice. Radio/CAT and other services wait for their own real requirements.

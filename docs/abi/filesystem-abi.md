@@ -101,7 +101,21 @@ mkdir
 rmdir
 ```
 
-Current safety policy intentionally keeps rename narrow: no automatic overwrite. Recursive deletion/copy is not a primitive.
+`rename(old, new)` is intentionally regular-file focused. If `new` names an existing regular file, that file is replaced by `old`; after success `old` no longer exists and `new` names the former source content. Replacing a directory is rejected.
+
+The portable service also rejects a rename while either the source or destination has an active writable MiniShell handle. This preserves deterministic path ownership/accounting across backends.
+
+The replacement is performed through one backend rename operation. Linux maps this directly to POSIX `rename()`, which provides the normal same-filesystem atomic namespace replacement. Other backends must implement the same application-visible replacement semantics; exact crash/power-loss guarantees remain filesystem/backend properties.
+
+This contract supports the standard safe-save pattern used by applications such as MiniFT8:
+
+```text
+write Station.txt.tmp
+sync + close
+rename Station.txt.tmp -> Station.txt
+```
+
+Recursive deletion/copy is not a primitive.
 
 ## Directory iteration
 
@@ -158,7 +172,9 @@ On Linux the default MiniShell storage limit is 64 MiB. The Filesystem service e
 
 When a MiniShell storage quota is active, the service scans regular-file sizes under the logical namespace and checks requested file growth before writes. Namespace/directories do not consume quota bytes in the current policy; regular-file content does.
 
-To keep accounting deterministic, the current service prevents simultaneous writable handles to the same normalized logical path.
+Replacing an existing destination with `rename()` removes the replaced destination's size from MiniShell storage usage; the source content was already counted before the namespace change.
+
+To keep accounting deterministic, the current service prevents simultaneous writable handles to the same normalized logical path and blocks rename of a source/destination with an active writable handle.
 
 ## Ownership and one-owner rule
 
@@ -182,9 +198,13 @@ Backend/platform errors are translated to `mini_result_t`; `errno`, FATFS values
 
 ## Current verification
 
-Linux tests exercise:
+Linux and unit tests exercise:
 
 - file create/read/write/stat/rename/remove/mkdir/rmdir;
+- rename to a new destination and replacement of an existing regular file;
+- source disappearance and destination-content preservation after replacement;
+- replacement storage-quota accounting;
+- writable-handle protection around rename;
 - path normalization and root escape protection;
 - handle lifecycle/cleanup;
 - directory open/read/close and file/directory classification;
@@ -205,11 +225,10 @@ mmap
 async I/O
 mount/unmount ABI
 recursive copy/remove primitive
-implicit overwrite/replace
 ```
 
 Add these only when a real application needs a generally useful primitive.
 
 ## Internal housekeeping
 
-The Filesystem service remains the single semantic owner, but `filesystem_service.c` has grown large enough that private path/handle/quota helpers should eventually be split into smaller implementation modules. This should not change the public API or ownership model. See `docs/consistency-check.md`.
+The Filesystem service remains the single semantic owner, but `filesystem_service.c` has grown large enough that private path/handle/quota helpers should eventually be split into smaller implementation modules. This should not change the public API or ownership model. See `docs/project/consistency-check.md`.

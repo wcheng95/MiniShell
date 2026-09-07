@@ -232,9 +232,15 @@ static mini_result_t fake_fs_rename_cb(void *ctx, const char *old_path, const ch
     (void)ctx;
     int old_i = find_node(old_path);
     if (old_i < 0) return MINI_ERR_NOT_FOUND;
-    if (find_node(new_path) >= 0) return MINI_ERR_EXISTS;
     mini_result_t parent_result = require_parent_dir(new_path);
     if (parent_result != MINI_OK) return parent_result;
+
+    int new_i = find_node(new_path);
+    if (new_i >= 0) {
+        if (g_fake.fs_nodes[new_i].is_dir) return MINI_ERR_IS_DIR;
+        g_fake.fs_nodes[new_i].exists = false;
+    }
+
     snprintf(g_fake.fs_nodes[old_i].path, sizeof(g_fake.fs_nodes[old_i].path), "%s", new_path);
     return MINI_OK;
 }

@@ -94,16 +94,37 @@ bool test_filesystem(void)
     TEST_EQ(st.size, 7u);
     TEST_EQ(fs->rename("/sd/moved.txt", "/sd/./moved.txt"), MINI_OK);
 
-    fake_fs_add_file("/sd/existing.txt", "keep");
-    TEST_EQ(fs->rename("/sd/moved.txt", "/sd/existing.txt"), MINI_ERR_EXISTS);
-    st.struct_size = sizeof(st);
-    TEST_EQ(fs->stat("/sd/moved.txt", &st), MINI_OK);
-    TEST_EQ(fs->rename("/", "/sd/root"), MINI_ERR_ACCESS);
-    TEST_EQ(fs->rename("/sd/moved.txt", "/"), MINI_ERR_ACCESS);
+    fake_fs_add_dir("/sd/existing-dir");
+    TEST_EQ(fs->rename("/sd/moved.txt", "/sd/existing-dir"), MINI_ERR_IS_DIR);
 
-    TEST_EQ(fs->remove_file("/sd/moved.txt"), MINI_OK);
+    mini_file_t held = MINI_FILE_INVALID;
+    TEST_EQ(fs->open("/sd/moved.txt", MINI_FS_WRITE, &held), MINI_OK);
+    TEST_EQ(fs->rename("/sd/moved.txt", "/sd/held-move.txt"), MINI_ERR_ACCESS);
+    TEST_EQ(fs->close(held), MINI_OK);
+
+    fake_fs_add_file("/sd/existing.txt", "keep");
+    TEST_EQ(fs->rename("/sd/moved.txt", "/sd/existing.txt"), MINI_OK);
     st.struct_size = sizeof(st);
     TEST_EQ(fs->stat("/sd/moved.txt", &st), MINI_ERR_NOT_FOUND);
+    st.struct_size = sizeof(st);
+    TEST_EQ(fs->stat("/sd/existing.txt", &st), MINI_OK);
+    TEST_EQ(st.type, MINI_FS_TYPE_FILE);
+    TEST_EQ(st.size, 7u);
+
+    r = MINI_FILE_INVALID;
+    TEST_EQ(fs->open("/sd/existing.txt", MINI_FS_READ, &r), MINI_OK);
+    memset(buf, 0, sizeof(buf));
+    TEST_EQ(fs->read(r, buf, sizeof(buf), &n), MINI_OK);
+    TEST_EQ(n, 7u);
+    TEST_CHECK(memcmp(buf, "move-me", 7) == 0);
+    TEST_EQ(fs->close(r), MINI_OK);
+
+    TEST_EQ(fs->rename("/", "/sd/root"), MINI_ERR_ACCESS);
+    TEST_EQ(fs->rename("/sd/existing.txt", "/"), MINI_ERR_ACCESS);
+
+    TEST_EQ(fs->remove_file("/sd/existing.txt"), MINI_OK);
+    st.struct_size = sizeof(st);
+    TEST_EQ(fs->stat("/sd/existing.txt", &st), MINI_ERR_NOT_FOUND);
     TEST_EQ(fs->remove_file("/sd"), MINI_ERR_IS_DIR);
     TEST_EQ(fs->remove_file("/"), MINI_ERR_IS_DIR);
 
