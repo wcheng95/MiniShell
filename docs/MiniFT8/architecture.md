@@ -69,7 +69,12 @@ Examples:
 
 ```text
 QMX normal
-    RX      = QMX UAC
+    RX      = QMX-AUDIO
+    TX      = None
+    CONTROL = QMX CAT
+
+QMX I/Q
+    RX      = QMX-IQ
     TX      = None
     CONTROL = QMX CAT
 
@@ -79,8 +84,8 @@ QMX with microphone RX
     CONTROL = QMX CAT
 
 QDX
-    RX      = QDX UAC
-    TX      = QDX UAC
+    RX      = QDX-AUDIO
+    TX      = QDX-AUDIO
     CONTROL = QDX CAT
 
 host test
@@ -93,19 +98,40 @@ A shared physical device may expose more than one child capability, for example 
 
 ## 5. Audio ABI requirement
 
-The MiniShell Audio ABI is format-capable, but MiniFT8 V1 requires only one application-facing format:
+The MiniShell Audio ABI is format-capable, but MiniFT8 V1 requires one default application-facing transport format:
 
 ```text
 sample rate   12000 Hz
 sample format signed 16-bit PCM (S16)
-channels      1 (mono)
+channels      2
 ```
 
-The interface should carry an explicit format description so later formats can be appended without redesigning the ABI. V1 implementations may support only `12000 / S16 / mono` at the application-facing boundary and return `UNSUPPORTED` for other requested formats where conversion is not provided.
+The interface carries an explicit format description so later formats can be appended without redesigning the ABI. V1 implementations may support only `12000 / S16 / 2-channel` at the MiniFT8-facing boundary and return `UNSUPPORTED` for other requested formats where conversion is not provided.
+
+### Channel semantics
+
+MiniShell deliberately does **not** assign domain meaning to the two channels. It transports channel 0 and channel 1 as ordered sample channels only.
+
+Whether those channels mean ordinary stereo audio, duplicated mono, I/Q, or another application-defined pairing is a contract between MiniFT8 and its selected RX/TX source/profile.
+
+Examples:
+
+```text
+RX = QMX-AUDIO
+    channel 0 / channel 1 = ordinary audio channels
+    MiniFT8 may select one channel or downmix before FT8 decode
+
+RX = QMX-IQ
+    channel 0 = I
+    channel 1 = Q
+    MiniFT8 applies the I/Q processing path
+```
+
+MiniShell Audio therefore has no `STEREO`, `IQ`, FT8, QMX-IQ, left/right, or complex-sample semantic flag. Those meanings stay above MiniShell.
 
 ### RX ownership
 
-The RX contract presented to MiniFT8 is normalized PCM:
+The RX contract presented to MiniFT8 is normalized two-channel PCM:
 
 ```text
 physical/file audio source
@@ -113,37 +139,44 @@ physical/file audio source
         v
 MiniShell Audio backend/provider
         |
-        | source/native format conversion
+        | source/native transport-format conversion
         v
-12 kHz / S16 / mono
+12 kHz / S16 / 2-channel
         |
         v
-MiniFT8 RX
+MiniFT8 source/profile interpretation
+        |
+        +--> ordinary audio -> select/downmix -> FT8 DSP
+        |
+        +--> I/Q            -> I/Q DSP path
 ```
 
-Source/hardware-format conversion belongs below the MiniShell Audio ABI. For QMX, the native UAC stream is 48 kHz / 24-bit / stereo, so the QMX MiniShell backend converts it to 12 kHz / S16 / mono before MiniFT8 receives it.
+Hardware/OS transport-format conversion belongs below the MiniShell Audio ABI. For QMX, a native 48 kHz / 24-bit / 2-channel UAC stream is converted to 12 kHz / S16 / 2-channel while preserving channel ordering. MiniShell does not decide whether those two channels are ordinary audio or I/Q.
 
-The checked-in reference fixture `tests/kfs16b12k.wav` is PCM 12 kHz / S16 / **stereo**. The WAV Audio provider therefore downmixes its two channels to the canonical mono ABI stream. This intentionally tests that source format does not leak into MiniFT8.
+The checked-in reference fixture `tests/kfs16b12k.wav` is PCM 12 kHz / S16 / 2-channel, so it already matches the canonical MiniFT8 Audio transport format. The WAV provider validates and streams it without downmixing. Any ordinary-audio downmix belongs inside MiniFT8 after the source/profile has established channel meaning.
 
-Any later conversion needed only by the FT8 implementation remains above MiniShell. For example, if `ft8_engine` continues to process 6 kHz mono float internally, `12 kHz S16 -> 6 kHz float` is a MiniFT8 DSP detail rather than a MiniShell format.
+Any later conversion needed only by the FT8 implementation remains above MiniShell. For example, if `ft8_engine` continues to process 6 kHz mono float internally, ordinary two-channel audio may be selected/downmixed and converted from `12 kHz S16` to `6 kHz float` inside MiniFT8.
 
 ### TX ownership
 
-For audio-based transmission, MiniFT8 owns protocol-specific waveform generation:
+For audio-based transmission, MiniFT8 owns protocol-specific waveform generation and the application meaning of the two channels:
 
 ```text
 FT8 message
     -> encoded tone symbols
     -> CPFSK / waveform synthesis
-    -> 12 kHz / S16 / mono PCM
+    -> MiniFT8 TX source/profile channel mapping
+    -> 12 kHz / S16 / 2-channel PCM
     -> MiniShell TX Audio ABI
     -> backend-native conversion
     -> physical audio device
 ```
 
-MiniShell Audio must not know FT8, FT4, symbol counts, tone spacing, CPFSK, or QSO policy. It transports normalized PCM and performs only source/hardware/OS format conversion and buffering.
+For ordinary audio TX, MiniFT8 may place the same synthesized waveform in both channels unless a selected TX profile specifies another application-level mapping. MiniShell transports the two channels without interpreting them.
 
-This also creates a deterministic host test path where the TX Audio backend writes the generated PCM to a WAV file for independent decoding/regression checks.
+MiniShell Audio must not know FT8, FT4, symbol counts, tone spacing, CPFSK, I/Q meaning, or QSO policy. It transports normalized PCM and performs only source/hardware/OS format conversion and buffering.
+
+This also creates a deterministic host test path where the TX Audio backend writes the generated two-channel PCM to a WAV file for independent decoding/regression checks.
 
 ## 6. Control ABI requirement
 
@@ -249,7 +282,8 @@ Typical QDX-style path:
 ```text
 FT8 symbols
     -> MiniFT8 waveform synthesis
-    -> 12 kHz / S16 / mono
+    -> MiniFT8 channel mapping
+    -> 12 kHz / S16 / 2-channel
     -> MiniShell TX Audio ABI
     -> QDX UAC
 ```
@@ -303,23 +337,34 @@ The next RX vertical slice is:
 
 ```text
 tests/kfs16b12k.wav
-12 kHz / S16 / stereo
+12 kHz / S16 / 2-channel
         -> MiniShell WAV Audio provider
-        -> downmix to 12 kHz / S16 / mono
-        -> app_controller
-        -> ft8_engine
+        -> 12 kHz / S16 / 2-channel Audio ABI
+        -> MiniFT8 source/profile interpretation
+        -> ordinary-audio downmix for current FT8 decode
+        -> app_controller / ft8_engine
         -> decoded messages
         -> UiModel
         -> RX screen
 ```
 
-The later live QMX RX path must produce exactly the same application-facing format:
+A future I/Q source uses the same MiniShell Audio format:
 
 ```text
-QMX 48 kHz / 24-bit / stereo UAC
+QMX-IQ or another I/Q source
+        -> MiniShell Audio backend
+        -> 12 kHz / S16 / 2-channel
+        -> MiniFT8 source profile defines channel 0 = I, channel 1 = Q
+        -> I/Q DSP path
+```
+
+The later live QMX ordinary-audio path also produces the same application-facing transport format:
+
+```text
+QMX 48 kHz / 24-bit / 2-channel UAC
         -> MiniShell QMX Audio backend
-        -> 12 kHz / S16 / mono
-        -> identical MiniFT8 RX path
+        -> 12 kHz / S16 / 2-channel
+        -> MiniFT8 QMX-AUDIO profile
 ```
 
 Control can be implemented and tested independently because RX Audio, TX Audio, and Control are separate resources.
@@ -329,8 +374,8 @@ Control can be implemented and tested independently because RX Audio, TX Audio, 
 1. Start from required MiniFT8 behavior, then ask whether the existing MiniShell ABI expresses it.
 2. Add a MiniShell primitive only when it is generally reusable and justified by a real application requirement.
 3. RX Audio, TX Audio, and Control are independent logical resources; physical device identity must not couple them at the application boundary.
-4. MiniFT8 owns protocol-specific DSP, modulation, timing, symbol meaning, and TX waveform synthesis.
-5. MiniShell owns platform/hardware transport, normalized audio delivery, source/hardware-format conversion, and radio-specific control realization.
+4. MiniFT8 owns protocol-specific DSP, modulation, timing, symbol meaning, TX waveform synthesis, and channel semantics such as ordinary audio versus I/Q.
+5. MiniShell owns platform/hardware transport, normalized two-channel PCM delivery, source/hardware transport-format conversion, and radio-specific control realization; it does not interpret channel meaning.
 6. Keep one authoritative owner for mutable state/resource policy.
 7. Keep platform implementation below MiniShell.
 8. Prefer synchronous explicit calls until concurrency is actually required.
