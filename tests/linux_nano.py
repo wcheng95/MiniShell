@@ -84,6 +84,9 @@ def main() -> int:
                 if return_code != 0:
                     raise RuntimeError(f"MiniShell exited with {return_code}")
 
+                if b"\x1b[7m" not in transcript or b"\x1b[0m" not in transcript:
+                    raise RuntimeError("nano did not render the inverse-video cursor")
+
                 note = os.path.join(root, "sd", "note.txt")
                 with open(note, "rb") as handle:
                     content = handle.read()
