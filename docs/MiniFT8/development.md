@@ -74,10 +74,10 @@ The test then verifies:
 ```text
 12000 Hz
 PCM signed 16-bit
-2 channels (stereo)
+2 channels
 ```
 
-The MiniFT8 Audio ABI boundary remains **12 kHz / S16 / mono**. The WAV Audio provider therefore downmixes this fixture to mono before MiniFT8 receives it. This gives the provider a small real format-conversion responsibility while keeping the application boundary deterministic.
+It already matches the MiniFT8 Audio transport baseline, so the WAV provider should validate and stream the two channels without downmixing. Channel meaning belongs above MiniShell: a normal-audio MiniFT8 source profile may select or downmix the channels, while an I/Q profile may interpret channel 0 as I and channel 1 as Q.
 
 ## Development rule
 
@@ -98,48 +98,62 @@ Do not add broad generic services speculatively.
 
 ## Audio baseline
 
-The MiniShell Audio interface should be format-capable, but MiniFT8 V1 requires only:
+The MiniShell Audio interface should be format-capable, but MiniFT8 V1 requires the default transport format:
 
 ```text
 12000 Hz
 signed 16-bit PCM
-mono
+2 channels
 ```
 
 A V1 backend may support only this application-facing format and return `UNSUPPORTED` for other requested formats where conversion is not provided.
+
+MiniShell does not define whether the two channels mean stereo, duplicated mono, or I/Q. It preserves channel ordering and transports the samples. MiniFT8 and its selected RX/TX source profile assign channel meaning.
 
 RX ownership:
 
 ```text
 source-native audio
-    -> MiniShell backend/provider conversion
-    -> 12 kHz / S16 / mono
-    -> MiniFT8
+    -> MiniShell backend/provider transport-format conversion
+    -> 12 kHz / S16 / 2-channel
+    -> MiniFT8 source/profile interpretation
 ```
 
 For the checked-in WAV fixture:
 
 ```text
 tests/kfs16b12k.wav
-12 kHz / S16 / stereo
+12 kHz / S16 / 2-channel
     -> MiniShell WAV Audio provider
-    -> downmix
-    -> 12 kHz / S16 / mono
-    -> MiniFT8
+    -> unchanged two-channel Audio ABI stream
+    -> MiniFT8 normal-audio profile
+    -> select/downmix for current FT8 decoder
 ```
 
-For live QMX RX:
+For live QMX ordinary audio:
 
 ```text
-QMX UAC 48 kHz / 24-bit / stereo
+QMX UAC 48 kHz / 24-bit / 2-channel
     -> MiniShell QMX Audio backend
-    -> 12 kHz / S16 / mono
-    -> same MiniFT8 RX path
+    -> 12 kHz / S16 / 2-channel
+    -> MiniFT8 QMX-AUDIO profile
 ```
 
-If the FT8 decoder internally prefers 6 kHz float, that conversion stays inside MiniFT8/`ft8_engine`.
+For a future I/Q source:
 
-For audio TX, MiniFT8 synthesizes the FT8/FT4 waveform and writes 12 kHz / S16 / mono PCM to MiniShell. Hardware-native conversion stays below the ABI.
+```text
+QMX-IQ / SDR-IQ
+    -> MiniShell Audio backend
+    -> 12 kHz / S16 / 2-channel
+    -> MiniFT8 source profile
+       channel 0 = I
+       channel 1 = Q
+    -> I/Q DSP path
+```
+
+If the current FT8 decoder internally prefers 6 kHz mono float, the ordinary-audio select/downmix plus `12 kHz S16 -> 6 kHz float` conversion stays inside MiniFT8/`ft8_engine`.
+
+For audio TX, MiniFT8 synthesizes the FT8/FT4 waveform, applies the selected TX profile's channel mapping, and writes 12 kHz / S16 / 2-channel PCM to MiniShell. For ordinary audio TX the default may be the same waveform in both channels. Hardware-native conversion stays below the ABI.
 
 ## Control baseline
 
@@ -173,7 +187,9 @@ The next application-driven slice is deterministic FT8 RX:
 ```text
 tests/kfs16b12k.wav
         -> MiniShell WAV Audio provider
-        -> 12 kHz / S16 / mono Audio ABI
+        -> 12 kHz / S16 / 2-channel Audio ABI
+        -> MiniFT8 normal-audio source profile
+        -> select/downmix
         -> app_controller
         -> ft8_engine
         -> decoded messages
@@ -185,11 +201,14 @@ Desired test layers:
 
 ```text
 1. Audio ABI unit tests
-2. WAV-provider tests using tests/kfs16b12k.wav, including stereo -> mono conversion
-3. ft8_engine regression test using the normalized stream
-4. MiniFT8 integration test through app_controller
-5. live QMX Audio backend test after deterministic replay is stable
+2. WAV-provider tests using tests/kfs16b12k.wav, preserving both channels
+3. MiniFT8 normal-audio channel-selection/downmix test
+4. ft8_engine regression test using the resulting normalized decode stream
+5. MiniFT8 integration test through app_controller
+6. live QMX Audio backend test after deterministic replay is stable
 ```
+
+A later I/Q test can reuse the exact same Audio ABI and substitute a MiniFT8 source profile that interprets channel 0/1 as I/Q.
 
 Control can be implemented/tested independently of RX because the three resource paths are deliberately separate.
 
