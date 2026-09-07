@@ -1,6 +1,6 @@
 # MiniShell Audio ABI
 
-Status: **V1 service core implemented; Linux WAV RX provider implemented; append-only growth active**
+Status: **V1 implemented on the Linux reference target; append-only growth active**
 
 The Audio ABI provides platform-neutral PCM transport between an application and
 MiniShell-owned audio providers/backends. It is deliberately ignorant of digital
@@ -138,14 +138,6 @@ Endpoint naming/discovery is deliberately not frozen yet. Enumeration can be
 added later through append-only Audio API growth when real multiple-device use
 requires it.
 
-The Linux WAV RX provider interprets an absolute MiniShell logical path such as:
-
-```text
-/flash/MiniFT8/test.wav
-```
-
-It does not expose or accept a Linux host path as part of the application contract.
-
 ## 6. RX API
 
 ```c
@@ -186,8 +178,6 @@ when no more frames remain.
 
 For live/nonblocking providers, `MINI_WAIT_NONE`, finite millisecond timeouts, and
 `MINI_WAIT_FOREVER` use the same timeout constants already shared by MiniShell.
-
-A deterministic file provider does not sleep to emulate real-time pacing.
 
 ## 7. TX API
 
@@ -242,10 +232,6 @@ QMX native UAC: 48 kHz / 24-bit / 2-channel
 
 The backend preserves channel ordering through that conversion. It does not
 interpret the channel pair as stereo or I/Q.
-
-The initial Linux WAV provider deliberately implements the smaller exact-match
-case: PCM WAV input must already match the requested sample rate, S16 format, and
-channel count. Later format conversion can be added without changing the ABI.
 
 ## 9. Buffer ownership
 
@@ -310,8 +296,7 @@ Unit tests are primary and cover:
 - active TX abort during app teardown;
 - automatic RX/TX close during app teardown.
 
-The Linux provider integration test uses `tests/kfs16b12k.wav`, which matches the
-MiniFT8 requested `12000 / S16 / 2-channel` transport format. A runtime-loaded
-`audio_probe` reads the entire fixture, verifies the frame count and byte hash,
-and repeats the operation in the same MiniShell session to exercise cleanup and
-reopen behavior.
+The first Linux provider integration uses `tests/kfs16b12k.wav`, which matches the
+MiniFT8 requested `12000 / S16 / 2-channel` transport format. The WAV provider
+streams the two-channel PCM unchanged and is exercised by a runtime-loaded Audio
+probe and Linux integration test.
