@@ -15,6 +15,13 @@ int main(void)
      * ahead across the foreground handoff to the Input ABI. */
     (void)setvbuf(stdin, NULL, _IONBF, 0);
 
+    minishell_resource_limits_t limits = {0};
+    if (minishell_platform_resource_limits(&limits) != 0) {
+        fprintf(stderr, "MiniShell: invalid resource configuration\n");
+        minishell_platform_shutdown();
+        return 1;
+    }
+    minishell_services_set_resource_limits(&limits);
     minishell_services_configure(minishell_platform_services_port());
 
     puts("MiniShell");

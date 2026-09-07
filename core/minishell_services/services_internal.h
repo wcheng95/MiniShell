@@ -9,6 +9,8 @@
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
 
 const minishell_services_port_t *minishell_services_port(void);
+uint64_t minishell_memory_limit_bytes(void);
+uint64_t minishell_storage_limit_bytes(void);
 
 const mini_system_api_t *minishell_system_service_api(void);
 const mini_memory_api_t *minishell_memory_service_api(void);

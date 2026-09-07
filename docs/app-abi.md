@@ -86,6 +86,44 @@ Open directory handles are tracked as application-owned resources and are closed
 
 This primitive exists for general application needs such as MiniFT8 log discovery. `ls` is simply one application built on the same API.
 
+### Filesystem space
+
+Filesystem ABI v1 also appends:
+
+```c
+mini_result_t space(const char *path, mini_fs_space_t *out_space);
+```
+
+The result contains MiniShell-visible `total_bytes`, `used_bytes`, and `free_bytes`.
+These values describe the storage resource MiniShell permits applications to use;
+they are not required to expose the raw capacity of an underlying host disk.
+`df` is one consumer, but applications may use the same primitive before creating
+or expanding files.
+
+### Resource policy
+
+Resource limits are resident MiniShell policy and are not themselves an
+application service. Applications observe the policy through normal service
+behavior:
+
+```text
+Memory alloc/realloc beyond budget    -> MINI_ERR_NO_MEMORY
+Filesystem growth beyond budget       -> MINI_ERR_NO_SPACE
+Memory get_info                        -> MiniShell-visible usage/free values
+Filesystem space                       -> MiniShell-visible used/free/total
+```
+
+A host may deliberately constrain MiniShell to embedded-scale resources. A target
+with naturally limited resources may map the same semantics to its real memory and
+storage constraints.
+
+### UTC setting
+
+`MINI_TIMELOC_CAP_SET_UTC` means MiniShell UTC can be re-anchored with `utc_set()`.
+Whether that operation is durable is backend policy. Linux keeps the correction
+for the current MiniShell session only; a backend that owns a writable RTC may
+store the same setting in hardware.
+
 ## 6. Compatibility
 
 Applications check the ABI generation and only the fields/capabilities they actually require. Compatible append-only expansion does not require an ABI generation bump.

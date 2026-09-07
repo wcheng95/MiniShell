@@ -16,6 +16,7 @@ Applications
         |      MiniShell Core    |
         | shell / app lifecycle  |
         | portable service ABI   |
+        | resource policy        |
         +-----------+-----------+
                     |
            private backend API
@@ -42,7 +43,7 @@ exit
 
 `status` reports platform identity and MiniShell service availability. `run <app>` and direct `<app>` use the same internal application-launch path.
 
-There is no separate user-facing `exec` command in the Linux baseline. `put/get` are also omitted on Linux; platforms that need a serial, USB, BLE, or other provisioning/recovery transfer channel may add them later.
+There is no separate user-facing `exec` command in the Linux baseline. `put/get`, `suspend`, and `poweroff` are platform-dependent operations and are not faked on Mint merely to make command sets identical.
 
 ## Application model
 
@@ -54,6 +55,9 @@ Linux uses shared objects and `dlopen()` as its loader implementation. The loade
 M$> apps
 cat
 cp
+date
+df
+free
 hello
 ls
 mkdir
@@ -66,10 +70,14 @@ M$> ls /sd
 notes.txt
 logs/
 
-M$> nano /sd/notes.txt
-...
+M$> free
+used 0B  free 8.0M  total 8.0M
 
-M$>
+M$> df
+used 0B  free 64.0M  total 64.0M
+
+M$> date
+2026-09-07 00:10:00 UTC
 ```
 
 A native application currently exposes:
@@ -105,6 +113,29 @@ build-linux/runtime/apps/
 
 The Linux backend discovers `.so` applications in that directory. Set `MINISHELL_APP_DIR` to override it.
 
+## Resource policy
+
+MiniShell deliberately reports and enforces the resources available through MiniShell rather than exposing the much larger host machine directly.
+
+Linux defaults are:
+
+```text
+memory   8 MiB
+storage 64 MiB
+```
+
+Override them for experiments with:
+
+```bash
+MINISHELL_MEMORY_LIMIT=16M MINISHELL_STORAGE_LIMIT=128M ./build-linux/minishell
+```
+
+Accepted suffixes are `K`, `M`, and `G`; `0` means unlimited.
+
+The Memory service rejects MiniShell allocations beyond the memory budget. The Filesystem service accounts regular files under the logical MiniShell root and rejects writes that would exceed the storage budget. `free` and `df` report those same enforced budgets.
+
+These limits apply to resources acquired through the MiniShell ABI. Portable applications should therefore use MiniShell Memory and Filesystem services rather than bypassing them with host APIs.
+
 ## Current portable applications
 
 The same application source is used through the MiniShell ABI rather than through Linux/POSIX APIs:
@@ -113,6 +144,9 @@ The same application source is used through the MiniShell ABI rather than throug
 hello    minimal ABI example
 cat      display a text file
 cp       binary-safe file copy
+date     show/set MiniShell UTC
+df       MiniShell storage used/free/total
+free     MiniShell memory used/free/total
 ls       enumerate a directory
 mv       no-overwrite regular-file rename
 rm       remove one regular file
@@ -128,6 +162,16 @@ Ctrl-O   save
 Ctrl-W   search
 Ctrl-X   exit
 ```
+
+## Time model
+
+On Linux, MiniShell reads system UTC at startup and anchors it to `CLOCK_MONOTONIC`.
+
+```text
+MiniShell UTC = startup UTC anchor + monotonic elapsed
+```
+
+`date YYYY-MM-DD HH:MM:SS` re-anchors MiniShell UTC for the current session. It does not change Linux system time and the correction is not persisted across MiniShell restarts. A backend that owns a writable RTC may persist the same Time/Location ABI set operation.
 
 ## Public ABI
 
@@ -148,17 +192,18 @@ Display
 Input
 ```
 
-The Filesystem ABI supports regular-file operations, namespace operations, and directory iteration:
+The Filesystem ABI supports regular-file operations, namespace operations, directory iteration, and storage-space reporting:
 
 ```text
 dir_open(path)
 dir_read(handle)
 dir_close(handle)
+space(path)
 ```
 
 Directory handles are opaque MiniShell handles. Applications receive MiniShell-owned entry types and names, never POSIX `DIR *` or `struct dirent`. Open file and directory handles are reclaimed automatically at application exit.
 
-This directory API is application functionality, not an `ls` special case. MiniFT8 and other applications can use the same primitives to discover logs, configuration files, or other directory contents.
+The directory and space APIs are application functionality, not command-specific special cases. MiniFT8 and other applications can use them to discover logs and to reason about available MiniShell storage.
 
 The portable service core is shared with other MiniShell backends. Linux supplies POSIX implementations underneath it; applications never receive POSIX file descriptors, terminal objects, directory objects, or other host-specific types.
 
@@ -168,9 +213,9 @@ The portable service core is shared with other MiniShell backends. Linux supplie
 MiniShell service      Linux reference backend
 -------------------------------------------------------------
 System                 stdout terminal output
-Memory                 malloc/realloc/free + app accounting
-Filesystem             POSIX files/directories below logical root
-Time/Location          CLOCK_MONOTONIC, system UTC, default location
+Memory                 malloc/realloc/free beneath MiniShell quota
+Filesystem             POSIX files below logical root + MiniShell quota
+Time/Location          CLOCK_MONOTONIC + startup system UTC anchor
 Display                ANSI terminal text display
 Input                  terminal key events through poll/read
 ```
@@ -193,7 +238,7 @@ MiniShell may be thin or thick depending on the target:
 - **Tab5/ESP32-P4:** thin MiniShell layer over NuttX where practical; loadable apps are preferred.
 - **Cardputer ADV:** thick MiniShell backend is preferred because RAM is scarce. Apps may be compiled together if runtime loading is too expensive.
 
-The user-facing application model should remain consistent even when the implementation differs.
+The user-facing application model should remain consistent where that is useful, but platform-dependent operations are allowed to remain platform-dependent rather than being represented by fake implementations.
 
 ## Current Linux baseline
 
@@ -201,10 +246,12 @@ Automated tests cover:
 
 - application discovery and explicit/direct launch;
 - resident `status` behavior;
-- Memory allocation/reallocation/free and per-app accounting;
+- Memory allocation/reallocation/free, accounting, and quota enforcement;
 - logical Filesystem create/read/write/stat/rename/remove/mkdir/rmdir;
 - Filesystem directory open/read/close and file/directory classification;
-- `ls` using only the public Filesystem ABI;
+- Filesystem storage accounting and quota enforcement;
+- `free`, `df`, and `date` through the public ABI;
+- session-only `date` correction on Linux and reload from system UTC after restart;
 - monotonic time, sleep, system UTC, and persistent default-location operations;
 - terminal Display and real Input handoff through a pseudo-terminal;
 - `cat`, `cp`, `ls`, `mkdir`, `mv`, `rm`, and `rmdir` as runtime-loaded portable apps;
@@ -213,4 +260,4 @@ Automated tests cover:
 
 ## Next direction
 
-Use this Linux baseline as the application-development reference. New MiniShell service groups are added only when a real application requires them. MiniFT8-V3 will consume live QMX audio/CAT through future MiniShell services; file and simulated providers will live underneath those same MiniShell boundaries.
+The generic Linux MiniShell baseline is now complete. The next phase should be driven top-down by MiniFT8-V3 requirements. New service groups such as Audio or Radio/CAT should be added only when the application boundary has been defined and a real MiniFT8 vertical slice requires them.

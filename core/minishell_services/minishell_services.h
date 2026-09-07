@@ -17,6 +17,11 @@ typedef uintptr_t minishell_backend_dir_t;
 #define MINISHELL_BACKEND_DIR_INVALID ((minishell_backend_dir_t)0u)
 
 typedef struct {
+    uint64_t memory_bytes;
+    uint64_t storage_bytes;
+} minishell_resource_limits_t;
+
+typedef struct {
     void *ctx;
 
     /* System */
@@ -57,7 +62,7 @@ typedef struct {
     mini_result_t (*sleep_ms)(void *ctx, uint32_t milliseconds);
     uint64_t time_location_capabilities;
 
-    /* Optional persistent UTC and default-location storage. */
+    /* Optional platform UTC/default-location storage. */
     mini_result_t (*utc_load)(void *ctx, int64_t *out_seconds, uint32_t *out_nanoseconds);
     mini_result_t (*utc_store)(void *ctx, int64_t seconds, uint32_t nanoseconds);
     mini_result_t (*default_location_load)(void *ctx, int32_t *out_latitude_e7,
@@ -87,6 +92,7 @@ typedef struct {
 } minishell_services_port_t;
 
 /* Configure the resident service layer. Safe to call again in host tests. */
+void minishell_services_set_resource_limits(const minishell_resource_limits_t *limits);
 void minishell_services_configure(const minishell_services_port_t *port);
 
 /* Foreground application lifecycle hooks used by the app manager. */
