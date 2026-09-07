@@ -39,6 +39,13 @@ static void cmd_help(void)
     puts("exit              leave MiniShell");
 }
 
+static int api_has_audio(const mini_api_t *api)
+{
+    if (api == NULL) return 0;
+    const size_t end = offsetof(mini_api_t, audio) + sizeof(api->audio);
+    return api->struct_size >= end && api->audio != NULL;
+}
+
 static void cmd_status(void)
 {
     const mini_api_t *api = mini_api_get();
@@ -49,6 +56,7 @@ static void cmd_status(void)
     printf("time     : %s\n", api != NULL && api->time_location != NULL ? "ready" : "unavailable");
     printf("display  : %s\n", api != NULL && api->display != NULL ? "ready" : "unavailable");
     printf("input    : %s\n", api != NULL && api->input != NULL ? "ready" : "unavailable");
+    printf("audio    : %s\n", api_has_audio(api) ? "ready" : "unavailable");
 }
 
 static int run_app(const char *name, int argc, char **argv, int command_lookup)
