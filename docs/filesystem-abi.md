@@ -1,36 +1,84 @@
 # MiniShell Filesystem ABI
 
-Status: **foundational file I/O complete; Task-6 namespace extension implemented**
+Status: **implemented and exercised on the Linux reference backend; ABI generation 1 remains provisional but append-only-compatible growth is in use.**
 
-## 1. Purpose
+## Purpose
 
-The Filesystem ABI gives runtime applications byte-oriented access to MiniShell's
-logical file namespace without exposing FATFS, ESP-IDF VFS objects, libc `FILE *`,
-mount objects, SD/MMC drivers, or storage-hardware details.
+The Filesystem ABI gives applications a logical MiniShell namespace without exposing POSIX descriptors, `DIR *`, FATFS objects, mount structures, or storage-driver types.
 
 ```text
 application
     |
-    | MiniShell Filesystem ABI
-    v
-resident filesystem service
+Filesystem ABI
     |
-    v
-platform filesystem backend
+portable Filesystem service
     |
-    v
-storage hardware
+private backend
+    |
+Linux POSIX / NuttX / FATFS / other
 ```
 
-MiniShell owns mounts, backend objects, shared storage hardware, and logical file
-handles. Applications see only MiniShell paths, handles, structures, and result
-codes.
+The Filesystem service owns application-visible paths, file/directory handles, namespace semantics, lifecycle cleanup, and MiniShell storage quota behavior.
 
-## 2. Compatibility model
+## Logical namespace
 
-The original Filesystem table prefix is:
+Paths are absolute MiniShell paths:
 
 ```text
+/sd/log.txt
+/flash/config.ini
+```
+
+Rules implemented by the portable service include:
+
+- `/` separator;
+- repeated separators collapsed;
+- `.` ignored;
+- `..` normalized but may not escape `/`;
+- no platform path syntax crosses the ABI;
+- root is protected from destructive namespace operations.
+
+Linux maps this namespace under a private host root (normally `~/.local/share/minishell/fs`) but applications never see that path.
+
+## File handles
+
+```c
+typedef uint32_t mini_file_t;
+#define MINI_FILE_INVALID ((mini_file_t)0u)
+```
+
+Handles are opaque and owned by the current foreground app. The portable service uses generation-aware slots so stale handles are rejected. Remaining open handles are reclaimed at app teardown.
+
+## Directory handles
+
+```c
+typedef uint32_t mini_dir_t;
+#define MINI_DIR_INVALID ((mini_dir_t)0u)
+```
+
+Directory handles follow the same ownership/lifecycle rule. Applications never receive a backend directory object.
+
+## Open flags
+
+```c
+MINI_FS_READ
+MINI_FS_WRITE
+MINI_FS_CREATE
+MINI_FS_EXCL
+MINI_FS_TRUNC
+MINI_FS_APPEND
+```
+
+Important combinations:
+
+- at least READ or WRITE is required;
+- CREATE/EXCL/TRUNC/APPEND require the combinations enforced by the service;
+- unknown bits return `MINI_ERR_INVALID`;
+- APPEND writes start at logical EOF.
+
+## Core operations
+
+```c
 open
 close
 read
@@ -40,432 +88,128 @@ sync
 stat
 ```
 
-Task 6 appends four namespace-changing operations:
+Read/write support partial progress. EOF is `MINI_OK` plus zero bytes read. File positions and access permissions are tracked by the portable service rather than exposed as backend descriptors.
 
-```text
+## Namespace operations
+
+Append-only ABI growth added:
+
+```c
 rename
 remove_file
 mkdir
 rmdir
 ```
 
-No original field is reordered or given a new meaning. The top-level MiniShell ABI
-generation therefore remains unchanged.
+Current safety policy intentionally keeps rename narrow: no automatic overwrite. Recursive deletion/copy is not a primitive.
 
-Applications check `mini_fs_api_t.struct_size` only through the last field they
-actually require. An old application that requires only `read`, for example,
-continues to run against a newer table.
+## Directory iteration
 
-A newer MiniShell port may provide the original file operations while omitting
-backend support for one or more appended namespace operations. In that case the
-service remains available and the unsupported operation returns
-`MINI_ERR_UNSUPPORTED`.
-
-## 3. File handle
+Application requirements (including MiniFT8 log/file discovery) justified:
 
 ```c
-typedef uint32_t mini_file_t;
-#define MINI_FILE_INVALID ((mini_file_t)0u)
+mini_result_t (*dir_open)(const char *path, mini_dir_t *out_dir);
+mini_result_t (*dir_read)(mini_dir_t dir,
+                          mini_fs_dir_entry_t *out_entry,
+                          uint32_t *out_has_entry);
+mini_result_t (*dir_close)(mini_dir_t dir);
 ```
 
-A handle is an opaque application-visible token. Its value must not be treated as
-a pointer, libc descriptor, FATFS object, or platform handle.
-
-A valid handle belongs to the current foreground application until it is closed
-or reclaimed during application teardown.
-
-## 4. Paths
-
-Paths are NUL-terminated UTF-8 byte strings in the MiniShell logical namespace.
-
-Examples:
-
-```text
-/sd/notes.txt
-/flash/config.ini
-```
-
-Rules:
-
-- application paths are absolute and begin with `/`;
-- `/` is the path separator;
-- repeated separators are collapsed;
-- `.` components are ignored;
-- `..` may move upward but may not escape MiniShell root;
-- backend syntax such as FATFS `0:` is never exposed;
-- no fixed public `MINI_PATH_MAX` is part of the ABI;
-- UTF-8 is passed as bytes; Unicode normalization is not promised;
-- case sensitivity is backend-dependent, so portable apps must not depend on
-  names that differ only by case.
-
-Namespace-changing calls use the same normalization rules as `open()` and
-`stat()`.
-
-## 5. Open flags
+Directory entry:
 
 ```c
-#define MINI_FS_READ    (1u << 0)
-#define MINI_FS_WRITE   (1u << 1)
-#define MINI_FS_CREATE  (1u << 2)
-#define MINI_FS_EXCL    (1u << 3)
-#define MINI_FS_TRUNC   (1u << 4)
-#define MINI_FS_APPEND  (1u << 5)
-```
-
-Rules:
-
-- at least one of READ or WRITE is required;
-- CREATE requires WRITE;
-- EXCL requires CREATE;
-- TRUNC requires WRITE;
-- APPEND requires WRITE;
-- unknown flag bits return `MINI_ERR_INVALID`.
-
-Semantics:
-
-```text
-READ     open an existing file for reading
-WRITE    open an existing file for writing without truncating
-CREATE   create if absent; preserve if present
-EXCL     with CREATE, fail when already present
-TRUNC    reduce the opened file to zero length
-APPEND   every write begins at EOF
-```
-
-## 6. Seek origins
-
-```c
-#define MINI_FS_SEEK_SET 0u
-#define MINI_FS_SEEK_CUR 1u
-#define MINI_FS_SEEK_END 2u
-```
-
-A resulting position below zero is invalid. V1 does not promise sparse-file
-creation by seeking past EOF. A failed seek leaves the previous position
-unchanged.
-
-## 7. Stat
-
-```c
-#define MINI_FS_TYPE_FILE       1u
-#define MINI_FS_TYPE_DIRECTORY  2u
+#define MINI_FS_NAME_MAX 255u
 
 typedef struct {
     uint32_t struct_size;
     uint32_t type;
-    uint64_t size;
-} mini_fs_stat_t;
+    char name[MINI_FS_NAME_MAX + 1u];
+} mini_fs_dir_entry_t;
 ```
 
-The caller zero-initializes the structure and sets `struct_size`. For directories,
-`size` is backend-dependent and has no portable meaning.
+`dir_read()` returns `MINI_OK` at both a normal entry and end-of-directory; `out_has_entry` distinguishes them. `.` and `..` are filtered by the portable service. Entry type is reduced to MiniShell file/directory values.
 
-V1 does not expose timestamps, ownership, permissions, links, or backend-specific
-attributes.
+`ls` is simply one portable consumer of this API.
 
-## 8. Service table
+## Space/quota information
+
+Resource-policy requirements justified:
 
 ```c
-typedef struct {
-    uint32_t struct_size;
-
-    mini_result_t (*open)(const char *path,
-                          uint32_t flags,
-                          mini_file_t *out_file);
-
-    mini_result_t (*close)(mini_file_t file);
-
-    mini_result_t (*read)(mini_file_t file,
-                          void *buffer,
-                          uint32_t size,
-                          uint32_t *out_read);
-
-    mini_result_t (*write)(mini_file_t file,
-                           const void *buffer,
-                           uint32_t size,
-                           uint32_t *out_written);
-
-    mini_result_t (*seek)(mini_file_t file,
-                          int64_t offset,
-                          uint32_t origin,
-                          uint64_t *out_position);
-
-    mini_result_t (*sync)(mini_file_t file);
-
-    mini_result_t (*stat)(const char *path,
-                          mini_fs_stat_t *out_stat);
-
-    /* Task-6 append-only extension. */
-    mini_result_t (*rename)(const char *old_path,
-                            const char *new_path);
-
-    mini_result_t (*remove_file)(const char *path);
-    mini_result_t (*mkdir)(const char *path);
-    mini_result_t (*rmdir)(const char *path);
-} mini_fs_api_t;
+mini_result_t (*space)(const char *path,
+                       mini_fs_space_t *out_space);
 ```
 
-## 9. `open()`
+with:
 
 ```c
-mini_result_t open(const char *path,
-                   uint32_t flags,
-                   mini_file_t *out_file);
+total_bytes
+used_bytes
+free_bytes
 ```
 
-`path` and `out_file` are required. `*out_file` is set to
-`MINI_FILE_INVALID` before the attempt. The path must resolve to a regular file,
-not a directory.
+These values describe **MiniShell-visible storage**, not necessarily the physical device's raw capacity.
 
-On success the initial file position is byte zero. APPEND semantics affect writes.
+On Linux the default MiniShell storage limit is 64 MiB. The Filesystem service enforces growth against the configured limit, and `df` reports the same enforced domain. A limit of zero means no MiniShell quota; a backend may then expose its meaningful native capacity if supported by policy.
 
-## 10. `close()`
+`path` remains part of the API because future platforms may expose distinct storage resources such as `/sd` and `/flash` with different capacities.
 
-```c
-mini_result_t close(mini_file_t file);
-```
+## Storage accounting policy
 
-After `close()` returns, the logical handle is invalid even if backend close
-reported an error. Applications that care about persistence errors should call
-`sync()` explicitly before close.
+When a MiniShell storage quota is active, the service scans regular-file sizes under the logical namespace and checks requested file growth before writes. Namespace/directories do not consume quota bytes in the current policy; regular-file content does.
 
-Closing an invalid, stale, already-closed, or foreign handle returns
-`MINI_ERR_BAD_HANDLE`.
+To keep accounting deterministic, the current service prevents simultaneous writable handles to the same normalized logical path.
 
-## 11. `read()`
-
-```c
-mini_result_t read(mini_file_t file,
-                   void *buffer,
-                   uint32_t size,
-                   uint32_t *out_read);
-```
-
-- `out_read` is required and initialized to zero;
-- `buffer` is required when `size > 0`;
-- the handle must have READ access;
-- partial reads are valid;
-- EOF is `MINI_OK` plus `*out_read == 0`;
-- zero-byte reads succeed.
-
-Callers needing an exact count must loop.
-
-## 12. `write()`
-
-```c
-mini_result_t write(mini_file_t file,
-                    const void *buffer,
-                    uint32_t size,
-                    uint32_t *out_written);
-```
-
-- `out_written` is required and initialized to zero;
-- `buffer` is required when `size > 0`;
-- the handle must have WRITE access;
-- partial writes are valid;
-- zero-byte writes succeed;
-- for `size > 0`, `MINI_OK` must report positive progress;
-- APPEND writes begin at EOF regardless of the current seek position.
-
-Callers needing all bytes written must loop.
-
-## 13. `seek()`
-
-```c
-mini_result_t seek(mini_file_t file,
-                   int64_t offset,
-                   uint32_t origin,
-                   uint64_t *out_position);
-```
-
-`out_position` is required and initialized to zero. On success it receives the
-new absolute position. On failure the old position remains unchanged.
-
-## 14. `sync()`
-
-```c
-mini_result_t sync(mini_file_t file);
-```
-
-`sync()` requests that pending file data and relevant metadata be flushed as far
-as the backend can provide. `MINI_OK` does not promise atomic replacement,
-journaling, or survival under every sudden-power-loss scenario.
-
-## 15. `stat()`
-
-```c
-mini_result_t stat(const char *path,
-                   mini_fs_stat_t *out_stat);
-```
-
-A missing path returns `MINI_ERR_NOT_FOUND`. The output structure must include the
-minimum established `mini_fs_stat_t` prefix.
-
-## 16. `rename()`
-
-```c
-mini_result_t rename(const char *old_path,
-                     const char *new_path);
-```
-
-Task-6 V1 semantics are deliberately narrower than POSIX rename:
-
-- source must be a regular file;
-- directories are rejected with `MINI_ERR_IS_DIR`;
-- source and destination are normalized before comparison;
-- the MiniShell root `/` may not be renamed or used as the destination;
-- renaming a regular file to the same normalized path is a successful no-op;
-- destination must not already exist;
-- an existing destination returns `MINI_ERR_EXISTS` and is not modified;
-- no copy-and-delete fallback is performed;
-- cross-filesystem rename may return `MINI_ERR_UNSUPPORTED`.
-
-The no-overwrite rule is a deliberate safety boundary for the initial
-non-journaled FAT backend. A future explicit replace operation can be designed if
-a real application requires it.
-
-## 17. `remove_file()`
-
-```c
-mini_result_t remove_file(const char *path);
-```
-
-- removes exactly one regular file;
-- directory operands return `MINI_ERR_IS_DIR`;
-- `/` cannot be removed as a file;
-- missing path returns `MINI_ERR_NOT_FOUND`;
-- recursive deletion is not part of this operation.
-
-## 18. `mkdir()`
-
-```c
-mini_result_t mkdir(const char *path);
-```
-
-- creates exactly one directory;
-- the parent must already exist and be a directory;
-- an existing path returns `MINI_ERR_EXISTS`;
-- `mkdir("/")` returns `MINI_ERR_EXISTS`;
-- recursive `-p` behavior is not part of the ABI.
-
-## 19. `rmdir()`
-
-```c
-mini_result_t rmdir(const char *path);
-```
-
-- removes exactly one empty directory;
-- regular-file operands return `MINI_ERR_NOT_DIR`;
-- non-empty directory returns `MINI_ERR_NOT_EMPTY`;
-- the root `/` is protected and returns `MINI_ERR_ACCESS`;
-- recursive removal is not part of the ABI.
-
-The Tab5/FATFS backend explicitly detects directory contents before calling the
-ESP-IDF VFS `rmdir()` path because FatFS uses `FR_DENIED` for a non-empty
-directory and ESP-IDF maps `FR_DENIED` to `EACCES`. That backend quirk must not
-leak through the public MiniShell result namespace.
-
-## 20. Ownership and teardown
-
-MiniShell owns backend file resources while an application owns its logical
-handles.
-
-If an app returns with open handles, MiniShell reclaims them before unloading the
-ELF:
+## Ownership and one-owner rule
 
 ```text
-app returns
-   -> reclaim open file resources
-   -> unload ELF
-   -> shell resumes
+application owns logical handle token
+        |
+Filesystem service owns handle state + path/quota semantics
+        |
+backend owns native operation objects
+        |
+OS/driver owns physical storage implementation
 ```
 
-Automatic teardown is a safety net, not a replacement for normal close/error
-handling.
+The application cannot bypass this model and remain portable.
 
-Namespace operations are synchronous and do not create persistent MiniShell
-handles.
+## Compatibility
 
-## 21. Shared errors
+The table grew by appending fields. Existing prefixes keep their field offsets and meanings. Applications should check `struct_size` only through the last field they require.
 
-Filesystem calls use `mini_result_t`. Relevant values include:
+Backend/platform errors are translated to `mini_result_t`; `errno`, FATFS values, or SDK errors do not cross the public boundary.
 
-```text
-MINI_ERR_INVALID
-MINI_ERR_NOT_FOUND
-MINI_ERR_EXISTS
-MINI_ERR_BAD_HANDLE
-MINI_ERR_ACCESS
-MINI_ERR_IO
-MINI_ERR_NO_SPACE
-MINI_ERR_TOO_MANY_OPEN
-MINI_ERR_NAME_TOO_LONG
-MINI_ERR_UNSUPPORTED
-MINI_ERR_NOT_DIR
-MINI_ERR_IS_DIR
-MINI_ERR_NO_MEMORY
-MINI_ERR_NOT_EMPTY
-```
+## Current verification
 
-Backend values such as `errno`, FATFS `FRESULT`, or `esp_err_t` never cross the
-public ABI.
+Linux tests exercise:
 
-## 22. Deferred functionality
+- file create/read/write/stat/rename/remove/mkdir/rmdir;
+- path normalization and root escape protection;
+- handle lifecycle/cleanup;
+- directory open/read/close and file/directory classification;
+- portable `ls` including root `/sd` and `/flash` presentation;
+- quota enforcement and `space()`/`df` behavior.
 
-Still deliberately out of scope:
+## Deliberately deferred
+
+No current portable requirement justifies:
 
 ```text
-opendir / readdir / closedir
-current working directory
-wildcards / globbing
-permissions / ownership
+working directory / cd
+wildcards/globbing
+permissions/ownership
 links
-locking
-memory mapping
-asynchronous I/O
-mount / unmount
-filesystem-specific controls
-recursive copy/remove
-atomic generic replace
-storage-capacity/free-space query
+file locking
+mmap
+async I/O
+mount/unmount ABI
+recursive copy/remove primitive
+implicit overwrite/replace
 ```
 
-`df` is expected to drive the future storage-capacity/free-space extension.
+Add these only when a real application needs a generally useful primitive.
 
-## 23. Verification
+## Internal housekeeping
 
-### Host unit tests
-
-The filesystem service tests cover:
-
-- path normalization and root-escape rejection;
-- open flag combinations;
-- create/exclusive/truncate/append behavior;
-- logical handle ownership/staleness/teardown;
-- permissions on read/write handles;
-- partial reads and writes;
-- EOF and zero-byte operations;
-- seek semantics and failed-seek position preservation;
-- sync;
-- stat and extensible structure size;
-- regular-file rename and normalized same-path no-op;
-- no-overwrite rename;
-- root rename protection;
-- regular-file deletion and directory rejection;
-- mkdir existing/missing-parent cases;
-- non-empty and empty rmdir cases;
-- optional namespace backend hooks returning `MINI_ERR_UNSUPPORTED` without
-  disabling the foundational Filesystem service.
-
-### Runtime-loaded ELF integration
-
-`abi_fs.elf` verifies the original open/read/write/stat path and then performs:
-
-```text
-mkdir -> rename regular file -> remove_file -> rmdir
-```
-
-### Hardware validation
-
-The Tab5 test must prove the same namespace lifecycle on the real SD/FATFS backend
-and confirm that older applications using the established table prefix still run.
+The Filesystem service remains the single semantic owner, but `filesystem_service.c` has grown large enough that private path/handle/quota helpers should eventually be split into smaller implementation modules. This should not change the public API or ownership model. See `docs/consistency-check.md`.
