@@ -141,7 +141,7 @@ rmdir    justified rmdir + MINI_ERR_NOT_EMPTY
 ls       justified dir_open / dir_read / dir_close because applications need discovery
 free     existing Memory ABI was sufficient once MiniShell resource policy existed
 date     existing Time/Location ABI was sufficient
- df      justified append-only Filesystem space(path)
+df       justified append-only Filesystem space(path)
 ```
 
 Do not expand an ABI merely to imitate POSIX or GNU utilities.
