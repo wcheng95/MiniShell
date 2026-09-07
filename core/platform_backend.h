@@ -10,6 +10,7 @@ int minishell_platform_init(void);
 void minishell_platform_shutdown(void);
 void minishell_platform_write(const char *text);
 const char *minishell_platform_name(void);
+int minishell_platform_resource_limits(minishell_resource_limits_t *out_limits);
 
 const minishell_services_port_t *minishell_platform_services_port(void);
 
