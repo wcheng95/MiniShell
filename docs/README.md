@@ -37,7 +37,8 @@ abi/
 ├── filesystem-abi.md
 ├── time-location-abi.md
 ├── display-abi.md
-└── input-abi.md
+├── input-abi.md
+└── audio-abi.md
 ```
 
 `include/minishell/api.h` remains the executable source of truth. The documents explain intent, semantics, ownership, and compatibility rules.
@@ -77,7 +78,7 @@ These files record the current command baseline, architecture audits/known debt,
 
 ## Legacy Tab5 work
 
-The earlier Tab5/ESP-IDF-first implementation, milestone documents, ELF tests, transfer/power experiments, and associated build files were removed from active `main` after the Linux baseline became canonical.
+The earlier Tab5/ESP32-P4-first implementation, milestone documents, ELF tests, transfer/power experiments, and associated build files were removed from active `main` after the Linux baseline became canonical.
 
 They remain available in:
 
