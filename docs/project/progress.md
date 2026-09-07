@@ -99,9 +99,7 @@ M$> MiniFT8
 M$>
 ```
 
-MiniFT8 no longer has a direct Linux/ncurses platform layer in the active implementation. Its storage service no longer uses `FILE *`, `fopen`, `fread`, `fwrite`, or host `rename`; it uses the MiniShell Filesystem ABI.
-
-The integration adds a pure UI smoke test and a real PTY runtime test that changes settings, verifies safe persistence, exits to `M$>`, relaunches, and verifies saved state is restored.
+MiniFT8 no longer has a direct Linux/ncurses platform layer in the active implementation. Its storage service uses the MiniShell Filesystem ABI rather than host stdio.
 
 ### Audio ABI V1 and deterministic WAV RX
 
@@ -119,7 +117,7 @@ MiniShell preserves channel order but does not assign stereo/I/Q meaning. MiniFT
 
 The Linux reference target includes a deterministic WAV RX provider. `tests/kfs16b12k.wav` is streamed unchanged through the Audio ABI, and CI verifies exact two-channel payload preservation plus teardown/reopen behavior.
 
-Control remains separate from Audio. The first Control requirements are documented from QMX/QDX behavior, but device/radio `set_time` is intentionally deferred as a future capability.
+Control remains separate from Audio. Device/radio `set_time` is intentionally deferred as a future Control capability.
 
 ## Current validated baseline
 
@@ -154,7 +152,7 @@ exit
 
 `put/get` and power commands are platform-dependent and intentionally absent from the Linux baseline.
 
-CI covers the Linux runtime/integration suite, MiniFT8 UI/runtime integration, Audio ABI/WAV integration, and the retained platform-neutral unit suite.
+CI covers the Linux runtime/integration suite, MiniFT8 UI/runtime integration, Audio ABI/WAV integration, and the platform-neutral unit suite.
 
 ## Remaining internal housekeeping debt
 
