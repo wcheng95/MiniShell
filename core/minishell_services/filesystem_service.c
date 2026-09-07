@@ -410,18 +410,39 @@ static mini_result_t fs_rename(const char *old_path, const char *new_path)
         return MINI_ERR_ACCESS;
     }
 
-    uint32_t type = 0u;
-    uint64_t size = 0u;
-    result = port->fs_stat(port->ctx, old_normalized, &type, &size);
+    uint32_t source_type = 0u;
+    uint64_t source_size = 0u;
+    result = port->fs_stat(port->ctx, old_normalized, &source_type, &source_size);
     if (result != MINI_OK) return result;
-    if (type != MINI_FS_TYPE_FILE) return MINI_ERR_IS_DIR;
+    if (source_type != MINI_FS_TYPE_FILE) return MINI_ERR_IS_DIR;
     if (strcmp(old_normalized, new_normalized) == 0) return MINI_OK;
 
-    result = port->fs_stat(port->ctx, new_normalized, &type, &size);
-    if (result == MINI_OK) return MINI_ERR_EXISTS;
-    if (result != MINI_ERR_NOT_FOUND) return result;
+    uint64_t old_hash = hash_path(old_normalized);
+    uint64_t new_hash = hash_path(new_normalized);
+    if (writable_hash_in_use(old_hash) || writable_hash_in_use(new_hash)) {
+        return MINI_ERR_ACCESS;
+    }
 
-    return port->fs_rename(port->ctx, old_normalized, new_normalized);
+    bool destination_exists = false;
+    uint32_t destination_type = 0u;
+    uint64_t destination_size = 0u;
+    result = port->fs_stat(port->ctx, new_normalized,
+                           &destination_type, &destination_size);
+    if (result == MINI_OK) {
+        if (destination_type != MINI_FS_TYPE_FILE) return MINI_ERR_IS_DIR;
+        destination_exists = true;
+    } else if (result != MINI_ERR_NOT_FOUND) {
+        return result;
+    }
+
+    result = port->fs_rename(port->ctx, old_normalized, new_normalized);
+    if (result != MINI_OK) return result;
+
+    if (destination_exists && s_storage_usage_valid) {
+        s_storage_used = destination_size <= s_storage_used
+                             ? s_storage_used - destination_size : 0u;
+    }
+    return MINI_OK;
 }
 
 static mini_result_t fs_remove_file(const char *path)

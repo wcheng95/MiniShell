@@ -19,8 +19,11 @@ def main() -> int:
         sd = os.path.join(root, "sd")
         os.makedirs(sd, exist_ok=True)
         source = os.path.join(sd, "source.txt")
+        destination = os.path.join(sd, "destination.txt")
         with open(source, "w", encoding="utf-8") as handle:
             handle.write(payload)
+        with open(destination, "w", encoding="utf-8") as handle:
+            handle.write("old destination\n")
 
         env = os.environ.copy()
         env["MINISHELL_APP_DIR"] = app_dir
@@ -32,11 +35,11 @@ def main() -> int:
                 "cat /sd/source.txt",
                 "cp /sd/source.txt /sd/copy.txt",
                 "cat /sd/copy.txt",
+                "mv /sd/copy.txt /sd/destination.txt",
+                "cat /sd/destination.txt",
                 "mkdir /sd/work",
-                "mv /sd/copy.txt /sd/work/moved.txt",
-                "cat /sd/work/moved.txt",
-                "rm /sd/work/moved.txt",
                 "rmdir /sd/work",
+                "rm /sd/destination.txt",
                 "exit",
                 "",
             ]
@@ -67,7 +70,10 @@ def main() -> int:
             return 1
 
         if os.path.exists(os.path.join(sd, "copy.txt")):
-            print("copy.txt still exists after mv/rm")
+            print("copy.txt still exists after mv")
+            return 1
+        if os.path.exists(destination):
+            print("destination.txt still exists after rm")
             return 1
         if os.path.exists(os.path.join(sd, "work")):
             print("work directory still exists after rmdir")
