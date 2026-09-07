@@ -18,11 +18,9 @@ This check reviews the active Linux reference implementation against four projec
 | One owner | PASS WITH DEBT | Service ownership is clear. Linux terminal ownership is split somewhat between shell stdio and the Linux backend. |
 | Small understandable modules | PASS WITH DEBT | Most modules are small/cohesive; `filesystem_service.c` and especially `linux_backend.c` should be decomposed. |
 
-There is no reason to redesign the public ABI because of these findings. The debt is internal housekeeping.
+There is no reason to redesign the public ABI because of these findings. The remaining debt is internal housekeeping.
 
 ## Active dependency direction
-
-The current root CMake build follows:
 
 ```text
 portable app
@@ -45,8 +43,6 @@ POSIX / Linux
 
 Applications do not receive POSIX descriptors, `DIR *`, terminal objects, ESP-IDF types, NuttX types, or board-driver handles.
 
-`core/main.c` is a small composition/orchestration entry point. `core/app_manager.c` owns the foreground application lifecycle. `core/minishell_services/services.c` composes the public service table and coordinates per-app service lifecycle.
-
 ## Ownership map
 
 | Resource/state | MiniShell owner | Backend/provider role |
@@ -54,23 +50,18 @@ Applications do not receive POSIX descriptors, `DIR *`, terminal objects, ESP-ID
 | Application lifecycle | `app_manager` | platform loader prepares/releases native app |
 | Public API table | service composition | backend supplies implementation primitives only |
 | App allocations | Memory service | Linux supplies malloc/realloc/free |
-| Logical file handles | Filesystem service | Linux supplies POSIX file operations |
-| Logical directory handles | Filesystem service | Linux supplies POSIX directory operations |
+| Logical file/directory handles | Filesystem service | Linux supplies POSIX primitives |
 | MiniShell storage quota | Filesystem service/resource policy | Linux supplies files below logical root |
 | UTC anchor and effective location | Time/Location service | Linux supplies startup UTC and location persistence |
 | Logical input queue | Input service | Linux terminal parser produces normalized events |
-| Logical display semantics | Display service | Linux maps text operations to terminal/ANSI behavior |
-| Runtime app discovery/loading | app manager + private platform loader contract | Linux uses `.so`/`dlopen()` |
-
-This is the intended meaning of one-owner on Linux: Linux may physically own hardware/resources, but applications have one MiniShell gateway and one MiniShell module owns the application-visible semantics.
+| Logical display semantics | Display service | Linux maps text operations to terminal behavior |
+| Runtime app discovery/loading | app manager + private loader contract | Linux uses `.so`/`dlopen()` |
 
 ## Good examples
 
-### Portable applications
+Portable utilities use the public ABI rather than POSIX. `ls` uses Filesystem directory iteration; `df` uses `space()`; `free` uses Memory `get_info()`; `date` uses Time/Location.
 
-The current utilities use the public ABI rather than POSIX. `ls` uses Filesystem directory iteration; `df` uses Filesystem `space()`; `free` uses Memory `get_info()`; `date` uses Time/Location.
-
-`nano` is a good modular example:
+`nano` remains a good modular example:
 
 ```text
 nano.c          orchestration/input policy
@@ -80,91 +71,41 @@ nano_ui.c       rendering through Display ABI
 nano_util.c     small string helpers
 ```
 
-No nano module owns platform terminal or filesystem implementation details.
-
-### Portable service ownership
-
-Memory owns allocation bookkeeping and cleanup. Filesystem owns logical handles/path rules/quota semantics. Input owns the normalized event queue. This prevents backends from leaking platform ownership into applications.
-
 ## Housekeeping debt
 
 ### H1 — split the Linux backend
 
-`platform/linux/linux_backend.c` is approximately 34 KB and currently contains several independent responsibilities:
-
-```text
-filesystem primitives
-memory primitives
-UTC/location persistence
-display/ANSI rendering
-terminal input parsing + termios handoff
-application discovery/loading
-platform path/bootstrap logic
-```
-
-This violates the project's understandability goal even though the private interface is clean.
-
-Preferred decomposition, without changing the public ABI:
-
-```text
-linux_platform.c       composition/init
-linux_memory.c         allocator primitives
-linux_fs.c             POSIX filesystem primitives
-linux_time.c           monotonic/UTC/location persistence
-linux_terminal.c       terminal display/input + foreground handoff
-linux_app_loader.c     discovery/dlopen lifecycle
-resource_config.c      existing resource policy configuration
-platform_info.c        existing identity
-```
+`platform/linux/linux_backend.c` contains several independent responsibilities: filesystem primitives, memory primitives, UTC/location, display/input terminal handling, app loading, and platform bootstrap. Split it when convenient without changing the public ABI.
 
 ### H2 — remove POSIX details from portable core
 
-`core/shell.c` currently includes `errno.h` and interprets `-ENOENT` from the private app-loader path. `core/main.c` and the shell also directly use libc stdin/stdout for shell I/O.
-
-This works on the Linux reference target, but the long-term core should not require POSIX error values or Linux-terminal ownership assumptions.
-
-Future cleanup should introduce a small platform-neutral internal loader result and clarify one terminal/shell I/O owner. This is an internal refactor; applications and the public ABI should not change.
+`core/shell.c` still interprets a POSIX-style loader error and shell/stdin ownership is partly libc-specific. Introduce platform-neutral internal loader results and clarify terminal ownership later.
 
 ### H3 — split Filesystem service internals
 
-`core/minishell_services/filesystem_service.c` is approximately 24 KB. It is conceptually cohesive but contains enough independent mechanisms to make review harder:
+`core/minishell_services/filesystem_service.c` is conceptually one owner but contains path normalization, handles, quota accounting, namespace operations, directory iteration, and space reporting. Move private helpers into focused files when useful; do not split ownership merely to reduce line count.
+
+### H4 — legacy Tab5 tree: RESOLVED
+
+The dormant pre-Linux Tab5/ESP-IDF source, old milestone docs, ELF tests, transfer/power experiments, and obsolete build/tooling files were removed from active `main`.
+
+The complete pre-cleanup state is preserved in:
 
 ```text
-path normalization
-file/directory handle tables
-storage usage/quota accounting
-file operations
-namespace operations
-directory iteration
-space reporting
+archive/tab5-legacy
 ```
-
-Keep one Filesystem service owner, but move private helpers into focused files such as `fs_path.c`, `fs_handles.c`, and `fs_quota.c` when convenient. Do not split ownership merely to reduce line count.
-
-### H4 — dormant pre-Linux source tree
-
-The repository still contains earlier ESP-IDF/Tab5 code (`main/`, old `core/minishell_*` modules, and `platform/minishell_platform_tab5/`) that is not part of the current root Linux build.
-
-Git already preserves history, so this should eventually be removed from the active tree or deliberately archived once we are certain nothing is still needed as a porting reference. Until then it must be treated as historical, not canonical.
 
 ### H5 — Linux terminal escape parser robustness
 
-The current Linux key parser handles the tested terminal sequences, but an ANSI/CSI sequence split across separate `read()` chunks can be misinterpreted. A stateful parser should be added before terminal input becomes more demanding.
+The current Linux key parser handles the tested terminal sequences, but an ANSI/CSI sequence split across separate `read()` chunks can be misinterpreted. Add parser state before terminal input becomes more demanding.
 
 ## Module-size rule
 
-MiniShell deliberately has no rigid source-line limit. The review question is:
+MiniShell has no rigid source-line limit. The review question is:
 
 > Can one developer explain the module's responsibility, state, inputs/outputs, and failure behavior without also understanding several unrelated subsystems?
 
-Split a module when either:
-
-- it owns several independent domains;
-- tests naturally separate into unrelated groups;
-- a change in one concern repeatedly risks another;
-- the file becomes difficult to read as one conceptual unit.
-
-A large module that has one coherent state machine may remain one module. A smaller file mixing unrelated ownership should still be split.
+Split a module when it owns several independent domains, tests naturally separate into unrelated groups, changes repeatedly cross concerns, or the file is difficult to read as one conceptual unit.
 
 ## Gate for future work
 

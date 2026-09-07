@@ -2,8 +2,6 @@
 
 This directory contains applications that use only the public MiniShell ABI.
 
-Applications are intentionally separated from the resident MiniShell runtime:
-
 ```text
 application source
       |
@@ -14,7 +12,7 @@ MiniShell ABI
 MiniShell runtime + platform backend
 ```
 
-The same application source can be built for different MiniShell targets. The loader/container format is platform-specific and is not part of the application contract.
+The same source can be built for different MiniShell targets. Loader/container format is platform-specific and is not part of the application contract.
 
 On Linux, the reference build produces runtime-loadable `.so` modules under:
 
@@ -26,15 +24,19 @@ Current applications:
 
 ```text
 hello    minimal ABI example
-cat      simple text-file display utility
-cp       binary-safe file copy utility
-mv       no-overwrite regular-file rename
-rm       remove one regular file
+cat      text-file display
+cp       binary-safe file copy
+date     show/set MiniShell UTC
+df       MiniShell storage usage
+free     MiniShell memory usage
+ls       directory listing
 mkdir    create one directory
-rmdir    remove one empty directory
+mv       no-overwrite regular-file rename
 nano     interactive text editor
+rm       remove one regular file
+rmdir    remove one empty directory
 ```
 
-Applications use MiniShell paths such as `/sd/notes.txt`; they do not know the host filesystem path behind that namespace.
+Applications use MiniShell logical paths such as `/sd/notes.txt`; they do not know the host filesystem path behind that namespace.
 
-A portable application must not depend on POSIX, NuttX, ESP-IDF, FreeRTOS, or board-specific types. Platform-specific applications are possible, but they must be explicitly documented as such.
+A portable application must not depend on POSIX, NuttX, ESP-IDF, FreeRTOS, or board-specific types.

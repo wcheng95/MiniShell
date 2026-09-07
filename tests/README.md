@@ -1,17 +1,11 @@
 # MiniShell Tests
 
-MiniShell uses a unit-first test hierarchy:
+MiniShell uses two active Linux test layers:
 
-1. host unit tests for service/module semantics and edge cases;
-2. separately built ELF tests for the application ABI/runtime boundary;
-3. real-hardware checks for platform backends and resident facilities.
+1. host unit tests for portable service/module semantics;
+2. Linux runtime/integration tests for the real shell, loader, terminal handoff, and portable applications.
 
-The `tests/unit` suite covers all six foundational ABIs, resident modules such as
-file transfer and power/system, and pure application logic where it benefits from
-host testing. Error paths and state transitions can therefore remain deterministic
-without hardware.
-
-## Run the host unit tests
+## Host unit tests
 
 From the repository root:
 
@@ -21,11 +15,36 @@ cmake --build build-unit
 ctest --test-dir build-unit --output-on-failure
 ```
 
-The suite builds as ordinary C and deliberately does not require ESP-IDF.
+Current unit groups cover:
 
-## Sanitizer run
+```text
+abi_system_unit
+abi_memory_unit
+abi_filesystem_unit
+abi_time_location_unit
+abi_display_unit
+abi_input_unit
+nano_editor_unit
+cp_copy_unit
+```
 
-On a host compiler that supports sanitizers:
+The suite is ordinary host C and does not require ESP-IDF.
+
+## Linux integration tests
+
+The root Linux build registers the runtime/integration suite:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux
+ctest --test-dir build-linux --output-on-failure
+```
+
+These tests exercise application discovery/loading, service behavior, terminal input, portable utilities, nano PTY editing, directory iteration, and resource/date behavior.
+
+## Sanitizers
+
+For the unit suite on a compatible compiler:
 
 ```bash
 cmake -S tests/unit -B build-unit-asan \
@@ -35,31 +54,4 @@ ASAN_OPTIONS=detect_leaks=1 \
   ctest --test-dir build-unit-asan --output-on-failure
 ```
 
-## Test groups
-
-CTest currently registers:
-
-```text
-abi_system_unit
-abi_memory_unit
-abi_filesystem_unit
-abi_time_location_unit
-abi_display_unit
-abi_input_unit
-abi_transfer_unit
-resident_power_unit
-nano_editor_unit
-```
-
-The first six are the Task 1 application-ABI service groups. `abi_transfer_unit`
-exercises the resident MFT1 file-transfer module over a fake byte stream and fake
-filesystem.
-
-`resident_power_unit` covers the private resident power-module contract. It is
-intentionally not named `abi_power_unit` because Task 3 did not introduce a
-public application-facing Power ABI.
-
-`nano_editor_unit` covers Task 4's pure-C editor buffer: insert/delete, navigation,
-line/column tracking, search/wrap, growth, dirty state, and teardown. It tests the
-application's data model without requiring MiniShell, ESP-IDF, a display, or a
-filesystem.
+Historical Tab5 ELF/hardware validation material is preserved in `archive/tab5-legacy`, not in active `main`.
