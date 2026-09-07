@@ -1,39 +1,27 @@
-#include <errno.h>
-#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "linux_audio_wav.h"
 
 #define WAV_AUDIO_HANDLE ((minishell_backend_audio_t)1u)
-#define WAV_PATH_MAX 4096u
 
 typedef struct {
-    char root_dir[WAV_PATH_MAX];
-    FILE *file;
+    void *ctx;
+    mini_result_t (*fs_open)(void *ctx, const char *path, uint32_t flags,
+                             minishell_backend_file_t *out_file);
+    mini_result_t (*fs_close)(void *ctx, minishell_backend_file_t file);
+    mini_result_t (*fs_read)(void *ctx, minishell_backend_file_t file,
+                             void *buffer, uint32_t size, uint32_t *out_read);
+    mini_result_t (*fs_seek)(void *ctx, minishell_backend_file_t file,
+                             int64_t offset, uint32_t origin, uint64_t *out_position);
+    minishell_backend_file_t file;
     uint32_t frame_bytes;
     uint64_t remaining_bytes;
     bool started;
 } wav_state_t;
 
 static wav_state_t s_wav;
-
-static mini_result_t result_from_errno(int error)
-{
-    switch (error) {
-        case 0: return MINI_OK;
-        case EINVAL: return MINI_ERR_INVALID;
-        case ENOENT: return MINI_ERR_NOT_FOUND;
-        case EACCES:
-        case EPERM:
-        case EROFS: return MINI_ERR_ACCESS;
-        case ENAMETOOLONG: return MINI_ERR_NAME_TOO_LONG;
-        case ENOMEM: return MINI_ERR_NO_MEMORY;
-        default: return MINI_ERR_IO;
-    }
-}
 
 static uint16_t read_u16_le(const uint8_t *p)
 {
@@ -48,39 +36,42 @@ static uint32_t read_u32_le(const uint8_t *p)
            ((uint32_t)p[3] << 24);
 }
 
-static bool read_exact(FILE *file, void *buffer, size_t size)
+static mini_result_t read_exact(minishell_backend_file_t file, void *buffer,
+                                uint32_t size)
 {
-    return size == 0u || fread(buffer, 1u, size, file) == size;
-}
-
-static bool skip_bytes(FILE *file, uint64_t count)
-{
-    while (count > 0u) {
-        long step = count > (uint64_t)LONG_MAX ? LONG_MAX : (long)count;
-        if (fseek(file, step, SEEK_CUR) != 0) return false;
-        count -= (uint64_t)step;
+    uint8_t *dst = buffer;
+    uint32_t total = 0u;
+    while (total < size) {
+        uint32_t got = 0u;
+        mini_result_t result = s_wav.fs_read(s_wav.ctx, file, dst + total,
+                                             size - total, &got);
+        if (result != MINI_OK) return result;
+        if (got == 0u) return MINI_ERR_IO;
+        total += got;
     }
-    return true;
-}
-
-static mini_result_t logical_to_native(const char *logical, char *out, size_t out_size)
-{
-    if (logical == NULL || logical[0] != '/' || out == NULL || out_size == 0u ||
-        s_wav.root_dir[0] == '\0') {
-        return MINI_ERR_INVALID;
-    }
-
-    int written;
-    if (strcmp(logical, "/") == 0) {
-        written = snprintf(out, out_size, "%s", s_wav.root_dir);
-    } else {
-        written = snprintf(out, out_size, "%s%s", s_wav.root_dir, logical);
-    }
-    if (written < 0 || (size_t)written >= out_size) return MINI_ERR_NAME_TOO_LONG;
     return MINI_OK;
 }
 
-static mini_result_t parse_wav(FILE *file,
+static mini_result_t skip_bytes(minishell_backend_file_t file, uint64_t count)
+{
+    while (count > 0u) {
+        int64_t step = count > (uint64_t)INT64_MAX ? INT64_MAX : (int64_t)count;
+        uint64_t position = 0u;
+        mini_result_t result = s_wav.fs_seek(s_wav.ctx, file, step,
+                                             MINI_FS_SEEK_CUR, &position);
+        if (result != MINI_OK) return result;
+        count -= (uint64_t)step;
+    }
+    return MINI_OK;
+}
+
+static mini_result_t current_position(minishell_backend_file_t file,
+                                      uint64_t *out_position)
+{
+    return s_wav.fs_seek(s_wav.ctx, file, 0, MINI_FS_SEEK_CUR, out_position);
+}
+
+static mini_result_t parse_wav(minishell_backend_file_t file,
                                uint32_t requested_rate,
                                uint32_t requested_format,
                                uint32_t requested_channels,
@@ -88,7 +79,8 @@ static mini_result_t parse_wav(FILE *file,
                                uint64_t *out_data_bytes)
 {
     uint8_t riff[12];
-    if (!read_exact(file, riff, sizeof(riff))) return MINI_ERR_IO;
+    mini_result_t result = read_exact(file, riff, sizeof(riff));
+    if (result != MINI_OK) return result;
     if (memcmp(riff, "RIFF", 4u) != 0 || memcmp(riff + 8u, "WAVE", 4u) != 0) {
         return MINI_ERR_UNSUPPORTED;
     }
@@ -100,37 +92,47 @@ static mini_result_t parse_wav(FILE *file,
     uint16_t bits_per_sample = 0u;
     uint16_t block_align = 0u;
     uint32_t sample_rate = 0u;
-    long data_offset = 0;
+    uint64_t data_offset = 0u;
     uint32_t data_size = 0u;
 
     for (;;) {
         uint8_t chunk[8];
-        if (!read_exact(file, chunk, sizeof(chunk))) break;
-        uint32_t size = read_u32_le(chunk + 4u);
+        uint32_t got = 0u;
+        result = s_wav.fs_read(s_wav.ctx, file, chunk, sizeof(chunk), &got);
+        if (result != MINI_OK) return result;
+        if (got == 0u) break;
+        if (got != sizeof(chunk)) return MINI_ERR_IO;
 
+        uint32_t size = read_u32_le(chunk + 4u);
         if (memcmp(chunk, "fmt ", 4u) == 0) {
             if (size < 16u) return MINI_ERR_UNSUPPORTED;
             uint8_t fmt[16];
-            if (!read_exact(file, fmt, sizeof(fmt))) return MINI_ERR_IO;
+            result = read_exact(file, fmt, sizeof(fmt));
+            if (result != MINI_OK) return result;
             audio_format = read_u16_le(fmt + 0u);
             channels = read_u16_le(fmt + 2u);
             sample_rate = read_u32_le(fmt + 4u);
             block_align = read_u16_le(fmt + 12u);
             bits_per_sample = read_u16_le(fmt + 14u);
-            if (!skip_bytes(file, (uint64_t)size - sizeof(fmt))) return MINI_ERR_IO;
+            result = skip_bytes(file, (uint64_t)size - sizeof(fmt));
+            if (result != MINI_OK) return result;
             have_fmt = true;
         } else if (memcmp(chunk, "data", 4u) == 0) {
-            long offset = ftell(file);
-            if (offset < 0) return MINI_ERR_IO;
-            data_offset = offset;
+            result = current_position(file, &data_offset);
+            if (result != MINI_OK) return result;
             data_size = size;
             have_data = true;
-            if (!skip_bytes(file, size)) return MINI_ERR_IO;
+            result = skip_bytes(file, size);
+            if (result != MINI_OK) return result;
         } else {
-            if (!skip_bytes(file, size)) return MINI_ERR_IO;
+            result = skip_bytes(file, size);
+            if (result != MINI_OK) return result;
         }
 
-        if ((size & 1u) != 0u && !skip_bytes(file, 1u)) return MINI_ERR_IO;
+        if ((size & 1u) != 0u) {
+            result = skip_bytes(file, 1u);
+            if (result != MINI_OK) return result;
+        }
         if (have_fmt && have_data) break;
     }
 
@@ -147,10 +149,19 @@ static mini_result_t parse_wav(FILE *file,
         return MINI_ERR_UNSUPPORTED;
     }
 
-    if (fseek(file, data_offset, SEEK_SET) != 0) return MINI_ERR_IO;
+    uint64_t ignored = 0u;
+    result = s_wav.fs_seek(s_wav.ctx, file, (int64_t)data_offset,
+                           MINI_FS_SEEK_SET, &ignored);
+    if (result != MINI_OK) return result;
+
     *out_frame_bytes = block_align;
     *out_data_bytes = data_size;
     return MINI_OK;
+}
+
+static bool valid_handle(minishell_backend_audio_t audio)
+{
+    return audio == WAV_AUDIO_HANDLE && s_wav.file != MINISHELL_BACKEND_FILE_INVALID;
 }
 
 static mini_result_t wav_rx_open(void *ctx, const char *endpoint,
@@ -162,21 +173,18 @@ static mini_result_t wav_rx_open(void *ctx, const char *endpoint,
     if (out_audio == NULL) return MINI_ERR_INVALID;
     *out_audio = MINISHELL_BACKEND_AUDIO_INVALID;
     if (endpoint == NULL) return MINI_ERR_NOT_FOUND;
-    if (s_wav.file != NULL) return MINI_ERR_TOO_MANY_OPEN;
+    if (s_wav.file != MINISHELL_BACKEND_FILE_INVALID) return MINI_ERR_TOO_MANY_OPEN;
 
-    char native[WAV_PATH_MAX];
-    mini_result_t result = logical_to_native(endpoint, native, sizeof(native));
+    minishell_backend_file_t file = MINISHELL_BACKEND_FILE_INVALID;
+    mini_result_t result = s_wav.fs_open(s_wav.ctx, endpoint, MINI_FS_READ, &file);
     if (result != MINI_OK) return result;
-
-    FILE *file = fopen(native, "rb");
-    if (file == NULL) return result_from_errno(errno);
 
     uint32_t frame_bytes = 0u;
     uint64_t data_bytes = 0u;
     result = parse_wav(file, sample_rate_hz, sample_format, channels,
                        &frame_bytes, &data_bytes);
     if (result != MINI_OK) {
-        (void)fclose(file);
+        (void)s_wav.fs_close(s_wav.ctx, file);
         return result;
     }
 
@@ -186,11 +194,6 @@ static mini_result_t wav_rx_open(void *ctx, const char *endpoint,
     s_wav.started = false;
     *out_audio = WAV_AUDIO_HANDLE;
     return MINI_OK;
-}
-
-static bool valid_handle(minishell_backend_audio_t audio)
-{
-    return audio == WAV_AUDIO_HANDLE && s_wav.file != NULL;
 }
 
 static mini_result_t wav_rx_start(void *ctx, minishell_backend_audio_t audio)
@@ -216,17 +219,28 @@ static mini_result_t wav_rx_read(void *ctx, minishell_backend_audio_t audio,
     if (s_wav.remaining_bytes == 0u) return MINI_ERR_END_OF_STREAM;
 
     uint64_t remaining_frames = s_wav.remaining_bytes / s_wav.frame_bytes;
-    uint32_t requested = frame_capacity;
-    if ((uint64_t)requested > remaining_frames) requested = (uint32_t)remaining_frames;
+    uint32_t requested_frames = frame_capacity;
+    if ((uint64_t)requested_frames > remaining_frames) {
+        requested_frames = (uint32_t)remaining_frames;
+    }
 
-    size_t got = fread(frames, s_wav.frame_bytes, requested, s_wav.file);
-    if (got == 0u && requested != 0u) return MINI_ERR_IO;
+    uint64_t requested_bytes64 = (uint64_t)requested_frames * s_wav.frame_bytes;
+    if (requested_bytes64 > UINT32_MAX) return MINI_ERR_INVALID;
+    uint32_t requested_bytes = (uint32_t)requested_bytes64;
 
-    uint64_t bytes = (uint64_t)got * s_wav.frame_bytes;
-    s_wav.remaining_bytes -= bytes;
-    *out_frames = (uint32_t)got;
+    uint8_t *dst = frames;
+    uint32_t total = 0u;
+    while (total < requested_bytes) {
+        uint32_t got = 0u;
+        mini_result_t result = s_wav.fs_read(s_wav.ctx, s_wav.file, dst + total,
+                                             requested_bytes - total, &got);
+        if (result != MINI_OK) return result;
+        if (got == 0u) return MINI_ERR_IO;
+        total += got;
+    }
 
-    if (got != requested) return MINI_ERR_IO;
+    s_wav.remaining_bytes -= total;
+    *out_frames = requested_frames;
     return MINI_OK;
 }
 
@@ -242,36 +256,30 @@ static mini_result_t wav_rx_close(void *ctx, minishell_backend_audio_t audio)
 {
     (void)ctx;
     if (!valid_handle(audio)) return MINI_ERR_BAD_HANDLE;
-    int result = fclose(s_wav.file);
-    s_wav.file = NULL;
-    s_wav.frame_bytes = 0u;
-    s_wav.remaining_bytes = 0u;
-    s_wav.started = false;
-    return result == 0 ? MINI_OK : result_from_errno(errno);
-}
-
-void linux_audio_wav_shutdown(void)
-{
-    if (s_wav.file != NULL) {
-        (void)fclose(s_wav.file);
-        s_wav.file = NULL;
+    mini_result_t result = s_wav.fs_close(s_wav.ctx, s_wav.file);
+    if (result == MINI_OK) {
+        s_wav.file = MINISHELL_BACKEND_FILE_INVALID;
+        s_wav.frame_bytes = 0u;
+        s_wav.remaining_bytes = 0u;
+        s_wav.started = false;
     }
-    s_wav.frame_bytes = 0u;
-    s_wav.remaining_bytes = 0u;
-    s_wav.started = false;
+    return result;
 }
 
-void linux_audio_wav_configure(minishell_services_port_t *port, const char *root_dir)
+void linux_audio_wav_configure(minishell_services_port_t *port)
 {
-    linux_audio_wav_shutdown();
-    s_wav.root_dir[0] = '\0';
-    if (port == NULL || root_dir == NULL || root_dir[0] == '\0') return;
-
-    int written = snprintf(s_wav.root_dir, sizeof(s_wav.root_dir), "%s", root_dir);
-    if (written < 0 || (size_t)written >= sizeof(s_wav.root_dir)) {
-        s_wav.root_dir[0] = '\0';
+    memset(&s_wav, 0, sizeof(s_wav));
+    s_wav.file = MINISHELL_BACKEND_FILE_INVALID;
+    if (port == NULL || port->fs_open == NULL || port->fs_close == NULL ||
+        port->fs_read == NULL || port->fs_seek == NULL) {
         return;
     }
+
+    s_wav.ctx = port->ctx;
+    s_wav.fs_open = port->fs_open;
+    s_wav.fs_close = port->fs_close;
+    s_wav.fs_read = port->fs_read;
+    s_wav.fs_seek = port->fs_seek;
 
     port->audio_capabilities |= MINI_AUDIO_CAP_RX;
     port->audio_rx_open = wav_rx_open;
