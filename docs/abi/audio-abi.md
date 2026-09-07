@@ -2,9 +2,7 @@
 
 Status: **V1 implemented on the Linux reference target; append-only growth active**
 
-The Audio ABI provides platform-neutral PCM transport between an application and
-MiniShell-owned audio providers/backends. It is deliberately ignorant of digital
-mode semantics and of channel meaning.
+The Audio ABI provides platform-neutral PCM transport between an application and MiniShell-owned audio providers/backends. It is deliberately ignorant of digital-mode semantics and channel meaning.
 
 ## 1. Ownership boundary
 
@@ -22,11 +20,7 @@ provider / platform backend
 WAV source, ALSA, USB UAC, I2S, hardware, ...
 ```
 
-MiniShell owns the physical/provider resource, backend handles, transport-format
-conversion, and cleanup at foreground-app exit.
-
-The application owns domain interpretation. MiniShell does not know whether two
-channels mean left/right audio, duplicated mono, I/Q, or another pairing.
+MiniShell owns the physical/provider resource, backend handles, transport-format conversion, and cleanup at foreground-app exit. The application owns domain interpretation. MiniShell does not know whether two channels mean left/right audio, duplicated mono, I/Q, or another pairing.
 
 ## 2. Capabilities
 
@@ -35,8 +29,7 @@ channels mean left/right audio, duplicated mono, I/Q, or another pairing.
 #define MINI_AUDIO_CAP_TX  (1ull << 1)
 ```
 
-The Audio service is optional. `mini_api_t.audio == NULL` means the runtime has no
-usable Audio capability.
+The Audio service is optional. `mini_api_t.audio == NULL` means the runtime has no usable Audio capability.
 
 When Audio is present:
 
@@ -60,18 +53,9 @@ typedef struct {
 } mini_audio_format_t;
 ```
 
-V1 defines:
+V1 defines `MINI_AUDIO_SAMPLE_S16` for signed 16-bit PCM samples in the native target C representation used by the application and resident MiniShell runtime.
 
-```c
-#define MINI_AUDIO_SAMPLE_S16  1u
-```
-
-`S16` means signed 16-bit PCM samples in the native target C representation used
-by the application and resident MiniShell runtime.
-
-Audio data is transferred in **frames**, not bytes. One frame contains one sample
-for every channel. Multi-channel samples are interleaved in channel-number order.
-For two-channel S16:
+Audio data is transferred in frames, not bytes. One frame contains one sample for every channel. Multi-channel samples are interleaved in channel-number order. For two-channel S16:
 
 ```text
 frame 0: ch0, ch1
@@ -84,19 +68,13 @@ The Audio ABI does not assign semantic names to channel 0 or channel 1.
 
 ### MiniFT8 V1 requested format
 
-MiniFT8 currently requests:
-
 ```text
 12000 Hz
 S16
 2 channels
 ```
 
-That is a MiniFT8 application requirement, not a permanent global MiniShell audio
-format. The interface remains format-capable.
-
-MiniFT8 may interpret the exact same two-channel stream differently by source
-profile, for example:
+That is a MiniFT8 application requirement, not a permanent global MiniShell audio format. MiniFT8 may interpret the same two-channel stream differently by source profile, for example:
 
 ```text
 QMX-AUDIO -> ordinary audio channels -> select/downmix in MiniFT8
@@ -112,13 +90,9 @@ typedef uint32_t mini_audio_stream_t;
 #define MINI_AUDIO_STREAM_INVALID ((mini_audio_stream_t)0u)
 ```
 
-A stream handle is owned by MiniShell and valid only for the foreground
-application instance that opened it. It must not be persisted or reused after
-`close()` or application exit.
+A stream handle is owned by MiniShell and valid only for the foreground application instance that opened it. It must not be persisted or reused after `close()` or application exit.
 
-The initial resident implementation permits one open RX stream and one open TX
-stream per foreground application. RX and TX are independent and may be active at
-the same time.
+The initial resident implementation permits one open RX stream and one open TX stream per foreground application. RX and TX are independent and may be active at the same time.
 
 ## 5. Endpoint argument
 
@@ -129,14 +103,7 @@ endpoint == NULL   provider/backend default
 endpoint != NULL   provider/backend-specific logical endpoint name
 ```
 
-An empty string is invalid in V1.
-
-The endpoint string is borrowed only for the duration of `open()`. A backend that
-needs it later must copy it.
-
-Endpoint naming/discovery is deliberately not frozen yet. Enumeration can be
-added later through append-only Audio API growth when real multiple-device use
-requires it.
+An empty string is invalid in V1. Endpoint naming/discovery is deliberately not frozen yet; enumeration can be added later through append-only Audio API growth when real multiple-device use requires it.
 
 ## 6. RX API
 
@@ -163,21 +130,7 @@ Lifecycle:
 open -> start -> read... -> stop -> close
 ```
 
-`start()` and `stop()` are idempotent for a valid open stream.
-
-`read()` requires a started stream. On `MINI_OK`, `out_frames` is never greater
-than `frame_capacity`.
-
-A finite provider such as a WAV source returns:
-
-```c
-MINI_ERR_END_OF_STREAM
-```
-
-when no more frames remain.
-
-For live/nonblocking providers, `MINI_WAIT_NONE`, finite millisecond timeouts, and
-`MINI_WAIT_FOREVER` use the same timeout constants already shared by MiniShell.
+`start()` and `stop()` are idempotent for a valid open stream. `read()` requires a started stream. A finite provider such as a WAV source returns `MINI_ERR_END_OF_STREAM` when no more frames remain.
 
 ## 7. TX API
 
@@ -199,30 +152,13 @@ typedef struct {
 } mini_audio_tx_api_t;
 ```
 
-Lifecycle:
-
-```text
-open -> start -> write... -> stop -> close
-```
-
-`abort()` is the fail-safe immediate-stop path for active TX. It leaves the stream
-open so an application may start it again if appropriate.
-
-Normal application teardown aborts an active TX stream before closing it.
+`abort()` is the fail-safe immediate-stop path for active TX. Normal application teardown aborts an active TX stream before closing it.
 
 ## 8. Exact-format request
 
-V1 uses exact-format requests rather than implicit negotiation.
+V1 uses exact-format requests rather than implicit negotiation. If a provider/backend cannot supply the requested application-facing format, it returns `MINI_ERR_UNSUPPORTED`.
 
-If a provider/backend cannot supply the requested application-facing format, it
-returns:
-
-```c
-MINI_ERR_UNSUPPORTED
-```
-
-A backend may internally convert from a native hardware/file format to the exact
-requested ABI format. For example:
+A backend may internally convert from a native hardware/file format to the exact requested ABI format. For example:
 
 ```text
 QMX native UAC: 48 kHz / 24-bit / 2-channel
@@ -230,73 +166,27 @@ QMX native UAC: 48 kHz / 24-bit / 2-channel
     -> MiniFT8 request: 12 kHz / S16 / 2-channel
 ```
 
-The backend preserves channel ordering through that conversion. It does not
-interpret the channel pair as stereo or I/Q.
+The backend preserves channel ordering through that conversion. It does not interpret the channel pair as stereo or I/Q.
 
 ## 9. Buffer ownership
 
-RX buffers are application-owned. MiniShell writes frames only during `read()` and
-does not retain the pointer after the call returns.
-
-TX buffers are application-owned. MiniShell reads frames only during `write()` and
-does not retain the pointer after the call returns.
-
-A future asynchronous API would require a separate explicit ownership contract;
-it must not silently change these synchronous semantics.
+RX and TX buffers remain application-owned. MiniShell uses them only for the duration of the synchronous `read()` or `write()` call and does not retain their pointers afterward.
 
 ## 10. Application lifecycle cleanup
 
-Audio streams are associated with the current foreground application.
-
-At normal or abnormal app teardown MiniShell performs best-effort cleanup:
+At app teardown MiniShell performs best-effort cleanup:
 
 ```text
 RX active -> stop -> close
 TX active -> abort -> close
 ```
 
-This prevents a crashed/exited application from leaving an audio device or
-transmitter-side audio path active.
-
 ## 11. Non-responsibilities
 
-The Audio ABI does not own or understand:
+The Audio ABI does not own or understand FT8/FT4/RTTY/CW, symbol timing, CPFSK, radio CAT commands, PTT policy, stereo/IQ semantics, complex DSP, or application downmix policy. Those belong above Audio in the application or, for radio control, in the separate Control ABI.
 
-```text
-FT8 / FT4 / RTTY / CW
-symbol timing
-CPFSK
-6.25 Hz tone spacing
-radio CAT commands
-PTT policy
-left/right semantic meaning
-I/Q semantic meaning
-complex DSP
-application downmix policy
-```
+## 12. V1 verification
 
-Those belong above Audio in the application or, for radio control, in the separate
-Control ABI.
+Unit and integration tests cover service absence/capabilities, `struct_size`, unsupported formats, independent RX/TX lifecycles, frame semantics, exact two-channel ordering, invalid lifecycle use, finite-source end-of-stream, stale handles, TX abort cleanup, and automatic close.
 
-## 12. V1 verification requirements
-
-Unit tests are primary and cover:
-
-- service absent when no backend capability is present;
-- RX-only, TX-only, and RX+TX capability exposure;
-- `struct_size` validation;
-- unsupported format handling;
-- independent RX and TX lifecycles;
-- frame-count rather than byte-count semantics;
-- exact preservation of two-channel sample ordering;
-- read-before-start / write-before-start rejection;
-- finite-source `MINI_ERR_END_OF_STREAM` propagation;
-- idempotent start/stop;
-- bad/stale handle rejection;
-- active TX abort during app teardown;
-- automatic RX/TX close during app teardown.
-
-The first Linux provider integration uses `tests/kfs16b12k.wav`, which matches the
-MiniFT8 requested `12000 / S16 / 2-channel` transport format. The WAV provider
-streams the two-channel PCM unchanged and is exercised by a runtime-loaded Audio
-probe and Linux integration test.
+The first Linux provider integration uses `tests/kfs16b12k.wav`, which matches `12000 / S16 / 2-channel`. The WAV provider streams the two-channel PCM unchanged and is exercised by a runtime-loaded Audio probe and Linux integration test.
