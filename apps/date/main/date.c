@@ -62,7 +62,8 @@ static int64_t days_from_civil(int year, unsigned month, unsigned day)
     year -= month <= 2u;
     int era = (year >= 0 ? year : year - 399) / 400;
     unsigned yoe = (unsigned)(year - era * 400);
-    unsigned doy = (153u * (month + (month > 2u ? (unsigned)-3 : 9u)) + 2u) / 5u + day - 1u;
+    unsigned shifted_month = (unsigned)((int)month + (month > 2u ? -3 : 9));
+    unsigned doy = (153u * shifted_month + 2u) / 5u + day - 1u;
     unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
     return (int64_t)era * 146097 + (int64_t)doe - 719468;
 }
