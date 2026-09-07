@@ -16,6 +16,9 @@ typedef uintptr_t minishell_backend_file_t;
 typedef uintptr_t minishell_backend_dir_t;
 #define MINISHELL_BACKEND_DIR_INVALID ((minishell_backend_dir_t)0u)
 
+typedef uintptr_t minishell_backend_audio_t;
+#define MINISHELL_BACKEND_AUDIO_INVALID ((minishell_backend_audio_t)0u)
+
 typedef struct {
     uint64_t memory_bytes;
     uint64_t storage_bytes;
@@ -92,6 +95,31 @@ typedef struct {
     mini_result_t (*input_wait)(void *ctx, uint32_t timeout_ms);
     void (*input_wake)(void *ctx);
     void (*input_flush)(void *ctx);
+
+    /* Audio. Frames are interleaved according to the requested channel count.
+     * The backend converts native transport format but does not assign semantic
+     * meaning such as stereo versus I/Q to channel 0/1. */
+    uint64_t audio_capabilities;
+    mini_result_t (*audio_rx_open)(void *ctx, const char *endpoint,
+                                   uint32_t sample_rate_hz, uint32_t sample_format,
+                                   uint32_t channels, minishell_backend_audio_t *out_audio);
+    mini_result_t (*audio_rx_start)(void *ctx, minishell_backend_audio_t audio);
+    mini_result_t (*audio_rx_read)(void *ctx, minishell_backend_audio_t audio,
+                                   void *frames, uint32_t frame_capacity,
+                                   uint32_t *out_frames, uint32_t timeout_ms);
+    mini_result_t (*audio_rx_stop)(void *ctx, minishell_backend_audio_t audio);
+    mini_result_t (*audio_rx_close)(void *ctx, minishell_backend_audio_t audio);
+
+    mini_result_t (*audio_tx_open)(void *ctx, const char *endpoint,
+                                   uint32_t sample_rate_hz, uint32_t sample_format,
+                                   uint32_t channels, minishell_backend_audio_t *out_audio);
+    mini_result_t (*audio_tx_start)(void *ctx, minishell_backend_audio_t audio);
+    mini_result_t (*audio_tx_write)(void *ctx, minishell_backend_audio_t audio,
+                                    const void *frames, uint32_t frame_count,
+                                    uint32_t *out_frames, uint32_t timeout_ms);
+    mini_result_t (*audio_tx_stop)(void *ctx, minishell_backend_audio_t audio);
+    mini_result_t (*audio_tx_abort)(void *ctx, minishell_backend_audio_t audio);
+    mini_result_t (*audio_tx_close)(void *ctx, minishell_backend_audio_t audio);
 } minishell_services_port_t;
 
 /* Configure the resident service layer. Safe to call again in host tests. */

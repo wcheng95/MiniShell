@@ -33,6 +33,7 @@ typedef int32_t mini_result_t;
 #define MINI_ERR_NOT_READY       ((mini_result_t)-14)
 #define MINI_ERR_TIMEOUT         ((mini_result_t)-15)
 #define MINI_ERR_NOT_EMPTY       ((mini_result_t)-16)
+#define MINI_ERR_END_OF_STREAM   ((mini_result_t)-17)
 
 typedef struct {
     uint32_t struct_size;
@@ -259,6 +260,53 @@ typedef struct {
     const mini_key_input_api_t *key;
 } mini_input_api_t;
 
+#define MINI_AUDIO_CAP_RX  (1ull << 0)
+#define MINI_AUDIO_CAP_TX  (1ull << 1)
+
+#define MINI_AUDIO_SAMPLE_S16  1u
+
+typedef uint32_t mini_audio_stream_t;
+#define MINI_AUDIO_STREAM_INVALID ((mini_audio_stream_t)0u)
+
+typedef struct {
+    uint32_t struct_size;
+    uint32_t sample_rate_hz;
+    uint32_t sample_format;
+    uint32_t channels;
+} mini_audio_format_t;
+
+typedef struct {
+    uint32_t struct_size;
+    mini_result_t (*open)(const char *endpoint, const mini_audio_format_t *format,
+                          mini_audio_stream_t *out_stream);
+    mini_result_t (*start)(mini_audio_stream_t stream);
+    mini_result_t (*read)(mini_audio_stream_t stream, void *frames,
+                          uint32_t frame_capacity, uint32_t *out_frames,
+                          uint32_t timeout_ms);
+    mini_result_t (*stop)(mini_audio_stream_t stream);
+    mini_result_t (*close)(mini_audio_stream_t stream);
+} mini_audio_rx_api_t;
+
+typedef struct {
+    uint32_t struct_size;
+    mini_result_t (*open)(const char *endpoint, const mini_audio_format_t *format,
+                          mini_audio_stream_t *out_stream);
+    mini_result_t (*start)(mini_audio_stream_t stream);
+    mini_result_t (*write)(mini_audio_stream_t stream, const void *frames,
+                           uint32_t frame_count, uint32_t *out_frames,
+                           uint32_t timeout_ms);
+    mini_result_t (*stop)(mini_audio_stream_t stream);
+    mini_result_t (*abort)(mini_audio_stream_t stream);
+    mini_result_t (*close)(mini_audio_stream_t stream);
+} mini_audio_tx_api_t;
+
+typedef struct {
+    uint32_t struct_size;
+    uint64_t capabilities;
+    const mini_audio_rx_api_t *rx;
+    const mini_audio_tx_api_t *tx;
+} mini_audio_api_t;
+
 typedef struct {
     uint32_t abi_version;
     uint32_t struct_size;
@@ -268,6 +316,7 @@ typedef struct {
     const mini_time_location_api_t *time_location;
     const mini_display_api_t *display;
     const mini_input_api_t *input;
+    const mini_audio_api_t *audio;
 } mini_api_t;
 
 MINI_IMPORT const mini_api_t *mini_api_get(void);
