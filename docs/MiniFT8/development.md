@@ -1,52 +1,23 @@
 # MiniFT8-V3 Development
 
-MiniFT8-V3 is a MiniShell runtime application. Current integrated work covers UI/config/storage plus the Audio transport foundation.
+MiniFT8 runs as a MiniShell app. Current work establishes independent RX Audio, TX Audio, and Control resources.
 
-## Independent resources
+Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves channel order; MiniFT8 source profiles decide ordinary-audio versus I/Q meaning. `tests/kfs16b12k.wav` is the deterministic reference and is streamed unchanged by the Linux WAV provider.
 
-```text
-RX Audio
-TX Audio
-Control
-```
+Control remains independent and generic; QMX/KH1 CAT-frequency TX belongs to Control, QDX modulation belongs to TX Audio, tune composes normal primitives, and device `set_time` is deferred.
 
-MiniFT8 does not use one monolithic `Radio` object.
-
-## Audio
-
-MiniFT8 V1 requests `12000 Hz / S16 / 2 channels`. MiniShell preserves channel order and does not interpret stereo versus I/Q; source profiles inside MiniFT8 own that meaning.
-
-`tests/kfs16b12k.wav` is the deterministic first RX fixture. The Linux WAV provider streams it unchanged through the Audio ABI.
-
-Live QMX ordinary audio will be converted below MiniShell from its device-native format to the requested 12 kHz/S16/two-channel transport. Decoder-specific select/downmix and any 12 kHz->6 kHz/float conversion stay in MiniFT8.
-
-MiniFT8 owns protocol waveform synthesis for Audio TX; hardware-format conversion stays below MiniShell.
-
-## Control
-
-Control is independent of Audio. Generic concepts include frequency/mode setting, TX begin/end, and dynamic absolute RF-frequency updates. QMX/KH1-style CAT-frequency TX uses Control; QDX modulation uses TX Audio. Tune composes normal primitives. Device `set_time` remains a deferred future capability.
-
-## Housekeeping gate
-
-Before `ft8_engine` replay or live QMX/UAC:
+Before `ft8_engine` replay or live QMX/UAC, MiniShell is paying H1-H3:
 
 ```text
-H1 split Linux backend
-H2 remove POSIX loader semantics from portable core
-H3 split Filesystem private helpers
+split Linux backend
+remove POSIX loader semantics from portable core
+split Filesystem private helpers
 ```
 
-Then evaluate H5 (stateful ANSI/CSI parser) cost.
+Then evaluate H5 ANSI/CSI split-read robustness cost.
 
-## Next slice after housekeeping
+Next slice after housekeeping:
 
 ```text
-WAV provider
-    -> 12 kHz/S16/two-channel
-    -> MiniFT8 source/profile interpretation
-    -> select/downmix
-    -> ft8_engine
-    -> decoded RX UI
+WAV -> Audio ABI -> MiniFT8 channel interpretation/downmix -> ft8_engine -> decoded RX UI
 ```
-
-Audio ABI unit tests and exact WAV replay are already complete.
