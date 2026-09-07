@@ -80,7 +80,7 @@ mini_result_t minishell_services_utc_sync(int64_t seconds, uint32_t nanoseconds,
     if ((s_time_api.capabilities & MINI_TIMELOC_CAP_UTC) == 0u) return MINI_ERR_UNSUPPORTED;
     if (nanoseconds >= 1000000000u) return MINI_ERR_INVALID;
     if (persist) {
-        if ((s_time_api.capabilities & MINI_TIMELOC_CAP_SET_UTC) == 0u || port->utc_store == NULL) return MINI_ERR_UNSUPPORTED;
+        if (port->utc_store == NULL) return MINI_ERR_UNSUPPORTED;
         mini_result_t result = port->utc_store(port->ctx, seconds, nanoseconds);
         if (result != MINI_OK) return result;
     }
@@ -90,10 +90,16 @@ mini_result_t minishell_services_utc_sync(int64_t seconds, uint32_t nanoseconds,
 
 static mini_result_t tl_utc_set(const mini_utc_time_t *time)
 {
+    const minishell_services_port_t *port = minishell_services_port();
     const uint32_t v0_size = MINI_FIELD_END(mini_utc_time_t, nanoseconds);
     if ((s_time_api.capabilities & MINI_TIMELOC_CAP_SET_UTC) == 0u) return MINI_ERR_UNSUPPORTED;
     if (time == NULL || time->struct_size < v0_size || time->nanoseconds >= 1000000000u) return MINI_ERR_INVALID;
-    return minishell_services_utc_sync(time->unix_seconds, time->nanoseconds, true);
+
+    /* Setting MiniShell UTC is always an in-session operation.  A platform
+     * that owns a writable RTC can additionally provide utc_store(); hosts
+     * such as Linux simply re-anchor the MiniShell clock in memory. */
+    return minishell_services_utc_sync(time->unix_seconds, time->nanoseconds,
+                                       port->utc_store != NULL);
 }
 
 static mini_result_t effective_location(int32_t *out_latitude_e7, int32_t *out_longitude_e7,
@@ -249,10 +255,12 @@ void minishell_time_location_service_configure(void)
         s_time_api.capabilities = 0u;
         return;
     }
+
     uint64_t caps = port->time_location_capabilities;
-    if ((caps & MINI_TIMELOC_CAP_SET_UTC) != 0u) {
-        caps |= MINI_TIMELOC_CAP_UTC;
-        if (port->utc_store == NULL) caps &= ~MINI_TIMELOC_CAP_SET_UTC;
+    if ((caps & MINI_TIMELOC_CAP_UTC) != 0u) {
+        /* MiniShell UTC can always be re-anchored for the current session.
+         * A backend-provided utc_store() additionally makes the set durable. */
+        caps |= MINI_TIMELOC_CAP_SET_UTC;
     }
     if ((caps & MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION) != 0u) {
         caps |= MINI_TIMELOC_CAP_DEFAULT_LOCATION | MINI_TIMELOC_CAP_LOCATION;
@@ -260,6 +268,7 @@ void minishell_time_location_service_configure(void)
     }
     if ((caps & MINI_TIMELOC_CAP_DEFAULT_LOCATION) != 0u) caps |= MINI_TIMELOC_CAP_LOCATION;
     s_time_api.capabilities = caps;
+
     if ((caps & MINI_TIMELOC_CAP_UTC) != 0u && port->utc_load != NULL) {
         int64_t seconds = 0;
         uint32_t nanoseconds = 0u;
