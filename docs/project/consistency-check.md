@@ -2,53 +2,20 @@
 
 Audit date: 2026-09-07
 
-Public ABI direction is clean. Remaining debt is internal.
+Public ABI direction is clean; current debt is internal.
 
-## Ownership map
+## Debt
 
-| Resource/state | MiniShell owner | Backend/provider role |
-| --- | --- | --- |
-| App lifecycle | `app_manager` | platform loader |
-| API table | service composition | backend primitives |
-| Allocations | Memory service | allocator |
-| File/directory handles + quota | Filesystem service | file primitives/storage |
-| UTC/location | Time/Location service | clock/persistence |
-| Input queue | Input service | event producer/parser |
-| Display semantics | Display service | renderer |
-| Audio stream lifecycle | Audio service | file/device transport provider |
-| Audio channel meaning | application/source profile | preserve order only |
-| Runtime app loading | app manager/private loader contract | Linux `.so`/`dlopen()` |
+- **H1 — pay now:** split `platform/linux/linux_backend.c` by responsibility without changing public ABI/private service-port semantics.
+- **H2 — pay now:** remove POSIX loader result meanings from portable core; keep POSIX translation inside Linux and clarify terminal ownership.
+- **H3 — pay now:** split Filesystem private path/handle/quota/namespace helpers while retaining one Filesystem service owner.
+- **H4 — resolved:** legacy Tab5 active tree removed; history retained on `archive/tab5-legacy`.
+- **H5 — evaluate after H1-H3:** make ANSI/CSI parsing robust when escape sequences split across reads.
 
-## Active debt
+## Ownership reminders
 
-### H1 — split Linux backend
-
-`platform/linux/linux_backend.c` mixes filesystem, memory, time/location, terminal display/input, app loading, and bootstrap.
-
-Status: **pay now**.
-
-### H2 — remove POSIX details from portable core
-
-Shell/application launch should use platform-neutral internal loader results; POSIX `errno` meanings belong inside Linux. Clarify terminal ownership while splitting the backend.
-
-Status: **pay now**.
-
-### H3 — split Filesystem private helpers
-
-Keep one Filesystem service owner, but move path/handle/quota/namespace helper concerns into focused internal modules.
-
-Status: **pay now**.
-
-### H4 — legacy Tab5 tree
-
-**Resolved.** Historical code is on `archive/tab5-legacy`.
-
-### H5 — split-read ANSI/CSI parser
-
-The current parser can misinterpret an escape sequence split across reads.
-
-Status: **evaluate cost after H1-H3**.
+Applications depend only on MiniShell public services. Services own logical resources/lifecycle. Platform backends/providers own OS/device/file primitives. Audio channel meaning remains application/source-profile state, not MiniShell state.
 
 ## Gate
 
-MiniFT8 DSP/live-radio expansion resumes after H1-H3 are paid and all retained tests remain green.
+MiniFT8 DSP/live-radio expansion resumes after H1-H3 are paid and all existing tests remain green.
