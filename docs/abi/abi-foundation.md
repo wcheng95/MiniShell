@@ -9,7 +9,7 @@ product of MiniShell, not an implementation detail.
 This document owns the rules that apply across all application-facing services.
 Detailed service contracts live in their own files and are not duplicated here.
 
-## 1. Task 1 service set
+## 1. Foundational and extended service set
 
 The six foundational Task 1 ABIs are:
 
@@ -22,23 +22,16 @@ display
 input
 ```
 
+Audio was added later as the first application-driven append-only service extension.
+
 Canonical detailed contracts:
 
-- `docs/system-abi.md`
-- `docs/memory-abi.md`
-- `docs/filesystem-abi.md`
-- `docs/time-location-abi.md`
-- `docs/display-abi.md`
-- `docs/input-abi.md`
-
-Post-foundation application-driven services are added append-only. The first is:
-
-```text
-audio
-```
-
-Canonical Audio contract:
-
+- `docs/abi/system-abi.md`
+- `docs/abi/memory-abi.md`
+- `docs/abi/filesystem-abi.md`
+- `docs/abi/time-location-abi.md`
+- `docs/abi/display-abi.md`
+- `docs/abi/input-abi.md`
 - `docs/abi/audio-abi.md`
 
 `console` is not a foundational ABI. It is a higher-level composition of output
@@ -66,7 +59,7 @@ objects, raw peripheral registers, or other platform-private types.
 
 ## 3. Top-level API
 
-The established top-level shape grows append-only. The current shape is:
+The established top-level shape is append-only. Its current form is:
 
 ```c
 typedef struct {
@@ -82,9 +75,6 @@ typedef struct {
     const mini_audio_api_t         *audio;
 } mini_api_t;
 ```
-
-`audio` was appended after the established Task-1 prefix. Older applications that
-only require fields through `input` remain compatible.
 
 Runtime binding is through:
 
@@ -119,9 +109,9 @@ Compatible additions are discovered through `struct_size`, capability bits, and
 optional sub-APIs. An incompatible change that cannot preserve the established
 prefix requires a new ABI generation.
 
-Task 6 demonstrates this rule inside Filesystem, and Audio demonstrates it at the
-top level: the Audio pointer is appended to `mini_api_t` without changing the ABI
-generation.
+Filesystem namespace growth and the later Audio top-level service both demonstrate
+this rule: compatible additions append to existing tables without changing the
+ABI generation.
 
 ## 6. Append-only tables
 
@@ -207,7 +197,7 @@ service pointer == NULL
 
 The service is unavailable.
 
-### Present service, mandatory operation
+### Present service, mandatory foundational operation
 
 A function that is mandatory for the present service's established prefix must
 have a non-NULL function pointer when its field is present in `struct_size`.
@@ -228,9 +218,9 @@ Unknown future capability bits are ignored by older applications.
 A service may keep an optional operation in the base table when that keeps the
 interface simpler. Unsupported calls return `MINI_ERR_UNSUPPORTED`.
 
-Filesystem Task-6 namespace operations follow this pattern at the platform
-backend boundary: the resident table can expose the appended call while a port
-without the corresponding backend hook returns `MINI_ERR_UNSUPPORTED`.
+Filesystem namespace operations follow this pattern at the platform backend
+boundary: the resident table can expose the appended call while a port without
+the corresponding backend hook returns `MINI_ERR_UNSUPPORTED`.
 
 ## 11. Public ABI-owned types
 
@@ -278,37 +268,12 @@ bits and must not assume that every future enumerated numeric value is known.
 `mini_result_t` is shared by all MiniShell services. Zero means success and
 negative values mean errors.
 
-Current shared values are:
-
-```c
-#define MINI_OK                  ((mini_result_t)  0)
-#define MINI_ERR_INVALID         ((mini_result_t) -1)
-#define MINI_ERR_NOT_FOUND       ((mini_result_t) -2)
-#define MINI_ERR_EXISTS          ((mini_result_t) -3)
-#define MINI_ERR_BAD_HANDLE      ((mini_result_t) -4)
-#define MINI_ERR_ACCESS          ((mini_result_t) -5)
-#define MINI_ERR_IO              ((mini_result_t) -6)
-#define MINI_ERR_NO_SPACE        ((mini_result_t) -7)
-#define MINI_ERR_TOO_MANY_OPEN   ((mini_result_t) -8)
-#define MINI_ERR_NAME_TOO_LONG   ((mini_result_t) -9)
-#define MINI_ERR_UNSUPPORTED     ((mini_result_t)-10)
-#define MINI_ERR_NOT_DIR         ((mini_result_t)-11)
-#define MINI_ERR_IS_DIR          ((mini_result_t)-12)
-#define MINI_ERR_NO_MEMORY       ((mini_result_t)-13)
-#define MINI_ERR_NOT_READY       ((mini_result_t)-14)
-#define MINI_ERR_TIMEOUT         ((mini_result_t)-15)
-#define MINI_ERR_NOT_EMPTY       ((mini_result_t)-16)
-#define MINI_ERR_END_OF_STREAM   ((mini_result_t)-17)
-```
-
-`MINI_ERR_NOT_EMPTY` was added because `rmdir` needs to distinguish a non-empty
-directory. `MINI_ERR_END_OF_STREAM` was added because finite streaming providers
-such as a WAV Audio source need a portable way to distinguish normal exhaustion
-from temporary not-ready/timeout conditions.
-
-Add another result only when a real ABI requires a distinct portable meaning.
+Current shared values include the established generic errors plus
+`MINI_ERR_END_OF_STREAM`, which is used by finite providers such as WAV Audio RX.
 Backend-native values such as `errno`, FATFS `FRESULT`, or `esp_err_t` never cross
 the public boundary.
+
+Add another result only when a real ABI requires a distinct portable meaning.
 
 ## 14. Synchronous first
 
@@ -319,9 +284,6 @@ than by changing existing synchronous semantics.
 For synchronous calls, an application-owned buffer passed to MiniShell remains
 owned by the application and must not be retained after the call returns unless
 the specific service explicitly documents otherwise.
-
-Audio V1 follows this rule: RX/TX buffers are borrowed only for the duration of
-`read()`/`write()`.
 
 ## 15. Ownership and application context
 
@@ -334,12 +296,12 @@ associated with that app context where practical.
 foreground app context
     +-- MiniShell-managed allocations
     +-- open file handles
-    +-- open RX Audio stream
-    `-- open TX Audio stream
+    +-- open audio streams
+    `-- future logical service resources
 ```
 
-Normal app teardown reclaims remaining MiniShell-managed resources before the ELF
-is unloaded. Active TX Audio is aborted before its stream is closed.
+Normal app teardown reclaims remaining MiniShell-managed resources before the
+native application is unloaded. Active Audio TX is aborted before close.
 
 This is cooperative lifecycle cleanup, not memory protection.
 
@@ -384,11 +346,11 @@ The same application source should be rebuildable against the same MiniShell API
 on RV32, RV64, Xtensa, ARM, or other supported architectures where the required
 services exist.
 
-A compiled ELF is not expected to be binary-compatible across architectures.
+A compiled native app is not expected to be binary-compatible across architectures.
 
 ## 19. Verification hierarchy
 
-Every MiniShell ABI uses three complementary test layers where applicable.
+Every ABI uses three complementary test layers.
 
 ### 19.1 Unit tests — primary correctness suite
 
@@ -416,13 +378,13 @@ partial/failure behavior
 timeout/freshness logic
 ```
 
-A service implementation is not considered trustworthy merely because its ELF
-smoke test passes.
+A service implementation is not considered trustworthy merely because its native
+integration smoke test passes.
 
-### 19.2 Runtime-loaded ELF tests — ABI integration suite
+### 19.2 Runtime-loaded native-app tests — ABI integration suite
 
-Each service gets a separately built `.elf` test when that layer provides useful
-additional coverage.
+Each service should get a separately built native test app using only public
+MiniShell headers.
 
 These tests are intentionally smaller than the unit suite. Their primary purpose
 is to prove:
@@ -446,7 +408,7 @@ case.
 
 Hardware-dependent behavior is validated on the reference platform, including
 actual RTC persistence, SD behavior, display output, touch/input routing, timer
-behavior, audio devices, and other backend-specific effects.
+behavior, audio device behavior, and other backend-specific effects.
 
 The preferred development loop is:
 
@@ -457,13 +419,13 @@ implement/refactor service
 run comprehensive unit tests
         |
         v
-run focused .elf ABI integration test when useful
+run focused native-app ABI integration test
         |
         v
 validate hardware-specific behavior
 ```
 
-Unit-test failures block progress even if the ELF or hardware smoke test appears
+Unit-test failures block progress even if the app or hardware smoke test appears
 to work.
 
 ## 20. Compatibility philosophy
@@ -482,6 +444,6 @@ fixed-width public types
 
 It is not based on mirroring one SDK forever.
 
-Do not treat a newly appended compatible function or service pointer as a reason
-to bump the ABI generation. Require a new generation only when an incompatible
-change cannot preserve the established prefix and semantics.
+Do not treat a newly appended compatible function or service as a reason to bump
+the ABI generation. Require a new generation only when an incompatible change
+cannot preserve the established prefix and semantics.
