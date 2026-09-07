@@ -1,56 +1,21 @@
 # MiniShell Command Roadmap
 
-## Goal
+This document records shell/application command placement and priorities. It does not define the public ABI.
 
-MiniShell provides a small, familiar command environment without trying to become
-a Linux distribution. Linux command names are reused when MiniShell implements the
-same core idea closely enough to be unsurprising.
-
-The governing criteria are:
+## Current Linux resident shell
 
 ```text
-familiar
-minimal
-portable
-useful
+help
+status
+apps
+run <app> [...]
+<app> [...]
+exit
 ```
 
-## Resident shell commands
+Resident commands should stay limited to lifecycle, discovery, platform identity/status, and functions that cannot naturally live as portable applications.
 
-Resident commands exist only when they control MiniShell itself or expose runtime
-state that belongs to MiniShell.
-
-Current Linux baseline:
-
-| Command | Purpose |
-| --- | --- |
-| `help` | show shell help |
-| `status` | show platform and MiniShell service availability |
-| `apps` | list installed MiniShell applications |
-| `run <app> [...]` | explicitly launch an application |
-| `exit` | leave MiniShell |
-
-Direct application launch is also supported:
-
-```text
-M$> nano /sd/notes.txt
-M$> MiniFT8
-```
-
-`run <app>` and direct `<app>` use the same internal application-launch path.
-There is no separate user-facing `exec` command in the Linux baseline.
-
-`put` and `get` are platform-dependent transfer functions rather than universal
-commands. A target that needs serial, USB, BLE, or another provisioning/recovery
-channel may add them later. Power operations such as `suspend` or `poweroff` are
-also platform-dependent; MiniShell does not add fake implementations merely to
-make command sets identical.
-
-## Portable applications
-
-Ordinary utilities and domain programs are applications and use the public MiniShell ABI.
-
-Current generic utilities:
+## Current portable applications
 
 ```text
 hello
@@ -65,121 +30,46 @@ mv
 nano
 rm
 rmdir
+MiniFT8
 ```
 
-MiniFT8 is the first substantial domain application hosted by the same runtime.
+These are runtime-loaded native applications using MiniShell public services rather than direct Linux/POSIX APIs.
 
-On Linux applications are runtime-loaded `.so` modules. Other platforms may use different
-loading or linking mechanisms while preserving the same application-facing ABI.
+## Placement rule
 
-### File utilities
+Prefer a portable application when the behavior can be expressed through public MiniShell services.
 
-| App | Initial behavior |
-| --- | --- |
-| `ls [path]` | enumerate a directory; hide dot-files by default |
-| `cat <file>` | display a text file |
-| `cp <src> <dst>` | binary-safe file copy |
-| `mv <src> <dst>` | rename one regular file; replace an existing regular-file destination |
-| `rm <file>` | remove one regular file |
-| `mkdir <path>` | create one directory |
-| `rmdir <path>` | remove one empty directory |
-| `nano <file>` | small interactive editor |
-
-At MiniShell root, `ls` displays the logical top-level paths directly:
-
-```text
-M$> ls
-/sd
-/flash
-```
-
-Inside a directory it uses ordinary relative entry names (`file.txt`, `folder/`).
-
-`ls` uses the same Filesystem ABI directory iteration that applications such as
-MiniFT8 need for discovering logs:
-
-```text
-Filesystem ABI
-    +-- dir_open
-    +-- dir_read
-    `-- dir_close
-```
-
-### Resource and time utilities
-
-| App | Initial behavior |
-| --- | --- |
-| `free` | concise MiniShell memory used/free/total |
-| `df [path]` | concise MiniShell storage used/free/total |
-| `date` | show MiniShell UTC |
-| `date YYYY-MM-DD HH:MM:SS` | set MiniShell UTC |
-
-`free` and `df` describe resources available through MiniShell, not the host
-computer's unconstrained RAM or disk. The resource policy is resident/internal and
-is enforced by the Memory and Filesystem services.
-
-On Linux, `date` loads host UTC at MiniShell startup. Setting it re-anchors
-MiniShell UTC for the current session and does not modify or persist Linux system
-time. A backend that owns a writable RTC may persist the same ABI operation.
-
-## ABI growth rule
-
-Real application requirements drive ABI growth.
-
-```text
-define required app behavior
-        |
-        v
-check current ABI
-        |
-        +-- sufficient -> implement app
-        |
-        `-- missing primitive
-                |
-                v
-        is it generally useful to applications?
-                |
-                +-- yes -> append/clarify ABI + tests
-                `-- no  -> reconsider design
-```
+Prefer a resident command only when it fundamentally controls MiniShell itself, runtime app lifecycle, or a platform operation that is intentionally outside the portable ABI.
 
 Examples:
 
 ```text
-cp       existing file read/write API was sufficient
-mv       justified rename
-rm       justified remove_file
-mkdir    justified mkdir
-rmdir    justified rmdir + MINI_ERR_NOT_EMPTY
-ls       justified dir_open / dir_read / dir_close because applications need discovery
-free     existing Memory ABI was sufficient once MiniShell resource policy existed
-date     existing Time/Location ABI was sufficient
-df       justified append-only Filesystem space(path)
-MiniFT8  justified replacement rename semantics for safe Station.txt saves
+apps            resident: discovers runtime applications
+run             resident: transfers foreground ownership to an app
+ls              app: uses Filesystem directory iteration
+cat/cp/mv/rm    apps: use Filesystem operations
+free/df/date    apps: use Memory/Filesystem/Time services
 ```
 
-Do not expand an ABI merely to imitate POSIX or GNU utilities.
+## Platform-dependent commands
 
-## Deferred commands
+`put/get` and power-management commands are not part of the Linux baseline. A future target may expose them when they correspond to real platform behavior; MiniShell should not invent fake cross-platform equivalents.
 
-`cd` and `pwd` remain deferred. MiniShell currently uses absolute logical paths and
-has no working-directory model.
+## Audio and Control
 
-Other commands are added only when a concrete MiniShell use case appears.
-Examples not currently needed include:
+Audio and Control are services, not shell commands by default. Domain applications such as MiniFT8 should consume them directly through the public ABI.
+
+If diagnostic tools are later useful, prefer small ordinary apps such as an `audio-info` or `control-info` probe rather than growing the resident shell.
+
+## Near-term housekeeping
+
+Before expanding the command set, finish the current internal cleanup:
 
 ```text
-grep / head / tail / wc
-ps / top / kill / jobs
-sudo
-chmod / chown
-mount / umount
-systemctl
+split Linux backend
+remove POSIX loader semantics from portable core
+split Filesystem private helpers
+then evaluate stateful ANSI/CSI parser cost
 ```
 
-## Principle
-
-Keep the shell small. Keep reusable functionality in application-facing services.
-Keep ordinary utilities and domain programs as applications. Platform-specific
-functionality is allowed to remain platform-specific when a universal abstraction
-would add no value.
+The command roadmap should not drive new ABI work ahead of application requirements.
