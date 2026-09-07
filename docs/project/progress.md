@@ -103,7 +103,23 @@ MiniFT8 no longer has a direct Linux/ncurses platform layer in the active implem
 
 The integration adds a pure UI smoke test and a real PTY runtime test that changes settings, verifies safe persistence, exits to `M$>`, relaunches, and verifies saved state is restored.
 
-Audio, Radio/CAT, QMX, FT8 decode/TX, logging, and GPS integration are intentionally outside this milestone.
+### Audio ABI V1 and deterministic WAV RX
+
+MiniFT8's first concrete RX requirement drove the first post-foundation service extension.
+
+MiniShell now exposes independent Audio RX/TX sub-APIs with exact-format requests, frame-based transfer, foreground-app cleanup, and fail-safe TX abort semantics. MiniFT8 V1 requests:
+
+```text
+12000 Hz
+signed 16-bit PCM
+2 channels
+```
+
+MiniShell preserves channel order but does not assign stereo/I/Q meaning. MiniFT8 source profiles own that interpretation.
+
+The Linux reference target includes a deterministic WAV RX provider. `tests/kfs16b12k.wav` is streamed unchanged through the Audio ABI, and CI verifies exact two-channel payload preservation plus teardown/reopen behavior.
+
+Control remains separate from Audio. The first Control requirements are documented from QMX/QDX behavior, but device/radio `set_time` is intentionally deferred as a future capability.
 
 ## Current validated baseline
 
@@ -138,29 +154,30 @@ exit
 
 `put/get` and power commands are platform-dependent and intentionally absent from the Linux baseline.
 
-CI covers the Linux runtime/integration suite, MiniFT8 UI/runtime integration, and the retained platform-neutral unit suite.
+CI covers the Linux runtime/integration suite, MiniFT8 UI/runtime integration, Audio ABI/WAV integration, and the retained platform-neutral unit suite.
 
 ## Remaining internal housekeeping debt
 
-Deferred for later:
+The architecture audit recorded four unresolved housekeeping items. They are being paid before further MiniFT8 DSP/radio expansion:
 
 1. split the oversized Linux backend;
 2. remove POSIX details from portable core paths;
 3. split Filesystem private helpers while preserving one owner;
-5. make the Linux ANSI/CSI parser stateful across split reads.
+4. make the Linux ANSI/CSI parser stateful across split reads.
 
 See `consistency-check.md` for details.
 
 ## Next major development boundary
 
-MiniFT8 now drives the next phase. The intended next vertical slice is live/replayed FT8 receive audio:
+After the current housekeeping pass, MiniFT8 resumes deterministic FT8 receive processing:
 
 ```text
-QMX 48 kHz audio or deterministic WAV
-        -> MiniShell Audio ABI/provider
-        -> MiniFT8 app_controller
+tests/kfs16b12k.wav
+        -> MiniShell WAV Audio provider
+        -> 12 kHz / S16 / 2-channel Audio ABI
+        -> MiniFT8 source/profile interpretation
         -> ft8_engine
         -> decoded RX text
 ```
 
-The Audio ABI should be defined top-down from this real flow before implementation. Radio/CAT remains separate and should wait until its first concrete requirement.
+Live QMX/UAC should follow only after deterministic replay and the Linux backend cleanup are stable.
