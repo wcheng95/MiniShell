@@ -31,6 +31,16 @@ Canonical detailed contracts:
 - `docs/display-abi.md`
 - `docs/input-abi.md`
 
+Post-foundation application-driven services are added append-only. The first is:
+
+```text
+audio
+```
+
+Canonical Audio contract:
+
+- `docs/abi/audio-abi.md`
+
 `console` is not a foundational ABI. It is a higher-level composition of output
 and input behavior.
 
@@ -56,7 +66,7 @@ objects, raw peripheral registers, or other platform-private types.
 
 ## 3. Top-level API
 
-The established top-level shape is:
+The established top-level shape grows append-only. The current shape is:
 
 ```c
 typedef struct {
@@ -69,8 +79,12 @@ typedef struct {
     const mini_time_location_api_t *time_location;
     const mini_display_api_t       *display;
     const mini_input_api_t         *input;
+    const mini_audio_api_t         *audio;
 } mini_api_t;
 ```
+
+`audio` was appended after the established Task-1 prefix. Older applications that
+only require fields through `input` remain compatible.
 
 Runtime binding is through:
 
@@ -105,8 +119,9 @@ Compatible additions are discovered through `struct_size`, capability bits, and
 optional sub-APIs. An incompatible change that cannot preserve the established
 prefix requires a new ABI generation.
 
-Task 6 demonstrates this rule: Filesystem namespace functions are appended to the
-existing Filesystem table without changing the top-level ABI generation.
+Task 6 demonstrates this rule inside Filesystem, and Audio demonstrates it at the
+top level: the Audio pointer is appended to `mini_api_t` without changing the ABI
+generation.
 
 ## 6. Append-only tables
 
@@ -192,14 +207,14 @@ service pointer == NULL
 
 The service is unavailable.
 
-### Present service, mandatory foundational operation
+### Present service, mandatory operation
 
 A function that is mandatory for the present service's established prefix must
 have a non-NULL function pointer when its field is present in `struct_size`.
 
 ### Optional capability family
 
-For optional sub-APIs such as Display text or Input key:
+For optional sub-APIs such as Display text, Input key, or Audio RX/TX:
 
 ```text
 capability bit set   <=> corresponding sub-API pointer is non-NULL
@@ -252,6 +267,7 @@ event types
 source values
 file types
 seek origins
+sample formats
 ```
 
 New values may be appended. Older apps must ignore unknown capability/modifier
@@ -282,10 +298,13 @@ Current shared values are:
 #define MINI_ERR_NOT_READY       ((mini_result_t)-14)
 #define MINI_ERR_TIMEOUT         ((mini_result_t)-15)
 #define MINI_ERR_NOT_EMPTY       ((mini_result_t)-16)
+#define MINI_ERR_END_OF_STREAM   ((mini_result_t)-17)
 ```
 
-`MINI_ERR_NOT_EMPTY` was added in Task 6 because `rmdir` has a real portable need
-to distinguish a non-empty directory from a generic I/O or access failure.
+`MINI_ERR_NOT_EMPTY` was added because `rmdir` needs to distinguish a non-empty
+directory. `MINI_ERR_END_OF_STREAM` was added because finite streaming providers
+such as a WAV Audio source need a portable way to distinguish normal exhaustion
+from temporary not-ready/timeout conditions.
 
 Add another result only when a real ABI requires a distinct portable meaning.
 Backend-native values such as `errno`, FATFS `FRESULT`, or `esp_err_t` never cross
@@ -301,6 +320,9 @@ For synchronous calls, an application-owned buffer passed to MiniShell remains
 owned by the application and must not be retained after the call returns unless
 the specific service explicitly documents otherwise.
 
+Audio V1 follows this rule: RX/TX buffers are borrowed only for the duration of
+`read()`/`write()`.
+
 ## 15. Ownership and application context
 
 Every resource crossing the ABI has explicit ownership and lifetime rules.
@@ -312,11 +334,12 @@ associated with that app context where practical.
 foreground app context
     +-- MiniShell-managed allocations
     +-- open file handles
-    `-- future logical service resources
+    +-- open RX Audio stream
+    `-- open TX Audio stream
 ```
 
 Normal app teardown reclaims remaining MiniShell-managed resources before the ELF
-is unloaded.
+is unloaded. Active TX Audio is aborted before its stream is closed.
 
 This is cooperative lifecycle cleanup, not memory protection.
 
@@ -365,7 +388,7 @@ A compiled ELF is not expected to be binary-compatible across architectures.
 
 ## 19. Verification hierarchy
 
-Every foundational ABI uses three complementary test layers.
+Every MiniShell ABI uses three complementary test layers where applicable.
 
 ### 19.1 Unit tests — primary correctness suite
 
@@ -398,8 +421,8 @@ smoke test passes.
 
 ### 19.2 Runtime-loaded ELF tests — ABI integration suite
 
-Each service gets a separately built `.elf` test using only public MiniShell
-headers.
+Each service gets a separately built `.elf` test when that layer provides useful
+additional coverage.
 
 These tests are intentionally smaller than the unit suite. Their primary purpose
 is to prove:
@@ -423,7 +446,7 @@ case.
 
 Hardware-dependent behavior is validated on the reference platform, including
 actual RTC persistence, SD behavior, display output, touch/input routing, timer
-behavior, and other backend-specific effects.
+behavior, audio devices, and other backend-specific effects.
 
 The preferred development loop is:
 
@@ -434,7 +457,7 @@ implement/refactor service
 run comprehensive unit tests
         |
         v
-run focused .elf ABI integration test
+run focused .elf ABI integration test when useful
         |
         v
 validate hardware-specific behavior
@@ -459,6 +482,6 @@ fixed-width public types
 
 It is not based on mirroring one SDK forever.
 
-Do not treat a newly appended compatible function as a reason to bump the ABI
-generation. Require a new generation only when an incompatible change cannot
-preserve the established prefix and semantics.
+Do not treat a newly appended compatible function or service pointer as a reason
+to bump the ABI generation. Require a new generation only when an incompatible
+change cannot preserve the established prefix and semantics.
