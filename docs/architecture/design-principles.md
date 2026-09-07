@@ -197,7 +197,7 @@ Split when:
 
 Do not split a coherent state machine merely to hit a size number, and do not accept a mixed-responsibility file merely because it is short.
 
-`docs/consistency-check.md` records current modules that need decomposition.
+`../project/consistency-check.md` records current modules that need decomposition.
 
 ## 12. Synchronous and understandable first
 

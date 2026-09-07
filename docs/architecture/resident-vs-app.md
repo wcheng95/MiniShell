@@ -141,4 +141,4 @@ A future grouped `minitools` package is acceptable only if measurement shows tha
 | Recovery transfer | platform-dependent resident function |
 | Power/system control | platform-dependent resident function |
 
-See `docs/command-roadmap.md` for the current command baseline and `docs/consistency-check.md` for internal architecture debt.
+See `../project/command-roadmap.md` for the current command baseline and `../project/consistency-check.md` for internal architecture debt.
