@@ -40,15 +40,30 @@ Control Path
 
 These are independent logical resources rather than one monolithic radio selection.
 
-MiniFT8 V1 requests normalized audio as:
+MiniFT8 V1 requests normalized audio transport as:
 
 ```text
 12000 Hz
 signed 16-bit PCM
-mono
+2 channels
 ```
 
-The MiniShell Audio ABI remains format-capable, but initial implementations may support only that format. Hardware-native conversion stays below MiniShell; protocol-specific DSP and TX waveform synthesis stay inside MiniFT8.
+The MiniShell Audio ABI remains format-capable, but initial implementations may support only that format. MiniShell preserves channel ordering but does not assign channel meaning. Whether the two channels represent ordinary audio, duplicated mono, I/Q, or another pairing is a MiniFT8 source/profile contract.
+
+For example:
+
+```text
+RX = QMX-AUDIO
+    channel 0/1 = ordinary audio channels
+    MiniFT8 selects/downmixes as needed
+
+RX = QMX-IQ
+    channel 0 = I
+    channel 1 = Q
+    MiniFT8 uses the I/Q DSP path
+```
+
+Hardware-native transport conversion stays below MiniShell; protocol-specific DSP, channel interpretation, and TX waveform synthesis stay inside MiniFT8.
 
 The planned Control ABI exposes generic radio operations and capabilities such as dial frequency, radio mode, TX begin/end, and optional dynamic TX RF-frequency control. It does not expose FT8 symbols or device-specific CAT syntax.
 
@@ -56,13 +71,18 @@ Typical resource compositions are:
 
 ```text
 QMX
-    RX      = QMX UAC
+    RX      = QMX-AUDIO
+    TX      = None
+    CONTROL = QMX CAT
+
+QMX I/Q
+    RX      = QMX-IQ
     TX      = None
     CONTROL = QMX CAT
 
 QDX
-    RX      = QDX UAC
-    TX      = QDX UAC
+    RX      = QDX-AUDIO
+    TX      = QDX-AUDIO
     CONTROL = QDX CAT
 ```
 
