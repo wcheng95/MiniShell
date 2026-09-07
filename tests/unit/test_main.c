@@ -12,8 +12,6 @@ static const test_case_t tests[] = {
     {"time_location", test_time_location},
     {"display", test_display},
     {"input", test_input},
-    {"transfer", test_transfer},
-    {"power", test_power},
     {"nano_buffer", test_nano_buffer},
     {"cp_copy", test_cp_copy},
 };

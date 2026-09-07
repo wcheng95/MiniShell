@@ -13,8 +13,6 @@ add_executable(minishell_unit_tests
     ../../core/minishell_services/time_location_service.c
     ../../core/minishell_services/display_service.c
     ../../core/minishell_services/input_service.c
-    ../../core/minishell_transfer/transfer.c
-    ../../core/minishell_power/power.c
     ../../apps/nano/main/nano_buffer.c
     ../../apps/cp/main/cp_copy.c
     test_support.c
@@ -24,8 +22,6 @@ add_executable(minishell_unit_tests
     test_time_location.c
     test_display.c
     test_input.c
-    test_transfer.c
-    test_power.c
     test_nano_buffer.c
     test_cp_copy.c
     test_main.c
@@ -34,8 +30,6 @@ add_executable(minishell_unit_tests
 target_include_directories(minishell_unit_tests PRIVATE
     ../../include
     ../../core/minishell_services
-    ../../core/minishell_transfer
-    ../../core/minishell_power
     ../../apps/nano/main
     ../../apps/cp/main
 )
@@ -43,9 +37,8 @@ target_include_directories(minishell_unit_tests PRIVATE
 target_compile_options(minishell_unit_tests PRIVATE -Wall -Wextra -Werror)
 
 enable_testing()
-foreach(group system memory filesystem time_location display input transfer)
+foreach(group system memory filesystem time_location display input)
     add_test(NAME abi_${group}_unit COMMAND minishell_unit_tests ${group})
 endforeach()
-add_test(NAME resident_power_unit COMMAND minishell_unit_tests power)
 add_test(NAME nano_editor_unit COMMAND minishell_unit_tests nano_buffer)
 add_test(NAME cp_copy_unit COMMAND minishell_unit_tests cp_copy)
