@@ -37,8 +37,6 @@ run <app> [...]
 exit
 ```
 
-`put/get`, `suspend`, `poweroff`, and similar functions are platform-dependent. Mint does not provide fake versions merely for command-set parity.
-
 Current portable applications include the small utilities plus the first substantial domain application:
 
 ```text
@@ -172,8 +170,6 @@ Filesystem     rename replaces an existing regular-file destination
 Display text   optional write_at_attr(..., MINI_TEXT_ATTR_INVERSE)
 ```
 
-The replacement `rename()` semantics were justified by MiniFT8's safe configuration-save path, not added speculatively.
-
 ## Ownership model
 
 ```text
@@ -200,13 +196,7 @@ M$> MiniFT8
 M$>
 ```
 
-The standalone Linux/ncurses edge is gone from the active implementation. Audio, Radio/CAT, QMX, FT8 decoding/TX, and logging are intentionally deferred until their application boundaries are designed.
-
 See `docs/MiniFT8/README.md`.
-
-## Nano
-
-`nano` is intentionally split into understandable modules for orchestration, buffer editing, file persistence, UI, and utilities. It uses only MiniShell services. See `docs/apps/nano.md`.
 
 ## Linux tests
 
@@ -237,10 +227,8 @@ docs/
 └── project/        roadmap, audit/debt, progress log
 ```
 
-The earlier Tab5/ESP-IDF-first MiniShell implementation is preserved in branch `archive/tab5-legacy` and is not part of active `main`.
-
 ## Current status
 
 The generic Linux MiniShell baseline is complete. MiniFT8-V3 is now the first substantial domain application developed against that baseline, and it has already supplied one concrete Filesystem semantic requirement: replacement `rename()` for safe saves.
 
-Remaining MiniShell internal housekeeping debt can wait; the next major service work should be driven by MiniFT8's live/replayed RX vertical slice, beginning with a deliberately designed Audio ABI.
+The next major service work should be driven by MiniFT8's live/replayed RX vertical slice, beginning with a deliberately designed Audio ABI.
