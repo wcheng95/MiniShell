@@ -51,11 +51,14 @@ int main(int argc, char **argv)
         /* Match familiar ls behavior: hidden names are omitted by default. */
         if (entry.name[0] == '.') continue;
 
-        /* Root entries are complete MiniShell paths so the displayed name can
-         * be copied directly into another filesystem command. */
+        /* Root entries are shown as complete MiniShell paths (/sd, /flash),
+         * matching normal Linux mount-point naming and usable directly in
+         * subsequent filesystem commands. */
         if (root_listing) api->system->write("/");
         api->system->write(entry.name);
-        if (entry.type == MINI_FS_TYPE_DIRECTORY) api->system->write("/");
+        if (!root_listing && entry.type == MINI_FS_TYPE_DIRECTORY) {
+            api->system->write("/");
+        }
         api->system->write("\n");
     }
 
