@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <string.h>
 
 #include "minishell/api.h"
 
@@ -27,6 +28,7 @@ int main(int argc, char **argv)
     }
 
     const char *path = argc == 2 ? argv[1] : "/";
+    const int root_listing = strcmp(path, "/") == 0;
     mini_dir_t dir = MINI_DIR_INVALID;
     mini_result_t result = api->fs->dir_open(path, &dir);
     if (result != MINI_OK) {
@@ -49,8 +51,14 @@ int main(int argc, char **argv)
         /* Match familiar ls behavior: hidden names are omitted by default. */
         if (entry.name[0] == '.') continue;
 
+        /* Root entries are shown as complete MiniShell paths (/sd, /flash),
+         * matching normal Linux mount-point naming and usable directly in
+         * subsequent filesystem commands. */
+        if (root_listing) api->system->write("/");
         api->system->write(entry.name);
-        if (entry.type == MINI_FS_TYPE_DIRECTORY) api->system->write("/");
+        if (!root_listing && entry.type == MINI_FS_TYPE_DIRECTORY) {
+            api->system->write("/");
+        }
         api->system->write("\n");
     }
 
