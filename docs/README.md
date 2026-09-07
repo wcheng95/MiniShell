@@ -1,24 +1,62 @@
 # MiniShell Documentation Map
 
-This directory contains the current MiniShell design for the Linux-first reference implementation.
+MiniShell documentation is grouped by purpose so the active design stays easy to navigate.
 
 ## Source of truth
 
 When documents disagree, use this order:
 
 1. `include/minishell/api.h` — implemented public application ABI.
-2. `architecture.md` and `design-principles.md` — current architecture and design rules.
-3. Service documents: `system-abi.md`, `memory-abi.md`, `filesystem-abi.md`, `time-location-abi.md`, `display-abi.md`, and `input-abi.md`.
-4. `app-abi.md`, `command-roadmap.md`, and `resident-vs-app.md` — application/runtime placement and shell policy.
-5. `consistency-check.md` and `progress.md` — audit/debt and milestone record.
+2. `architecture/architecture.md` and `architecture/design-principles.md` — current architecture and design rules.
+3. Current ABI documents under `abi/`.
+4. `architecture/resident-vs-app.md` and `project/command-roadmap.md` — runtime/application placement and shell policy.
+5. `project/consistency-check.md` and `project/progress.md` — audit/debt and milestone record.
 
-`abi-foundation.md` remains a useful foundational design record, but the public header and current service documents win if details have evolved.
+`abi/abi-foundation.md` remains a useful foundational design record, but the public header and current service documents win if details have evolved.
+
+## Architecture
+
+```text
+architecture/
+├── architecture.md
+├── design-principles.md
+└── resident-vs-app.md
+```
+
+These documents define MiniShell's system model, dependency direction, ownership rules, module boundaries, and resident-vs-application placement.
+
+## Public ABI
+
+```text
+abi/
+├── abi-foundation.md
+├── app-abi.md
+├── system-abi.md
+├── memory-abi.md
+├── filesystem-abi.md
+├── time-location-abi.md
+├── display-abi.md
+└── input-abi.md
+```
+
+`include/minishell/api.h` remains the executable source of truth. The documents explain intent, semantics, ownership, and compatibility rules.
+
+## Project records
+
+```text
+project/
+├── command-roadmap.md
+├── consistency-check.md
+└── progress.md
+```
+
+These files record the current command baseline, architecture audits/known debt, and major project milestones. They are useful project state, but they do not override the architecture or public ABI.
 
 ## Legacy Tab5 work
 
 The earlier Tab5/ESP-IDF-first implementation, milestone documents, ELF tests, transfer/power experiments, and associated build files were removed from active `main` after the Linux baseline became canonical.
 
-They remain available in the Git branch:
+They remain available in:
 
 ```text
 archive/tab5-legacy

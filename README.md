@@ -220,18 +220,27 @@ The current reference suite has 7 tests covering:
 
 ## Documentation
 
-Start with:
+Start with `docs/README.md`. The documentation is grouped by purpose:
 
-- `docs/README.md` — documentation map and source-of-truth order.
-- `docs/architecture.md` — current architecture.
-- `docs/design-principles.md` — review/design rules.
-- `docs/consistency-check.md` — latest architecture audit and housekeeping debt.
-- `docs/progress.md` — milestone log.
+```text
+docs/
+├── architecture/   system model, ownership, design rules
+├── abi/            public application contracts
+└── project/        roadmap, audit/debt, progress log
+```
 
-Older `task*.md` files document the original Tab5/ESP-IDF proof-of-concept path and are historical records, not the current roadmap.
+Key files:
+
+- `docs/architecture/architecture.md` — current architecture.
+- `docs/architecture/design-principles.md` — review/design rules.
+- `docs/abi/app-abi.md` — application ABI/lifecycle contract.
+- `docs/project/consistency-check.md` — latest architecture audit and housekeeping debt.
+- `docs/project/progress.md` — milestone log.
+
+The earlier Tab5/ESP-IDF-first implementation is preserved separately in branch `archive/tab5-legacy` and is not part of active `main`.
 
 ## Current status
 
-The generic Linux MiniShell baseline is complete and working. The architecture audit found the public/application design sound, with internal housekeeping debt mainly in the oversized Linux backend, the large Filesystem service implementation, small POSIX assumptions in shell/core, dormant pre-Linux source trees, and terminal CSI parser robustness.
+The generic Linux MiniShell baseline is complete and working. The active tree has been cleaned of the old Tab5/ESP-IDF implementation path. Remaining internal housekeeping debt is mainly the oversized Linux backend, the large Filesystem service implementation, small POSIX assumptions in shell/core, and terminal CSI parser robustness.
 
-Those items are tracked in `docs/consistency-check.md`. After housekeeping, new service work should again be driven top-down by MiniFT8-V3 requirements rather than generic feature accumulation.
+Those items are tracked in `docs/project/consistency-check.md`. New service work should be driven top-down by real application requirements, with MiniFT8-V3 expected to drive the next major ABI decisions.
