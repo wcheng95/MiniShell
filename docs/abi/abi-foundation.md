@@ -2,16 +2,11 @@
 
 Status: **foundational cross-ABI contract; append-only growth active**
 
-MiniShell exists to provide a small, reusable, platform-neutral ABI between MCU
-applications and platform implementations. The ABI is the main architectural
-product of MiniShell, not an implementation detail.
+MiniShell exists to provide a small, reusable, platform-neutral ABI between applications and platform implementations. The ABI is the main architectural product of MiniShell, not an implementation detail.
 
-This document owns the rules that apply across all application-facing services.
-Detailed service contracts live in their own files and are not duplicated here.
+## 1. Service set
 
-## 1. Foundational and extended service set
-
-The six foundational Task 1 ABIs are:
+The six foundational Task-1 ABIs are:
 
 ```text
 system
@@ -22,20 +17,9 @@ display
 input
 ```
 
-Audio was added later as the first application-driven append-only service extension.
+Audio was added later as the first application-driven append-only top-level service extension.
 
-Canonical detailed contracts:
-
-- `docs/abi/system-abi.md`
-- `docs/abi/memory-abi.md`
-- `docs/abi/filesystem-abi.md`
-- `docs/abi/time-location-abi.md`
-- `docs/abi/display-abi.md`
-- `docs/abi/input-abi.md`
-- `docs/abi/audio-abi.md`
-
-`console` is not a foundational ABI. It is a higher-level composition of output
-and input behavior.
+Canonical detailed contracts live under `docs/abi/`, including `audio-abi.md`.
 
 ## 2. Layering
 
@@ -54,12 +38,11 @@ SDK / RTOS / bare-metal support / drivers
 hardware
 ```
 
-Normal applications do not depend on ESP-IDF, FATFS, FreeRTOS handles, M5Stack
-objects, raw peripheral registers, or other platform-private types.
+Normal applications do not depend on platform-private handles or SDK types.
 
 ## 3. Top-level API
 
-The established top-level shape is append-only. Its current form is:
+The public table is append-only. Its current tail includes Audio after the original service prefix:
 
 ```c
 typedef struct {
@@ -76,357 +59,103 @@ typedef struct {
 } mini_api_t;
 ```
 
-Runtime binding is through:
+Runtime binding is through `mini_api_get()`.
 
-```c
-const mini_api_t *mini_api_get(void);
-```
-
-`system` is mandatory for a conforming MiniShell runtime. Other top-level service
-pointers may be NULL on a platform that does not provide that service.
+`system` is mandatory. Other service pointers may be NULL when the target does not provide that service.
 
 ## 4. API acquisition and lifetime
 
-An application obtains the resident API through `mini_api_get()`.
-
-The returned `mini_api_t` pointer and any resident service-table pointers reached
-through it:
-
-- are owned by MiniShell;
-- are read-only from the application's point of view;
-- remain valid for the duration of the application's execution;
-- must not be freed, modified, or persisted for use by a later app instance.
-
-The current native model remains ordinary `main(argc, argv)` plus
-`mini_api_get()`.
+Resident API/service-table pointers are MiniShell-owned, read-only to applications, valid for the current app execution, and must not be persisted across app instances.
 
 ## 5. ABI version meaning
 
-`abi_version` identifies an incompatible ABI generation. It is not a feature
-counter and is not incremented for ordinary append-only compatible growth.
+`abi_version` identifies an incompatible ABI generation. Ordinary compatible growth does not bump it. Compatible additions use append-only tables, `struct_size`, capability bits, and optional sub-APIs.
 
-Compatible additions are discovered through `struct_size`, capability bits, and
-optional sub-APIs. An incompatible change that cannot preserve the established
-prefix requires a new ABI generation.
-
-Filesystem namespace growth and the later Audio top-level service both demonstrate
-this rule: compatible additions append to existing tables without changing the
-ABI generation.
+Filesystem namespace growth and the later Audio service are examples of compatible append-only extension.
 
 ## 6. Append-only tables
 
-Every public service function table begins with:
-
-```c
-uint32_t struct_size;
-```
-
-After stabilization, tables grow only by appending fields or function pointers.
-Existing fields are never reordered, removed, repurposed, or given incompatible
-semantics.
-
-The same rule applies to `mini_api_t`: new top-level service pointers are appended
-rather than inserted into the established prefix.
+Every public service function table begins with `uint32_t struct_size`. Existing fields are never reordered, removed, repurposed, or given incompatible semantics after stabilization. New top-level service pointers are appended to `mini_api_t`.
 
 ## 7. Correct `struct_size` use
 
-An application must not require `struct_size >= sizeof(the newest struct)` unless
-it truly requires every field in that newest struct.
-
-Instead, it checks that `struct_size` reaches the end of the specific field it
-plans to access.
-
-Conceptually:
-
-```c
-field_present = struct_size >= offset_of_field + sizeof(field);
-```
-
-This rule is essential for backward-compatible extension: an old resident table
-may provide the prefix an app needs even when it is smaller than a newer header's
-full structure.
+Applications check that `struct_size` reaches the specific field they need rather than requiring the newest complete structure size.
 
 ## 8. Caller-owned extensible structures
 
-Caller-owned input/output structures begin with:
-
-```c
-uint32_t struct_size;
-```
-
-Before the call, the caller:
-
-1. zero-initializes the structure it knows;
-2. sets `struct_size` to that structure size;
-3. leaves documented reserved input fields zero.
-
-MiniShell:
-
-- reads only fields covered by the caller-provided size;
-- writes only fields covered by that size;
-- ignores unknown future tail space;
-- returns `MINI_ERR_INVALID` when the structure is too small to contain the
-  minimum required prefix for that operation.
-
-Unless an operation explicitly documents useful error outputs, output fields are
-not meaningful after an error return.
+Caller-owned public structures begin with `struct_size`. Callers zero-initialize, set the size they know, and leave reserved input fields zero. MiniShell reads/writes only fields covered by that size.
 
 ## 9. Do not nest extensible structs by value
 
-One extensible public structure must not embed another extensible public
-structure by value when future growth of the inner structure would shift later
-fields of the outer structure.
-
-Prefer:
-
-- flat fields;
-- pointers to separate structures; or
-- another layout whose offsets remain stable.
-
-The Time/Location snapshot intentionally uses a flat layout for this reason.
+Avoid embedding one extensible public structure by value inside another when future growth would shift outer-field offsets. Prefer flat fields or pointers to separate structures.
 
 ## 10. Capability rules
 
-Capability discovery follows these common rules.
-
-### Missing top-level service
-
 ```text
-service pointer == NULL
+missing top-level pointer      => service unavailable
+capability bit set             <=> corresponding optional sub-API exists
+unknown future capability bits => ignored by older apps
+unsupported optional operation => MINI_ERR_UNSUPPORTED
 ```
 
-The service is unavailable.
-
-### Present service, mandatory foundational operation
-
-A function that is mandatory for the present service's established prefix must
-have a non-NULL function pointer when its field is present in `struct_size`.
-
-### Optional capability family
-
-For optional sub-APIs such as Display text, Input key, or Audio RX/TX:
-
-```text
-capability bit set   <=> corresponding sub-API pointer is non-NULL
-capability bit clear <=> corresponding sub-API pointer is NULL
-```
-
-Unknown future capability bits are ignored by older applications.
-
-### Optional flat operation
-
-A service may keep an optional operation in the base table when that keeps the
-interface simpler. Unsupported calls return `MINI_ERR_UNSUPPORTED`.
-
-Filesystem namespace operations follow this pattern at the platform backend
-boundary: the resident table can expose the appended call while a port without
-the corresponding backend hook returns `MINI_ERR_UNSUPPORTED`.
+This applies to optional families such as Display text, Input key, and Audio RX/TX.
 
 ## 11. Public ABI-owned types
 
-Public signatures use:
-
-- fixed-width integer types;
-- MiniShell-defined scalar/result types;
-- opaque MiniShell handles where stateful resources are needed;
-- native application pointers when the app must directly access memory;
-- documented byte strings/UTF-8 where appropriate.
-
-Public signatures must not expose SDK/RTOS/backend-private types.
-
-The ABI does not rely on C `enum` representation. Public constants are carried in
-fixed-width integer fields.
-
-Portable source still assumes a compatible C machine ABI on each target build:
-function-pointer calling convention, integer widths from `<stdint.h>`, pointer
-representation, alignment, and structure layout must match between MiniShell and
-the separately built native application for that target. Cross-architecture
-binary compatibility is not promised.
+Public signatures use fixed-width integers, MiniShell-defined result/scalar types, opaque MiniShell handles, native application pointers when direct memory access is required, and documented byte strings/UTF-8 where appropriate. Platform-private types do not cross the public boundary.
 
 ## 12. Stable numeric meanings
 
-After ABI stabilization, numeric meanings are never reused for another purpose,
-including:
-
-```text
-result codes
-capability bits
-flags
-special-key codes
-event types
-source values
-file types
-seek origins
-sample formats
-```
-
-New values may be appended. Older apps must ignore unknown capability/modifier
-bits and must not assume that every future enumerated numeric value is known.
+Numeric meanings are never reused after stabilization, including result codes, capability bits, flags, key/event values, file types, seek origins, and sample formats.
 
 ## 13. Shared result codes
 
-`mini_result_t` is shared by all MiniShell services. Zero means success and
-negative values mean errors.
+`mini_result_t` is shared by all services. Backend-native values such as `errno`, FATFS `FRESULT`, or SDK-specific error types never cross the public boundary.
 
-Current shared values include the established generic errors plus
-`MINI_ERR_END_OF_STREAM`, which is used by finite providers such as WAV Audio RX.
-Backend-native values such as `errno`, FATFS `FRESULT`, or `esp_err_t` never cross
-the public boundary.
-
-Add another result only when a real ABI requires a distinct portable meaning.
+`MINI_ERR_END_OF_STREAM` is used by finite providers such as WAV Audio RX. Add result codes only when a real portable distinction is needed.
 
 ## 14. Synchronous first
 
-Calls are synchronous unless a service contract explicitly says otherwise.
-Future asynchronous behavior is added through new functions or sub-APIs rather
-than by changing existing synchronous semantics.
-
-For synchronous calls, an application-owned buffer passed to MiniShell remains
-owned by the application and must not be retained after the call returns unless
-the specific service explicitly documents otherwise.
+Calls are synchronous unless a service explicitly says otherwise. Application-owned buffers remain application-owned and are not retained after synchronous calls return.
 
 ## 15. Ownership and application context
 
-Every resource crossing the ABI has explicit ownership and lifetime rules.
-
-MiniShell-managed resources acquired by the current foreground application are
-associated with that app context where practical.
+MiniShell-managed resources belong to the current foreground app context where practical:
 
 ```text
-foreground app context
+foreground app
     +-- MiniShell-managed allocations
     +-- open file handles
     +-- open audio streams
-    `-- future logical service resources
+    `-- future logical resources
 ```
 
-Normal app teardown reclaims remaining MiniShell-managed resources before the
-native application is unloaded. Active Audio TX is aborted before close.
-
-This is cooperative lifecycle cleanup, not memory protection.
+App teardown reclaims resources before unload; active Audio TX is aborted before close.
 
 ## 16. Foreground service routing
 
-MiniShell currently has one foreground application at a time. Display and Input
-therefore do not require acquire/release handles.
-
-Conceptually:
-
-```text
-shell owns foreground
-    -> launch app
-    -> app receives foreground display/input access
-    -> app returns
-    -> MiniShell restores shell foreground
-```
-
-MiniShell remains the hardware owner throughout.
-
-Foreground handoff must not expose stale queued logical input from a previous app
-instance unless a future API explicitly provides such behavior.
+MiniShell has one foreground application at a time. Display and Input therefore route to the foreground without explicit app-level acquire/release handles. MiniShell remains the hardware owner.
 
 ## 17. Execution-context rule
 
-Portable ABI calls are application-context calls.
-
-Unless a specific service explicitly documents otherwise:
-
-- ABI calls are not guaranteed ISR-safe;
-- ABI calls are not guaranteed reentrant;
-- portable applications should serialize calls that mutate the same logical
-  service/resource;
-- no general multi-thread safety guarantee is part of the current contract.
-
-A future concurrency model can add stronger guarantees without changing existing
-single-foreground-app semantics.
+Unless a service says otherwise, ABI calls are application-context calls, not guaranteed ISR-safe or reentrant, and callers should serialize mutations of the same logical resource.
 
 ## 18. Source portability, architecture-specific binaries
 
-The same application source should be rebuildable against the same MiniShell API
-on RV32, RV64, Xtensa, ARM, or other supported architectures where the required
-services exist.
-
-A compiled native app is not expected to be binary-compatible across architectures.
+The same source should rebuild against the same MiniShell API on supported RV32/RV64/Xtensa/ARM/etc. targets. Native app binaries are not expected to be cross-architecture compatible.
 
 ## 19. Verification hierarchy
 
-Every ABI uses three complementary test layers.
-
-### 19.1 Unit tests — primary correctness suite
-
-Unit tests are the main source of behavioral coverage. They should be exhaustive
-where practical and run quickly enough to use throughout implementation and
-refactoring.
-
-Prefer testing service semantics through the public ABI-shaped interface with
-mock/fake platform backends. Platform-independent policy should be separable from
-hardware drivers so it can be tested without real hardware.
-
-Unit tests should cover, as applicable:
+Primary correctness comes from comprehensive unit tests against mock/fake platform backends. Runtime-loaded native app tests then prove separate compilation, table layout/binding, representative calls, and teardown. Finally, platform/hardware tests validate backend-specific effects.
 
 ```text
-success paths
-invalid arguments
-boundary values
-error translation
-struct_size compatibility
-capability combinations
-resource ownership/bookkeeping
-cleanup and repeated-use behavior
-state transitions
-partial/failure behavior
-timeout/freshness logic
+implement/refactor
+    -> unit tests
+    -> native app ABI integration
+    -> real platform/hardware validation
 ```
 
-A service implementation is not considered trustworthy merely because its native
-integration smoke test passes.
-
-### 19.2 Runtime-loaded native-app tests — ABI integration suite
-
-Each service should get a separately built native test app using only public
-MiniShell headers.
-
-These tests are intentionally smaller than the unit suite. Their primary purpose
-is to prove:
-
-```text
-separate compilation
-native ABI/calling convention
-mini_api_get() binding
-struct/table layout
-service discovery
-runtime loader integration
-representative service calls
-normal app teardown/unload
-```
-
-They should contain a small happy path, a few representative failure checks, and
-repeated launch/exit validation. They do not need to duplicate every unit-test
-case.
-
-### 19.3 Real-hardware/platform tests
-
-Hardware-dependent behavior is validated on the reference platform, including
-actual RTC persistence, SD behavior, display output, touch/input routing, timer
-behavior, audio device behavior, and other backend-specific effects.
-
-The preferred development loop is:
-
-```text
-implement/refactor service
-        |
-        v
-run comprehensive unit tests
-        |
-        v
-run focused native-app ABI integration test
-        |
-        v
-validate hardware-specific behavior
-```
-
-Unit-test failures block progress even if the app or hardware smoke test appears
-to work.
+Unit-test failures block progress even if a smoke test appears to work.
 
 ## 20. Compatibility philosophy
 
@@ -442,8 +171,4 @@ explicit ownership/lifetime
 fixed-width public types
 ```
 
-It is not based on mirroring one SDK forever.
-
-Do not treat a newly appended compatible function or service as a reason to bump
-the ABI generation. Require a new generation only when an incompatible change
-cannot preserve the established prefix and semantics.
+A compatible appended service/function is not a reason to bump the ABI generation.
