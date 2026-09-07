@@ -48,25 +48,47 @@ static void build_body_line(char *out,
                             const nano_buffer_t *buffer,
                             uint32_t start,
                             uint32_t end,
-                            uint32_t left_column,
-                            bool current_line)
+                            uint32_t left_column)
 {
     uint32_t out_count = 0u;
     uint32_t line_length = end - start;
     uint32_t source_column = left_column < line_length ? left_column : line_length;
     uint32_t position = start + source_column;
 
-    while (out_count < width) {
-        if (current_line && position == buffer->cursor) {
-            out[out_count++] = '_';
-            if (out_count >= width) break;
-        }
-        if (position >= end) break;
-
+    while (out_count < width && position < end) {
         char ch = buffer->data[position++];
         out[out_count++] = ch == '\t' ? ' ' : ch;
     }
     out[out_count] = '\0';
+}
+
+static bool draw_cursor(const nano_ui_t *ui,
+                        const nano_buffer_t *buffer,
+                        uint32_t cursor_line,
+                        uint32_t cursor_column)
+{
+    if (cursor_line < ui->top_line ||
+        cursor_line >= ui->top_line + ui->body_rows ||
+        cursor_column < ui->left_column) {
+        return true;
+    }
+
+    uint32_t column = cursor_column - ui->left_column;
+    if (column >= visible_columns(ui)) return true;
+
+    char cell = ' ';
+    if (buffer->cursor < buffer->length && buffer->data[buffer->cursor] != '\n') {
+        cell = buffer->data[buffer->cursor] == '\t' ? ' ' : buffer->data[buffer->cursor];
+    }
+
+    uint32_t row = cursor_line - ui->top_line + 1u;
+    if (ui->text->write_at_attr != NULL) {
+        return ui->text->write_at_attr(row, column, &cell, 1u,
+                                       MINI_TEXT_ATTR_INVERSE) == MINI_OK;
+    }
+
+    const char fallback = '_';
+    return ui->text->write_at(row, column, &fallback, 1u) == MINI_OK;
 }
 
 bool nano_ui_init(nano_ui_t *ui, const mini_display_api_t *display)
@@ -137,10 +159,11 @@ bool nano_ui_render(nano_ui_t *ui,
                         buffer,
                         start,
                         end,
-                        ui->left_column,
-                        line_index == cursor_line);
+                        ui->left_column);
         if (!write_text(ui, row + 1u, line_buffer)) return false;
     }
+
+    if (!draw_cursor(ui, buffer, cursor_line, cursor_column)) return false;
 
     if (status_text != NULL && status_text[0] != '\0') {
         if (!write_text(ui, ui->rows - 2u, status_text)) return false;
