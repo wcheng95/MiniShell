@@ -14,7 +14,7 @@ This check reviews the active Linux reference implementation against four projec
 | Rule | Result | Notes |
 | --- | --- | --- |
 | Top-down dependency direction | PASS | Portable applications depend only on the public MiniShell ABI. Services depend on the private backend boundary. |
-| Clean interfaces | PASS WITH DEBT | Public ABI is clean; a small amount of POSIX loader/terminal behavior remains in portable-core-adjacent paths. |
+| Clean interfaces | PASS WITH DEBT | Public ABI is clean; a small amount of POSIX loader/terminal behavior remains near portable core. |
 | One owner | PASS WITH DEBT | Service ownership is clear. Linux terminal ownership is still split somewhat between shell stdio and the Linux backend. |
 | Small understandable modules | PASS WITH DEBT | Most modules are small/cohesive; `filesystem_service.c` and especially `linux_backend.c` remain due for decomposition. |
 
@@ -93,7 +93,7 @@ Status: **active housekeeping target**.
 
 ### H2 — remove POSIX details from portable core
 
-`core/shell.c` still interprets a POSIX-style loader error. Shell/application launch should consume platform-neutral internal loader results instead. Terminal ownership should also become explicit rather than relying on an accidental split between shell stdio and backend terminal setup.
+`core/shell.c` still interprets a POSIX-style loader error. Shell/application launch should consume platform-neutral internal loader results instead. Terminal ownership should become explicit rather than relying on an accidental split between shell stdio and backend terminal setup.
 
 Status: **active housekeeping target**.
 
