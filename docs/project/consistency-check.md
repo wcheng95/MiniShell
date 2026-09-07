@@ -1,6 +1,6 @@
 # MiniShell Architecture Consistency Check
 
-Audit date: 2026-09-06
+Audit date: 2026-09-07
 
 This check reviews the active Linux reference implementation against four project rules:
 
@@ -14,9 +14,9 @@ This check reviews the active Linux reference implementation against four projec
 | Rule | Result | Notes |
 | --- | --- | --- |
 | Top-down dependency direction | PASS | Portable applications depend only on the public MiniShell ABI. Services depend on the private backend boundary. |
-| Clean interfaces | PASS WITH DEBT | Public ABI is clean; a small amount of POSIX terminal/error behavior remains in `core/main.c` and `core/shell.c`. |
-| One owner | PASS WITH DEBT | Service ownership is clear. Linux terminal ownership is split somewhat between shell stdio and the Linux backend. |
-| Small understandable modules | PASS WITH DEBT | Most modules are small/cohesive; `filesystem_service.c` and especially `linux_backend.c` should be decomposed. |
+| Clean interfaces | PASS WITH DEBT | Public ABI is clean; a small amount of POSIX loader/terminal behavior remains in portable-core-adjacent paths. |
+| One owner | PASS WITH DEBT | Service ownership is clear. Linux terminal ownership is still split somewhat between shell stdio and the Linux backend. |
+| Small understandable modules | PASS WITH DEBT | Most modules are small/cohesive; `filesystem_service.c` and especially `linux_backend.c` remain due for decomposition. |
 
 There is no reason to redesign the public ABI because of these findings. The remaining debt is internal housekeeping.
 
@@ -55,6 +55,8 @@ Applications do not receive POSIX descriptors, `DIR *`, terminal objects, ESP-ID
 | UTC anchor and effective location | Time/Location service | Linux supplies startup UTC and location persistence |
 | Logical input queue | Input service | Linux terminal parser produces normalized events |
 | Logical display semantics | Display service | Linux maps text operations to terminal behavior |
+| Audio stream lifecycle/handles | Audio service | Linux provider supplies WAV/live-device frame transport |
+| Audio channel meaning | application/source profile | backend preserves channel order only |
 | Runtime app discovery/loading | app manager + private loader contract | Linux uses `.so`/`dlopen()` |
 
 ## Good examples
@@ -71,19 +73,35 @@ nano_ui.c       rendering through Display ABI
 nano_util.c     small string helpers
 ```
 
+The Audio service/provider split is another useful boundary:
+
+```text
+application
+    -> Audio ABI/service owns logical stream lifecycle
+    -> provider owns platform/device/file transport
+```
+
+`linux_audio_wav.c` does not know FT8 or I/Q semantics; it preserves the requested two-channel PCM stream.
+
 ## Housekeeping debt
 
 ### H1 — split the Linux backend
 
-`platform/linux/linux_backend.c` contains several independent responsibilities: filesystem primitives, memory primitives, UTC/location, display/input terminal handling, app loading, and platform bootstrap. Split it when convenient without changing the public ABI.
+`platform/linux/linux_backend.c` still contains several independent responsibilities: filesystem primitives, memory primitives, UTC/location, display/input terminal handling, app loading, and platform bootstrap. Split it without changing the public ABI or the private service-port contract.
+
+Status: **active housekeeping target**.
 
 ### H2 — remove POSIX details from portable core
 
-`core/shell.c` still interprets a POSIX-style loader error and shell/stdin ownership is partly libc-specific. Introduce platform-neutral internal loader results and clarify terminal ownership later.
+`core/shell.c` still interprets a POSIX-style loader error. Shell/application launch should consume platform-neutral internal loader results instead. Terminal ownership should also become explicit rather than relying on an accidental split between shell stdio and backend terminal setup.
+
+Status: **active housekeeping target**.
 
 ### H3 — split Filesystem service internals
 
-`core/minishell_services/filesystem_service.c` is conceptually one owner but contains path normalization, handles, quota accounting, namespace operations, directory iteration, and space reporting. Move private helpers into focused files when useful; do not split ownership merely to reduce line count.
+`core/minishell_services/filesystem_service.c` is conceptually one owner but contains path normalization, handles, quota accounting, namespace operations, directory iteration, and space reporting. Move private helpers into focused files while preserving a single Filesystem service owner and unchanged public ABI.
+
+Status: **active housekeeping target**.
 
 ### H4 — legacy Tab5 tree: RESOLVED
 
@@ -98,6 +116,8 @@ archive/tab5-legacy
 ### H5 — Linux terminal escape parser robustness
 
 The current Linux key parser handles the tested terminal sequences, but an ANSI/CSI sequence split across separate `read()` chunks can be misinterpreted. Add parser state before terminal input becomes more demanding.
+
+Status: **deferred until H1-H3 are complete, then evaluate implementation cost**.
 
 ## Module-size rule
 
@@ -121,4 +141,4 @@ Before adding a new service or major feature, review:
 7. Is an existing module becoming too broad and due for decomposition first?
 ```
 
-The next MiniFT8-driven service work should use this checklist.
+The next MiniFT8-driven work should resume only after the active housekeeping targets are paid and the retained test suite remains green.
