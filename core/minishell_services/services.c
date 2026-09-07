@@ -3,6 +3,7 @@
 #include "services_internal.h"
 
 static minishell_services_port_t s_port;
+static minishell_resource_limits_t s_limits;
 
 static mini_api_t s_api = {
     .abi_version = MINISHELL_ABI_VERSION,
@@ -18,6 +19,24 @@ static mini_api_t s_api = {
 const minishell_services_port_t *minishell_services_port(void)
 {
     return &s_port;
+}
+
+uint64_t minishell_memory_limit_bytes(void)
+{
+    return s_limits.memory_bytes;
+}
+
+uint64_t minishell_storage_limit_bytes(void)
+{
+    return s_limits.storage_bytes;
+}
+
+void minishell_services_set_resource_limits(const minishell_resource_limits_t *limits)
+{
+    memset(&s_limits, 0, sizeof(s_limits));
+    if (limits != NULL) {
+        s_limits = *limits;
+    }
 }
 
 static void refresh_api_table(void)
