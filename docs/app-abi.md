@@ -124,6 +124,15 @@ Whether that operation is durable is backend policy. Linux keeps the correction
 for the current MiniShell session only; a backend that owns a writable RTC may
 store the same setting in hardware.
 
+### Text attributes
+
+The Text Display table may append `write_at_attr()`. `MINI_TEXT_ATTR_INVERSE` is
+the first defined attribute. A backend that does not support text attributes may
+leave this function NULL; applications should provide a simple fallback when the
+attribute is optional. Linux maps inverse text to terminal reverse video, while a
+framebuffer backend can implement the same semantic effect by swapping foreground
+and background colors.
+
 ## 6. Compatibility
 
 Applications check the ABI generation and only the fields/capabilities they actually require. Compatible append-only expansion does not require an ABI generation bump.

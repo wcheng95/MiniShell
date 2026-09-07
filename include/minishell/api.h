@@ -187,6 +187,9 @@ typedef struct {
 
 #define MINI_DISPLAY_CAP_TEXT  (1ull << 0)
 
+#define MINI_TEXT_ATTR_NONE     0u
+#define MINI_TEXT_ATTR_INVERSE  (1u << 0)
+
 typedef struct {
     uint32_t struct_size;
     uint32_t columns;
@@ -199,6 +202,8 @@ typedef struct {
     mini_result_t (*clear)(void);
     mini_result_t (*clear_at)(uint32_t row, uint32_t column, uint32_t rows, uint32_t columns);
     mini_result_t (*write_at)(uint32_t row, uint32_t column, const char *text, uint32_t byte_count);
+    mini_result_t (*write_at_attr)(uint32_t row, uint32_t column, const char *text,
+                                   uint32_t byte_count, uint32_t attributes);
 } mini_text_display_api_t;
 
 typedef struct {

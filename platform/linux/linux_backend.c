@@ -688,6 +688,24 @@ static mini_result_t service_display_write_at(void *ctx, uint32_t row,
     return fwrite(text, 1, byte_count, stdout) == byte_count ? MINI_OK : MINI_ERR_IO;
 }
 
+static mini_result_t service_display_write_at_attr(void *ctx, uint32_t row,
+                                                   uint32_t column, const char *text,
+                                                   uint32_t byte_count,
+                                                   uint32_t attributes)
+{
+    if ((attributes & ~MINI_TEXT_ATTR_INVERSE) != 0u) return MINI_ERR_INVALID;
+    if (attributes == MINI_TEXT_ATTR_NONE) {
+        return service_display_write_at(ctx, row, column, text, byte_count);
+    }
+    (void)ctx;
+    if (fprintf(stdout, "\033[%u;%uH\033[7m", (unsigned)(row + 1u),
+                (unsigned)(column + 1u)) < 0) {
+        return MINI_ERR_IO;
+    }
+    if (fwrite(text, 1, byte_count, stdout) != byte_count) return MINI_ERR_IO;
+    return fputs("\033[0m", stdout) == EOF ? MINI_ERR_IO : MINI_OK;
+}
+
 static mini_result_t service_display_present(void *ctx)
 {
     (void)ctx;
@@ -966,6 +984,7 @@ static void configure_services_port(void)
     s_services_port.display_text_clear = service_display_clear;
     s_services_port.display_text_clear_at = service_display_clear_at;
     s_services_port.display_text_write_at = service_display_write_at;
+    s_services_port.display_text_write_at_attr = service_display_write_at_attr;
     s_services_port.display_present = service_display_present;
 
     s_services_port.input_capabilities = MINI_INPUT_CAP_KEY;
