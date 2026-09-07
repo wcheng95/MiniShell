@@ -2,143 +2,74 @@
 
 Audit date: 2026-09-07
 
-This check reviews the active Linux reference implementation against four project rules:
+MiniShell is checked against four project rules: top-down modular design, clean interfaces/dependency direction, one clear owner for each shared resource/state domain, and modules small enough to understand/test independently.
 
-1. top-down modular design;
-2. clean interfaces and dependency direction;
-3. one clear owner for each shared resource/state domain;
-4. modules small enough to understand and test independently.
+## Current result
 
-## Summary
-
-| Rule | Result | Notes |
-| --- | --- | --- |
-| Top-down dependency direction | PASS | Portable applications depend only on the public MiniShell ABI. Services depend on the private backend boundary. |
-| Clean interfaces | PASS WITH DEBT | Public ABI is clean; a small amount of POSIX loader/terminal behavior remains near portable core. |
-| One owner | PASS WITH DEBT | Service ownership is clear. Linux terminal ownership is still split somewhat between shell stdio and the Linux backend. |
-| Small understandable modules | PASS WITH DEBT | Most modules are small/cohesive; `filesystem_service.c` and especially `linux_backend.c` remain due for decomposition. |
-
-There is no reason to redesign the public ABI because of these findings. The remaining debt is internal housekeeping.
-
-## Active dependency direction
-
-```text
-portable app
-    |
-    v
-include/minishell/api.h
-    |
-    v
-core/minishell_services/*
-    |
-    v
-core/platform_backend.h / minishell_services_port_t
-    |
-    v
-platform/linux/*
-    |
-    v
-POSIX / Linux
-```
-
-Applications do not receive POSIX descriptors, `DIR *`, terminal objects, ESP-IDF types, NuttX types, or board-driver handles.
+Public ABI direction is clean and does not need redesign. The remaining debt is internal housekeeping.
 
 ## Ownership map
 
 | Resource/state | MiniShell owner | Backend/provider role |
 | --- | --- | --- |
 | Application lifecycle | `app_manager` | platform loader prepares/releases native app |
-| Public API table | service composition | backend supplies implementation primitives only |
-| App allocations | Memory service | Linux supplies malloc/realloc/free |
-| Logical file/directory handles | Filesystem service | Linux supplies POSIX primitives |
-| MiniShell storage quota | Filesystem service/resource policy | Linux supplies files below logical root |
-| UTC anchor and effective location | Time/Location service | Linux supplies startup UTC and location persistence |
-| Logical input queue | Input service | Linux terminal parser produces normalized events |
-| Logical display semantics | Display service | Linux maps text operations to terminal behavior |
-| Audio stream lifecycle/handles | Audio service | Linux provider supplies WAV/live-device frame transport |
-| Audio channel meaning | application/source profile | backend preserves channel order only |
-| Runtime app discovery/loading | app manager + private loader contract | Linux uses `.so`/`dlopen()` |
-
-## Good examples
-
-Portable utilities use the public ABI rather than POSIX. `ls` uses Filesystem directory iteration; `df` uses `space()`; `free` uses Memory `get_info()`; `date` uses Time/Location.
-
-`nano` remains a good modular example:
-
-```text
-nano.c          orchestration/input policy
-nano_buffer.c   text-buffer state and editing
-nano_file.c     persistence through Filesystem ABI
-nano_ui.c       rendering through Display ABI
-nano_util.c     small string helpers
-```
-
-The Audio service/provider split is another useful boundary:
-
-```text
-application
-    -> Audio ABI/service owns logical stream lifecycle
-    -> provider owns platform/device/file transport
-```
-
-`linux_audio_wav.c` does not know FT8 or I/Q semantics; it preserves the requested two-channel PCM stream.
+| Public API table | service composition | backend supplies implementation primitives |
+| App allocations | Memory service | platform supplies allocator primitives |
+| Logical file/directory handles | Filesystem service | platform supplies file primitives |
+| MiniShell storage quota | Filesystem service/resource policy | platform supplies storage below logical roots |
+| UTC/effective location | Time/Location service | platform supplies UTC/location persistence |
+| Logical input queue | Input service | terminal/device parser produces normalized events |
+| Logical display semantics | Display service | platform renders text/display operations |
+| Audio stream lifecycle | Audio service | provider supplies file/device frame transport |
+| Audio channel meaning | application/source profile | provider preserves channel order only |
+| Runtime app loading | app manager + private loader contract | Linux uses `.so`/`dlopen()` |
 
 ## Housekeeping debt
 
 ### H1 — split the Linux backend
 
-`platform/linux/linux_backend.c` still contains several independent responsibilities: filesystem primitives, memory primitives, UTC/location, display/input terminal handling, app loading, and platform bootstrap. Split it without changing the public ABI or the private service-port contract.
+`platform/linux/linux_backend.c` mixes filesystem, memory, UTC/location, terminal display/input, app loading, and bootstrap responsibilities.
 
 Status: **active housekeeping target**.
 
 ### H2 — remove POSIX details from portable core
 
-`core/shell.c` still interprets a POSIX-style loader error. Shell/application launch should consume platform-neutral internal loader results instead. Terminal ownership should become explicit rather than relying on an accidental split between shell stdio and backend terminal setup.
+The shell currently interprets POSIX-style loader errors. Application launch should return platform-neutral internal MiniShell loader results, with POSIX translation kept inside the Linux backend. Terminal ownership should also be explicit.
 
 Status: **active housekeeping target**.
 
 ### H3 — split Filesystem service internals
 
-`core/minishell_services/filesystem_service.c` is conceptually one owner but contains path normalization, handles, quota accounting, namespace operations, directory iteration, and space reporting. Move private helpers into focused files while preserving a single Filesystem service owner and unchanged public ABI.
+`filesystem_service.c` is correctly the single service owner but mixes path normalization, handle bookkeeping, quota accounting, namespace operations, directory iteration, and space reporting. Move private helpers into focused internal modules without changing ownership or public ABI.
 
 Status: **active housekeeping target**.
 
-### H4 — legacy Tab5 tree: RESOLVED
+### H4 — legacy Tab5 tree
 
-The dormant pre-Linux Tab5/ESP-IDF source, old milestone docs, ELF tests, transfer/power experiments, and obsolete build/tooling files were removed from active `main`.
-
-The complete pre-cleanup state is preserved in:
-
-```text
-archive/tab5-legacy
-```
+**RESOLVED.** Historical pre-Linux work is preserved on `archive/tab5-legacy`; obsolete active files were removed from `main`.
 
 ### H5 — Linux terminal escape parser robustness
 
-The current Linux key parser handles the tested terminal sequences, but an ANSI/CSI sequence split across separate `read()` chunks can be misinterpreted. Add parser state before terminal input becomes more demanding.
+ANSI/CSI sequences split across separate `read()` chunks can still be misinterpreted.
 
-Status: **deferred until H1-H3 are complete, then evaluate implementation cost**.
+Status: **deferred until H1-H3 are complete; then evaluate implementation cost**.
 
 ## Module-size rule
 
-MiniShell has no rigid source-line limit. The review question is:
-
-> Can one developer explain the module's responsibility, state, inputs/outputs, and failure behavior without also understanding several unrelated subsystems?
-
-Split a module when it owns several independent domains, tests naturally separate into unrelated groups, changes repeatedly cross concerns, or the file is difficult to read as one conceptual unit.
+There is no rigid source-line limit. Split a module when understanding one responsibility requires understanding several unrelated subsystems, tests naturally separate into unrelated groups, or unrelated changes repeatedly collide in one file.
 
 ## Gate for future work
 
-Before adding a new service or major feature, review:
+Before adding a service or major feature, ask:
 
 ```text
 1. What application behavior requires it?
-2. Which module owns the state/resource?
+2. Who owns the state/resource?
 3. Is the public concept platform-independent?
-4. Does the app need a new ABI primitive, or can the existing ABI express it?
-5. Is the platform-specific implementation below the private boundary?
-6. Can the module be tested independently?
-7. Is an existing module becoming too broad and due for decomposition first?
+4. Can the existing ABI express it?
+5. Is platform-specific implementation below the private boundary?
+6. Can it be tested independently?
+7. Is an existing module due for decomposition first?
 ```
 
-The next MiniFT8-driven work should resume only after the active housekeeping targets are paid and the retained test suite remains green.
+MiniFT8 DSP/live-radio expansion resumes after the active housekeeping targets are paid and the retained test suite remains green.
