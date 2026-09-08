@@ -2,14 +2,14 @@
 
 MiniFT8-V3 is a substantial portable application hosted by MiniShell. This directory is the canonical documentation for active MiniFT8-V3 development.
 
-The previous standalone MiniFT8-V3 repository has been superseded. Active development and authoritative architecture now live with MiniShell so application requirements and MiniShell ABI evolution can be developed and tested together.
+The previous standalone MiniFT8-V3 repository has been superseded. Active development and authoritative architecture now live with MiniShell so application requirements and MiniShell API evolution can be developed and tested together.
 
 ## Current boundary
 
 ```text
 MiniFT8-V3
     |
-MiniShell ABI
+MiniShell API
     |
 MiniShell services/runtime
     |
@@ -31,19 +31,39 @@ ADIF log
 
 They are coordinated through `app_controller`; they do not call one another behind it.
 
-The current milestone is **decode RX**. Its canonical architecture and staged development plan are in `rx.md`.
+## Current priority
+
+RX-0 architecture/source review and RX-1A golden-boundary freeze are complete. RX-1B is **paused, not abandoned** while the architecture is exercised across two MiniShell backends and two MiniFT8 profiles.
+
+Current validation matrix:
+
+```text
+Linux backend + DESKTOP profile
+Linux backend + ADV profile
+ADV backend   + ADV profile
+```
+
+The key comparison is Linux + ADV profile versus real ADV + ADV profile: same MiniFT8 core/profile, different MiniShell backend.
+
+Canonical current plan:
+
+```text
+../project/adv-backend-plan.md
+```
+
+After its V1 validation checkpoint passes, development resumes at RX-1B: top-down RX module/interface design.
 
 ## Current integrated baseline
 
 MiniShell-native MiniFT8 currently contains:
 
 ```text
-30x8 text UI
+text UI
 configuration
 prototype scheduler settings
 Station.txt persistence
 MiniShell Display/Input/Filesystem integration
-MiniShell Audio ABI + deterministic WAV RX provider
+MiniShell Audio API + deterministic WAV RX provider
 ```
 
 Application I/O is modeled as three independent resources:
@@ -98,12 +118,6 @@ Locked rule:
 
 > Stream raw audio; retain the waterfall; retain raw PCM only by explicit exception.
 
-## Current RX gate
-
-RX-0 architecture/source review and RX-1A golden-boundary freeze are complete.
-
-The next task is **RX-1B: top-down RX module/interface design**. No V2 decoder source is migrated until ownership, data contracts, lifecycle, memory/workspace ownership, dependency direction, error/status contracts, and unit-test boundaries are defined.
-
 ## Run
 
 Build MiniShell normally, then:
@@ -132,7 +146,7 @@ sync + close
 rename -> /flash/MiniFT8/Station.txt
 ```
 
-through the MiniShell Filesystem ABI.
+through the MiniShell Filesystem API.
 
 ## Documentation
 
@@ -144,7 +158,7 @@ through the MiniShell Filesystem ABI.
 - `rx-decode-review.md` — RX-0B review of `decode.h/c`, candidate search, likelihood/LDPC/CRC boundaries, status cleanup, and deep-search extension points.
 - `rx-message-review.md` — RX-0B review of `message.h/c`, typed protocol results, callsign-hash ownership, special-message handling, and codec gaps.
 - `rx-golden.md` — RX-1A pinned V2 golden boundaries: reference WAVs, exact Linux waterfall fingerprints, payload/codec vectors, and known V2 gaps that are not golden targets.
-- `ui.md` — current 30x8 UI model and controls.
+- `ui.md` — current UI model and controls.
 - `development.md` — current development gate and next task.
 
 ## Source
