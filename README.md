@@ -107,6 +107,8 @@ Runtime `.elf` loading on ADV is deferred for later investigation, not rejected.
 
 The user model remains `apps`, `run <app>`, direct `<app>`, application return, then `M$>`.
 
+The resident shell itself uses a private platform console boundary. Linux implements that boundary with stdin/stdout; applications do **not** use it and continue through the public MiniShell APIs.
+
 ## Build on Linux Mint
 
 ```bash
@@ -252,4 +254,6 @@ docs/
 
 ## Current status
 
-The Linux reference backend and current service set are established. The active milestone is A0-A3/P1-P2/V1: make the resident shell/startup portable, add the Cardputer ADV backend, formalize MiniFT8 DESKTOP/ADV profiles, and validate the shared application/API boundary across Linux and ADV.
+Stage **A0 is complete**. Portable startup now lives in `core/minishell_runtime.c`, Linux owns its C entry point and stdio console under `platform/linux/`, and the full Linux test suite remains green.
+
+The next stage is **A1**: create the Cardputer ADV ESP-IDF build skeleton, implement the private resident console on Cardputer display/keyboard, establish ADV resource/platform identity, and prove the compiled-in app registry with a tiny app before bringing `ft8` across.
