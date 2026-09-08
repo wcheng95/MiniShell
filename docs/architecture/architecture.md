@@ -13,7 +13,7 @@ Linux Mint on `pc-1` is the reference behavior and a full production target.
 ```text
 +------------------------------------------------------+
 |                   Applications                       |
-|          MiniFT8 / MiniCW / MiniRTTY / tools         |
+|          ft8 / future ft4/cw/rtty/js8 / tools       |
 +---------------------- MiniShell API -----------------+
 |                  Portable MiniShell                  |
 | shell / app lifecycle / service semantics / policy   |
@@ -60,14 +60,24 @@ The private backend boundary may evolve freely. The public API is also still und
 The active Linux build is composed from:
 
 ```text
-core/main.c                    composition/startup
-core/shell.c                   resident shell control plane
-core/app_manager.c             foreground app lifecycle
-core/minishell_services/*      portable service semantics
-platform/linux/*               Linux private backend/providers
-include/minishell/api.h        public application API
-apps/*                         portable/domain applications
+platform/linux/main.c            Linux C entry point only
+core/minishell_runtime.c         portable MiniShell lifecycle/startup
+core/shell.c                     resident shell parsing/control plane
+core/app_manager.c               foreground app lifecycle
+core/minishell_services/*        portable service semantics
+platform/linux/linux_console.c   resident stdin/stdout console provider
+platform/linux/*                 Linux private backend/providers
+include/minishell/api.h          public application API
+apps/*                           portable/domain applications
 ```
+
+The portable runtime entry is:
+
+```c
+int minishell_run(void);
+```
+
+A platform-specific executable entry point calls that function. Linux uses ordinary C `main()`. A future ESP-IDF backend can call the same portable runtime from `app_main()` without introducing ESP-IDF concepts into the portable core.
 
 A Cardputer ADV backend will be added under `platform/adv/`. The earlier ESP-IDF/Tab5 implementation path is preserved in branch `archive/tab5-legacy` as historical reference, not as the new ADV architecture.
 
@@ -86,6 +96,22 @@ Logical key queue   Input service
 Audio streams       Audio service
 App packaging/load  private platform mechanism behind app_manager
 ```
+
+Resident-shell console ownership is separate and private:
+
+```text
+portable shell
+    -> minishell_platform_console_write/read_line
+    -> platform-private console provider
+
+Linux
+    -> stdin/stdout
+
+ADV later
+    -> Cardputer display/keyboard shell interaction
+```
+
+This console interface is **not** a public application service. Applications continue to use MiniShell Display, Input, System, and other public APIs.
 
 A backend/provider supplies primitives; it does not redefine application semantics.
 
@@ -183,7 +209,7 @@ Typical paths:
 ```text
 /sd/log.txt
 /flash/config.ini
-/flash/minift8/station.txt
+/flash/ft8/station.txt
 ```
 
 Linux maps the namespace underneath a private host directory, by default `~/.local/share/minishell/fs`. Applications never see the host path.
@@ -223,11 +249,13 @@ MiniFT8 UiFrame / UiInput
 
 The Linux terminal backend owns ANSI/CSI and UTF-8 byte-stream reconstruction, including split-read state and the standalone-Escape ambiguity policy. Those details remain below the Input API.
 
+The resident shell's line-oriented console is a different private boundary. On Linux it deliberately disables stdio input buffering so shell reads do not consume bytes intended for a foreground application's raw Input service.
+
 MiniFT8's application UI therefore has no ncurses/Linux dependency.
 
 ## 13. Resident shell versus applications
 
-Current Linux resident shell:
+Current resident shell:
 
 ```text
 help
@@ -240,9 +268,11 @@ exit
 Portable/domain applications include:
 
 ```text
-minift8
+ft8
 hello cat cp date df free ls mkdir mv nano rm rmdir
 ```
+
+Future protocol applications such as `ft4`, `cw`, `rtty`, and `js8` are separate applications rather than protocol modes inside `ft8`.
 
 `put/get`, `suspend`, `poweroff`, and similar operations are platform-dependent. They may exist on a target where useful and be absent elsewhere; no fake implementation is required.
 
@@ -275,12 +305,14 @@ nano PTY edit/save/exit + inverse cursor
 directory iteration + ls
 resource quota + free/df/date + rename accounting
 Audio/WAV RX transport
-MiniFT8 pure UI state/action behavior
+ft8 pure UI state/action behavior
 stateful Linux terminal parser split-boundary behavior
-MiniFT8 runtime launch/navigation/persistence/relaunch/exit
+ft8 runtime launch/navigation/persistence/relaunch/exit
 ```
 
 CI also runs the platform-neutral MiniShell service/unit suite, including Audio API/service tests.
+
+The A0 console/startup refactor passed this entire suite unchanged, which is the regression evidence that the new private boundary preserves Linux behavior.
 
 Service/unit tests remain more important than merely proving that one native app can load.
 
@@ -295,6 +327,8 @@ Linux backend      split by responsibility
 portable core      no POSIX loader-result leakage
 Filesystem owner   private path/handle/quota helpers split out
 terminal input     stateful ANSI/CSI/UTF-8 parser isolated below Input
+resident console   stdin/stdout isolated below private backend boundary
+startup            platform entry point separated from portable runtime
 ```
 
 Future debt should be recorded when discovered rather than allowed to blur ownership boundaries. See `../project/consistency-check.md` for the audit record.
@@ -338,4 +372,4 @@ controlled allocation
 no host-specific types in application code
 ```
 
-The immediate A0 work is to remove the remaining Linux-specific resident shell/startup assumptions before `platform/adv/` becomes a true peer backend.
+Stage A0 is complete. The immediate next work is **A1**: create `platform/adv/`, add the ESP-IDF/Cardputer ADV build skeleton, implement the private shell console on Cardputer display/keyboard, and prove static app list/run/return with a tiny app before bringing `ft8` across.
