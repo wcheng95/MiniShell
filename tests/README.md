@@ -15,7 +15,7 @@ cmake --build build-unit
 ctest --test-dir build-unit --output-on-failure
 ```
 
-Current unit groups cover:
+Current portable unit groups cover:
 
 ```text
 abi_system_unit
@@ -24,6 +24,7 @@ abi_filesystem_unit
 abi_time_location_unit
 abi_display_unit
 abi_input_unit
+abi_audio_unit
 nano_editor_unit
 cp_copy_unit
 ```
@@ -40,7 +41,9 @@ cmake --build build-linux
 ctest --test-dir build-linux --output-on-failure
 ```
 
-These tests exercise application discovery/loading, service behavior, terminal input, portable utilities, nano PTY editing, directory iteration, and resource/date behavior.
+These tests exercise application discovery/loading, service behavior, terminal input, portable utilities, nano PTY editing, directory iteration, resource/date behavior, deterministic WAV Audio RX, and MiniFT8 integration.
+
+The root build also includes `linux_terminal_parser_unit`, a strict pure-C test for Linux terminal byte-stream parsing. It covers supported CSI sequences split at every byte boundary, split UTF-8, standalone Escape, partial-CSI timeout flush behavior, malformed-input recovery, and parser reset. `linux_input` complements it with real PTY split writes through MiniShell.
 
 ## Sanitizers
 
