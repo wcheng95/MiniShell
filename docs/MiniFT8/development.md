@@ -2,15 +2,13 @@
 
 MiniFT8 runs as a MiniShell app with independent RX Audio, TX Audio, and Control resources.
 
-Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves channel order; MiniFT8 source profiles decide ordinary-audio versus I/Q meaning. `tests/kfs16b12k.wav` is the deterministic reference and is streamed unchanged by the Linux WAV provider.
+Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves channel order; MiniFT8 source profiles decide ordinary-audio versus I/Q meaning. `tests/kfs16b12k.wav` is the deterministic MiniShell Audio reference.
 
 The MiniShell H1-H5 housekeeping audit and final boundary review are complete. No known MiniShell debt blocks MiniFT8 RX work.
 
 ## Current milestone: decode RX
 
-The canonical RX architecture and development sequence are in `rx.md`.
-
-The high-level pipeline is:
+Canonical RX architecture and staged development are in `rx.md`.
 
 ```text
 MiniShell Audio
@@ -28,37 +26,19 @@ MiniShell Audio
     -> RX UI
 ```
 
-Normal raw audio remains streaming and bounded; the retained decode representation is the whole decode-window waterfall. Raw PCM slot retention/double buffering is optional research functionality, never a normal decoder requirement.
+Normal raw audio remains streaming and bounded. The retained normal decode representation is the whole decode-window waterfall. Raw PCM slot retention/double buffering is optional research functionality, never a normal decoder requirement.
 
-## Locked RX refinements
+## Locked RX rules
 
-1. **V2 SNR is the structural-cleanup baseline.** Candidate sync score and SNR are separate values. The chosen V2 SNR estimator is preserved while ownership is cleaned, and may be improved later as a deliberate algorithm change.
-2. **Protocol message type is first-class output.** Normal typed FT8 messages keep their decoded type and structured field metadata; V3 must not render text and then re-tokenize it to recover structure.
-3. **Free-text CQ exception.** A protocol `FREE_TEXT` message may additionally be classified as a logical CQ when its canonical text exactly matches the validated grammar `CQ <nnn|AAAA> <valid-callsign> [grid]`. The protocol type remains `FREE_TEXT`.
-4. **Deep-search station hint.** `ft8_engine` may later accept explicit station-aware decoder/search context such as the local callsign. That context may influence candidate search or prior-assisted decoding, but AutoSeq state, reply decisions, IgnoreList, TX stage, and UI policy remain outside the engine.
-5. **Hashed callsigns are explicit engine state.** An instance-owned/context-aware `Ft8HashStore` persists across slots and is aged explicitly; it is not MiniShell state and does not require a global table.
+1. **Stream raw audio; retain the waterfall; retain raw PCM only by explicit exception.**
+2. **V2 SNR is the structural-cleanup baseline.** Candidate sync score and SNR remain separate; SNR improvement is a later deliberate algorithm change.
+3. **Protocol message type is first-class output.** Normal typed messages are not rendered and re-tokenized to recover structure.
+4. **Free-text CQ exception.** A `FREE_TEXT` message may additionally be classified as logical CQ only when it matches `CQ <nnn|AAAA> <valid-callsign> [grid]`; protocol type remains `FREE_TEXT`.
+5. **Station identity may be decoder context, not QSO policy.** Future deep search may use local callsign as an explicit search/prior hint. AutoSeq state, reply decisions, IgnoreList, TX stage, and UI policy remain outside `ft8_engine`.
+6. **Hashed callsigns are explicit FT8-engine state.** `Ft8HashStore` persists across slots and is aged explicitly; it is not MiniShell state and must not require a global table.
+7. **Exact payload bytes are protocol-message identity.** CRC/hash values may accelerate lookup/dedupe but are not collision-free identity.
 
-Locked distinction:
-
-```text
-station identity as decoder/search hint     allowed
-station/QSO policy ownership                not allowed
-```
-
-## RX-0 — architecture and source review — complete
-
-### RX-0A — architecture/source map
-
-`rx.md` records:
-
-- the seven logical RX/DSP boundaries;
-- the separate station-aware `rx_result_builder` boundary;
-- the streaming/RAM rule;
-- MiniFT8-V2 RX source classification;
-- golden-reference policy;
-- RX-0 through RX-7 development sequence.
-
-### RX-0B — V2 decoder-contract extraction
+## RX-0 — architecture and V2 source review — complete
 
 Completed reviews:
 
@@ -80,108 +60,152 @@ rx-decode-review.md
 rx-message-review.md
 ```
 
-### Monitor direction
+Key conclusions:
 
 ```text
-explicit Ft8Monitor instance
-    + explicit/queryable memory requirements
-    + caller-supplied workspace
-    + no mutable module-global DSP storage
-    + explicit init/process status
-    + explicit new-window versus stream-discontinuity reset semantics
+monitor mathematics      KEEP
+monitor ownership        CLEAN substantially
+candidate/LDPC/CRC math  KEEP
+message protocol math    KEEP
+message representation   CLEAN substantially
+hash ownership           CLEAN substantially
+platform/device code     stays outside ft8_engine
 ```
 
-The monitor owns only:
+No deliberate DSP/algorithm improvements are mixed into structural cleanup.
+
+## RX-1 — clean FT8 decode core
+
+### RX-1A — freeze golden boundary evidence — complete
+
+Canonical record: `rx-golden.md`.
+
+MiniFT8-V2 algorithm baseline is pinned at:
 
 ```text
-streaming engine-native PCM
-    -> overlapping FFT analysis
-    -> compact FT8/FT4 waterfall
+5bd3ef98f72388a850bebad04bd7300b90edb63c
 ```
 
-### Decode-core direction
-
-`decode.h/c` is largely a pure bounded algorithm core and should be preserved rather than rewritten:
+A V2 host regression harness now freezes three boundaries:
 
 ```text
-completed waterfall
-    -> Costas candidate finder
-    -> likelihood extraction
-    -> normalization
-    -> LDPC/FEC
-    -> CRC validation
-    -> validated 77-bit payload
+PCM -> exact active waterfall bytes/hash
+waterfall -> exact unique valid payload
+fixed payload -> protocol type + canonical text
 ```
 
-V2 Costas/likelihood/LDPC/CRC mathematics stay unchanged initially. Production candidate capacity 50, minimum score 5, LDPC max 25, and the current time-search range are explicit V2 profile policy, not permanent protocol constants.
-
-Future deep search is an engine decode-pass strategy. It is not hard-wired specifically into candidate finding and may later use station-aware priors during candidate discovery, likelihood processing, or LDPC recovery.
-
-### Message-codec direction
-
-The protocol codec ends at a typed protocol result:
+Reference tests live in the V2 repository:
 
 ```text
-CRC-valid payload
-    -> protocol type classification
-    -> structured message-specific unpack
-    -> Ft8ProtocolMessage
+tests/tx_e2e/test_rx1a_boundaries.cpp
+tests/tx_e2e/rx1a_reference_dump.cpp
+.github/workflows/rx1a-reference.yml
 ```
 
-Rendered text is convenience output derived from typed protocol data, never the canonical source of structure.
+The RX-1A workflow passes the existing `golden_rx` test and the new boundary regression on Ubuntu 24.04 x86-64 with GCC/G++ 13.3.0.
 
-The generic V2 three-field/offset representation is not sufficient as the V3 domain model. Field Day and DXpedition already contain richer structure internally and should expose it directly.
-
-Known codec gaps are recorded rather than hidden:
-
-- type 0.6 `CONTESTING` exists in the enum but is not currently mapped by `ftx_message_get_type()`;
-- `EU_VHF`, `ARRL_RTTY`, and `WWROF` are recognized types without generic structured decode handlers;
-- known protocol type and structured-unpack support are therefore separate facts;
-- output buffer capacity safety needs cleanup;
-- exact payload comparison is canonical duplicate identity; the CRC-derived quick hash is not collision-free identity.
-
-The callsign hash callback concept is retained, but V3 removes the global-storage requirement by adding explicit context/ownership through `Ft8HashStore`.
-
-TX-specific message parsing/encoding cleanup is deferred to the TX milestone.
-
-## Current task: RX-1 — clean FT8 decode core
-
-RX-1 starts implementation, but still makes **no deliberate DSP/algorithm change**.
-
-Recommended order:
+Hard structural anchors include:
 
 ```text
-RX-1A  establish golden tests/fixtures
-RX-1B  define MiniFT8-owned internal decoder/result types
-RX-1C  clean monitor memory ownership/lifecycle
+FT8 active-waterfall FNV-1a-64  18BE1E838FD9C6AF
+FT4 active-waterfall FNV-1a-64  CBDD2509276E5030
+unique CQ payload                000000206016500A1988
+```
+
+Fixed codec vectors cover:
+
+```text
+STANDARD CQ
+ARRL Field Day
+DXpedition
+non-standard-call CQ
+FREE_TEXT CQ-shaped message
+```
+
+RX-1A also exposed V2 issues that are explicitly **not** desired golden behavior:
+
+- type 0.6 `CONTESTING` exists in the enum but currently classifies as `UNKNOWN`;
+- generic telemetry decode has an output-buffer overflow risk;
+- the old host-test hash stub does not correctly model 22/12/10-bit lookup.
+
+These get independent fixes/tests rather than being smuggled into structural refactoring.
+
+### RX-1B — top-down RX module/interface design — NEXT
+
+No decoder source migration begins until RX-1B is complete.
+
+Design order:
+
+```text
+RX goal
+  -> top-level responsibilities
+  -> module boundaries
+  -> single ownership of mutable state/resources
+  -> data contracts
+  -> lifecycle/state transitions
+  -> memory/workspace ownership
+  -> dependency direction
+  -> error/status contracts
+  -> unit-test boundaries
+  -> only then source migration
+```
+
+RX-1B must answer at least:
+
+- Which logical RX blocks become independently testable modules versus private files inside one owner?
+- What exact MiniFT8-owned types cross each boundary?
+- Which raw `ft8_lib` types remain private inside `ft8_engine`?
+- Who owns `Ft8Monitor`, waterfall storage, candidate storage, decode scratch, and `Ft8HashStore`?
+- How are `begin_new_decode_window` and `reset_stream` represented?
+- What is the explicit decode profile/search context, including future deep-search hints?
+- What are the typed protocol-message variants and parse-status semantics?
+- What is the exact `Ft8ProtocolSlot -> rx_result_builder -> RxBatch` contract?
+- Which unit test is responsible for each boundary and invariant?
+
+The likely architecture remains conceptually:
+
+```text
+RX
+|
++-- rx_audio_adapter
++-- rx_frontend
++-- rx_slot_framer
++-- ft8_engine
+|     +-- monitor/waterfall
+|     +-- candidate search
+|     +-- candidate decode / LDPC / CRC
+|     +-- protocol message codec
+|     `-- hash store
+`-- rx_result_builder
+```
+
+but RX-1B, not the V2 directory layout, decides the final module/file structure.
+
+### RX-1C and later — implementation only after RX-1B
+
+The implementation sequence will be finalized by RX-1B. Current expected direction is:
+
+```text
+RX-1C  clean monitor ownership/workspace/lifecycle
 RX-1D  bring candidate + likelihood + LDPC + CRC core across
 RX-1E  implement explicit Ft8HashStore
 RX-1F  implement typed protocol message codec
 RX-1G  pure cleaned decoder golden regression
 ```
 
-### RX-1A — first implementation step
+These labels may change if RX-1B finds a cleaner dependency order.
 
-Before moving decoder code, freeze tests for the boundaries we intend to clean:
+## Later RX stages
 
-```text
-PCM -> V2 monitor -> exact waterfall bytes/hash
-waterfall -> V2 candidate/decode -> payloads
-payload -> V2 message codec -> type + supported decoded semantics
-```
-
-Use committed V2 golden FT8/FT4 WAVs plus independent/real audio where appropriate.
-
-Hard invariants during structural cleanup:
+After the cleaned FT8 core is stable:
 
 ```text
-same monitor waterfall for same engine-native PCM
-same valid protocol payloads
-same supported protocol message types/semantics
-same callsign-hash resolution behavior
-no duplicate exact payloads
+RX-2  pure MiniShell-independent host FT8 decoder
+RX-3  MiniFT8 RX frontend: 12k S16 2ch -> engine-native stream
+RX-4  streaming slot framing
+RX-5  assemble pure RX -> Ft8ProtocolSlot -> RxBatch
+RX-6  MiniShell WAV Audio integration
+RX-7  real decoded RX screen
 ```
 
-Known V2 gaps/fixes are tested separately and never smuggled into a structural commit.
-
-Do not change sample rate, resampling, OSR, SNR algorithm, candidate math, likelihood math, LDPC math, or deep-search behavior in RX-1 structural work.
+At RX-7, stop the milestone. AutoSeq, TX, and ADIF are separate major blocks and are not pulled into RX merely to demonstrate an end-to-end QSO.
