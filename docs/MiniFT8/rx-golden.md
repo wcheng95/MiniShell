@@ -19,7 +19,7 @@ The pinned MiniFT8-V2 algorithm baseline is:
 5bd3ef98f72388a850bebad04bd7300b90edb63c
 ```
 
-Later commits in the V2 repository add only RX-1A host tests/workflow around that baseline; they do not intentionally change the monitored decoder algorithms.
+Later commits in the V2 repository add RX-1A host tests/workflow around that baseline. One separate post-baseline V2 safety fix increases the telemetry decode buffer from 16 to 19 bytes; it does not change decoder mathematics or supported message types.
 
 ## 2. What is hard-golden versus diagnostic
 
@@ -236,27 +236,33 @@ CQ <nnn|AAAA> <valid-callsign> [valid-grid]
 
 so this may become logical `is_cq=true` without changing its protocol type.
 
-## 8. Known V2 gaps — explicitly not golden targets
+## 8. V2 scope and safety notes
 
-RX-1A surfaced several issues that must not be silently inherited into V3.
+These points describe the V2 reference accurately; they are not reasons to broaden RX-1 structural work.
 
-### Type 0.6 classification
+### Type 0.6 and other unsupported message types
 
-`FTX_MESSAGE_TYPE_CONTESTING` exists in V2's enum, but an `i3=0, n3=6` payload is currently classified as `UNKNOWN` by `ftx_message_get_type()`.
+MiniFT8-V2 does not support every FT8 message type. `FTX_MESSAGE_TYPE_CONTESTING` appears in the enum, while an `i3=0, n3=6` payload is returned as `UNKNOWN` by the current classifier.
 
-This is a known protocol gap, not desired golden behavior. Fix it separately with a dedicated protocol vector rather than mixing it into ownership refactoring.
+That is acceptable V2 scope. RX-1 does **not** add type 0.6 support merely because the enum names it. Future support, if desired, is a separate protocol feature with its own vectors and tests.
 
-### Telemetry output-buffer safety
+The same principle applies to other recognized-but-not-fully-decoded message families: structural cleanup preserves the supported V2 behavior first.
 
-GCC reports that the generic V2 message-decode path provides a 16-byte `field1_buf`, while telemetry hex decode writes 18 hex characters plus a terminating NUL. That is a real out-of-bounds-write risk.
+### Telemetry output-buffer safety — fixed in V2
 
-V3 message-codec design must make output capacities explicit and safe. The unsafe V2 generic telemetry path is not exercised as a golden target.
+RX-1A found that the generic V2 message-decode path provided a 16-byte `field1_buf`, while telemetry hex decode writes 18 hex characters plus a terminating NUL.
 
-### Old host hash stub is incomplete
+This safety issue was fixed separately in MiniFT8-V2 PR #44 by increasing that temporary buffer to 19 bytes and adding `test_telemetry_decode.cpp`. The telemetry regression and the existing RX-1A boundary regression both pass. The fix changes no DSP mathematics and adds no new message-type support.
 
-The old `decode_helper.cpp` test hash map stores only the full 22-bit hash and ignores hash width during lookup. It therefore cannot correctly resolve 12-bit or 10-bit references such as the DXpedition fox hash.
+V3 message-codec design should still make output capacities explicit rather than depending on implicit caller buffer sizes.
 
-The RX-1A diagnostic harness uses a complete host-only hash stub for 22/12/10-bit lookup. V3 replaces the global-test pattern entirely with an explicit, context-aware `Ft8HashStore`.
+### Production V2 callsign hashtable is correct
+
+The production V2 hashtable supports 22-, 12-, and 10-bit callsign-hash lookup. It derives the appropriate shift and starting bucket for each hash width, scans the complete probe table so deletions do not break lookup chains, and refreshes age on a successful hit.
+
+The original `tests/tx_e2e/decode_helper.cpp` used a much simpler host-only map keyed by the full 22-bit hash. That simplified **test stub** should not be confused with the production V2 hashtable.
+
+RX-1A uses a richer host-only stub where a test needs 10/12-bit resolution. V3 still replaces process-global test patterns with an explicit context-aware `Ft8HashStore`, but that is an ownership/interface cleanup—not a correction of the V2 production hash algorithm.
 
 ## 9. Golden-update rule
 
