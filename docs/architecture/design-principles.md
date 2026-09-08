@@ -43,6 +43,19 @@ board-driver objects
 
 MiniShell-owned fixed-width structures, result codes, capability bits, and opaque handles are the public contract.
 
+### Code-facing naming
+
+Use lowercase/snake_case for code-facing project and application names:
+
+```text
+minishell
+minift8
+apps/minift8/
+/flash/minift8/station.txt
+```
+
+Use **MiniShell** and **MiniFT8** as normal project/product names in prose. Standard C conventions take precedence where appropriate, so macros remain uppercase (`MINISHELL_*`, `MINIFT8_*`). Do not reintroduce mixed-case filesystem paths, executable names, targets, or runtime application names.
+
 ## 3. One owner per shared resource/state domain
 
 Each application-visible resource has one MiniShell owner.
