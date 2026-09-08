@@ -22,25 +22,25 @@ The message codec contains useful protocol logic and should be **kept algorithmi
 
 Good existing properties:
 
-- protocol type can be determined from the payload `i3/n3` bits;
+- protocol type can be determined from the payload `i3/n3` bits for supported/recognized families;
 - standard, non-standard, free-text, telemetry, DXpedition, and ARRL Field Day decoding already exist;
 - standard-message field kinds are partly preserved (`CALL`, `GRID`, `RST`, tokens, etc.);
 - callsign hashing is already abstracted through callbacks rather than hard-coded storage;
+- the production V2 hashtable correctly supports 22-, 12-, and 10-bit lookup;
 - the RX decode path has no platform/MiniShell dependency.
 
-Main V3 problems:
+Main V3 cleanup areas:
 
 - generic `field1/field2/field3 + offsets[3]` is not a sufficiently structured protocol result;
-- callsign hash callbacks have no context pointer, forcing real storage to be global/static;
-- several known protocol types are classified but not decoded;
-- type 0.6 `CONTESTING` is declared but currently not mapped by `ftx_message_get_type()`;
+- callsign hash callbacks have no context pointer, so production storage is global/static even though its lookup behavior is correct;
+- several FT8 message families are outside current MiniFT8-V2 support;
 - output string APIs do not carry destination capacities;
-- `ftx_message_t.hash` is really the decode CRC-derived payload identity used together with full payload comparison, not a general collision-free message ID;
+- `ftx_message_t.hash` is really the decode CRC-derived quick key used together with full payload comparison, not a general collision-free message ID;
 - encode and decode responsibilities share one large file, including TX-only parsing machinery.
 
 ## Current V2 protocol type model
 
-`message.h` already defines first-class message types:
+`message.h` defines message-type names including:
 
 ```text
 FREE_TEXT       0.0
@@ -56,33 +56,35 @@ WWROF           i3 5
 UNKNOWN
 ```
 
-This is exactly why V3 should preserve message type directly rather than infer semantics again from rendered text.
+This is why V3 should preserve message type directly for the message families it supports rather than infer semantics again from rendered text.
 
-### Current type gaps
+### Supported behavior versus protocol namespace
 
-Two different concepts are currently conflated:
+MiniFT8-V2 does not support every FT8 message family, and that is acceptable scope.
+
+For example:
+
+1. `FTX_MESSAGE_TYPE_CONTESTING` exists in the enum, but `i3=0,n3=6` currently becomes `UNKNOWN` in the classifier.
+2. `EU_VHF`, `ARRL_RTTY`, and `WWROF` can be identified by the type classifier, but the generic `ftx_message_decode()` switch has no structured decoder for them and returns `ERROR_TYPE`.
+
+These facts do **not** require RX-1 to broaden protocol support. Structural cleanup preserves currently supported V2 behavior first.
+
+For V3 API design, it is still useful to keep two concepts separate:
 
 ```text
-payload type is recognized
+payload/type family recognized by the protocol layer
         versus
-payload has a structured decoder implemented
+structured decoder implemented by MiniFT8
 ```
 
-Observed V2 gaps:
-
-1. `FTX_MESSAGE_TYPE_CONTESTING` exists in the enum, but `ftx_message_get_type()` does not map `i3=0,n3=6` to it. It currently becomes `UNKNOWN`.
-2. `EU_VHF`, `ARRL_RTTY`, and `WWROF` can be identified by the type classifier, but the generic `ftx_message_decode()` switch has no decode implementation for them and returns `ERROR_TYPE`.
-
-V3 should keep **type classification** separate from **structured-unpack support**. A valid CRC payload may therefore have:
+A valid payload may therefore conceptually have:
 
 ```text
-protocol_type = known type
+protocol_type = known/recognized type
 parse_status  = supported / unsupported / malformed
 ```
 
-This lets us add protocol decoders later without losing the fact that the payload type was known.
-
-During the initial RX milestone, application-visible behavior for currently supported V2 message types remains the golden baseline. Adding support for previously unsupported protocol types is a separate correctness/feature step with its own tests.
+But adding support for a previously unsupported message family is a separate feature step with its own vectors and tests, not part of ownership refactoring.
 
 ## Generic three-field output is not enough
 
@@ -146,7 +148,7 @@ Therefore V3 must not make the three display fields the source of truth.
 
 ## Recommended V3 protocol result
 
-Exact C syntax is deferred to RX-1, but the semantic shape should be a tagged result:
+Exact C syntax is deferred to RX-1B, but the semantic shape should be a tagged result:
 
 ```text
 Ft8ProtocolMessage
@@ -192,7 +194,7 @@ TELEMETRY
     raw telemetry bytes / canonical hex
 ```
 
-Other known protocol types may initially carry their type + raw payload with `parse_status = UNSUPPORTED` until their structured unpackers are implemented.
+Unsupported message families need not gain a structured variant until MiniFT8 intentionally adds support.
 
 Rendered text remains valuable for UI/logging/debugging, but it is derived convenience data:
 
@@ -237,9 +239,9 @@ ftx_callsign_hash_interface_t
     save_hash(...)
 ```
 
-The abstraction itself is good. It lets the codec resolve 22-, 12-, and 10-bit hashed callsigns and save newly decoded standard/non-standard calls for later resolution.
+The abstraction itself is good. The production V2 hashtable correctly resolves 22-, 12-, and 10-bit hashed callsigns and saves newly decoded standard/non-standard calls for later resolution.
 
-However, the interface has no caller/context pointer. Real V2 implementations therefore depend on global storage.
+The interface itself, however, has no caller/context pointer. The real V2 implementation therefore uses global storage.
 
 V3 direction:
 
@@ -264,7 +266,9 @@ The exact table implementation and capacity remain private to the engine/hash-st
 
 The hash store persists across RX slots because standard/non-standard calls decoded now can resolve shortened hashes later. Slot aging is explicit lifecycle behavior rather than a hidden global side effect.
 
-The engine may expose test/control operations such as clear/seed if useful, but the store is FT8 protocol-domain state, not MiniShell state and not AutoSeq state.
+This is an ownership/interface cleanup, not a correction of the production V2 hash algorithm.
+
+The old `tests/tx_e2e/decode_helper.cpp` map is only a simplified host-test stub and should not be confused with the production hashtable.
 
 ### Hash callback validation
 
@@ -296,9 +300,9 @@ For Cardputer-class workloads, exact comparison of the fixed 10-byte payload is 
 
 Current public decode helpers accept raw `char*` outputs without output capacities. Correctness depends on every caller knowing the hidden maximum size expected by each function.
 
-V3 should avoid this class of interface by preferring fixed-size fields owned by the typed output structure, or otherwise passing explicit capacities.
+RX-1A found one concrete consequence: telemetry renders 18 hex characters plus a terminating NUL while the generic V2 path used a 16-byte temporary buffer. MiniFT8-V2 PR #44 fixed that isolated safety bug by increasing the temporary buffer to 19 bytes and adding a direct telemetry regression test.
 
-This is interface/safety cleanup only; it does not change protocol decoding behavior.
+V3 should still avoid this class of interface by preferring fixed-size fields owned by the typed output structure, or otherwise passing explicit capacities.
 
 ## Source-file ownership cleanup
 
@@ -326,7 +330,7 @@ ft8_engine/protocol/
     message_encode        later TX milestone
 ```
 
-Exact filenames are not locked. The rule is ownership/readability, not file count.
+Exact filenames are not locked. RX-1B decides final boundaries top-down; the rule is ownership/readability, not file count.
 
 TX-only parsing details such as the current DXpedition text parser are deferred to the TX review. RX cleanup should not be delayed by encoder refactoring.
 
@@ -374,23 +378,23 @@ A future deep-search decode pass may use station identity before or during paylo
 ## RX-0B source classification after message review
 
 ```text
-message type bit classification       KEEP + fix known mapping gap separately
-standard/nonstandard unpack math      KEEP
-Field Day unpack math                 KEEP; expose structured fields
-DXpedition unpack math                KEEP; expose structured fields
-free-text/telemetry unpack            KEEP
-callsign encode/decode helpers        KEEP shared protocol mechanics
-hash callback concept                 KEEP
-hash ownership/interface              CLEAN substantially
-3-field offsets as canonical model    DROP as domain representation
-rendered text                         KEEP as derived convenience
-unsupported known type handling       CLEAN: type != parse support
-TX message parsing/packing            DEFER to TX milestone
+supported V2 type classification       KEEP
+standard/nonstandard unpack math       KEEP
+Field Day unpack math                  KEEP; expose structured fields
+DXpedition unpack math                 KEEP; expose structured fields
+free-text/telemetry unpack             KEEP
+callsign encode/decode helpers         KEEP shared protocol mechanics
+production hash lookup algorithm       KEEP
+hash ownership/interface               CLEAN substantially
+3-field offsets as canonical model     DROP as domain representation
+rendered text                           KEEP as derived convenience
+unsupported message families           DEFER as separate features
+TX message parsing/packing              DEFER to TX milestone
 ```
 
 ## Golden tests required before RX-1 changes behavior
 
-At minimum, typed message-codec tests should cover:
+At minimum, typed message-codec tests should cover the V2-supported RX behavior we depend on:
 
 ```text
 standard CQ + grid
@@ -404,16 +408,9 @@ ARRL Field Day 0.3
 ARRL Field Day 0.4
 free text
 telemetry
-protocol type classification for every i3/n3 type we claim to recognize
 ```
 
-Also add explicit tests for:
-
-```text
-0.6 CONTESTING classification gap
-known-but-currently-unsupported types
-CRC/payload exact-dedupe identity semantics
-```
+Unsupported message families do not need to become supported merely to make the structural test suite exhaustive. If support is added later, each new family gets dedicated protocol vectors/tests.
 
 The free-text CQ logical-classification tests belong in `rx_result_builder`, not in the protocol codec tests.
 
@@ -435,4 +432,4 @@ streaming PCM
     -> RxBatch
 ```
 
-This completes the planned RX-0B source reviews. RX-1 can now begin with golden tests and structural extraction, keeping every intentional algorithm change separate.
+This completes the planned RX-0B source reviews. RX-1A froze golden evidence; RX-1B now defines the top-down module/interface design before any source migration.
