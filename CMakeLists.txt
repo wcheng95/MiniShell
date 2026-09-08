@@ -23,16 +23,25 @@ set(MINISHELL_SERVICE_SOURCES
     core/minishell_services/audio_service.c
 )
 
+set(MINISHELL_LINUX_SOURCES
+    platform/linux/linux_backend.c
+    platform/linux/linux_common.c
+    platform/linux/linux_filesystem.c
+    platform/linux/linux_time_location.c
+    platform/linux/linux_terminal.c
+    platform/linux/linux_loader.c
+    platform/linux/linux_services.c
+    platform/linux/linux_audio_wav.c
+    platform/linux/platform_info.c
+    platform/linux/resource_config.c
+)
+
 add_executable(minishell
     core/main.c
     core/shell.c
     core/app_manager.c
     ${MINISHELL_SERVICE_SOURCES}
-    platform/linux/linux_backend.c
-    platform/linux/linux_services.c
-    platform/linux/linux_audio_wav.c
-    platform/linux/platform_info.c
-    platform/linux/resource_config.c
+    ${MINISHELL_LINUX_SOURCES}
 )
 
 target_include_directories(minishell PRIVATE
