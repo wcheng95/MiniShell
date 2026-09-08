@@ -6,7 +6,7 @@ static minishell_services_port_t s_port;
 static minishell_resource_limits_t s_limits;
 
 static mini_api_t s_api = {
-    .abi_version = MINISHELL_ABI_VERSION,
+    .api_version = MINISHELL_API_VERSION,
     .struct_size = sizeof(mini_api_t),
     .system = NULL,
     .memory = NULL,
@@ -42,7 +42,7 @@ void minishell_services_set_resource_limits(const minishell_resource_limits_t *l
 
 static void refresh_api_table(void)
 {
-    s_api.abi_version = MINISHELL_ABI_VERSION;
+    s_api.api_version = MINISHELL_API_VERSION;
     s_api.struct_size = sizeof(mini_api_t);
     s_api.system = minishell_system_service_api();
     s_api.memory = minishell_memory_service_available() ? minishell_memory_service_api() : NULL;
