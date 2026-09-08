@@ -27,7 +27,7 @@ H5 terminal ANSI/CSI + UTF-8 parser made stateful across reads
 
 The full Linux integration suite and strict unit suite remain green.
 
-## Current priority: ADV backend + MiniFT8 profiles
+## Current priority: A1 ADV build skeleton
 
 RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while the architecture is exercised across a second real backend and a second MiniFT8 profile.
 
@@ -39,11 +39,11 @@ Linux backend + ADV profile
 ADV backend   + ADV profile
 ```
 
-Cardputer ADV V1 will use a compiled-in application registry. MiniShell and runtime app `ft8` are built into one ESP-IDF firmware image. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable lower-RAM applications without blocking the initial ADV backend.
+Cardputer ADV V1 will use a compiled-in application registry. MiniShell and runtime app `ft8` are built into one ESP-IDF firmware image. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable applications without blocking the initial ADV backend.
 
-## A0 progress
+## A0 — complete
 
-One-time normalization is complete:
+One-time normalization completed:
 
 ```text
 MINISHELL_ABI_VERSION -> MINISHELL_API_VERSION
@@ -59,9 +59,33 @@ internal protocol Mode state -> removed from ft8
 
 The `ft8` configuration now persists protocol-local scalar values such as `profile`, `band`, `skip_tx1`, and `max_retry`; no protocol `mode=` value is stored.
 
-The Linux build, all 11 integration tests, and the platform-neutral unit suite are green after these changes.
+Resident shell/startup portability completed:
 
-The remaining A0 work is the substantive portability slice: remove Linux-style stdin/stdout/startup assumptions from the resident MiniShell shell before adding `platform/adv/`.
+```text
+core/minishell_runtime.c    portable lifecycle via minishell_run()
+platform/linux/main.c       Linux entry point only
+platform/linux/linux_console.c
+                            owns stdin/stdout + stdio buffering
+core/shell.c                no direct stdin/stdout dependency
+core/platform_backend.h     private resident console read/write boundary
+```
+
+The resident console boundary is private MiniShell infrastructure; applications do not use it and continue through the public Display/Input/System APIs.
+
+Commit `1cb44be4` (`refactor: isolate resident console and startup boundary`) passed the full Linux workflow, including all 11 integration tests and the platform-neutral unit suite.
+
+## Next: A1
+
+Create `platform/adv/` and the ESP-IDF/Cardputer ADV firmware skeleton. The first goal is deliberately small:
+
+```text
+firmware builds
+MiniShell boots
+private shell console works on Cardputer display/keyboard
+platform reports ADV
+static app registry lists/runs a tiny probe/hello app
+app returns to M$>
+```
 
 MiniFT8-V2 remains reference material for proven Cardputer hardware behavior only; V2 will not be modified or refactored for this work.
 
