@@ -9,8 +9,8 @@ It uses only MiniShell services. Terminal escape sequences, POSIX file descripto
 ```text
 nano.c          orchestration and input policy
 nano_buffer.c   text-buffer state and editing
-nano_file.c     persistence through Filesystem ABI
-nano_ui.c       rendering through Display ABI
+nano_file.c     persistence through Filesystem API
+nano_ui.c       rendering through Display API
 nano_util.c     small string helpers
 ```
 
@@ -35,7 +35,7 @@ If text attributes are unavailable, nano falls back to a simpler cursor represen
 
 ## Persistence
 
-File reads and writes use the Filesystem ABI. Open handles are owned by the foreground application and are reclaimed by MiniShell at application teardown if the editor exits abnormally without closing one itself.
+File reads and writes use the Filesystem API. Open handles are owned by the foreground application and are reclaimed by MiniShell at application teardown if the editor exits abnormally without closing one itself.
 
 ## Why nano has its own document
 
