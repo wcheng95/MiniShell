@@ -322,26 +322,29 @@ The decision is based on independent capabilities, never a switch on one monolit
 
 `storage_service` owns MiniFT8 file **policy**, not the filesystem:
 
-- `/flash/ft8/` data directory;
+- `/flash/ft8/` default data/configuration directory;
 - `station.txt` configuration naming;
+- configurable `RxTxLog` destination/location from `station.txt`;
 - complete text reads/writes;
 - safe temporary-file save sequence.
 
 MiniShell Filesystem owns logical namespace and paths, handles, lifecycle cleanup, quota policy, and platform/native file operations through its backend.
 
-Thus `/flash/ft8/station.txt` is MiniFT8 policy, while how `/flash` maps to Linux, NuttX, FATFS, or another backend is MiniShell policy.
+Thus `/flash/ft8/station.txt` is MiniFT8 policy, while how `/flash` maps to Linux, LittleFS, NuttX, or another backend is MiniShell policy. `RxTxLog` may be placed on `/flash` or `/sd` according to the path selected in `station.txt`; its destination is FT8 application policy rather than an ADV filesystem rule.
 
 The FT8-only configuration does not persist a protocol `mode=` value. Protocol identity comes from the application being launched.
 
 ## 9. UI boundary
 
-The inherited V2/Cardputer ADV logical UI frame is currently:
+The ADV profile logical text frame is:
 
 ```text
-30 columns x 8 rows
+20 columns x 7 rows
 ```
 
-This is an **ADV profile** choice, not a MiniShell API or universal MiniFT8 architectural limit. The DESKTOP profile may use a larger frame while using the same application logic and MiniShell Display API.
+On Cardputer ADV this maps to the 240x135 display using the MiniShell ADV text backend. The `ft8` ADV profile uses row 0 contextually for status/temporary help/countdown text and rows 1..6 for main FT8 content. This row meaning belongs to the application profile, not MiniShell Display.
+
+The 20x7 geometry is an **ADV profile** choice, not a MiniShell API or universal MiniFT8 architectural limit. The DESKTOP profile may use a larger frame while using the same application logic and MiniShell Display API.
 
 `ui_shell` sees only MiniFT8-owned `UiModel`, `UiInput`, `UiFrame`, and `AppAction`. It does not know terminal dimensions, ANSI sequences, ncurses, touch hardware, or keyboard scan codes.
 
