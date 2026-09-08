@@ -1,5 +1,5 @@
-#ifndef MINIFT8_APP_TYPES_H
-#define MINIFT8_APP_TYPES_H
+#ifndef FT8_APP_TYPES_H
+#define FT8_APP_TYPES_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -13,14 +13,6 @@
 #define APP_MAX_TX_LINES UI_MAIN_LINES
 
 typedef enum {
-    MODE_FT8 = 0,
-    MODE_FT4,
-    MODE_RTTY,
-    MODE_CW,
-    MODE_COUNT
-} Mode;
-
-typedef enum {
     SCREEN_RX = 0,
     SCREEN_TX,
     SCREEN_O,
@@ -30,7 +22,6 @@ typedef enum {
 
 typedef enum {
     APP_ACTION_NONE = 0,
-    APP_ACTION_SET_MODE,
     APP_ACTION_SET_PROFILE,
     APP_ACTION_SET_BAND,
     APP_ACTION_SET_SKIP_TX1,
@@ -40,7 +31,6 @@ typedef enum {
 typedef struct {
     AppActionType type;
     union {
-        Mode mode;
         int index;
         int int_value;
         bool bool_value;
@@ -48,7 +38,6 @@ typedef struct {
 } AppAction;
 
 typedef struct {
-    Mode active_mode;
     int profile_index;
     int profile_count;
     char profile_name[16];

@@ -1,8 +1,8 @@
-#ifndef MINIFT8_UI_SHELL_H
-#define MINIFT8_UI_SHELL_H
+#ifndef FT8_UI_SHELL_H
+#define FT8_UI_SHELL_H
 
 #include <stdbool.h>
-#include "minift8/app_types.h"
+#include "ft8/app_types.h"
 
 typedef enum {
     UI_SUBMENU_NONE = 0,

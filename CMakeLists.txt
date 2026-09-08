@@ -95,22 +95,22 @@ add_minishell_app(nano
     apps/nano/main/nano_util.c
 )
 
-add_minishell_app(minift8
-    apps/minift8/main/minift8_main.c
-    apps/minift8/main/minishell_ui_adapter.c
-    apps/minift8/src/app_controller/app_controller.c
-    apps/minift8/src/config_service/config_service.c
-    apps/minift8/src/qso_scheduler/qso_scheduler.c
-    apps/minift8/src/storage_service/storage_service.c
-    apps/minift8/src/ui_shell/ui_shell.c
+add_minishell_app(ft8
+    apps/ft8/main/ft8_main.c
+    apps/ft8/main/ft8_ui_adapter.c
+    apps/ft8/src/app_controller/app_controller.c
+    apps/ft8/src/config_service/config_service.c
+    apps/ft8/src/qso_scheduler/qso_scheduler.c
+    apps/ft8/src/storage_service/storage_service.c
+    apps/ft8/src/ui_shell/ui_shell.c
 )
-target_include_directories(minift8 PRIVATE
-    apps/minift8/include
-    apps/minift8/src/app_controller
-    apps/minift8/src/config_service
-    apps/minift8/src/qso_scheduler
-    apps/minift8/src/storage_service
-    apps/minift8/src/ui_shell
+target_include_directories(ft8 PRIVATE
+    apps/ft8/include
+    apps/ft8/src/app_controller
+    apps/ft8/src/config_service
+    apps/ft8/src/qso_scheduler
+    apps/ft8/src/storage_service
+    apps/ft8/src/ui_shell
 )
 
 add_library(service_probe MODULE tests/apps/service_probe.c)
@@ -158,15 +158,15 @@ set_target_properties(audio_probe PROPERTIES
 )
 target_compile_options(audio_probe PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(minift8_ui_smoke
-    tests/minift8_ui_smoke.c
-    apps/minift8/src/ui_shell/ui_shell.c
+add_executable(ft8_ui_smoke
+    tests/ft8_ui_smoke.c
+    apps/ft8/src/ui_shell/ui_shell.c
 )
-target_include_directories(minift8_ui_smoke PRIVATE
-    apps/minift8/include
-    apps/minift8/src/ui_shell
+target_include_directories(ft8_ui_smoke PRIVATE
+    apps/ft8/include
+    apps/ft8/src/ui_shell
 )
-target_compile_options(minift8_ui_smoke PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(ft8_ui_smoke PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(linux_terminal_parser_unit
     tests/linux_terminal_parser_test.c
@@ -250,13 +250,13 @@ add_test(
             ${CMAKE_SOURCE_DIR}/tests/kfs16b12k.wav
 )
 
-add_test(NAME minift8_ui_smoke COMMAND minift8_ui_smoke)
+add_test(NAME ft8_ui_smoke COMMAND ft8_ui_smoke)
 add_test(NAME linux_terminal_parser_unit COMMAND linux_terminal_parser_unit)
 
 add_test(
-    NAME linux_minift8
+    NAME linux_ft8
     COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/linux_minift8.py
+            ${CMAKE_SOURCE_DIR}/tests/linux_ft8.py
             $<TARGET_FILE:minishell>
-            $<TARGET_FILE_DIR:minift8>
+            $<TARGET_FILE_DIR:ft8>
 )

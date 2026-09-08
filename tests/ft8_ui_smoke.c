@@ -13,7 +13,6 @@ static UiInput key(char c)
 static void set_default_model(UiModel *model)
 {
     memset(model, 0, sizeof(*model));
-    model->active_mode = MODE_FT8;
     model->profile_index = 0;
     model->profile_count = 2;
     snprintf(model->profile_name, sizeof(model->profile_name), "%s", "Default");
@@ -38,15 +37,17 @@ int main(void)
 
     assert(!ui_shell_handle_input(&ui, &model, key('o'), &action));
     ui_shell_render(&ui, &model, &frame);
-    assert(strstr(frame.rows[1], "Mode: FT8") != NULL);
+    assert(strstr(frame.rows[1], "Protocol: FT8") != NULL);
     assert(strstr(frame.rows[4], "CQ / Beacon") != NULL);
     assert(strstr(frame.rows[5], "TX >") != NULL);
     assert(strstr(frame.rows[6], "Message") != NULL);
 
-    assert(ui_shell_handle_input(&ui, &model, key('1'), &action));
-    assert(action.type == APP_ACTION_SET_MODE);
-    assert(action.value.mode == MODE_FT4);
-    model.active_mode = MODE_FT4;
+    assert(!ui_shell_handle_input(&ui, &model, key('1'), &action));
+    assert(action.type == APP_ACTION_NONE);
+
+    assert(ui_shell_handle_input(&ui, &model, key('2'), &action));
+    assert(action.type == APP_ACTION_SET_PROFILE);
+    assert(action.value.index == 1);
 
     assert(!ui_shell_handle_input(&ui, &model, key('5'), &action));
     assert(ui.submenu == UI_SUBMENU_O_TX);
@@ -76,6 +77,7 @@ int main(void)
     assert(!ui_shell_handle_input(&ui, &model, key('1'), &action));
     assert(ui.submenu == UI_SUBMENU_V_STATUS);
     ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[1], "Protocol: FT8") != NULL);
     assert(strstr(frame.rows[4], "RX Audio") != NULL);
     assert(strstr(frame.rows[5], "TX Audio") != NULL);
     assert(strstr(frame.rows[6], "Control") != NULL);
@@ -85,8 +87,8 @@ int main(void)
     assert(ui.submenu == UI_SUBMENU_V_SYSTEM);
     ui_shell_render(&ui, &model, &frame);
     assert(strstr(frame.rows[1], "Runtime: MiniShell") != NULL);
-    assert(strstr(frame.rows[2], "UI: text 30x8") != NULL);
+    assert(strstr(frame.rows[3], "App: ft8") != NULL);
 
-    puts("minift8_ui_smoke: PASS");
+    puts("ft8_ui_smoke: PASS");
     return 0;
 }

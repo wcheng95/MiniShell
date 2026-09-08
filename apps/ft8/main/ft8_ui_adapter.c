@@ -1,4 +1,4 @@
-#include "minishell_ui_adapter.h"
+#include "ft8_ui_adapter.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -6,7 +6,7 @@
 #define FIELD_END(type, field) \
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
 
-bool minift8_ui_adapter_init(minift8_ui_adapter_t *adapter, const mini_api_t *api)
+bool ft8_ui_adapter_init(ft8_ui_adapter_t *adapter, const mini_api_t *api)
 {
     if (adapter == NULL || api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, input) ||
@@ -42,7 +42,7 @@ bool minift8_ui_adapter_init(minift8_ui_adapter_t *adapter, const mini_api_t *ap
     return true;
 }
 
-bool minift8_ui_adapter_render(const minift8_ui_adapter_t *adapter, const UiFrame *frame)
+bool ft8_ui_adapter_render(const ft8_ui_adapter_t *adapter, const UiFrame *frame)
 {
     if (adapter == NULL || frame == NULL || adapter->text == NULL || adapter->display == NULL) {
         return false;
@@ -57,7 +57,7 @@ bool minift8_ui_adapter_render(const minift8_ui_adapter_t *adapter, const UiFram
     return adapter->display->present() == MINI_OK;
 }
 
-bool minift8_ui_adapter_read_input(const minift8_ui_adapter_t *adapter, UiInput *out_input)
+bool ft8_ui_adapter_read_input(const ft8_ui_adapter_t *adapter, UiInput *out_input)
 {
     if (adapter == NULL || adapter->key == NULL || out_input == NULL) return false;
 
@@ -93,7 +93,7 @@ bool minift8_ui_adapter_read_input(const minift8_ui_adapter_t *adapter, UiInput 
     return true;
 }
 
-void minift8_ui_adapter_shutdown(const minift8_ui_adapter_t *adapter)
+void ft8_ui_adapter_shutdown(const ft8_ui_adapter_t *adapter)
 {
     if (adapter == NULL || adapter->text == NULL || adapter->display == NULL) return;
     (void)adapter->text->clear();

@@ -3,28 +3,11 @@
 #include <stdio.h>
 #include <string.h>
 
-static bool app_is_safe_to_switch_mode(const AppController *app)
-{
-    (void)app;
-    /* No active RX decode or TX transaction exists in this first integrated slice. */
-    return true;
-}
-
 static bool app_save_config(AppController *app)
 {
     char text[2048];
     if (!config_service_serialize(&app->config, text, sizeof(text))) return false;
     return storage_service_write_text_atomic(&app->storage, app->station_path, text);
-}
-
-static void app_try_apply_mode_change(AppController *app)
-{
-    if (!app->mode_change_pending) return;
-    if (!app_is_safe_to_switch_mode(app)) return;
-
-    app->active_mode = app->requested_mode;
-    app->mode_change_pending = false;
-    config_service_set_saved_mode(&app->config, app->active_mode);
 }
 
 bool app_controller_init(AppController *app, const mini_fs_api_t *fs,
@@ -49,8 +32,6 @@ bool app_controller_init(AppController *app, const mini_fs_api_t *fs,
                                             text, sizeof(text));
     if (loaded && !config_service_parse(&app->config, text)) return false;
 
-    app->active_mode = app->config.saved_mode;
-    app->requested_mode = app->active_mode;
     qso_scheduler_set_skip_tx1(&app->scheduler, app->config.skip_tx1);
     qso_scheduler_set_max_retry(&app->scheduler, app->config.max_retry);
 
@@ -61,18 +42,16 @@ bool app_controller_init(AppController *app, const mini_fs_api_t *fs,
 void app_controller_build_ui_model(const AppController *app, UiModel *model)
 {
     memset(model, 0, sizeof(*model));
-    model->active_mode = app->active_mode;
 
-    int m = (int)app->active_mode;
-    model->profile_index = app->config.profile_index[m];
-    model->profile_count = config_service_profile_count(app->active_mode);
+    model->profile_index = app->config.profile_index;
+    model->profile_count = config_service_profile_count();
     snprintf(model->profile_name, sizeof(model->profile_name), "%s",
-             config_service_profile_name(app->active_mode, model->profile_index));
+             config_service_profile_name(model->profile_index));
 
-    model->band_index = app->config.band_index[m];
-    model->band_count = config_service_band_count(app->active_mode, model->profile_index);
+    model->band_index = app->config.band_index;
+    model->band_count = config_service_band_count(model->profile_index);
     snprintf(model->band_name, sizeof(model->band_name), "%s",
-             config_service_band_name(app->active_mode, model->profile_index, model->band_index));
+             config_service_band_name(model->profile_index, model->band_index));
 
     model->skip_tx1 = qso_scheduler_get_skip_tx1(&app->scheduler);
     model->max_retry = qso_scheduler_get_max_retry(&app->scheduler);
@@ -97,22 +76,13 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
     bool changed = false;
 
     switch (action->type) {
-        case APP_ACTION_SET_MODE:
-            if (action->value.mode >= 0 && action->value.mode < MODE_COUNT) {
-                app->requested_mode = action->value.mode;
-                app->mode_change_pending = true;
-                app_try_apply_mode_change(app);
-                changed = true;
-            }
-            break;
-
         case APP_ACTION_SET_PROFILE:
-            config_service_set_profile(&app->config, app->active_mode, action->value.index);
+            config_service_set_profile(&app->config, action->value.index);
             changed = true;
             break;
 
         case APP_ACTION_SET_BAND:
-            config_service_set_band(&app->config, app->active_mode, action->value.index);
+            config_service_set_band(&app->config, action->value.index);
             changed = true;
             break;
 

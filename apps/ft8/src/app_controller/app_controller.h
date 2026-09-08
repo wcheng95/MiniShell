@@ -1,17 +1,14 @@
-#ifndef MINIFT8_APP_CONTROLLER_H
-#define MINIFT8_APP_CONTROLLER_H
+#ifndef FT8_APP_CONTROLLER_H
+#define FT8_APP_CONTROLLER_H
 
 #include <stdbool.h>
 
-#include "minift8/app_types.h"
+#include "ft8/app_types.h"
 #include "config_service.h"
 #include "qso_scheduler.h"
 #include "storage_service.h"
 
 typedef struct {
-    Mode active_mode;
-    Mode requested_mode;
-    bool mode_change_pending;
     ConfigService config;
     QsoScheduler scheduler;
     StorageService storage;

@@ -1,5 +1,5 @@
-#ifndef MINIFT8_STORAGE_SERVICE_H
-#define MINIFT8_STORAGE_SERVICE_H
+#ifndef FT8_STORAGE_SERVICE_H
+#define FT8_STORAGE_SERVICE_H
 
 #include <stdbool.h>
 #include <stddef.h>

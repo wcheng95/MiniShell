@@ -5,17 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *mode_name(Mode mode) {
-    switch (mode) {
-        case MODE_FT8: return "FT8";
-        case MODE_FT4: return "FT4";
-        case MODE_RTTY: return "RTTY";
-        case MODE_CW: return "CW";
-        default: return "?";
-    }
-}
-
-static const char *screen_name(Screen screen) {
+static const char *screen_name(Screen screen)
+{
     switch (screen) {
         case SCREEN_RX: return "RX";
         case SCREEN_TX: return "TX";
@@ -26,7 +17,8 @@ static const char *screen_name(Screen screen) {
     }
 }
 
-static void frame_set(UiFrame *frame, int row, const char *fmt, ...) {
+static void frame_set(UiFrame *frame, int row, const char *fmt, ...)
+{
     if (row < 0 || row >= UI_ROWS) return;
 
     char temp[128];
@@ -42,7 +34,8 @@ static void frame_set(UiFrame *frame, int row, const char *fmt, ...) {
     frame->rows[row][UI_COLS] = '\0';
 }
 
-static void row_item(const UiShell *ui, UiFrame *frame, int line, const char *fmt, ...) {
+static void row_item(const UiShell *ui, UiFrame *frame, int line, const char *fmt, ...)
+{
     char text[96];
     va_list ap;
     va_start(ap, fmt);
@@ -53,7 +46,8 @@ static void row_item(const UiShell *ui, UiFrame *frame, int line, const char *fm
               ui->selected_line == line ? '>' : ' ', line + 1, text);
 }
 
-static void info_line(UiFrame *frame, int line, const char *fmt, ...) {
+static void info_line(UiFrame *frame, int line, const char *fmt, ...)
+{
     char text[96];
     va_list ap;
     va_start(ap, fmt);
@@ -62,13 +56,14 @@ static void info_line(UiFrame *frame, int line, const char *fmt, ...) {
     frame_set(frame, line + 1, "%-30s", text);
 }
 
-static void render_top(const UiShell *ui, const UiModel *model, UiFrame *frame) {
+static void render_top(const UiShell *ui, const UiModel *model, UiFrame *frame)
+{
     frame_set(frame, 0, "%-4s %-4s %-10s %-2s",
-              mode_name(model->active_mode), model->band_name,
-              model->profile_name, screen_name(ui->screen));
+              "FT8", model->band_name, model->profile_name, screen_name(ui->screen));
 }
 
-static void render_rx(const UiModel *model, UiFrame *frame) {
+static void render_rx(const UiModel *model, UiFrame *frame)
+{
     for (int i = 0; i < UI_MAIN_LINES; ++i) {
         if ((size_t)i < model->rx_count) {
             frame_set(frame, i + 1, "%d %s", i + 1, model->rx_lines[i]);
@@ -77,7 +72,8 @@ static void render_rx(const UiModel *model, UiFrame *frame) {
     frame_set(frame, 7, "R T O S V  1-6 reply  q quit");
 }
 
-static void render_tx(const UiModel *model, UiFrame *frame) {
+static void render_tx(const UiModel *model, UiFrame *frame)
+{
     for (int i = 0; i < UI_MAIN_LINES; ++i) {
         if ((size_t)i < model->tx_count) {
             frame_set(frame, i + 1, "%d %s", i + 1, model->tx_lines[i]);
@@ -86,23 +82,26 @@ static void render_tx(const UiModel *model, UiFrame *frame) {
     frame_set(frame, 7, "R T O S V  arrows/Ent q quit");
 }
 
-static void render_o_root(const UiShell *ui, const UiModel *model, UiFrame *frame) {
-    row_item(ui, frame, 0, "Mode: %s", mode_name(model->active_mode));
+static void render_o_root(const UiShell *ui, const UiModel *model, UiFrame *frame)
+{
+    row_item(ui, frame, 0, "Protocol: FT8");
     row_item(ui, frame, 1, "Profile: %s", model->profile_name);
     row_item(ui, frame, 2, "Band: %s", model->band_name);
     row_item(ui, frame, 3, "CQ / Beacon >");
     row_item(ui, frame, 4, "TX >");
     row_item(ui, frame, 5, "Message >");
-    frame_set(frame, 7, "1-6 Enter <>chg `back q quit");
+    frame_set(frame, 7, "2-6 Enter <>chg `back q quit");
 }
 
-static void render_o_cq(const UiShell *ui, UiFrame *frame) {
+static void render_o_cq(const UiShell *ui, UiFrame *frame)
+{
     row_item(ui, frame, 0, "CQ Type: --");
     row_item(ui, frame, 1, "Beacon: --");
     frame_set(frame, 7, "CQ controls later  `back q quit");
 }
 
-static void render_o_tx(const UiShell *ui, const UiModel *model, UiFrame *frame) {
+static void render_o_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
+{
     row_item(ui, frame, 0, "Offset Source: --");
     row_item(ui, frame, 1, "Fixed Offset: --");
     row_item(ui, frame, 2, "Skip TX1: %s", model->skip_tx1 ? "ON" : "OFF");
@@ -111,14 +110,16 @@ static void render_o_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
     frame_set(frame, 7, "<> changes wired items `back q");
 }
 
-static void render_o_message(const UiShell *ui, UiFrame *frame) {
+static void render_o_message(const UiShell *ui, UiFrame *frame)
+{
     row_item(ui, frame, 0, "Send FreeText >");
     row_item(ui, frame, 1, "Edit FreeText >");
     row_item(ui, frame, 2, "Current: (empty)");
     frame_set(frame, 7, "message editor later `back q quit");
 }
 
-static void render_o(const UiShell *ui, const UiModel *model, UiFrame *frame) {
+static void render_o(const UiShell *ui, const UiModel *model, UiFrame *frame)
+{
     switch (ui->submenu) {
         case UI_SUBMENU_O_CQ: render_o_cq(ui, frame); break;
         case UI_SUBMENU_O_TX: render_o_tx(ui, model, frame); break;
@@ -127,7 +128,8 @@ static void render_o(const UiShell *ui, const UiModel *model, UiFrame *frame) {
     }
 }
 
-static void render_s_root(const UiShell *ui, UiFrame *frame) {
+static void render_s_root(const UiShell *ui, UiFrame *frame)
+{
     row_item(ui, frame, 0, "Station >");
     row_item(ui, frame, 1, "I/O Paths >");
     row_item(ui, frame, 2, "Band Profiles >");
@@ -137,7 +139,8 @@ static void render_s_root(const UiShell *ui, UiFrame *frame) {
     frame_set(frame, 7, "1-6 Enter        `back q quit");
 }
 
-static void render_s_station(const UiShell *ui, UiFrame *frame) {
+static void render_s_station(const UiShell *ui, UiFrame *frame)
+{
     row_item(ui, frame, 0, "Callsign: --");
     row_item(ui, frame, 1, "Grid: --");
     row_item(ui, frame, 2, "Ignore List: --");
@@ -145,14 +148,16 @@ static void render_s_station(const UiShell *ui, UiFrame *frame) {
     frame_set(frame, 7, "text editors later `back q quit");
 }
 
-static void render_s_io_paths(const UiShell *ui, UiFrame *frame) {
+static void render_s_io_paths(const UiShell *ui, UiFrame *frame)
+{
     row_item(ui, frame, 0, "RX Audio: --");
     row_item(ui, frame, 1, "TX Audio: --");
     row_item(ui, frame, 2, "Control: --");
     frame_set(frame, 7, "independent paths `back q quit");
 }
 
-static void render_s_band_profiles(const UiShell *ui, const UiModel *model, UiFrame *frame) {
+static void render_s_band_profiles(const UiShell *ui, const UiModel *model, UiFrame *frame)
+{
     row_item(ui, frame, 0, "Edit: %s", model->profile_name);
     row_item(ui, frame, 1, "Enabled Bands >");
     row_item(ui, frame, 2, "Frequencies >");
@@ -160,14 +165,16 @@ static void render_s_band_profiles(const UiShell *ui, const UiModel *model, UiFr
     frame_set(frame, 7, "profile editor later `back q quit");
 }
 
-static void render_s_logging(const UiShell *ui, UiFrame *frame) {
+static void render_s_logging(const UiShell *ui, UiFrame *frame)
+{
     row_item(ui, frame, 0, "RxTx Log: --");
     row_item(ui, frame, 1, "ADIF Log: --");
     row_item(ui, frame, 2, "ADIF Comment: --");
     frame_set(frame, 7, "logging later       `back q");
 }
 
-static void render_s_time_gps(const UiShell *ui, UiFrame *frame) {
+static void render_s_time_gps(const UiShell *ui, UiFrame *frame)
+{
     row_item(ui, frame, 0, "GNSS Source: --");
     row_item(ui, frame, 1, "GNSS LoRa: --");
     row_item(ui, frame, 2, "Date: --");
@@ -176,17 +183,19 @@ static void render_s_time_gps(const UiShell *ui, UiFrame *frame) {
     frame_set(frame, 7, "time/GPS later    `back q quit");
 }
 
-static void render_s_system(const UiShell *ui, UiFrame *frame) {
+static void render_s_system(const UiShell *ui, UiFrame *frame)
+{
     row_item(ui, frame, 0, "Copy Files to SD");
     row_item(ui, frame, 1, "Delete Files >");
     row_item(ui, frame, 2, "Sleep");
     row_item(ui, frame, 3, "Restart");
     row_item(ui, frame, 4, "Storage: --");
-    row_item(ui, frame, 5, "Config: Station.txt");
+    row_item(ui, frame, 5, "Config: station.txt");
     frame_set(frame, 7, "system actions later `back q");
 }
 
-static void render_s(const UiShell *ui, const UiModel *model, UiFrame *frame) {
+static void render_s(const UiShell *ui, const UiModel *model, UiFrame *frame)
+{
     switch (ui->submenu) {
         case UI_SUBMENU_S_STATION: render_s_station(ui, frame); break;
         case UI_SUBMENU_S_IO_PATHS: render_s_io_paths(ui, frame); break;
@@ -198,7 +207,8 @@ static void render_s(const UiShell *ui, const UiModel *model, UiFrame *frame) {
     }
 }
 
-static void render_v_root(const UiShell *ui, UiFrame *frame) {
+static void render_v_root(const UiShell *ui, UiFrame *frame)
+{
     row_item(ui, frame, 0, "Status >");
     row_item(ui, frame, 1, "GPS >");
     row_item(ui, frame, 2, "QSO / Log >");
@@ -208,8 +218,9 @@ static void render_v_root(const UiShell *ui, UiFrame *frame) {
     frame_set(frame, 7, "1-6 Enter  read only  q quit");
 }
 
-static void render_v_status(const UiModel *model, UiFrame *frame) {
-    info_line(frame, 0, "Mode: %s", mode_name(model->active_mode));
+static void render_v_status(const UiModel *model, UiFrame *frame)
+{
+    info_line(frame, 0, "Protocol: FT8");
     info_line(frame, 1, "Profile: %s", model->profile_name);
     info_line(frame, 2, "Band: %s", model->band_name);
     info_line(frame, 3, "RX Audio: --");
@@ -218,7 +229,8 @@ static void render_v_status(const UiModel *model, UiFrame *frame) {
     frame_set(frame, 7, "read only        `back q quit");
 }
 
-static void render_v_gps(UiFrame *frame) {
+static void render_v_gps(UiFrame *frame)
+{
     info_line(frame, 0, "Fix: --");
     info_line(frame, 1, "UTC: --");
     info_line(frame, 2, "Grid: --");
@@ -227,7 +239,8 @@ static void render_v_gps(UiFrame *frame) {
     frame_set(frame, 7, "read only        `back q quit");
 }
 
-static void render_v_qso(UiFrame *frame) {
+static void render_v_qso(UiFrame *frame)
+{
     info_line(frame, 0, "QSOs: 0 (prototype)");
     info_line(frame, 1, "Last QSO: --");
     info_line(frame, 2, "ADIF: --");
@@ -235,7 +248,8 @@ static void render_v_qso(UiFrame *frame) {
     frame_set(frame, 7, "read only        `back q quit");
 }
 
-static void render_v_perf(UiFrame *frame) {
+static void render_v_perf(UiFrame *frame)
+{
     info_line(frame, 0, "Decode time: --");
     info_line(frame, 1, "Candidates: --");
     info_line(frame, 2, "CPU: --");
@@ -244,26 +258,29 @@ static void render_v_perf(UiFrame *frame) {
     frame_set(frame, 7, "read only        `back q quit");
 }
 
-static void render_v_system(const UiModel *model, UiFrame *frame) {
+static void render_v_system(const UiModel *model, UiFrame *frame)
+{
     info_line(frame, 0, "Runtime: MiniShell");
     info_line(frame, 1, "UI: text 30x8");
-    info_line(frame, 2, "Mode: %s", mode_name(model->active_mode));
+    info_line(frame, 2, "App: ft8");
     info_line(frame, 3, "Profile: %s", model->profile_name);
     info_line(frame, 4, "Band: %s", model->band_name);
-    info_line(frame, 5, "Config: Station.txt");
+    info_line(frame, 5, "Config: station.txt");
     frame_set(frame, 7, "read only        `back q quit");
 }
 
-static void render_v_about(UiFrame *frame) {
+static void render_v_about(UiFrame *frame)
+{
     info_line(frame, 0, "MiniFT8-V3");
     info_line(frame, 1, "MiniShell application");
-    info_line(frame, 2, "Architecture validation");
-    info_line(frame, 3, "FT8 first / mode ready");
+    info_line(frame, 2, "Runtime app: ft8");
+    info_line(frame, 3, "FT8 protocol only");
     info_line(frame, 4, "V is strictly read-only");
     frame_set(frame, 7, "read only        `back q quit");
 }
 
-static void render_v(const UiShell *ui, const UiModel *model, UiFrame *frame) {
+static void render_v(const UiShell *ui, const UiModel *model, UiFrame *frame)
+{
     switch (ui->submenu) {
         case UI_SUBMENU_V_STATUS: render_v_status(model, frame); break;
         case UI_SUBMENU_V_GPS: render_v_gps(frame); break;
@@ -275,13 +292,15 @@ static void render_v(const UiShell *ui, const UiModel *model, UiFrame *frame) {
     }
 }
 
-void ui_shell_init(UiShell *ui) {
+void ui_shell_init(UiShell *ui)
+{
     ui->screen = SCREEN_RX;
     ui->submenu = UI_SUBMENU_NONE;
     ui->selected_line = 0;
 }
 
-void ui_shell_render(const UiShell *ui, const UiModel *model, UiFrame *frame) {
+void ui_shell_render(const UiShell *ui, const UiModel *model, UiFrame *frame)
+{
     memset(frame, 0, sizeof(*frame));
     for (int r = 0; r < UI_ROWS; ++r) frame_set(frame, r, "");
 
@@ -295,24 +314,20 @@ void ui_shell_render(const UiShell *ui, const UiModel *model, UiFrame *frame) {
     }
 }
 
-static void enter_screen(UiShell *ui, Screen screen) {
+static void enter_screen(UiShell *ui, Screen screen)
+{
     ui->screen = screen;
     ui->submenu = UI_SUBMENU_NONE;
     ui->selected_line = 0;
 }
 
-static void clear_action(AppAction *action) {
+static void clear_action(AppAction *action)
+{
     action->type = APP_ACTION_NONE;
 }
 
-static bool emit_set_mode(const UiModel *model, int delta, AppAction *action) {
-    int next = ((int)model->active_mode + delta + MODE_COUNT) % MODE_COUNT;
-    action->type = APP_ACTION_SET_MODE;
-    action->value.mode = (Mode)next;
-    return true;
-}
-
-static bool emit_set_profile(const UiModel *model, int delta, AppAction *action) {
+static bool emit_set_profile(const UiModel *model, int delta, AppAction *action)
+{
     if (model->profile_count <= 0) return false;
     int next = (model->profile_index + delta + model->profile_count) % model->profile_count;
     action->type = APP_ACTION_SET_PROFILE;
@@ -320,7 +335,8 @@ static bool emit_set_profile(const UiModel *model, int delta, AppAction *action)
     return true;
 }
 
-static bool emit_set_band(const UiModel *model, int delta, AppAction *action) {
+static bool emit_set_band(const UiModel *model, int delta, AppAction *action)
+{
     if (model->band_count <= 0) return false;
     int next = (model->band_index + delta + model->band_count) % model->band_count;
     action->type = APP_ACTION_SET_BAND;
@@ -328,12 +344,13 @@ static bool emit_set_band(const UiModel *model, int delta, AppAction *action) {
     return true;
 }
 
-static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction *action) {
+static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction *action)
+{
     if (line < 0 || line >= UI_MAIN_LINES) return false;
     ui->selected_line = line;
 
     if (ui->screen == SCREEN_O && ui->submenu == UI_SUBMENU_NONE) {
-        if (line == 0) return emit_set_mode(model, +1, action);
+        if (line == 0) return false;
         if (line == 1) return emit_set_profile(model, +1, action);
         if (line == 2) return emit_set_band(model, +1, action);
         if (line == 3) { ui->submenu = UI_SUBMENU_O_CQ; ui->selected_line = 0; return false; }
@@ -377,11 +394,11 @@ static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction
     return false;
 }
 
-static bool adjust_selected(UiShell *ui, const UiModel *model, int delta, AppAction *action) {
+static bool adjust_selected(UiShell *ui, const UiModel *model, int delta, AppAction *action)
+{
     if (ui->screen != SCREEN_O) return false;
 
     if (ui->submenu == UI_SUBMENU_NONE) {
-        if (ui->selected_line == 0) return emit_set_mode(model, delta, action);
         if (ui->selected_line == 1) return emit_set_profile(model, delta, action);
         if (ui->selected_line == 2) return emit_set_band(model, delta, action);
     } else if (ui->submenu == UI_SUBMENU_O_TX) {
@@ -403,7 +420,8 @@ static bool adjust_selected(UiShell *ui, const UiModel *model, int delta, AppAct
 }
 
 bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
-                           UiInput input, AppAction *action_out) {
+                           UiInput input, AppAction *action_out)
+{
     clear_action(action_out);
 
     if (input.type == UI_INPUT_CHAR) {

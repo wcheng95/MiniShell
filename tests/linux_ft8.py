@@ -41,7 +41,7 @@ def read_until(fd: int, needle: bytes, timeout: float) -> bytes:
 
 def main() -> int:
     if len(sys.argv) != 3:
-        print("usage: linux_minift8.py <minishell> <app-dir>", file=sys.stderr)
+        print("usage: linux_ft8.py <minishell> <app-dir>", file=sys.stderr)
         return 2
 
     minishell = os.path.abspath(sys.argv[1])
@@ -49,7 +49,7 @@ def main() -> int:
     master_fd, slave_fd = pty.openpty()
 
     try:
-        with tempfile.TemporaryDirectory(prefix="minishell-minift8-") as root:
+        with tempfile.TemporaryDirectory(prefix="minishell-ft8-") as root:
             env = os.environ.copy()
             env["MINISHELL_APP_DIR"] = app_dir
             env["MINISHELL_ROOT"] = root
@@ -68,14 +68,14 @@ def main() -> int:
             transcript = bytearray()
             try:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
-                os.write(master_fd, b"minift8\n")
+                os.write(master_fd, b"ft8\n")
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
 
                 os.write(master_fd, b"o")
-                transcript.extend(read_until(master_fd, b"Mode: FT8", 3.0))
+                transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
 
                 os.write(master_fd, b"1")
-                transcript.extend(read_until(master_fd, b"Mode: FT4", 3.0))
+                transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
 
                 os.write(master_fd, b"5")
                 transcript.extend(read_until(master_fd, b"Skip TX1: OFF", 3.0))
@@ -86,19 +86,21 @@ def main() -> int:
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
-                station = os.path.join(root, "flash", "minift8", "station.txt")
+                station = os.path.join(root, "flash", "ft8", "station.txt")
                 temp_station = station + ".tmp"
                 with open(station, "r", encoding="utf-8") as handle:
                     saved = handle.read()
-                if "mode=1\n" not in saved or "skip_tx1=1\n" not in saved:
+                if "profile=0\n" not in saved or "band=3\n" not in saved or "skip_tx1=1\n" not in saved:
                     raise RuntimeError(f"unexpected station.txt contents: {saved!r}")
+                if "mode=" in saved or "mode0_" in saved:
+                    raise RuntimeError(f"obsolete mode state persisted: {saved!r}")
                 if os.path.exists(temp_station):
                     raise RuntimeError("atomic save left station.txt.tmp behind")
 
-                os.write(master_fd, b"minift8\n")
-                transcript.extend(read_until(master_fd, b"FT4  20m", 3.0))
+                os.write(master_fd, b"ft8\n")
+                transcript.extend(read_until(master_fd, b"FT8  20m", 3.0))
                 os.write(master_fd, b"o")
-                transcript.extend(read_until(master_fd, b"Mode: FT4", 3.0))
+                transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
                 os.write(master_fd, b"5")
                 transcript.extend(read_until(master_fd, b"Skip TX1: ON", 3.0))
                 os.write(master_fd, b"q")

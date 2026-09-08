@@ -1,5 +1,5 @@
-#ifndef MINIFT8_QSO_SCHEDULER_H
-#define MINIFT8_QSO_SCHEDULER_H
+#ifndef FT8_QSO_SCHEDULER_H
+#define FT8_QSO_SCHEDULER_H
 
 #include <stdbool.h>
 
