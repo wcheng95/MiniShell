@@ -5,7 +5,8 @@ Current baseline:
 - Linux Mint on `pc-1` is the reference/full production target.
 - Runtime app discovery/loading and `M$>` are established on Linux.
 - System, Memory, Filesystem, Time/Location, Display, Input, and Audio services have automated coverage.
-- MiniFT8 is integrated for UI/config/storage.
+- MiniFT8 is integrated as runtime app `ft8` for UI/config/storage.
+- `ft8` is FT8-only; future FT4/CW/RTTY/JS8 support will use separate applications rather than an internal protocol-mode selector.
 - Audio V1 is implemented; MiniFT8 requests 12 kHz/S16/two-channel transport with channel meaning owned by MiniFT8.
 - Linux deterministic WAV RX replays `tests/kfs16b12k.wav` unchanged.
 - Control remains independent from Audio; device `set_time` is deferred.
@@ -38,20 +39,27 @@ Linux backend + ADV profile
 ADV backend   + ADV profile
 ```
 
-Cardputer ADV V1 will use a compiled-in application registry. MiniShell and MiniFT8 are built into one ESP-IDF firmware image. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable lower-RAM applications without blocking the initial ADV backend.
+Cardputer ADV V1 will use a compiled-in application registry. MiniShell and runtime app `ft8` are built into one ESP-IDF firmware image. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable lower-RAM applications without blocking the initial ADV backend.
 
 ## A0 progress
 
-API terminology cleanup is complete:
+One-time normalization is complete:
 
 ```text
 MINISHELL_ABI_VERSION -> MINISHELL_API_VERSION
 mini_api_t.abi_version -> mini_api_t.api_version
 docs/abi/ -> docs/api/
 old append-only compatibility policy removed
+mixed-case code/runtime names -> lowercase
+apps/minift8/ -> apps/ft8/
+minift8 runtime command -> ft8
+/flash/minift8/station.txt -> /flash/ft8/station.txt
+internal protocol Mode state -> removed from ft8
 ```
 
-The Linux build, all 11 integration tests, and the platform-neutral unit suite are green after the rename.
+The `ft8` configuration now persists protocol-local scalar values such as `profile`, `band`, `skip_tx1`, and `max_retry`; no protocol `mode=` value is stored.
+
+The Linux build, all 11 integration tests, and the platform-neutral unit suite are green after these changes.
 
 The remaining A0 work is the substantive portability slice: remove Linux-style stdin/stdout/startup assumptions from the resident MiniShell shell before adding `platform/adv/`.
 
