@@ -1,48 +1,15 @@
-# MiniShell ABI Foundation
+# Historical ABI Foundation Note
 
-Status: **foundational cross-ABI contract; append-only growth active**
+This file is retained temporarily because older MiniShell documentation refers to it.
 
-MiniShell provides a platform-neutral ABI between applications and resident services/backends.
-
-## Service history
-
-The original service prefix is System, Memory, Filesystem, Time/Location, Display, and Input. Audio was later appended as the first application-driven top-level extension.
-
-## Core compatibility rules
-
-- `mini_api_t` and service tables grow append-only.
-- Every extensible public table/structure uses `struct_size`.
-- `abi_version` changes only for incompatible generations.
-- Optional families use capabilities and nullable sub-APIs.
-- Existing numeric meanings are never repurposed.
-- Backend-native types/errors do not cross the public ABI.
-- Public resources have explicit ownership/lifetime.
-- Compatible additions do not require a version-generation bump.
-
-## Dependency direction
+The current architectural policy is now defined in:
 
 ```text
-application
-    -> MiniShell public ABI
-    -> resident services
-    -> private platform/backend boundary
-    -> OS/RTOS/SDK/drivers/hardware
+../api/api-foundation.md
 ```
 
-## Lifecycle
+MiniShell currently defines a public **API**, not a frozen long-term MiniShell binary ABI.
 
-MiniShell associates managed allocations, file handles, Audio streams, and future logical resources with the foreground app where practical. Teardown reclaims them; active Audio TX is aborted before close.
+The earlier append-only/backward-compatibility policy is no longer active. Breaking API changes are allowed while the architecture is still being established. A formal binary ABI and compatibility policy may be introduced later if independently built `.so` or `.elf` applications need to remain compatible across MiniShell releases.
 
-## Execution model
-
-Calls are synchronous unless documented otherwise. Buffers remain caller-owned. ABI calls are application-context calls unless a service explicitly promises stronger ISR/reentrancy/thread guarantees.
-
-## Verification
-
-```text
-unit tests (primary)
-    -> runtime-loaded native-app ABI integration
-    -> platform/hardware validation
-```
-
-Unit-test failures block progress.
+The `docs/abi/` directory name and remaining ABI terminology are historical and may be cleaned up during the current ADV/backend portability work.
