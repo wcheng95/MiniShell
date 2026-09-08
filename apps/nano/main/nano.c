@@ -219,7 +219,7 @@ static void handle_special(nano_buffer_t *buffer,
 
 static bool api_ready(const mini_api_t *api)
 {
-    if (api == NULL || api->abi_version != MINISHELL_ABI_VERSION ||
+    if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, input) ||
         api->system == NULL || api->memory == NULL || api->fs == NULL ||
         api->display == NULL || api->input == NULL) {
