@@ -22,6 +22,55 @@ Linux / NuttX / ESP-IDF / hardware / mocks
 
 Linux is the current reference implementation, but Linux behavior must not leak into the application core.
 
+### 1.1 MiniFT8 application profiles
+
+MiniFT8 has an application-side **profile** layer for resource and presentation policy. A profile is not a MiniShell backend and does not identify the physical platform on which the application is running.
+
+The boundary is:
+
+```text
+MiniFT8 profile
+        |
+        v
+MiniFT8 application/core
+        |
+        v
+MiniShell public ABI
+        |
+        v
+MiniShell backend/provider
+        |
+        v
+hardware / OS
+```
+
+MiniShell tells MiniFT8 what services and capabilities the environment provides. The MiniFT8 profile decides how MiniFT8 chooses to use those resources, for example display line count, history depth, decoder/resource limits, or waterfall dimensions.
+
+Profiles must not contain FT8 protocol behavior, QSO policy, autoseq logic, scheduler algorithms, logging semantics, or platform-driver code. Those remain shared application code.
+
+The initial profiles are:
+
+```text
+ADV
+    captures the current MiniFT8-V2/Cardputer ADV behavior and resource assumptions
+
+DESKTOP
+    initial pc-1/Linux development profile with larger resource and display allowances
+```
+
+Profile and backend are intentionally independent. In particular, pc-1/Linux must be able to run both:
+
+```text
+Linux MiniShell + DESKTOP profile
+Linux MiniShell + ADV profile
+```
+
+Running the ADV profile on Linux is a first-class regression/test configuration. It allows Cardputer-compatible application behavior and limits to be exercised on the reference host without requiring Cardputer hardware.
+
+Profile selection should therefore be runtime/application configuration where practical, rather than compile-time platform branching such as `#ifdef CARDPUTER_ADV` in shared MiniFT8 logic.
+
+Additional profiles such as PaperS3 or Tab5 should be introduced only when those targets are actively developed and real differences justify new profile fields. Profile fields should be added incrementally rather than predicting every future platform variation in advance.
+
 ## 2. Application control-hub model
 
 `app_controller` is the owner of MiniFT8 domain coordination. Other logical MiniFT8 modules do not coordinate one another behind its back.
@@ -289,11 +338,13 @@ Thus `/flash/MiniFT8/Station.txt` is MiniFT8 policy, while how `/flash` maps to 
 
 ## 9. UI boundary
 
-The current logical UI frame is:
+The inherited V2/Cardputer ADV logical UI frame is currently:
 
 ```text
 30 columns x 8 rows
 ```
+
+This is an **ADV profile** choice, not a MiniShell ABI or universal MiniFT8 architectural limit. The DESKTOP profile may use a larger frame, for example more RX text lines, while using the same application logic and MiniShell Display ABI.
 
 `ui_shell` sees only MiniFT8-owned `UiModel`, `UiInput`, `UiFrame`, and `AppAction`. It does not know terminal dimensions, ANSI sequences, ncurses, touch hardware, or keyboard scan codes.
 
@@ -388,3 +439,4 @@ A later I/Q source uses the same Audio ABI but selects the MiniFT8 I/Q branch in
 11. Prefer synchronous explicit calls until concurrency is proven necessary.
 12. Keep modules small enough to explain and test independently; split private implementation without splitting semantic ownership.
 13. Reuse proven V2 behavior/algorithms, but never import old structural coupling automatically.
+14. MiniFT8 profiles are application policy above the MiniShell ABI; profile and backend remain independent, and shared application logic must not branch directly on hardware/platform identity.
