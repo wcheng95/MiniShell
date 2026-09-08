@@ -10,6 +10,7 @@ Current baseline:
 - Linux deterministic WAV RX replays `tests/kfs16b12k.wav` unchanged.
 - Control remains independent from Audio; device `set_time` is deferred.
 - Historical Tab5 work is preserved on `archive/tab5-legacy`.
+- The application-facing contract is now called the **MiniShell API**. Backward source/binary compatibility is not frozen during this early architecture phase; a formal ABI may be introduced later if independently built applications require it.
 
 ## Housekeeping paydown completed
 
@@ -39,16 +40,17 @@ Linux backend + ADV profile
 ADV backend   + ADV profile
 ```
 
-Cardputer ADV will use a compiled-in application registry. MiniShell and MiniFT8 are built into one ESP-IDF firmware image; runtime ELF/application loading is intentionally out of scope on ADV because its RAM cost is not justified.
+Cardputer ADV V1 will use a compiled-in application registry. MiniShell and MiniFT8 are built into one ESP-IDF firmware image. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable applications, including smaller RAM-hungry apps, without blocking the initial ADV backend.
 
-The first work is to remove the remaining Linux-style stdin/stdout/startup assumptions from the resident MiniShell shell, then add `platform/adv/` incrementally. MiniFT8-V2 is reference material for proven Cardputer hardware behavior only; V2 will not be modified or refactored for this work.
+The first work is to remove the remaining Linux-style stdin/stdout/startup assumptions from the resident MiniShell shell, then add `platform/adv/` incrementally. A0 should also clean remaining legacy `ABI` terminology/identifiers toward `API` where appropriate. MiniFT8-V2 is reference material for proven Cardputer hardware behavior only; V2 will not be modified or refactored for this work.
 
 The cross-platform checkpoint focuses first on System/Memory, Display/Input, Filesystem, Time/Location, static app lifecycle, and MiniFT8 UI/config behavior. Live ADV QMX Audio is deliberately deferred until the RX/TX vertical slice actually needs it.
 
-Canonical plan:
+Canonical plans/policy:
 
 ```text
 docs/project/adv-backend-plan.md
+docs/api/api-foundation.md
 ```
 
 After the Linux+ADV-profile versus ADV+ADV-profile validation checkpoint passes, resume RX-1B.
