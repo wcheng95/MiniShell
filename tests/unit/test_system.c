@@ -7,7 +7,7 @@ bool test_system(void)
     minishell_services_configure(&p);
     const mini_api_t *api = mini_api_get();
     TEST_CHECK(api != NULL);
-    TEST_EQ(api->abi_version, MINISHELL_ABI_VERSION);
+    TEST_EQ(api->api_version, MINISHELL_API_VERSION);
     TEST_CHECK(api->system != NULL);
     TEST_CHECK(api->system->write != NULL);
     api->system->write("hello");
