@@ -62,7 +62,7 @@ static void report_result(const mini_system_api_t *system, cp_copy_result_t resu
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
-    if (api == NULL || api->abi_version != MINISHELL_ABI_VERSION ||
+    if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, fs) ||
         api->system == NULL || api->fs == NULL) {
         return 2;
