@@ -8,7 +8,7 @@ MiniFT8-V3 depends on MiniShell concepts, never directly on a platform implement
 MiniFT8 application
         |
         v
-MiniShell public ABI
+MiniShell public API
         |
         v
 MiniShell service semantics
@@ -35,7 +35,7 @@ MiniFT8 profile
 MiniFT8 application/core
         |
         v
-MiniShell public ABI
+MiniShell public API
         |
         v
 MiniShell backend/provider
@@ -108,7 +108,7 @@ The application edge translates between MiniShell service types and MiniFT8-owne
 | `storage_service` | MiniFT8 file policy and safe text persistence through MiniShell Filesystem |
 | future MiniFT8 RX-audio edge | opening/reading MiniShell RX Audio and assigning source/profile channel meaning |
 | future `ft8_engine` | FT8-specific DSP, encode/decode, symbol generation, waveform synthesis |
-| future MiniFT8 Control edge | use of the future MiniShell Control ABI; no CAT syntax or platform transport |
+| future MiniFT8 Control edge | use of the future MiniShell Control API; no CAT syntax or platform transport |
 
 MiniShell owns application-visible filesystem handles, display semantics, input events, time/location, memory, audio stream lifecycle, and platform resources. A future MiniShell Control service will likewise own application-visible radio-control transport/resource lifecycle.
 
@@ -155,7 +155,7 @@ host test
     Control  = mock
 ```
 
-A shared physical device may expose several child capabilities, for example USB UAC plus CDC. Physical coordination belongs below the independent MiniShell ABIs and must not recreate a monolithic application-side radio object.
+A shared physical device may expose several child capabilities, for example USB UAC plus CDC. Physical coordination belongs below the independent MiniShell APIs and must not recreate a monolithic application-side radio object.
 
 ## 5. Audio boundary
 
@@ -213,7 +213,7 @@ MiniFT8 RX source/profile interpretation
         +--> I/Q            -> I/Q DSP path
 ```
 
-Hardware/OS transport conversion belongs below the MiniShell Audio ABI. For example, a future QMX provider may convert native 48 kHz / 24-bit / 2-channel UAC to 12 kHz / S16 / 2-channel while preserving channel order.
+Hardware/OS transport conversion belongs below the MiniShell Audio API. For example, a future QMX provider may convert native 48 kHz / 24-bit / 2-channel UAC to 12 kHz / S16 / 2-channel while preserving channel order.
 
 The checked-in `tests/kfs16b12k.wav` is PCM 12 kHz / S16 / 2-channel. The Linux WAV provider validates it and streams it unchanged. It does not downmix or interpret the channels.
 
@@ -240,7 +240,7 @@ MiniShell must not know FT8/FT4 symbol counts, tone spacing, CPFSK, I/Q meaning,
 
 Control is architecturally defined but is **not yet an implemented MiniShell public service**.
 
-The future MiniShell Control ABI exposes generic radio-control concepts, not FT8 concepts.
+The future MiniShell Control API exposes generic radio-control concepts, not FT8 concepts.
 
 Conceptual V1 operations are:
 
@@ -265,7 +265,7 @@ ControlCaps
     tx_frequency_min_interval_us
 ```
 
-`control_tx_set_frequency()` uses desired absolute RF frequency. MiniFT8 must never send a device-specific `TA` value, `FO` index, CAT command string, or FT8 symbol through the ABI.
+`control_tx_set_frequency()` uses desired absolute RF frequency. MiniFT8 must never send a device-specific `TA` value, `FO` index, CAT command string, or FT8 symbol through the API.
 
 MiniFT8 owns:
 
@@ -344,7 +344,7 @@ The inherited V2/Cardputer ADV logical UI frame is currently:
 30 columns x 8 rows
 ```
 
-This is an **ADV profile** choice, not a MiniShell ABI or universal MiniFT8 architectural limit. The DESKTOP profile may use a larger frame, for example more RX text lines, while using the same application logic and MiniShell Display ABI.
+This is an **ADV profile** choice, not a MiniShell API or universal MiniFT8 architectural limit. The DESKTOP profile may use a larger frame, for example more RX text lines, while using the same application logic and MiniShell Display API.
 
 `ui_shell` sees only MiniFT8-owned `UiModel`, `UiInput`, `UiFrame`, and `AppAction`. It does not know terminal dimensions, ANSI sequences, ncurses, touch hardware, or keyboard scan codes.
 
@@ -386,12 +386,12 @@ Canonical mode is owned by `app_controller`. `ui_shell` receives it in `UiModel`
 
 Future mode-specific engines remain subordinate to the same controller. FT8-specific DSP belongs in `ft8_engine`, not Display, Audio, Control, or `ui_shell`.
 
-## 11. Current implementation boundary and next slice
+## 11. Current implementation boundary
 
 Implemented MiniShell side:
 
 ```text
-Audio public ABI
+Audio public API
 Audio resident service/lifecycle
 Linux deterministic WAV RX provider
 12 kHz / S16 / 2-channel reference fixture
@@ -407,12 +407,12 @@ live QMX/UAC provider
 TX realization
 ```
 
-The next vertical slice is therefore entirely above the already-established Audio transport boundary until `ft8_engine` receives samples:
+RX implementation is temporarily paused while the two-backend/two-profile validation milestone is completed. When RX resumes, the deterministic vertical slice remains:
 
 ```text
 tests/kfs16b12k.wav
     -> MiniShell WAV provider
-    -> MiniShell Audio ABI: 12 kHz / S16 / 2-channel
+    -> MiniShell Audio API: 12 kHz / S16 / 2-channel
     -> MiniFT8 RX source/profile interpretation
     -> ordinary-audio select/downmix
     -> ft8_engine
@@ -422,11 +422,11 @@ tests/kfs16b12k.wav
     -> RX screen
 ```
 
-A later I/Q source uses the same Audio ABI but selects the MiniFT8 I/Q branch instead of ordinary-audio downmix.
+A later I/Q source uses the same Audio API but selects the MiniFT8 I/Q branch instead of ordinary-audio downmix.
 
 ## 12. Boundary rules
 
-1. Application code depends on MiniShell public ABI only; no platform implementation header or OS/device API may enter MiniFT8.
+1. Application code depends on MiniShell public API only; no platform implementation header or OS/device API may enter MiniFT8.
 2. `app_controller` is the MiniFT8 domain coordinator; edge adapters and `minift8_main` must not become competing owners of application state.
 3. Logical MiniFT8 modules communicate through explicit MiniFT8-owned data/contracts rather than calling one another opportunistically.
 4. RX Audio, TX Audio, and Control are independent resources; physical device identity never couples them at the application boundary.
@@ -439,4 +439,4 @@ A later I/Q source uses the same Audio ABI but selects the MiniFT8 I/Q branch in
 11. Prefer synchronous explicit calls until concurrency is proven necessary.
 12. Keep modules small enough to explain and test independently; split private implementation without splitting semantic ownership.
 13. Reuse proven V2 behavior/algorithms, but never import old structural coupling automatically.
-14. MiniFT8 profiles are application policy above the MiniShell ABI; profile and backend remain independent, and shared application logic must not branch directly on hardware/platform identity.
+14. MiniFT8 profiles are application policy above the MiniShell API; profile and backend remain independent, and shared application logic must not branch directly on hardware/platform identity.
