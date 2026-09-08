@@ -183,11 +183,13 @@ Protocol applications are separate applications rather than modes inside one umb
 
 Linux currently provides dynamic `.so` loading. Cardputer ADV V1 provides the same foreground lifecycle through a compiled-in registry. Runtime `.elf` loading on ADV is deferred for later investigation rather than rejected.
 
-When file-based runtime loading is added on ADV, the backend discovery policy is:
+When file-based runtime loading is added on ADV, compiled-in applications keep priority. For application names not provided internally, the backend searches external locations in this order:
 
 ```text
-/flash/apps   internal LittleFS, searched first
-/sd/apps      optional removable FATFS, searched second
+1. /flash/apps   internal LittleFS
+2. /sd/apps      optional removable FATFS
 ```
 
-The two sets are merged by application name. If the same name exists in both, `/flash/apps` wins. Absence of an SD card must not prevent MiniShell from booting or running applications available from compiled-in/internal storage. These paths and precedence are backend loader policy, not part of the application-facing API contract.
+External applications are not expected to replace compiled-in applications in the normal model. If explicit override behavior is ever desired, it should be specified deliberately rather than arising from ordinary search precedence.
+
+Absence of an SD card must not prevent MiniShell from booting or running compiled-in applications or applications available from `/flash/apps`. These paths and resolution rules are backend loader policy, not part of the application-facing API contract.
