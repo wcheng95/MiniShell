@@ -95,7 +95,7 @@ Mode/Profile/Band are live prototype settings. The `Profile` item shown here is 
 5 Tune: --
 ```
 
-`Skip TX1` and `Max Retry` are currently live scheduler-owned values and persist to Station.txt.
+`Skip TX1` and `Max Retry` are currently live scheduler-owned values and persist to `station.txt`.
 
 ### O -> Message
 
