@@ -133,7 +133,7 @@ protocol    = FT8/FT4
 
 The 6 kHz / `freq_osr=1` combination is partly constrained by V2 `monitor.c`'s static 960-point FFT limit. V3 must not mistake that implementation constraint for a permanent protocol requirement.
 
-Initial V3 golden tests may deliberately reproduce these values while structural cleanup is underway. Any later change to internal sample rate, OSR, frequency window, candidate limit, or LDPC policy is a separate measured algorithm decision.
+Initial V3 golden tests may deliberately reproduce these values while structural cleanup is underway. Any later change to internal sample rate, OSR, frequency window, candidate limit, LDPC policy, or search strategy is a separate measured algorithm decision.
 
 #### Monitor initialization
 
@@ -177,6 +177,8 @@ min score      = 5
 
 Therefore candidate capacity and threshold must be explicit decoder policy/configuration, not hidden constants inside a helper.
 
+Future deep-search algorithms may also accept an explicit optional station search context such as the local callsign. That context is an algorithmic hint for candidate recovery only; it is not QSO or AutoSeq policy.
+
 #### Candidate decode
 
 The helper tries candidates in returned order using:
@@ -197,7 +199,7 @@ LDPC iteration limit is explicit decode policy, not an accidental hard-coded pro
 
 #### Message decode
 
-A successfully decoded payload is passed to `ftx_message_decode()` with the hash interface to produce message text and field offsets.
+A successfully decoded payload is passed to `ftx_message_decode()` with the hash interface to produce message type, text, and field offsets.
 
 This is a clean conceptual boundary:
 
@@ -206,10 +208,12 @@ candidate decoder
     -> protocol payload + decode status
 
 message codec
-    -> structured/message text + field metadata
+    -> protocol message type + structured/message text + field metadata
 ```
 
-V3 should preserve that separation.
+V3 should preserve that separation and preserve the protocol message type as first-class output so ordinary messages do not need to be re-tokenized from rendered text.
+
+A deliberate application-level exception exists for protocol `FREE_TEXT`: the RX result classifier may recognize the exact valid-CQ grammar documented in `rx-v2-production-review.md` and set logical CQ classification without changing the protocol type.
 
 #### Misnamed SNR
 
@@ -231,7 +235,7 @@ time offset
 LDPC/CRC status
 ```
 
-If a reliable SNR estimator is not yet available, V3 should report no SNR rather than relabel candidate score.
+Production V2 has a separate chosen SNR estimator. V3 preserves that estimator as the structural-cleanup baseline and may improve it later as an intentional algorithm change.
 
 ## 4. Helper versus production V2
 
@@ -246,7 +250,7 @@ Known differences already identified:
 | max LDPC iterations | 4 | 25 |
 | decoded messages returned | first success only | multiple unique messages |
 | duplicate handling | none after first success | payload/hash dedupe |
-| `snr` field | actually candidate score | production path has separate RX metadata logic to review |
+| `snr` field | actually candidate score | separate V2 SNR estimator |
 
 RX-0 golden cases must therefore be generated/validated against production V2 behavior, not merely against `decode_helper.cpp`.
 
@@ -276,12 +280,14 @@ RX
       +-- monitor/waterfall
       +-- candidate search
       +-- candidate decode / LDPC / CRC
-      `-- message codec / decode result construction
+      `-- message codec / protocol decode-result construction
 ```
 
-`ft8_engine` is a MiniFT8 domain module. It must have no MiniShell, file, platform, UI, AutoSeq, or TX dependency.
+`ft8_engine` is a MiniFT8 domain module. It must have no MiniShell, file, platform, UI, AutoSeq, TX, or ADIF dependency.
 
 Raw `ft8_lib` structures should preferably remain behind this engine boundary. The rest of MiniFT8 should consume MiniFT8-owned RX result types.
+
+The engine's **decode semantics** remain protocol-level. A future search algorithm may receive explicit station-aware hints such as the local callsign when those hints improve decoding. This does not move station/QSO policy into the engine.
 
 ## 6. Decoder contract — properties, not final C API
 
@@ -314,6 +320,7 @@ Input:
 ```text
 finalized waterfall
 explicit search policy
+optional algorithmic search context
 ```
 
 Output:
@@ -323,6 +330,15 @@ Output:
 ```
 
 A candidate descriptor contains synchronization/location information only. It does not contain application/QSO policy.
+
+A future search context may conceptually contain:
+
+```text
+deep_search_enabled
+local_callsign (optional)
+```
+
+and may later grow other explicit decoder hints. It must not contain AutoSeq state, desired reply target, TX stage, IgnoreList, or UI preference.
 
 ### Candidate decode
 
@@ -355,7 +371,7 @@ explicit callsign-hash state/interface
 Output:
 
 ```text
-message type
+protocol message type
 canonical decoded text
 field metadata / structured information
 payload/hash identity
@@ -376,11 +392,11 @@ Conceptual per-message metadata:
 
 ```text
 decoded/structured message
-message type
+protocol message type
 candidate score        diagnostic
 frequency offset
 time offset
-SNR                     only if actually estimated
+SNR                     V2 baseline first; later algorithm may improve
 LDPC/CRC diagnostics    optional/debug-facing
 payload/hash identity
 ```
@@ -398,37 +414,49 @@ channel 0/1 ordinary-audio versus I/Q meaning
 UTC slot selection
 real-time sleeping/pacing
 UI rendering/sorting
-reply-to-me detection
+logical CQ/to-me application classification
 AutoSeq policy
 TX decisions
 ADIF logging
 radio/CAT control
 ```
 
+Important nuance:
+
+> The engine may later *use* local station identity as an explicit deep-search hint while still not *owning* reply-to-me application classification or QSO policy.
+
 Those responsibilities stay at their existing boundaries.
 
 ## 8. Next RX-0B reading
 
-Before writing V3 decoder code, review production V2 in this order:
+Completed source reviews:
 
 ```text
-1. decode_monitor_results() in main.cpp
-   - exact production candidate/decode/dedupe/result policy
+decode_helper.cpp
+production decode_monitor_results() responsibility review
+```
 
-2. monitor.h / monitor.c
-   - explicit struct versus hidden static storage
-   - FFT/workspace/waterfall ownership
-   - block and OSR assumptions
+Next review:
 
-3. decode.h / decode.c
-   - candidate representation
-   - Costas scoring/search
-   - likelihood/LDPC/CRC boundaries
+```text
+monitor.h / monitor.c
+    - explicit struct versus hidden static storage
+    - FFT/workspace/waterfall ownership
+    - block and OSR assumptions
+```
 
-4. message.h / message.c
-   - payload/message boundary
-   - callsign hash contract
-   - structured field metadata
+Then:
+
+```text
+decode.h / decode.c
+    - candidate representation
+    - Costas scoring/search
+    - likelihood/LDPC/CRC boundaries
+
+message.h / message.c
+    - payload/message boundary
+    - message type + field metadata
+    - callsign hash contract
 ```
 
 Only after those reviews should RX-1 begin moving or cleaning implementation code.
