@@ -14,7 +14,9 @@ MiniShell runtime + platform backend
 
 The same source can be built for different MiniShell targets. Loader/container format is platform-specific and is not part of the application contract.
 
-Code-facing application names are lowercase. Project names may remain proper-case in prose; for example, the MiniFT8 application lives at `apps/minift8/` and is invoked as `minift8`.
+Code-facing application names are lowercase. Project names may remain proper-case in prose; for example, the MiniFT8 project currently provides runtime app `ft8` from `apps/ft8/`.
+
+Protocol selection is application selection. The current implementation provides `ft8`; future protocol apps such as `ft4`, `cw`, `rtty`, and `js8` are added only when their real implementation begins.
 
 On Linux, the reference build produces runtime-loadable `.so` modules under:
 
@@ -27,7 +29,7 @@ Cardputer ADV V1 will compile selected applications into the firmware through a 
 Current applications:
 
 ```text
-minift8  MiniFT8 application
+ft8      MiniFT8 FT8 application
 hello    minimal API example
 cat      text-file display
 cp       binary-safe file copy
