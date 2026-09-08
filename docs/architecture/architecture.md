@@ -14,7 +14,7 @@ Linux Mint on `pc-1` is the reference behavior and a full production target.
 +------------------------------------------------------+
 |                   Applications                       |
 |          MiniFT8 / MiniCW / MiniRTTY / tools         |
-+---------------------- MiniShell ABI -----------------+
++---------------------- MiniShell API -----------------+
 |                  Portable MiniShell                  |
 | shell / app lifecycle / service semantics / policy   |
 +---------------- private backend boundary ------------+
@@ -22,13 +22,13 @@ Linux Mint on `pc-1` is the reference behavior and a full production target.
 +------------------------------------------------------+
 ```
 
-MiniShell may be thin or thick depending on the target. The application-facing contract remains the boundary.
+MiniShell may be thin or thick depending on the target. The application-facing API remains the boundary.
 
 ## 3. Responsibilities
 
 MiniShell has two primary responsibilities:
 
-1. **Platform adaptation** — stable logical services such as memory, storage, time/location, display, input, and audio, with later services such as radio control or networking added only when justified by application requirements.
+1. **Platform adaptation** — logical services such as memory, storage, time/location, display, input, and audio, with later services such as control or networking added only when justified by application requirements.
 2. **Application runtime** — discovery, foreground lifecycle, cleanup, and where practical load/unload without rebuilding MiniShell.
 
 A third cross-cutting responsibility is **resource policy**: MiniShell defines the resource domain applications may consume and enforces it through the owning services.
@@ -53,7 +53,7 @@ platform implementation
 
 No application-visible handle is a POSIX descriptor, `DIR *`, NuttX object, ESP-IDF object, or board-driver object.
 
-The private backend boundary may evolve freely; the public ABI is intentionally much more stable.
+The private backend boundary may evolve freely. The public API is also still under active architectural development: backward source and binary compatibility are **not yet promised**. In-tree applications are rebuilt when the API changes. A formal binary ABI may be introduced later if independently built `.so` or `.elf` applications need compatibility across MiniShell releases.
 
 ## 5. Current composition
 
@@ -65,11 +65,11 @@ core/shell.c                   resident shell control plane
 core/app_manager.c             foreground app lifecycle
 core/minishell_services/*      portable service semantics
 platform/linux/*               Linux private backend/providers
-include/minishell/api.h        public app ABI
-apps/*                         portable/domain runtime applications
+include/minishell/api.h        public application API
+apps/*                         portable/domain applications
 ```
 
-The earlier ESP-IDF/Tab5 implementation path has been removed from active `main`. Its complete pre-cleanup state is preserved in branch `archive/tab5-legacy`.
+A Cardputer ADV backend will be added under `platform/adv/`. The earlier ESP-IDF/Tab5 implementation path is preserved in branch `archive/tab5-legacy` as historical reference, not as the new ADV architecture.
 
 ## 6. Ownership
 
@@ -84,7 +84,7 @@ UTC/location        Time/Location service
 Text display        Display service
 Logical key queue   Input service
 Audio streams       Audio service
-Native app loading  private platform loader behind app_manager
+App packaging/load  private platform mechanism behind app_manager
 ```
 
 A backend/provider supplies primitives; it does not redefine application semantics.
@@ -99,37 +99,31 @@ V1 keeps one foreground application active at a time:
 shell
   -> resolve application
   -> app_begin
-  -> backend load/prepare
+  -> backend load/prepare or select compiled-in app
   -> main(argc, argv)
-  -> app uses MiniShell ABI
+  -> app uses MiniShell API
   -> app returns
-  -> backend unload/release
+  -> backend unload/release where applicable
   -> app_end / reclaim MiniShell-managed resources
   -> shell
 ```
 
-The loader/container is private:
+Packaging/loading is private:
 
 ```text
 Linux/Mint      .so + dlopen()/dlsym()/dlclose()
+Cardputer ADV   V1 compiled-in registry
 Tab5/NuttX      loadable-app mechanism where practical
-Cardputer ADV   compiled-in registry acceptable when loading costs too much RAM
+future ADV      runtime .elf loading may be explored later
 ```
 
-User-visible behavior remains `apps`, `run <app>`, direct `<app>`, return to `M$>`.
+ADV V1 defers runtime ELF loading because it is not needed for the first backend and adds loader/linker/flash-mapping complexity. It is not rejected on the assumption that all executable text must live in RAM.
 
-MiniFT8 now exercises this lifecycle as the first substantial domain application:
-
-```text
-M$> MiniFT8
-... application ...
-q
-M$>
-```
+User-visible behavior remains `apps`, `run <app>`, direct `<app>`, return to `M$>` where practical.
 
 ## 8. Current public services
 
-ABI generation 1 currently exposes:
+The current public API exposes:
 
 ```text
 System
@@ -141,7 +135,9 @@ Input
 Audio
 ```
 
-Notable application-driven behavior/extensions include:
+`MINISHELL_API_VERSION` identifies the API generation expected by the current source/build. `struct_size`, capabilities, validity bits, fixed-width types, and opaque handles remain useful design mechanisms, but they are **not a backward-compatibility promise** during this phase.
+
+Notable application-driven behavior includes:
 
 ```text
 Filesystem     dir_open / dir_read / dir_close
@@ -151,9 +147,11 @@ Display text   optional write_at_attr(..., MINI_TEXT_ATTR_INVERSE)
 Audio          format-described independent RX/TX streams
 ```
 
-The Audio ABI transports ordered frames and does not assign application meaning such as stereo versus I/Q to channels. The current Linux WAV RX provider validates and streams exact-format PCM through the private provider boundary.
+The Audio API transports ordered frames and does not assign application meaning such as stereo versus I/Q to channels. The current Linux WAV RX provider validates and streams exact-format PCM through the private provider boundary.
 
-ABI growth remains append-only where compatible. Semantic clarification/growth must still be justified by a real application requirement. Control/Radio is not yet a public MiniShell service.
+API changes remain justified by real application requirements, but incompatible changes are allowed when they improve clarity, ownership, or portability. Control is not yet a public MiniShell service.
+
+Canonical public contracts live under `docs/api/`.
 
 ## 9. Resource policy
 
@@ -219,11 +217,11 @@ nano cursor
 
 MiniFT8 UiFrame / UiInput
     -> MiniShell Display / Input
-    -> Linux terminal today
-    -> future framebuffer/touch backend later
+    -> Linux terminal
+    -> ADV Cardputer display/keyboard
 ```
 
-The Linux terminal backend owns ANSI/CSI and UTF-8 byte-stream reconstruction, including split-read state and the standalone-Escape ambiguity policy. Those details remain below the Input ABI.
+The Linux terminal backend owns ANSI/CSI and UTF-8 byte-stream reconstruction, including split-read state and the standalone-Escape ambiguity policy. Those details remain below the Input API.
 
 MiniFT8's application UI therefore has no ncurses/Linux dependency.
 
@@ -255,7 +253,7 @@ Mocks stay underneath MiniShell:
 ```text
 MiniFT8 core
     |
-MiniShell ABI
+MiniShell API
     +-- Linux provider
     +-- file-audio provider
     +-- future QMX/live-radio provider
@@ -282,7 +280,7 @@ stateful Linux terminal parser split-boundary behavior
 MiniFT8 runtime launch/navigation/persistence/relaunch/exit
 ```
 
-CI also runs the retained platform-neutral MiniShell service/unit suite, including the Audio ABI/service tests.
+CI also runs the platform-neutral MiniShell service/unit suite, including Audio API/service tests.
 
 Service/unit tests remain more important than merely proving that one native app can load.
 
@@ -301,7 +299,31 @@ terminal input     stateful ANSI/CSI/UTF-8 parser isolated below Input
 
 Future debt should be recorded when discovered rather than allowed to blur ownership boundaries. See `../project/consistency-check.md` for the audit record.
 
-## 17. Reference-development rule
+## 17. Current cross-platform validation milestone
+
+MiniFT8 RX-1B is paused while MiniShell is exercised across a second real backend and MiniFT8 across a second profile.
+
+Required matrix:
+
+```text
+Linux backend + DESKTOP profile
+Linux backend + ADV profile
+ADV backend   + ADV profile
+```
+
+The key comparison is:
+
+```text
+Linux backend + ADV profile
+            versus
+ADV backend + ADV profile
+```
+
+The MiniFT8 core/profile stay the same; only the MiniShell backend changes. This tests whether platform details truly remain below the public API.
+
+Canonical plan: `../project/adv-backend-plan.md`.
+
+## 18. Reference-development rule
 
 New portable behavior is normally developed on Linux first unless inherently target-specific. Linux establishes golden observable behavior for later ports.
 
@@ -316,4 +338,4 @@ controlled allocation
 no host-specific types in application code
 ```
 
-MiniFT8-V3 actively drives major service decisions. Audio V1 and deterministic WAV RX are now established. The next application slice consumes that Audio ABI inside MiniFT8 and feeds the FT8 DSP path. Control/Radio follows when its real application-facing contract is implemented and tested independently.
+The immediate A0 work is to remove the remaining Linux-specific resident shell/startup assumptions before `platform/adv/` becomes a true peer backend.
