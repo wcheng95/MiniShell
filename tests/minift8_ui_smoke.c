@@ -61,9 +61,24 @@ int main(void)
     assert(!ui_shell_handle_input(&ui, &model, key('s'), &action));
     ui_shell_render(&ui, &model, &frame);
     assert(strstr(frame.rows[1], "Station") != NULL);
-    assert(strstr(frame.rows[2], "Radio") != NULL);
+    assert(strstr(frame.rows[2], "I/O Paths") != NULL);
     assert(strstr(frame.rows[3], "Band Profiles") != NULL);
     assert(strstr(frame.rows[6], "System") != NULL);
+
+    assert(!ui_shell_handle_input(&ui, &model, key('2'), &action));
+    assert(ui.submenu == UI_SUBMENU_S_IO_PATHS);
+    ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[1], "RX Audio") != NULL);
+    assert(strstr(frame.rows[2], "TX Audio") != NULL);
+    assert(strstr(frame.rows[3], "Control") != NULL);
+
+    assert(!ui_shell_handle_input(&ui, &model, key('v'), &action));
+    assert(!ui_shell_handle_input(&ui, &model, key('1'), &action));
+    assert(ui.submenu == UI_SUBMENU_V_STATUS);
+    ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[4], "RX Audio") != NULL);
+    assert(strstr(frame.rows[5], "TX Audio") != NULL);
+    assert(strstr(frame.rows[6], "Control") != NULL);
 
     assert(!ui_shell_handle_input(&ui, &model, key('v'), &action));
     assert(!ui_shell_handle_input(&ui, &model, key('5'), &action));
