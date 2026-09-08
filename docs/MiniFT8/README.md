@@ -18,9 +18,24 @@ Linux / future NuttX / thick embedded backend / mocks
 
 MiniFT8 contains no Linux, ncurses, ESP-IDF, NuttX, USB/UART/I2S, or board-specific path in its application core.
 
-## Current integrated milestone
+## Major MiniFT8 domain blocks
 
-The first MiniShell-native slice intentionally contains:
+With platform/storage responsibilities moved below MiniShell, the remaining major radio-domain blocks are intentionally small in number:
+
+```text
+RX
+AutoSeq
+TX
+ADIF log
+```
+
+They are coordinated through `app_controller`; they do not call one another behind it.
+
+The next milestone is **decode RX**. Its canonical architecture and staged development plan are in `rx.md`.
+
+## Current integrated baseline
+
+MiniShell-native MiniFT8 currently contains:
 
 ```text
 30x8 text UI
@@ -28,9 +43,10 @@ configuration
 prototype scheduler settings
 Station.txt persistence
 MiniShell Display/Input/Filesystem integration
+MiniShell Audio ABI + deterministic WAV RX provider
 ```
 
-The next application-driven boundary is now architecturally defined:
+Application I/O is modeled as three independent resources:
 
 ```text
 RX Audio Path
@@ -38,9 +54,7 @@ TX Audio Path
 Control Path
 ```
 
-These are independent logical resources rather than one monolithic radio selection.
-
-MiniFT8 V1 requests normalized audio transport as:
+MiniFT8 requests Audio V1 transport as:
 
 ```text
 12000 Hz
@@ -48,9 +62,9 @@ signed 16-bit PCM
 2 channels
 ```
 
-The MiniShell Audio ABI remains format-capable, but initial implementations may support only that format. MiniShell preserves channel ordering but does not assign channel meaning. Whether the two channels represent ordinary audio, duplicated mono, I/Q, or another pairing is a MiniFT8 source/profile contract.
+MiniShell preserves channel ordering but does not assign channel meaning. Ordinary audio versus I/Q is a MiniFT8 source/profile contract.
 
-For example:
+Examples:
 
 ```text
 RX = QMX-AUDIO
@@ -65,28 +79,24 @@ RX = QMX-IQ
 
 Hardware-native transport conversion stays below MiniShell; protocol-specific DSP, channel interpretation, and TX waveform synthesis stay inside MiniFT8.
 
-The planned Control ABI exposes generic radio operations and capabilities such as dial frequency, radio mode, TX begin/end, and optional dynamic TX RF-frequency control. It does not expose FT8 symbols or device-specific CAT syntax.
+Control remains a planned independent MiniShell service. Its eventual generic operations must not expose FT8 symbols or device-specific CAT syntax.
 
-Typical resource compositions are:
+## RX memory rule
+
+Normal RX is streaming:
 
 ```text
-QMX
-    RX      = QMX-AUDIO
-    TX      = None
-    CONTROL = QMX CAT
-
-QMX I/Q
-    RX      = QMX-IQ
-    TX      = None
-    CONTROL = QMX CAT
-
-QDX
-    RX      = QDX-AUDIO
-    TX      = QDX-AUDIO
-    CONTROL = QDX CAT
+bounded PCM buffers
+    -> bounded FFT workspace
+    -> whole-slot waterfall
+    -> decode
 ```
 
-Audio and Control are design baselines here; they are not yet claims that those MiniShell services are implemented.
+A whole raw-audio slot is not required. Optional research modes may retain or double-buffer raw PCM so alternate algorithms can consume the same samples, but Cardputer-class operation must remain possible without that memory cost.
+
+Locked rule:
+
+> Stream raw audio; retain the waterfall; retain raw PCM only by explicit exception.
 
 ## Run
 
@@ -120,9 +130,10 @@ through the MiniShell Filesystem ABI.
 
 ## Documentation
 
-- `architecture.md` — ownership, dependency direction, and the RX/TX/Control boundary.
+- `architecture.md` — ownership, dependency direction, Audio and RX/TX/Control boundaries.
+- `rx.md` — canonical decode-RX pipeline, RAM rules, V2 classification, golden-reference policy, RX-0 through RX-7 plan, and decoder-contract direction.
 - `ui.md` — current 30x8 UI model and controls.
-- `development.md` — development rules, tests, Audio/Control baseline, and next vertical slice.
+- `development.md` — current development gate and next task.
 
 ## Source
 
