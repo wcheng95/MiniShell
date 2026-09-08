@@ -30,30 +30,47 @@ Normal raw audio remains streaming and bounded; the whole-slot retained represen
 
 ## Current task: RX-0
 
-RX-0 has two parts:
+### RX-0A — architecture/source map — complete
 
-### RX-0A — freeze architecture and source map
+`rx.md` records:
 
-- define the seven logical RX boundaries;
-- lock the streaming/RAM rule;
-- inventory MiniFT8-V2 RX sources;
-- classify V2 files as KEEP/CLEAN/REWRITE/DROP;
-- define golden-reference policy.
+- the seven logical RX boundaries;
+- the streaming/RAM rule;
+- MiniFT8-V2 RX source classification;
+- golden-reference policy;
+- RX-0 through RX-7 development sequence.
 
-`rx.md` is the canonical RX-0A artifact.
+### RX-0B — extract the V3 decoder contract from V2 — in progress
 
-### RX-0B — extract the V3 decoder contract from V2
-
-Start from MiniFT8-V2 `tests/tx_e2e/decode_helper.cpp`, because it exposes the simplest useful decoder chain:
+Completed reviews:
 
 ```text
-PCM
-    -> monitor
-    -> candidate search
-    -> candidate decode
-    -> message decode
+V2 tests/tx_e2e/decode_helper.cpp
+V2 production decode_monitor_results()
 ```
 
-Do not copy code yet. Review ownership and interfaces first, then establish the V3 engine contract and golden cases.
+Canonical review artifacts:
 
-After RX-0 is understood, RX-1 begins source-by-source cleanup of the FT8 core. Structural cleanup is kept separate from any intentional DSP/algorithm improvement.
+```text
+rx-decoder-contract.md
+rx-v2-production-review.md
+```
+
+The production review confirms that `ft8_engine` should end at a station-independent decoded-slot result. Station-aware DXpedition transformation, CQ/to-me classification, IgnoreList, AutoSeq, TX arming, RTC correction policy, logging, presentation sorting, and UI handoff remain outside the engine.
+
+The next RX-0B source review is:
+
+```text
+monitor.h / monitor.c
+```
+
+Goals of that review:
+
+- separate explicit monitor state from hidden static/singleton storage;
+- make FFT/workspace/waterfall ownership visible;
+- preserve incremental streaming processing;
+- make initialization failure and memory requirements explicit;
+- identify V2's 6 kHz / 960-point implementation constraints without treating them as permanent protocol requirements;
+- preserve mathematics during structural cleanup.
+
+Do not copy/refactor implementation code until this review is complete. After RX-0 is understood, RX-1 begins source-by-source cleanup of the FT8 core. Structural cleanup remains separate from intentional DSP/algorithm improvement.
