@@ -14,7 +14,7 @@ All of these applications:
 
 | App | Purpose | Primary MiniShell service |
 | --- | --- | --- |
-| `hello` | minimal runtime/ABI smoke application | System |
+| `hello` | minimal runtime/API smoke application | System |
 | `cat` | print a text/binary file to System output | Filesystem + System |
 | `cp` | copy one regular file | Filesystem |
 | `date` | show or re-anchor MiniShell UTC | Time/Location |
@@ -28,7 +28,7 @@ All of these applications:
 
 ## Design role
 
-These utilities are useful because they exercise the same public ABI used by larger applications. They are intentionally not privileged shortcuts inside the shell.
+These utilities are useful because they exercise the same public API used by larger applications. They are intentionally not privileged shortcuts inside the shell.
 
 Examples:
 
@@ -42,7 +42,7 @@ mv      -> filesystem.rename replacement semantics
 
 The replacement behavior of `rename()` is also used by MiniFT8 for safe configuration saves, showing why utility and domain applications should consume the same general-purpose primitives.
 
-A new utility should remain small and should not cause ABI growth unless it exposes a capability that is independently useful to real applications.
+A new utility should remain small and should not cause API growth unless it exposes a capability that is independently useful to real applications.
 
 ## Scope
 
