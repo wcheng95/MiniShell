@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-#define MINISHELL_ABI_VERSION 0x00000001u
+#define MINISHELL_API_VERSION 0x00000001u
 
 #if defined(__GNUC__)
 #define MINI_IMPORT __attribute__((visibility("default")))
@@ -308,7 +308,7 @@ typedef struct {
 } mini_audio_api_t;
 
 typedef struct {
-    uint32_t abi_version;
+    uint32_t api_version;
     uint32_t struct_size;
     const mini_system_api_t *system;
     const mini_memory_api_t *memory;
