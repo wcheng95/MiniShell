@@ -31,7 +31,7 @@ ADIF log
 
 They are coordinated through `app_controller`; they do not call one another behind it.
 
-The next milestone is **decode RX**. Its canonical architecture and staged development plan are in `rx.md`.
+The current milestone is **decode RX**. Its canonical architecture and staged development plan are in `rx.md`.
 
 ## Current integrated baseline
 
@@ -98,6 +98,12 @@ Locked rule:
 
 > Stream raw audio; retain the waterfall; retain raw PCM only by explicit exception.
 
+## Current RX gate
+
+RX-0 architecture/source review and RX-1A golden-boundary freeze are complete.
+
+The next task is **RX-1B: top-down RX module/interface design**. No V2 decoder source is migrated until ownership, data contracts, lifecycle, memory/workspace ownership, dependency direction, error/status contracts, and unit-test boundaries are defined.
+
 ## Run
 
 Build MiniShell normally, then:
@@ -131,12 +137,13 @@ through the MiniShell Filesystem ABI.
 ## Documentation
 
 - `architecture.md` — ownership, dependency direction, Audio and RX/TX/Control boundaries.
-- `rx.md` — canonical decode-RX pipeline, RAM rules, V2 classification, golden-reference policy, and RX-0 through RX-7 plan.
-- `rx-decoder-contract.md` — RX-0B source review of V2 `decode_helper.cpp` and the extracted V3 decoder contract.
-- `rx-v2-production-review.md` — RX-0B review of production `decode_monitor_results()`, with every mixed V2 responsibility assigned to its V3 owner.
-- `rx-monitor-review.md` — RX-0B review of `monitor.h/c`, explicit DSP/workspace ownership, reset semantics, RAM requirements, and monitor-level golden tests.
-- `rx-decode-review.md` — RX-0B review of `decode.h/c`, candidate search, likelihood/LDPC/CRC boundaries, status cleanup, and future deep-search extension points.
-- `rx-message-review.md` — RX-0B review of `message.h/c`, typed protocol results, callsign-hash ownership, special-message handling, and message-codec gaps.
+- `rx.md` — canonical decode-RX pipeline, RAM rules, V2 classification, golden-reference policy, and staged RX development plan.
+- `rx-decoder-contract.md` — RX-0B review of V2 `decode_helper.cpp` and the extracted decoder contract.
+- `rx-v2-production-review.md` — RX-0B review of production `decode_monitor_results()`, with mixed V2 responsibilities assigned to V3 owners.
+- `rx-monitor-review.md` — RX-0B review of `monitor.h/c`, DSP/workspace ownership, reset semantics, RAM requirements, and monitor-level golden strategy.
+- `rx-decode-review.md` — RX-0B review of `decode.h/c`, candidate search, likelihood/LDPC/CRC boundaries, status cleanup, and deep-search extension points.
+- `rx-message-review.md` — RX-0B review of `message.h/c`, typed protocol results, callsign-hash ownership, special-message handling, and codec gaps.
+- `rx-golden.md` — RX-1A pinned V2 golden boundaries: reference WAVs, exact Linux waterfall fingerprints, payload/codec vectors, and known V2 gaps that are not golden targets.
 - `ui.md` — current 30x8 UI model and controls.
 - `development.md` — current development gate and next task.
 
