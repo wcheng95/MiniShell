@@ -131,7 +131,8 @@ through the MiniShell Filesystem ABI.
 ## Documentation
 
 - `architecture.md` — ownership, dependency direction, Audio and RX/TX/Control boundaries.
-- `rx.md` — canonical decode-RX pipeline, RAM rules, V2 classification, golden-reference policy, RX-0 through RX-7 plan, and decoder-contract direction.
+- `rx.md` — canonical decode-RX pipeline, RAM rules, V2 classification, golden-reference policy, and RX-0 through RX-7 plan.
+- `rx-decoder-contract.md` — RX-0B source review of V2 `decode_helper.cpp` and the extracted V3 decoder contract.
 - `ui.md` — current 30x8 UI model and controls.
 - `development.md` — current development gate and next task.
 
