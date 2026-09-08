@@ -321,7 +321,7 @@ The decision is based on independent capabilities, never a switch on one monolit
 `storage_service` owns MiniFT8 file **policy**, not the filesystem:
 
 - MiniFT8 data directory;
-- Station configuration naming;
+- station configuration naming;
 - complete text reads/writes;
 - safe temporary-file save sequence.
 
@@ -334,7 +334,7 @@ MiniShell Filesystem owns:
 - quota policy;
 - platform/native file operations through its backend.
 
-Thus `/flash/MiniFT8/Station.txt` is MiniFT8 policy, while how `/flash` maps to Linux, NuttX, FATFS, or another backend is MiniShell policy.
+Thus `/flash/minift8/station.txt` is MiniFT8 policy, while how `/flash` maps to Linux, NuttX, FATFS, or another backend is MiniShell policy.
 
 ## 9. UI boundary
 
