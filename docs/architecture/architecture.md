@@ -28,7 +28,7 @@ MiniShell may be thin or thick depending on the target. The application-facing c
 
 MiniShell has two primary responsibilities:
 
-1. **Platform adaptation** — stable logical services such as memory, storage, time/location, display, input, and future audio/radio/network services.
+1. **Platform adaptation** — stable logical services such as memory, storage, time/location, display, input, and audio, with later services such as radio control or networking added only when justified by application requirements.
 2. **Application runtime** — discovery, foreground lifecycle, cleanup, and where practical load/unload without rebuilding MiniShell.
 
 A third cross-cutting responsibility is **resource policy**: MiniShell defines the resource domain applications may consume and enforces it through the owning services.
@@ -64,7 +64,7 @@ core/main.c                    composition/startup
 core/shell.c                   resident shell control plane
 core/app_manager.c             foreground app lifecycle
 core/minishell_services/*      portable service semantics
-platform/linux/*               Linux private backend
+platform/linux/*               Linux private backend/providers
 include/minishell/api.h        public app ABI
 apps/*                         portable/domain runtime applications
 ```
@@ -83,10 +83,11 @@ Files/dirs/quota    Filesystem service
 UTC/location        Time/Location service
 Text display        Display service
 Logical key queue   Input service
+Audio streams       Audio service
 Native app loading  private platform loader behind app_manager
 ```
 
-A backend supplies primitives; it does not redefine application semantics.
+A backend/provider supplies primitives; it does not redefine application semantics.
 
 On Linux the OS physically owns files, memory, terminal devices, etc. MiniShell remains the single application-facing gateway. On a thick embedded target MiniShell may also directly own the hardware driver.
 
@@ -137,6 +138,7 @@ Filesystem
 Time/Location
 Display
 Input
+Audio
 ```
 
 Notable application-driven behavior/extensions include:
@@ -146,9 +148,12 @@ Filesystem     dir_open / dir_read / dir_close
 Filesystem     space(path)
 Filesystem     rename replaces an existing regular-file destination
 Display text   optional write_at_attr(..., MINI_TEXT_ATTR_INVERSE)
+Audio          format-described independent RX/TX streams
 ```
 
-ABI growth remains append-only where compatible. Semantic clarification/growth must still be justified by a real application requirement; replacement rename was added for MiniFT8 safe configuration saves.
+The Audio ABI transports ordered frames and does not assign application meaning such as stereo versus I/Q to channels. The current Linux WAV RX provider validates and streams exact-format PCM through the private provider boundary.
+
+ABI growth remains append-only where compatible. Semantic clarification/growth must still be justified by a real application requirement. Control/Radio is not yet a public MiniShell service.
 
 ## 9. Resource policy
 
@@ -218,6 +223,8 @@ MiniFT8 UiFrame / UiInput
     -> future framebuffer/touch backend later
 ```
 
+The Linux terminal backend owns ANSI/CSI and UTF-8 byte-stream reconstruction, including split-read state and the standalone-Escape ambiguity policy. Those details remain below the Input ABI.
+
 MiniFT8's application UI therefore has no ncurses/Linux dependency.
 
 ## 13. Resident shell versus applications
@@ -249,30 +256,33 @@ Mocks stay underneath MiniShell:
 MiniFT8 core
     |
 MiniShell ABI
-    +-- Linux/QMX provider
+    +-- Linux provider
     +-- file-audio provider
-    +-- simulated-radio provider
+    +-- future QMX/live-radio provider
+    +-- simulated providers
 ```
 
 Mocks emulate service providers, not application-domain outcomes. Do not bypass the MiniFT8 decoder/scheduler with fake decoded QSOs when testing those modules.
 
 ## 15. Testing model
 
-The Linux CTest suite currently has nine tests covering:
+The Linux CTest suite currently has eleven tests covering:
 
 ```text
 shell/app loading
 portable service semantics and lifecycle
-terminal input handoff
+terminal Input through a PTY
 portable utility applications + replacement mv
 nano PTY edit/save/exit + inverse cursor
 directory iteration + ls
 resource quota + free/df/date + rename accounting
+Audio/WAV RX transport
 MiniFT8 pure UI state/action behavior
+stateful Linux terminal parser split-boundary behavior
 MiniFT8 runtime launch/navigation/persistence/relaunch/exit
 ```
 
-CI also runs the retained platform-neutral MiniShell service/unit suite.
+CI also runs the retained platform-neutral MiniShell service/unit suite, including the Audio ABI/service tests.
 
 Service/unit tests remain more important than merely proving that one native app can load.
 
@@ -280,9 +290,16 @@ Service/unit tests remain more important than merely proving that one native app
 
 The architecture does not equate "one owner" with "one giant file." An owner may be implemented by several private helper modules while presenting one semantic service.
 
-The current audit identifies internal cleanup needs in `platform/linux/linux_backend.c`, `core/minishell_services/filesystem_service.c`, and the shell/private-loader boundary. These can wait while application-driven development continues; they do not require a public ABI redesign.
+The H1-H5 architecture-audit debt is resolved. In particular:
 
-See `../project/consistency-check.md` for the current audit and prioritized housekeeping list.
+```text
+Linux backend      split by responsibility
+portable core      no POSIX loader-result leakage
+Filesystem owner   private path/handle/quota helpers split out
+terminal input     stateful ANSI/CSI/UTF-8 parser isolated below Input
+```
+
+Future debt should be recorded when discovered rather than allowed to blur ownership boundaries. See `../project/consistency-check.md` for the audit record.
 
 ## 17. Reference-development rule
 
@@ -299,4 +316,4 @@ controlled allocation
 no host-specific types in application code
 ```
 
-MiniFT8-V3 now actively drives major service decisions. The next expected new service is Audio, but its ABI should be defined only from the concrete live/replayed FT8 RX vertical slice. Radio/CAT and other services wait for their own real requirements.
+MiniFT8-V3 actively drives major service decisions. Audio V1 and deterministic WAV RX are now established. The next application slice consumes that Audio ABI inside MiniFT8 and feeds the FT8 DSP path. Control/Radio follows when its real application-facing contract is implemented and tested independently.
