@@ -18,7 +18,7 @@ finalized waterfall
     -> candidate decode
     -> payload dedupe
     -> message decode
-    -> frequency/time/SNR-like measurement
+    -> frequency/time/SNR measurement
     -> DXpedition station-specific rewrite
     -> rendered-text dedupe
     -> field parsing
@@ -58,19 +58,21 @@ These values are the V2 behavioral baseline during structural cleanup. They are 
 | candidate capacity / threshold | explicit FT8 decode policy | no hidden constants |
 | candidate LDPC decode | `ft8_engine` / candidate decoder | keep algorithm first |
 | payload/hash duplicate suppression | `ft8_engine` slot decode | intrinsic decoder cleanup |
-| payload -> protocol message | `ft8_engine` message codec | keep structured result |
+| payload -> protocol message | `ft8_engine` message codec | preserve message type + structured result |
 | frequency offset calculation | `ft8_engine` result metadata | intrinsic measurement |
 | candidate time offset | `ft8_engine` result metadata | intrinsic measurement |
 | candidate sync score | `ft8_engine` diagnostic metadata | never call SNR |
 | callsign-hash lookup/save | explicit MiniFT8 FT8 hash-store state | domain state, not MiniShell |
 | callsign-hash aging | hash-store lifecycle, triggered once per RX slot | remove global hidden policy |
 | slot identity/parity | `rx_slot_framer` / `app_controller` | decoder must not read RTC |
-| noise/SNR estimation | FT8 measurement code, initially V2-compatible | validate separately |
-| DXpedition rewrite for `mycall` | RX result/application normalization | station-specific; not protocol engine |
+| V2 noise/SNR estimation | FT8 measurement code | preserve baseline now; improve later |
+| DXpedition rewrite for `mycall` | RX result/application normalization | station-specific logical transformation |
+| free-text CQ exception | RX result classification | protocol type stays FREE_TEXT; logical CQ classification may override |
 | rendered-text duplicate suppression | RX result builder if still needed | distinct from payload dedupe |
-| `field1/field2/field3` text reparsing | drop | preserve message codec structure instead |
-| CQ classification | RX result/application classification | not decoder math |
+| `field1/field2/field3` text reparsing | drop for normal typed messages | preserve message codec structure instead |
+| CQ classification | RX result/application classification | typed messages use structure; free-text exception below |
 | addressed-to-me classification | RX result/application classification | requires station identity |
+| deep-search hint for reply-to-me | optional `ft8_engine` search context | algorithmic hint only; never QSO policy |
 | IgnoreList | AutoSeq/application policy | never decoder |
 | RX/TX trace logging | application logging edge | never decoder |
 | median decode-time RTC correction | application timing policy + MiniShell Time | engine only supplies time offsets |
@@ -83,7 +85,7 @@ These values are the V2 behavioral baseline during structural cleanup. They are 
 
 ## Engine boundary after this review
 
-The core FT8 engine should stop at a station-independent decoded slot result:
+The core FT8 engine produces protocol-level decoded slot results:
 
 ```text
 engine-native sample blocks
@@ -104,7 +106,7 @@ Ft8DecodedSlot
 
 Ft8DecodedMessage
     payload identity
-    message type
+    protocol message type
     structured protocol fields
     rendered canonical text
     candidate score
@@ -114,13 +116,19 @@ Ft8DecodedMessage
     optional LDPC/CRC diagnostics
 ```
 
-The engine must not know:
+The important distinction is:
+
+> Decode **semantics and outputs** remain protocol-level. Candidate search may later accept optional station-aware search hints, such as the local callsign, when an algorithm can use them to recover weak reply-to-me messages.
+
+Therefore `ft8_engine` normally does not need the local callsign for ordinary decode, but a future deep-search mode may receive it through an explicit search context.
+
+That does **not** give the engine ownership of:
 
 ```text
-my callsign
+whether to reply
 IgnoreList
 CQ display priority
-AutoSeq
+AutoSeq state
 TX state
 beacon state
 UI pages
@@ -128,6 +136,19 @@ ADIF/RxTx files
 RTC implementation
 MiniShell
 ```
+
+A useful future shape is conceptually:
+
+```text
+Ft8SearchContext
+    deep_search_enabled
+    local_callsign (optional)
+    other algorithmic hints (future, explicit)
+```
+
+The context affects search/recovery only. It must never contain QSO state such as "who I should answer" or "what TX stage I am in".
+
+This keeps deep-search experiments inside the decoder where they belong while preserving the application boundary.
 
 ## Preserve structure; do not reparse rendered text
 
@@ -146,13 +167,13 @@ is_cq
 is_to_me
 ```
 
-The production path currently calls `ftx_message_decode()` and receives `ftx_message_offsets_t`, but later derives `field1/field2/field3` again by tokenizing the rendered text.
+The production path currently calls `ftx_message_decode()` and receives message type plus `ftx_message_offsets_t`, but later derives `field1/field2/field3` again by tokenizing the rendered text.
 
-V3 should avoid this round trip:
+V3 should avoid this round trip for normal protocol messages:
 
 ```text
 protocol payload
-    -> structured message codec result
+    -> message type + structured message codec result
     -> application classification / UI formatting
 ```
 
@@ -165,7 +186,43 @@ protocol payload
     -> recover fields
 ```
 
-This is both cleaner and safer for special message types such as Field Day, DXpedition, non-standard calls, and future protocol additions.
+This is cleaner and safer for special message types such as Field Day, DXpedition, non-standard calls, and future protocol additions.
+
+### Free-text CQ exception
+
+There is one deliberate exception.
+
+A message whose protocol type is `FREE_TEXT` remains `FREE_TEXT` in the decoded protocol record, but the RX result classifier may additionally treat it as a valid logical CQ when its rendered free text matches:
+
+```text
+CQ <nnn|AAAA> <valid-callsign> [grid]
+```
+
+where:
+
+```text
+nnn   = the accepted numeric CQ modifier form
+AAAA  = the accepted four-letter CQ modifier form
+[grid] = optional valid grid
+```
+
+Examples of the intended shape are CQ-with-modifier messages that could not be represented or arrived as ordinary typed CQ protocol messages but are still operationally valid CQs.
+
+This classification belongs **after** protocol decoding:
+
+```text
+ft8_engine
+    -> protocol type = FREE_TEXT
+    -> canonical free text
+
+rx_result_builder
+    -> validate exact CQ free-text grammar
+    -> validate callsign
+    -> validate optional grid
+    -> logical is_cq = true
+```
+
+The protocol type is not rewritten. The exception is explicit and unit-testable rather than a general return to text tokenization.
 
 ## Two levels of duplicate suppression
 
@@ -195,7 +252,7 @@ Do not combine the two dedupe mechanisms.
 
 V2 rewrites a decoded DXpedition type 0.1 message based on the local callsign so AutoSeq sees a normal logical message addressed to this station.
 
-That behavior is valuable, but the local callsign dependency means it must not live in the station-independent FT8 decoder core.
+That behavior is valuable, but it is a station-specific **logical transformation**, not protocol decoding.
 
 Preferred V3 direction:
 
@@ -208,11 +265,11 @@ RX result/application normalization
     -> derive the logical message(s) relevant to this station
 ```
 
-This keeps protocol decoding reusable and makes the transformation directly unit-testable.
+This remains true even if a future deep-search algorithm receives the local callsign as a search hint. Search context and logical message transformation are different responsibilities.
 
-## SNR finding
+## SNR baseline
 
-Production V2 does have a separate SNR-like calculation; unlike `decode_helper.cpp`, it does not simply label candidate score as SNR.
+Production V2 has a chosen SNR estimator; unlike `decode_helper.cpp`, it does not simply label candidate score as SNR.
 
 Current V2 behavior is approximately:
 
@@ -223,14 +280,14 @@ reported value = candidate level - noise floor
 clamped to [-30, 99]
 ```
 
-This should be preserved initially only as a **V2-compatible measurement heuristic**. It is not automatically a calibrated FT8 SNR definition merely because the UI labels it SNR.
+For V3 this is the **baseline SNR method we intentionally preserve during structural cleanup**.
 
 V3 rules:
 
 - `candidate_score` and `snr_db` are different fields;
-- if SNR is unavailable, represent it as unavailable rather than substituting candidate score;
-- structural cleanup must not silently change the V2 displayed estimate;
-- improving/calibrating SNR is a later measured algorithm change with its own tests.
+- V2 SNR behavior remains golden enough to detect accidental structural regressions;
+- we do not redesign/calibrate SNR while cleaning ownership;
+- a better SNR estimator may replace or supplement it later as an intentional algorithm experiment with its own comparison tests.
 
 ## Decode timing and RTC correction
 
@@ -299,7 +356,7 @@ The exact concurrency mechanism can differ by backend/platform without leaking i
 
 ## RX result builder boundary
 
-After this review, the application-side boundary is clearer:
+After this review, the application-side boundary is:
 
 ```text
 ft8_engine output
@@ -308,7 +365,9 @@ ft8_engine output
 rx_result_builder
     - station-aware logical normalization
     - DXpedition relevance transformation
-    - CQ / addressed-to-me classification
+    - typed CQ classification
+    - explicit free-text CQ grammar exception
+    - addressed-to-me classification
     - optional logical-message dedupe
     |
     v
@@ -326,22 +385,24 @@ Hard behavioral invariants:
 
 ```text
 same valid protocol payloads/messages from same test audio
+same protocol message types
 same special-message decoding semantics
 same callsign-hash resolution behavior
+same free-text CQ logical-classification rule
 no duplicate protocol payloads in slot output
 ```
 
-Diagnostic/reference values, recorded but not initially exact-hard-golden:
+Baseline/reference values to preserve initially and improve only deliberately:
 
 ```text
+V2 SNR method
 candidate count
 candidate score
 candidate order
 frequency/time estimates
-V2 SNR heuristic
 ```
 
-Algorithm changes are deferred until structure is clean and the golden suite is stable.
+Algorithm changes, including deep search, are deferred until structure is clean and the golden suite is stable.
 
 ## RX-0B status
 
