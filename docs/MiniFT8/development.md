@@ -63,6 +63,7 @@ Completed reviews:
 ```text
 V2 tests/tx_e2e/decode_helper.cpp
 V2 production decode_monitor_results()
+V2 monitor.h / monitor.c
 ```
 
 Canonical review artifacts:
@@ -70,24 +71,43 @@ Canonical review artifacts:
 ```text
 rx-decoder-contract.md
 rx-v2-production-review.md
+rx-monitor-review.md
 ```
 
-The production review confirms that `ft8_engine` should produce protocol-level decoded-slot results. Its ordinary decode semantics remain protocol-level, while future deep-search algorithms may receive explicit station-aware search hints. Station-aware logical transformation, CQ/to-me classification, IgnoreList, AutoSeq, TX arming, RTC correction policy, logging, presentation sorting, and UI handoff remain outside the engine.
-
-The current RX-0B source review is:
+The monitor review locks the following direction without changing DSP mathematics:
 
 ```text
-monitor.h / monitor.c
+explicit Ft8Monitor instance
+    + explicit/queryable memory requirements
+    + caller-supplied workspace
+    + no mutable module-global DSP storage
+    + explicit init/process status
+    + explicit new-window versus stream-discontinuity reset semantics
+```
+
+The monitor remains narrowly responsible for:
+
+```text
+streaming engine-native PCM
+    -> overlapping FFT analysis
+    -> compact FT8/FT4 waterfall
+```
+
+It does not own UTC slot timing, transport reads, channel meaning, AGC/source conditioning, candidate search, LDPC, SNR policy, UI, AutoSeq, or TX.
+
+The next RX-0B source review is:
+
+```text
+decode.h / decode.c
 ```
 
 Goals of that review:
 
-- separate explicit monitor state from hidden static/singleton storage;
-- make FFT/workspace/waterfall ownership visible;
-- preserve incremental streaming processing;
-- distinguish normal slot/decode-window reset from stream-discontinuity reset;
-- make initialization failure and memory requirements explicit;
-- identify V2's 6 kHz / 960-point implementation constraints without treating them as permanent protocol requirements;
-- preserve mathematics during structural cleanup.
+- candidate representation and ownership;
+- Costas sync scoring/search boundaries;
+- likelihood extraction versus LDPC/CRC responsibilities;
+- hidden/global state, if any;
+- V2 candidate-search policy versus protocol constants;
+- where optional future deep-search context belongs without importing QSO policy.
 
-Do not copy/refactor implementation code until this review is complete. After RX-0 is understood, RX-1 begins source-by-source cleanup of the FT8 core. Structural cleanup remains separate from intentional DSP/algorithm improvement.
+Do not copy/refactor implementation code until the RX-0 reviews are complete. After RX-0 is understood, RX-1 begins source-by-source cleanup of the FT8 core. Structural cleanup remains separate from intentional DSP/algorithm improvement.
