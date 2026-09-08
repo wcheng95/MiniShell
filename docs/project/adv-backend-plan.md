@@ -58,7 +58,8 @@ The MiniFT8 core and profile are the same. Only the MiniShell backend changes.
 12. **Code-facing names are lowercase.** Project names remain MiniShell/MiniFT8 in prose, while executables, runtime app names, source paths, and persistent filenames use forms such as `minishell`, `ft8`, `apps/ft8/`, and `/flash/ft8/station.txt`. Normal C macros remain uppercase.
 13. **Protocol selection is application selection.** The current runtime app `ft8` is FT8-only. Future `ft4`, `cw`, `rtty`, `js8`, etc. are separate applications and are created only when their implementation begins.
 14. **ADV persistent storage uses two filesystems and no NVS.** `/flash` is LittleFS on internal flash; `/sd` is FATFS on the removable SD card. Internal configuration and other persistent MiniShell/backend state use ordinary files under `/flash`; do not introduce a second NVS persistence model.
-15. **ADV must operate without an SD card.** When runtime file-based application loading is later enabled, MiniShell searches both `/flash/apps` and `/sd/apps`. `/flash/apps` has precedence for duplicate application names; `/sd/apps` extends the installed app set without being required for normal operation. ADV V1 still uses the compiled-in registry until runtime loading is implemented.
+15. **ADV must operate without an SD card.** Compiled-in applications always have priority. When runtime file-based loading is later enabled, names not provided internally are searched in `/flash/apps` first and `/sd/apps` second. External applications are not expected to replace internal ones unless an explicit override mechanism is designed later.
+16. **Initial ADV `/flash` size is 2 MiB LittleFS, provisional.** This is an initial partition choice, not a permanent API/property; change it later if measured firmware size, application storage, or field use justifies a different allocation.
 
 ## Stage A0 — portable resident shell/startup boundary and terminology cleanup — COMPLETE
 
@@ -203,33 +204,37 @@ Goal: support the persistent application services needed by MiniFT8 configuratio
 ### ADV storage V1 decisions
 
 ```text
-/flash    LittleFS on internal flash
+/flash    LittleFS on internal flash, initially 2 MiB (provisional)
 /sd       FATFS on removable SD card
 NVS       not used
 ```
 
-LittleFS is the sole internal persistent-storage mechanism. MiniShell/backend settings that need persistence are stored as ordinary files under `/flash` rather than in NVS. FATFS exists only for the removable SD namespace.
+LittleFS is the sole internal persistent-storage mechanism. The initial 2 MiB allocation is subject to change after real firmware/storage measurements; it is not exposed as a fixed MiniShell API assumption. MiniShell/backend settings that need persistence are stored as ordinary files under `/flash` rather than in NVS. FATFS exists only for the removable SD namespace.
 
 The SD card is optional. Failure to mount or absence of `/sd` must not prevent MiniShell from booting, using internal configuration, running compiled-in applications, or using `/flash`.
 
-Future runtime file-based app discovery on ADV uses:
+Application resolution on ADV follows a deliberately simple rule:
 
 ```text
-/flash/apps
-/sd/apps
+compiled-in app exists?   -> use it
+otherwise:
+    1. /flash/apps
+    2. /sd/apps
 ```
 
-MiniShell merges the discovered application names. If the same application name exists in both locations, `/flash/apps` wins. This makes internal flash the deterministic baseline and lets SD add applications without being required or silently shadowing the internal copy. This search policy becomes active only when runtime app loading is implemented; ADV V1 continues to use its compiled-in registry.
+Compiled-in applications always take priority. External applications are intended to add applications, not silently replace internal ones. If replacement/override is ever needed, define that behavior explicitly later rather than deriving it from the normal search order. This external search policy becomes active only when runtime file loading is implemented; ADV V1 continues to use its compiled-in registry.
+
+MiniFT8 owns its own file-placement policy. In particular, `RxTxLog` can be a significant storage consumer, so its destination is configurable in `/flash/ft8/station.txt`. It may therefore be directed to `/sd` when desired rather than forcing log growth into the internal LittleFS allocation.
 
 Tasks:
 
-- mount/map `/flash` to LittleFS on internal flash;
+- allocate/mount approximately 2 MiB LittleFS as `/flash` for the initial ADV partition layout, subject to later adjustment;
 - mount/map optional `/sd` to FATFS on the removable SD card;
 - do not add NVS persistence;
 - implement file and directory primitives required by the existing Filesystem service;
 - preserve MiniShell normalization, handle ownership, lifecycle, and quota semantics;
 - provide monotonic time and sleep;
-- provide UTC get/set/persistence through the MiniShell Time/Location ownership model using `/flash` when persistence is required;
+- provide UTC set/get/persistence through the MiniShell Time/Location ownership model using `/flash` when persistence is required;
 - preserve support for configured default location using `/flash` persistence;
 - add GPS/live-location provider later through the existing resident update hooks rather than exposing GPS directly to MiniFT8.
 
