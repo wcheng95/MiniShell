@@ -8,7 +8,7 @@
 
 bool minift8_ui_adapter_init(MiniFt8UiAdapter *adapter, const mini_api_t *api)
 {
-    if (adapter == NULL || api == NULL || api->abi_version != MINISHELL_ABI_VERSION ||
+    if (adapter == NULL || api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, input) ||
         api->display == NULL || api->input == NULL) {
         return false;
