@@ -142,12 +142,48 @@ Tasks:
 
 - System write/status primitives;
 - ESP-IDF heap-backed Memory provider and useful free/largest-block reporting;
-- Cardputer 240x135 text Display provider;
+- Cardputer 240x135 text Display provider reporting a 20-column x 7-row logical text surface;
 - Cardputer keyboard Input provider using logical MiniShell key events;
 - preserve Display/Input separation;
 - reuse portable Input queue/service semantics rather than exposing keyboard-driver state to applications.
 
 V2 is the reference for known-good Cardputer display/keyboard initialization and key behavior.
+
+### ADV Display V1 decisions
+
+The existing MiniShell text Display API is sufficient for ADV V1. No graphics extension is required for the initial backend.
+
+```text
+physical panel             240 x 135 pixels
+MiniShell capability       TEXT only
+logical text surface       20 columns x 7 rows
+target fixed-width font    12 x 16 pixels
+```
+
+The intended physical row mapping is:
+
+```text
+logical row 0              19 px
+physical gap                2 px
+logical rows 1..6          19 px each
+                           -----
+total                      135 px
+```
+
+The exact 12x16 font asset and its vertical placement within each 19-pixel row are ADV backend implementation details to settle during A2 hardware bring-up. Applications see only the logical 20x7 cell grid and never pixel coordinates or the 2-pixel physical gap.
+
+ADV should implement the existing text operations and `present()`. `MINI_TEXT_ATTR_INVERSE` is desirable for cursors/selections if practical, but remains an optional existing API feature and does not block bring-up.
+
+Graphics remain deferred. In particular, ADV V1 does not require a graphical waterfall or graphical countdown. An application may render a countdown as ordinary text when useful. If a real future application requirement justifies graphics, extend Display separately rather than distorting the text API.
+
+Meaning of logical rows belongs above MiniShell. For the `ft8` ADV profile, the intended policy is:
+
+```text
+row 0       contextual status / temporary help / countdown text
+rows 1..6   main FT8 content
+```
+
+That is `ft8` application/profile policy, **not** an ADV backend or MiniShell Display rule. Other applications may use all seven rows differently.
 
 Exit criteria:
 
