@@ -6,20 +6,23 @@
 Mode      operating protocol: FT8 / FT4 / RTTY / CW / future
 Screen    top-level UI location: RX / TX / O / S / V
 Submenu   shallow group inside O, S, or V
-Page      visible slice of a longer list when paging is later required
+Page      visible slice of a longer list when paging is required
+Profile   MiniFT8 resource/presentation policy: ADV / DESKTOP
 ```
 
-`Mode` is application state. It must not be reused to mean a UI screen.
+`Mode` is application state. It must not be reused to mean a UI screen or hardware platform.
 
 ## Logical geometry
 
-The current MiniFT8 UI uses:
+Logical UI geometry is a **MiniFT8 profile choice**, not a universal MiniShell or MiniFT8 limit.
+
+The inherited ADV profile uses:
 
 ```text
 30 columns x 8 rows
 ```
 
-Layout:
+with the familiar Cardputer-oriented layout:
 
 ```text
 row 0   status / mode strip
@@ -32,7 +35,7 @@ row 6   main line 6
 row 7   contextual help
 ```
 
-The geometry is logical MiniFT8 UI state. The MiniShell adapter renders it through the text Display ABI.
+The DESKTOP profile may use a larger logical frame and more visible RX lines. Shared MiniFT8 logic must not branch on Linux/Cardputer identity to choose geometry; it consumes the active MiniFT8 profile and renders through the MiniShell Display API.
 
 ## Input
 
@@ -40,8 +43,8 @@ Current logical controls:
 
 ```text
 R / T / O / S / V    direct Screen selection
-1..6                 activate visible main line
-Up / Down             move selection
+1..6                 activate visible main line where the ADV layout uses six items
+Up / Down            move selection
 Left / Right          change supported values
 Enter                 activate selected line
 Esc or `              back/cancel
@@ -52,15 +55,9 @@ Physical keyboard, touch, buttons, BLE, or another input source must be normaliz
 
 ## RX
 
-Current RX uses prototype decode lines only. Real decoded FT8 output will later populate the same `UiModel` path.
+The current implementation uses prototype decode lines only. Real decoded FT8 output will later populate the same `UiModel` path.
 
-```text
-row 0   FT8 20m Default RX
-row 1   1 <decoded line>
-...
-row 6   6 <decoded line>
-row 7   R T O S V ...
-```
+ADV profile presentation remains compatible with the inherited six-line behavior. DESKTOP may show more lines without changing RX/QSO semantics.
 
 ## TX
 
@@ -79,7 +76,7 @@ Root:
 6 Message >
 ```
 
-Mode/Profile/Band are live prototype settings.
+Mode/Profile/Band are live prototype settings. The `Profile` item shown here is the existing station/operating profile concept and should not be confused with the application presentation profiles `ADV` / `DESKTOP`; naming may be revisited when P1 formalizes MiniFT8 application profiles.
 
 ### O -> CQ / Beacon
 
@@ -158,23 +155,16 @@ TX Audio: --
 Control: --
 ```
 
-System Info intentionally reports portable concepts:
-
-```text
-Runtime: MiniShell
-UI: text 30x8
-```
-
-It does not identify Linux or ncurses because those are below the MiniShell boundary.
+System Info intentionally reports portable concepts rather than encouraging application branching on backend identity.
 
 ## Rendering boundary
 
 ```text
 UiModel
    -> ui_shell_render()
-   -> UiFrame[30x8]
+   -> profile-sized UiFrame
    -> minishell_ui_adapter
-   -> MiniShell Display ABI
+   -> MiniShell Display API
 ```
 
 Input is the reverse boundary:
