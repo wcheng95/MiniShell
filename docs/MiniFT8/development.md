@@ -6,7 +6,31 @@ Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves ch
 
 The MiniShell H1-H5 housekeeping audit and final boundary review are complete. No known MiniShell debt blocks MiniFT8 RX work.
 
-## Current milestone: decode RX
+## Current priority: two backends + two profiles
+
+RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while MiniShell and MiniFT8 are exercised across a second real backend and a second MiniFT8 profile.
+
+Current validation matrix:
+
+```text
+Linux backend + DESKTOP profile
+Linux backend + ADV profile
+ADV backend   + ADV profile
+```
+
+Cardputer ADV uses static application composition: MiniShell and MiniFT8 are compiled into one ESP-IDF firmware image. Runtime ELF/application loading is intentionally out of scope on ADV.
+
+MiniFT8-V2 is reference material for proven Cardputer hardware behavior only. V2 is not modified or refactored as part of this work.
+
+Canonical plan:
+
+```text
+../project/adv-backend-plan.md
+```
+
+RX-1B resumes after the cross-backend/profile validation checkpoint defined there passes.
+
+## Deferred milestone: decode RX
 
 Canonical RX architecture and staged development are in `rx.md`.
 
@@ -130,11 +154,11 @@ RX-1A also clarified three V2 points:
 
 These distinctions remain explicit so structural refactoring neither invents new protocol scope nor “fixes” behavior that was already correct.
 
-### RX-1B — top-down RX module/interface design — NEXT
+### RX-1B — top-down RX module/interface design — PAUSED
 
-No decoder source migration begins until RX-1B is complete.
+No decoder source migration begins until RX-1B is complete. RX-1B resumes only after the ADV backend/profile validation checkpoint passes.
 
-Design order:
+Design order when resumed:
 
 ```text
 RX goal
