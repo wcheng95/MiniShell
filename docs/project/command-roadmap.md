@@ -4,6 +4,6 @@ Resident shell commands remain limited to lifecycle/discovery (`help`, `status`,
 
 Audio and Control are services rather than resident commands; future diagnostics should normally be small apps.
 
-The H1-H5 internal architecture-audit housekeeping is complete. There is no remaining command/runtime gate from that audit before application-driven MiniFT8 Audio/DSP work resumes.
+The H1-H5 internal architecture-audit housekeeping is complete. The current runtime milestone is A0-A3/P1-P2/V1: make the resident shell/startup portable, add the ADV backend, formalize MiniFT8 profiles, and validate the public API across Linux and ADV before RX-1B resumes.
 
-New ABI work remains application-driven.
+New public API work remains application-driven. Backward compatibility is not frozen yet; a formal binary ABI is deferred until independently built applications require one.
