@@ -42,38 +42,42 @@ The MiniFT8 core and profile are the same. Only the MiniShell backend changes.
 
 ## Locked decisions
 
-1. **MiniShell public ABI remains the platform boundary.** MiniFT8 never includes ESP-IDF, M5Cardputer, M5Unified, board-driver, POSIX, or Linux headers.
+1. **MiniShell public API remains the platform boundary.** MiniFT8 never includes ESP-IDF, M5Cardputer, M5Unified, board-driver, POSIX, or Linux headers.
 2. **MiniFT8 profile is application policy, not a backend identity.** Profile and backend are independent.
 3. **Current inherited MiniFT8-V2/Cardputer behavior becomes the `ADV` profile.** Do not redesign that behavior merely to create the profile.
 4. **`DESKTOP` is the first new MiniFT8 profile.** It may use a larger logical display/history/resource policy; initial target is approximately 20 RX text lines where useful.
-5. **Cardputer ADV uses static application composition.** MiniShell and selected applications, including MiniFT8, are compiled into one ESP-IDF firmware image.
-6. **No runtime ELF/application loader on ADV.** This is intentional because loader/runtime overhead is not justified on the RAM-constrained target.
-7. **The user-facing app lifecycle remains the same where practical:** `apps`, `run <app>`, direct `<app>`, application return, then shell. ADV implements this with a compiled-in app registry.
+5. **Cardputer ADV V1 uses static application composition.** MiniShell and selected applications, including MiniFT8, are compiled into one ESP-IDF firmware image.
+6. **Runtime ELF/application loading on ADV is deferred, not rejected.** It is not required for the first ADV backend and adds loader/linker/flash-mapping complexity. Future smaller applications may explore runtime loading when useful.
+7. **The user-facing app lifecycle remains the same where practical:** `apps`, `run <app>`, direct `<app>`, application return, then shell. ADV V1 implements this with a compiled-in app registry.
 8. **MiniFT8-V2 is reference material only.** Do not fix or refactor V2. Reuse proven hardware behavior by implementing new ADV backend/providers under MiniShell.
 9. **Linux remains the reference behavior and full production target.** Portable-core changes must preserve Linux behavior and tests.
-10. **Do not implement live ADV QMX audio merely to finish this checkpoint.** Add ADV Audio when the RX/TX vertical slice actually requires it; the ABI may report Audio unavailable before then.
+10. **Do not implement live ADV QMX audio merely to finish this checkpoint.** Add ADV Audio when the RX/TX vertical slice actually requires it; the API may report Audio unavailable before then.
+11. **The MiniShell public API is not yet frozen for backward compatibility.** Breaking API changes are allowed when they improve clarity, ownership, portability, or real application fit. A formal binary ABI may be introduced later if independently built `.so` or `.elf` applications need cross-version compatibility.
 
 ## Architectural issue found before the port
 
-The application ABI is already backend-neutral, but the resident MiniShell shell/startup still contains Linux-style assumptions:
+The application API is backend-neutral, but the resident MiniShell shell/startup still contains Linux-style assumptions:
 
 ```text
 core/main.c     normal C main()/stdio startup assumptions
 core/shell.c    fgets/printf/puts on stdin/stdout
 ```
 
-These must be cleaned before ADV is treated as a true peer backend. This is a private MiniShell-core/backend issue; it must not change the public application ABI.
+These must be cleaned before ADV is treated as a true peer backend. This is a private MiniShell-core/backend issue; it must not change the public application API semantics unnecessarily.
 
-## Stage A0 — portable resident shell/startup boundary
+## Stage A0 — portable resident shell/startup boundary and API terminology cleanup
 
-Goal: remove direct Linux terminal assumptions from the portable MiniShell control plane.
+Goal: remove direct Linux terminal assumptions from the portable MiniShell control plane and make the active code/documentation consistently describe the application boundary as the MiniShell **API**, not a promised stable ABI.
 
 Tasks:
 
 - define a small private resident-console/startup boundary;
 - keep Linux stdin/stdout behavior underneath the Linux backend;
 - allow ADV to provide Cardputer display/keyboard shell I/O underneath the same private boundary;
-- keep `app_manager` and the public MiniShell ABI unchanged;
+- keep `app_manager` and the public MiniShell API behavior intact while doing the shell portability cleanup;
+- rename active public-facing legacy ABI terminology to API terminology where it represents the source/application contract, including identifiers such as `MINISHELL_ABI_VERSION` / `abi_version` if they remain useful as API-version fields;
+- move or rename active `docs/abi/` material to `docs/api/` as appropriate, preserving only genuinely binary-ABI terminology if/when such a contract is later introduced;
+- remove append-only/backward-compatibility requirements that no longer reflect current project policy;
 - keep all existing Linux CTest/unit coverage green.
 
 Exit criteria:
@@ -82,6 +86,8 @@ Exit criteria:
 Linux shell behavior unchanged
 all Linux tests green
 portable shell/core has no direct dependency on POSIX terminal behavior
+active MiniShell application-facing terminology consistently says API
+no accidental backward-compatibility promise remains in active architecture/docs
 ```
 
 ## Stage A1 — ADV ESP-IDF build skeleton
@@ -150,7 +156,7 @@ Tasks:
 Exit criteria:
 
 ```text
-ls/cat/basic filesystem behavior works through MiniShell ABI
+ls/cat/basic filesystem behavior works through MiniShell API
 MiniFT8 Station.txt can be read/written through storage_service
 date/time baseline works
 shared Filesystem and Time/Location contract probes pass
@@ -231,15 +237,15 @@ Validation should compare application-visible behavior rather than physical rend
 - filesystem semantics and Station.txt persistence;
 - logical key meanings;
 - resource-limit behavior where values are intentionally shared;
-- absence of platform-specific logic above the MiniShell ABI.
+- absence of platform-specific logic above the MiniShell API.
 
-A shared portable ABI/service probe should be compiled dynamically on Linux and statically on ADV wherever practical. Unit/service tests remain more important than one end-to-end demonstration.
+A shared portable API/service probe should be compiled dynamically on Linux and statically on ADV wherever practical. Unit/service tests remain more important than one end-to-end demonstration.
 
 ## ADV Audio — deliberately later
 
 ADV Audio is still part of the backend, but it is not required to prove the initial two-backend/two-profile architecture.
 
-When the MiniFT8 RX/TX vertical slice needs real Cardputer audio, implement providers behind the existing Audio ABI using V2 as hardware reference:
+When the MiniFT8 RX/TX vertical slice needs real Cardputer audio, implement providers behind the existing Audio API using V2 as hardware reference:
 
 ```text
 QMX/UAC
