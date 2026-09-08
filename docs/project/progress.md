@@ -10,11 +10,11 @@ Current baseline:
 - Linux deterministic WAV RX replays `tests/kfs16b12k.wav` unchanged.
 - Control remains independent from Audio; device `set_time` is deferred.
 - Historical Tab5 work is preserved on `archive/tab5-legacy`.
-- The application-facing contract is now called the **MiniShell API**. Backward source/binary compatibility is not frozen during this early architecture phase; a formal ABI may be introduced later if independently built applications require it.
+- The application-facing contract is the **MiniShell API**. Backward source/binary compatibility is not frozen during this early architecture phase; a formal ABI may be introduced later if independently built applications require it.
 
 ## Housekeeping paydown completed
 
-The architecture-audit debt H1-H5 is now paid:
+The architecture-audit debt H1-H5 is paid:
 
 ```text
 H1 Linux backend split
@@ -23,8 +23,6 @@ H3 Filesystem private helpers split while preserving one owner
 H4 legacy Tab5 active tree removed and archived
 H5 terminal ANSI/CSI + UTF-8 parser made stateful across reads
 ```
-
-H5 is private to the Linux terminal backend. It adds a small byte-stream parser, a 30 ms standalone-Escape ambiguity window, deterministic parser split-boundary tests, and PTY integration coverage for split CSI, split UTF-8, and standalone Escape.
 
 The full Linux integration suite and strict unit suite remain green.
 
@@ -40,9 +38,24 @@ Linux backend + ADV profile
 ADV backend   + ADV profile
 ```
 
-Cardputer ADV V1 will use a compiled-in application registry. MiniShell and MiniFT8 are built into one ESP-IDF firmware image. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable applications, including smaller RAM-hungry apps, without blocking the initial ADV backend.
+Cardputer ADV V1 will use a compiled-in application registry. MiniShell and MiniFT8 are built into one ESP-IDF firmware image. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable lower-RAM applications without blocking the initial ADV backend.
 
-The first work is to remove the remaining Linux-style stdin/stdout/startup assumptions from the resident MiniShell shell, then add `platform/adv/` incrementally. A0 should also clean remaining legacy `ABI` terminology/identifiers toward `API` where appropriate. MiniFT8-V2 is reference material for proven Cardputer hardware behavior only; V2 will not be modified or refactored for this work.
+## A0 progress
+
+API terminology cleanup is complete:
+
+```text
+MINISHELL_ABI_VERSION -> MINISHELL_API_VERSION
+mini_api_t.abi_version -> mini_api_t.api_version
+docs/abi/ -> docs/api/
+old append-only compatibility policy removed
+```
+
+The Linux build, all 11 integration tests, and the platform-neutral unit suite are green after the rename.
+
+The remaining A0 work is the substantive portability slice: remove Linux-style stdin/stdout/startup assumptions from the resident MiniShell shell before adding `platform/adv/`.
+
+MiniFT8-V2 remains reference material for proven Cardputer hardware behavior only; V2 will not be modified or refactored for this work.
 
 The cross-platform checkpoint focuses first on System/Memory, Display/Input, Filesystem, Time/Location, static app lifecycle, and MiniFT8 UI/config behavior. Live ADV QMX Audio is deliberately deferred until the RX/TX vertical slice actually needs it.
 
