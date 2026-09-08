@@ -134,6 +134,7 @@ through the MiniShell Filesystem ABI.
 - `rx.md` — canonical decode-RX pipeline, RAM rules, V2 classification, golden-reference policy, and RX-0 through RX-7 plan.
 - `rx-decoder-contract.md` — RX-0B source review of V2 `decode_helper.cpp` and the extracted V3 decoder contract.
 - `rx-v2-production-review.md` — RX-0B review of production `decode_monitor_results()`, with every mixed V2 responsibility assigned to its V3 owner.
+- `rx-monitor-review.md` — RX-0B review of `monitor.h/c`, explicit DSP/workspace ownership, reset semantics, RAM requirements, and monitor-level golden tests.
 - `ui.md` — current 30x8 UI model and controls.
 - `development.md` — current development gate and next task.
 
