@@ -181,4 +181,13 @@ M$> ft8
 
 Protocol applications are separate applications rather than modes inside one umbrella application. The current implementation provides only `ft8`; `ft4`, `cw`, `rtty`, and `js8` are future applications and are not placeholder entries today.
 
-Linux currently provides dynamic `.so` loading. Cardputer ADV V1 will provide the same foreground lifecycle through a compiled-in registry. Runtime `.elf` loading on ADV is deferred for later investigation rather than rejected.
+Linux currently provides dynamic `.so` loading. Cardputer ADV V1 provides the same foreground lifecycle through a compiled-in registry. Runtime `.elf` loading on ADV is deferred for later investigation rather than rejected.
+
+When file-based runtime loading is added on ADV, the backend discovery policy is:
+
+```text
+/flash/apps   internal LittleFS, searched first
+/sd/apps      optional removable FATFS, searched second
+```
+
+The two sets are merged by application name. If the same name exists in both, `/flash/apps` wins. Absence of an SD card must not prevent MiniShell from booting or running applications available from compiled-in/internal storage. These paths and precedence are backend loader policy, not part of the application-facing API contract.
