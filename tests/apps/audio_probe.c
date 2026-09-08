@@ -26,7 +26,7 @@ static uint64_t fnv1a_bytes(uint64_t hash, const uint8_t *data, uint32_t size)
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
-    if (api == NULL || api->abi_version != MINISHELL_ABI_VERSION ||
+    if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->system == NULL || api->system->write == NULL) {
         return 2;
     }
