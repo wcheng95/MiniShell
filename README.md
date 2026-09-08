@@ -6,7 +6,7 @@ MiniShell is a platform-adaptive application runtime. It keeps application cores
 
 ```text
 Applications
-  MiniFT8 / MiniCW / MiniRTTY / tools
+  FT8 / FT4 / CW / RTTY / JS8 / tools
                     |
               MiniShell API
                     |
@@ -24,16 +24,16 @@ Applications use MiniShell services only. Mocks and simulated providers also liv
 
 ## Naming rule
 
-Project/product names remain **MiniShell** and **MiniFT8** in normal prose. Code-facing names use lowercase/snake_case:
+Project/product names remain **MiniShell** and **MiniFT8** in normal prose. Code-facing names use lowercase/snake_case. Runtime protocol applications use short lowercase names:
 
 ```text
 minishell
-minift8
-apps/minift8/
-/flash/minift8/station.txt
+ft8
+apps/ft8/
+/flash/ft8/station.txt
 ```
 
-Normal C conventions still apply, so preprocessor macros remain uppercase, for example `MINISHELL_API_VERSION` and `MINIFT8_DATA_DIR`.
+Normal C conventions still apply, so preprocessor macros remain uppercase, for example `MINISHELL_API_VERSION` and `FT8_DATA_DIR`.
 
 ## Linux shell baseline
 
@@ -51,7 +51,7 @@ exit
 Current portable applications include:
 
 ```text
-minift8
+ft8
 hello
 cat
 cp
@@ -73,11 +73,13 @@ M$> ls
 /sd
 /flash
 
-M$> minift8
+M$> ft8
 ... MiniFT8 UI ...
 q
 M$>
 ```
+
+Future protocol applications will use similarly short names such as `ft4`, `cw`, `rtty`, and `js8`. They are separate applications rather than modes inside `ft8`.
 
 ## Application model
 
@@ -199,9 +201,11 @@ audio streams       Audio service
 
 Backends/providers provide primitives; portable services own application-visible semantics and lifecycle.
 
-## MiniFT8
+## MiniFT8 / `ft8`
 
-MiniFT8-V3 is developed directly as a MiniShell application. MiniFT8 profiles are application policy and remain independent of the MiniShell backend.
+MiniFT8-V3 is the project/application design; its MiniShell runtime application is `ft8`. The runtime app is FT8-only. FT4, CW, RTTY, JS8, and other protocols will become separate applications when implemented.
+
+MiniFT8 profiles remain application policy and independent of the MiniShell backend.
 
 Current validation direction:
 
@@ -227,9 +231,9 @@ The root Linux CTest suite currently has 11 tests covering:
 6. directory iteration/root `ls` behavior;
 7. resource quota plus `free`/`df`/`date` and rename accounting;
 8. Audio/WAV RX transport;
-9. pure MiniFT8 UI state/action smoke testing;
+9. pure FT8 UI state/action smoke testing;
 10. stateful Linux terminal parser split-boundary behavior;
-11. MiniFT8 PTY launch/navigation/persistence/relaunch/exit integration.
+11. `ft8` PTY launch/navigation/persistence/relaunch/exit integration.
 
 CI also runs the platform-neutral service/unit suite, including Audio.
 
