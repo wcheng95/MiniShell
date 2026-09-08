@@ -88,7 +88,7 @@ Normal RX is streaming:
 ```text
 bounded PCM buffers
     -> bounded FFT workspace
-    -> whole-slot waterfall
+    -> whole decode-window waterfall
     -> decode
 ```
 
@@ -136,6 +136,7 @@ through the MiniShell Filesystem ABI.
 - `rx-v2-production-review.md` — RX-0B review of production `decode_monitor_results()`, with every mixed V2 responsibility assigned to its V3 owner.
 - `rx-monitor-review.md` — RX-0B review of `monitor.h/c`, explicit DSP/workspace ownership, reset semantics, RAM requirements, and monitor-level golden tests.
 - `rx-decode-review.md` — RX-0B review of `decode.h/c`, candidate search, likelihood/LDPC/CRC boundaries, status cleanup, and future deep-search extension points.
+- `rx-message-review.md` — RX-0B review of `message.h/c`, typed protocol results, callsign-hash ownership, special-message handling, and message-codec gaps.
 - `ui.md` — current 30x8 UI model and controls.
 - `development.md` — current development gate and next task.
 
