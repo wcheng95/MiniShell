@@ -7,7 +7,9 @@ The previous standalone MiniFT8-V3 repository has been superseded. Active develo
 ## Current boundary
 
 ```text
-MiniFT8-V3
+MiniFT8-V3 project
+    |
+ft8 runtime application
     |
 MiniShell API
     |
@@ -20,9 +22,29 @@ MiniFT8 contains no Linux, ncurses, ESP-IDF, NuttX, USB/UART/I2S, or board-speci
 
 Code-facing names use lowercase; prose continues to use the project names MiniShell and MiniFT8.
 
+## Protocol application boundary
+
+MiniFT8 is now the project/design name while the MiniShell runtime application is simply:
+
+```text
+ft8
+```
+
+The runtime application is **FT8-only**. Protocol switching is handled by MiniShell application switching rather than an internal mode selector:
+
+```text
+ft8      current
+ft4      future
+cw       future
+rtty     future
+js8      future
+```
+
+Future protocol applications are created only when their implementation begins. No placeholder apps are maintained merely to reserve names.
+
 ## Major MiniFT8 domain blocks
 
-With platform/storage responsibilities moved below MiniShell, the remaining major radio-domain blocks are intentionally small in number:
+With platform/storage responsibilities moved below MiniShell, the remaining major FT8 radio-domain blocks are intentionally small in number:
 
 ```text
 RX
@@ -125,7 +147,7 @@ Locked rule:
 Build MiniShell normally, then:
 
 ```text
-M$> minift8
+M$> ft8
 ```
 
 `q` exits MiniFT8 and returns to:
@@ -137,18 +159,29 @@ M$>
 The current configuration file is:
 
 ```text
-/flash/minift8/station.txt
+/flash/ft8/station.txt
 ```
 
 Configuration saves use:
 
 ```text
-write /flash/minift8/station.txt.tmp
+write /flash/ft8/station.txt.tmp
 sync + close
-rename -> /flash/minift8/station.txt
+rename -> /flash/ft8/station.txt
 ```
 
 through the MiniShell Filesystem API.
+
+The current FT8-only configuration uses scalar protocol-local values such as:
+
+```text
+profile=
+band=
+skip_tx1=
+max_retry=
+```
+
+There is no persisted protocol `mode=` field inside `ft8`.
 
 ## Documentation
 
@@ -166,9 +199,9 @@ through the MiniShell Filesystem API.
 ## Source
 
 ```text
-apps/minift8/
+apps/ft8/
 ├── main/                  MiniShell application edge/adapters
-├── include/minift8/       shared application types
+├── include/ft8/           shared application types
 └── src/
     ├── app_controller/
     ├── config_service/
