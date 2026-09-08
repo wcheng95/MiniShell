@@ -13,7 +13,7 @@ static void write_error(const mini_api_t *api, const char *text)
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
-    if (api == NULL || api->abi_version != MINISHELL_ABI_VERSION ||
+    if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->system == NULL || api->system->write == NULL ||
         api->fs == NULL || api->fs->struct_size < sizeof(mini_fs_api_t) ||
         api->fs->dir_open == NULL || api->fs->dir_read == NULL ||
