@@ -158,15 +158,17 @@ MiniShell-owned platform-neutral types and opaque handles remain the public boun
 
 Runtime installation remains desirable on platforms where it is practical, but it is not required by the API itself.
 
-Code-facing application names are lowercase. The user model is:
+Runtime application names are short, lowercase protocol/tool names. The intended user model is:
 
 ```text
 M$> apps
-minift8
-minicw
-minirtty
+ft8
+ft4
+cw
+rtty
+js8
 
-M$> run minift8
+M$> run ft8
 ...
 M$>
 ```
@@ -174,7 +176,9 @@ M$>
 Direct application invocation is equivalent:
 
 ```text
-M$> minift8
+M$> ft8
 ```
+
+Protocol applications are separate applications rather than modes inside one umbrella application. The current implementation provides only `ft8`; `ft4`, `cw`, `rtty`, and `js8` are future applications and are not placeholder entries today.
 
 Linux currently provides dynamic `.so` loading. Cardputer ADV V1 will provide the same foreground lifecycle through a compiled-in registry. Runtime `.elf` loading on ADV is deferred for later investigation rather than rejected.
