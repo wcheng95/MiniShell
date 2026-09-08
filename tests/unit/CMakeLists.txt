@@ -10,6 +10,9 @@ add_executable(minishell_unit_tests
     ../../core/minishell_services/system_service.c
     ../../core/minishell_services/memory_service.c
     ../../core/minishell_services/filesystem_service.c
+    ../../core/minishell_services/filesystem_paths.c
+    ../../core/minishell_services/filesystem_handles.c
+    ../../core/minishell_services/filesystem_quota.c
     ../../core/minishell_services/time_location_service.c
     ../../core/minishell_services/display_service.c
     ../../core/minishell_services/input_service.c
