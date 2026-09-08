@@ -18,6 +18,8 @@ Linux / future NuttX / thick embedded backend / mocks
 
 MiniFT8 contains no Linux, ncurses, ESP-IDF, NuttX, USB/UART/I2S, or board-specific path in its application core.
 
+Code-facing names use lowercase; prose continues to use the project names MiniShell and MiniFT8.
+
 ## Major MiniFT8 domain blocks
 
 With platform/storage responsibilities moved below MiniShell, the remaining major radio-domain blocks are intentionally small in number:
@@ -61,7 +63,7 @@ MiniShell-native MiniFT8 currently contains:
 text UI
 configuration
 prototype scheduler settings
-Station.txt persistence
+station.txt persistence
 MiniShell Display/Input/Filesystem integration
 MiniShell Audio API + deterministic WAV RX provider
 ```
@@ -123,7 +125,7 @@ Locked rule:
 Build MiniShell normally, then:
 
 ```text
-M$> MiniFT8
+M$> minift8
 ```
 
 `q` exits MiniFT8 and returns to:
@@ -135,15 +137,15 @@ M$>
 The current configuration file is:
 
 ```text
-/flash/MiniFT8/Station.txt
+/flash/minift8/station.txt
 ```
 
 Configuration saves use:
 
 ```text
-write /flash/MiniFT8/Station.txt.tmp
+write /flash/minift8/station.txt.tmp
 sync + close
-rename -> /flash/MiniFT8/Station.txt
+rename -> /flash/minift8/station.txt
 ```
 
 through the MiniShell Filesystem API.
@@ -164,7 +166,7 @@ through the MiniShell Filesystem API.
 ## Source
 
 ```text
-apps/MiniFT8/
+apps/minift8/
 ├── main/                  MiniShell application edge/adapters
 ├── include/minift8/       shared application types
 └── src/
