@@ -3,7 +3,7 @@
 Current baseline:
 
 - Linux Mint on `pc-1` is the reference/full production target.
-- Runtime app discovery/loading and `M$>` are established.
+- Runtime app discovery/loading and `M$>` are established on Linux.
 - System, Memory, Filesystem, Time/Location, Display, Input, and Audio services have automated coverage.
 - MiniFT8 is integrated for UI/config/storage.
 - Audio V1 is implemented; MiniFT8 requests 12 kHz/S16/two-channel transport with channel meaning owned by MiniFT8.
@@ -27,17 +27,28 @@ H5 is private to the Linux terminal backend. It adds a small byte-stream parser,
 
 The full Linux integration suite and strict unit suite remain green.
 
-## Next MiniFT8 boundary
+## Current priority: ADV backend + MiniFT8 profiles
 
-Housekeeping no longer blocks application work. The next planned slice is:
+RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while the architecture is exercised across a second real backend and a second MiniFT8 profile.
+
+Current target matrix:
 
 ```text
-tests/kfs16b12k.wav
-    -> MiniShell WAV Audio provider
-    -> 12 kHz / S16 / 2-channel
-    -> MiniFT8 source/profile interpretation
-    -> ft8_engine
-    -> decoded RX UI
+Linux backend + DESKTOP profile
+Linux backend + ADV profile
+ADV backend   + ADV profile
 ```
 
-Live QMX/UAC follows deterministic replay.
+Cardputer ADV will use a compiled-in application registry. MiniShell and MiniFT8 are built into one ESP-IDF firmware image; runtime ELF/application loading is intentionally out of scope on ADV because its RAM cost is not justified.
+
+The first work is to remove the remaining Linux-style stdin/stdout/startup assumptions from the resident MiniShell shell, then add `platform/adv/` incrementally. MiniFT8-V2 is reference material for proven Cardputer hardware behavior only; V2 will not be modified or refactored for this work.
+
+The cross-platform checkpoint focuses first on System/Memory, Display/Input, Filesystem, Time/Location, static app lifecycle, and MiniFT8 UI/config behavior. Live ADV QMX Audio is deliberately deferred until the RX/TX vertical slice actually needs it.
+
+Canonical plan:
+
+```text
+docs/project/adv-backend-plan.md
+```
+
+After the Linux+ADV-profile versus ADV+ADV-profile validation checkpoint passes, resume RX-1B.
