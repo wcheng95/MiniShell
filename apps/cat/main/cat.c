@@ -39,7 +39,7 @@ static int cat_one(const mini_system_api_t *system,
 
         for (uint32_t i = 0u; i < count; ++i) {
             if (buffer[i] == '\0') {
-                say(system, "cat: binary/NUL data is not supported by the current text output ABI\n");
+                say(system, "cat: binary/NUL data is not supported by the current text output API\n");
                 rc = 5;
                 goto done;
             }
@@ -61,7 +61,7 @@ done:
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
-    if (api == NULL || api->abi_version != MINISHELL_ABI_VERSION ||
+    if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, fs) ||
         api->system == NULL || api->fs == NULL) {
         return 2;
