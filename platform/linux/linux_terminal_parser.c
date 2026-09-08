@@ -89,27 +89,94 @@ static uint32_t csi_key(const unsigned char *bytes, size_t count)
 
 static bool csi_prefix(const unsigned char *bytes, size_t count)
 {
-    if (count == 0u) return false;
-    if (bytes[0] != 0x1bu) return false;
+    if (count == 0u || bytes[0] != 0x1bu) return false;
     if (count == 1u) return true;
     if (bytes[1] != '[') return false;
     if (count == 2u) return true;
     if (count == 3u) {
-        unsigned char code = bytes[2];
-        if (code == 'A' || code == 'B' || code == 'C' || code == 'D' ||
-            code == 'H' || code == 'F') return false;
-        return code == '2' || code == '3' || code == '5' || code == '6';
+        return bytes[2] == '2' || bytes[2] == '3' ||
+               bytes[2] == '5' || bytes[2] == '6';
     }
     return false;
 }
 
-static mini_result_t emit_pending_escape(linux_terminal_parser_t *parser,
-                                         bool *out_emitted)
+static mini_result_t process_byte(linux_terminal_parser_t *parser,
+                                  unsigned char ch,
+                                  bool *out_emitted);
+
+static mini_result_t emit_escape_and_replay(linux_terminal_parser_t *parser,
+                                            const unsigned char *replay,
+                                            size_t replay_count,
+                                            bool *out_emitted)
 {
-    if (!parser->escape_pending) return MINI_OK;
     parser->pending_count = 0u;
     parser->escape_pending = false;
-    return emit_event(parser, MINI_KEY_EVENT_SPECIAL, 0u, MINI_KEY_ESCAPE, 0u,
+
+    mini_result_t result = emit_event(parser, MINI_KEY_EVENT_SPECIAL, 0u,
+                                      MINI_KEY_ESCAPE, 0u, out_emitted);
+    if (result != MINI_OK) return result;
+
+    for (size_t i = 0u; i < replay_count; ++i) {
+        result = process_byte(parser, replay[i], out_emitted);
+        if (result != MINI_OK) return result;
+    }
+    return MINI_OK;
+}
+
+static mini_result_t process_escape_byte(linux_terminal_parser_t *parser,
+                                         unsigned char ch,
+                                         bool *out_emitted)
+{
+    if (parser->pending_count >= sizeof(parser->pending)) {
+        return emit_escape_and_replay(parser, NULL, 0u, out_emitted);
+    }
+
+    parser->pending[parser->pending_count++] = ch;
+
+    uint32_t key = csi_key(parser->pending, parser->pending_count);
+    if (key != 0u) {
+        parser->pending_count = 0u;
+        parser->escape_pending = false;
+        return emit_event(parser, MINI_KEY_EVENT_SPECIAL, 0u, key, 0u,
+                          out_emitted);
+    }
+
+    if (csi_prefix(parser->pending, parser->pending_count)) {
+        parser->escape_pending = true;
+        return MINI_OK;
+    }
+
+    unsigned char replay[sizeof(parser->pending)];
+    size_t replay_count = parser->pending_count - 1u;
+    if (replay_count > 0u) memcpy(replay, &parser->pending[1], replay_count);
+    return emit_escape_and_replay(parser, replay, replay_count, out_emitted);
+}
+
+static mini_result_t process_utf8_byte(linux_terminal_parser_t *parser,
+                                       unsigned char ch,
+                                       bool *out_emitted)
+{
+    size_t needed = utf8_expected(parser->pending[0]);
+    if (needed < 2u || needed > sizeof(parser->pending)) {
+        parser->pending_count = 0u;
+        return process_byte(parser, ch, out_emitted);
+    }
+
+    if ((ch & 0xC0u) != 0x80u) {
+        parser->pending_count = 0u;
+        return process_byte(parser, ch, out_emitted);
+    }
+
+    parser->pending[parser->pending_count++] = ch;
+    if (parser->pending_count < needed) return MINI_OK;
+
+    uint32_t codepoint = 0u;
+    bool valid = decode_utf8_complete(parser->pending, parser->pending_count,
+                                      &codepoint);
+    parser->pending_count = 0u;
+    if (!valid) return MINI_OK;
+
+    return emit_event(parser, MINI_KEY_EVENT_CHAR, codepoint, 0u, 0u,
                       out_emitted);
 }
 
@@ -117,56 +184,11 @@ static mini_result_t process_byte(linux_terminal_parser_t *parser,
                                   unsigned char ch,
                                   bool *out_emitted)
 {
-    if (parser->pending_count > 0u && parser->pending[0] == 0x1bu) {
-        if (parser->pending_count >= sizeof(parser->pending)) {
-            mini_result_t result = emit_pending_escape(parser, out_emitted);
-            if (result != MINI_OK) return result;
-        } else {
-            parser->pending[parser->pending_count++] = ch;
-            uint32_t key = csi_key(parser->pending, parser->pending_count);
-            if (key != 0u) {
-                parser->pending_count = 0u;
-                parser->escape_pending = false;
-                return emit_event(parser, MINI_KEY_EVENT_SPECIAL, 0u, key, 0u,
-                                  out_emitted);
-            }
-            if (csi_prefix(parser->pending, parser->pending_count)) {
-                parser->escape_pending = true;
-                return MINI_OK;
-            }
-
-            unsigned char replay[sizeof(parser->pending)];
-            size_t replay_count = parser->pending_count - 1u;
-            if (replay_count > 0u) memcpy(replay, &parser->pending[1], replay_count);
-            parser->pending_count = 0u;
-            parser->escape_pending = false;
-            mini_result_t result = emit_event(parser, MINI_KEY_EVENT_SPECIAL, 0u,
-                                              MINI_KEY_ESCAPE, 0u, out_emitted);
-            if (result != MINI_OK) return result;
-            for (size_t i = 0u; i < replay_count; ++i) {
-                result = process_byte(parser, replay[i], out_emitted);
-                if (result != MINI_OK) return result;
-            }
-            return MINI_OK;
-        }
-    }
-
     if (parser->pending_count > 0u) {
-        size_t needed = utf8_expected(parser->pending[0]);
-        if (needed == 0u) {
-            parser->pending_count = 0u;
-        } else if (parser->pending_count < sizeof(parser->pending)) {
-            parser->pending[parser->pending_count++] = ch;
-            if (parser->pending_count < needed) return MINI_OK;
-
-            uint32_t codepoint = 0u;
-            bool valid = decode_utf8_complete(parser->pending, parser->pending_count,
-                                              &codepoint);
-            parser->pending_count = 0u;
-            if (!valid) return MINI_OK;
-            return emit_event(parser, MINI_KEY_EVENT_CHAR, codepoint, 0u, 0u,
-                              out_emitted);
+        if (parser->pending[0] == 0x1bu) {
+            return process_escape_byte(parser, ch, out_emitted);
         }
+        return process_utf8_byte(parser, ch, out_emitted);
     }
 
     if (ch == 0x1bu) {
@@ -243,7 +265,13 @@ mini_result_t linux_terminal_parser_flush_escape(linux_terminal_parser_t *parser
 {
     if (parser == NULL || parser->emit == NULL) return MINI_ERR_INVALID;
     if (out_emitted != NULL) *out_emitted = false;
-    return emit_pending_escape(parser, out_emitted);
+    if (!parser->escape_pending) return MINI_OK;
+
+    unsigned char replay[sizeof(parser->pending)];
+    size_t replay_count = parser->pending_count > 0u
+                              ? parser->pending_count - 1u : 0u;
+    if (replay_count > 0u) memcpy(replay, &parser->pending[1], replay_count);
+    return emit_escape_and_replay(parser, replay, replay_count, out_emitted);
 }
 
 bool linux_terminal_parser_has_pending_escape(const linux_terminal_parser_t *parser)
