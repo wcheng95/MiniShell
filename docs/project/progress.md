@@ -13,21 +13,23 @@ Current baseline:
 
 ## Housekeeping paydown completed
 
-PR #13 resolved the three active internal architecture debts:
+The architecture-audit debt H1-H5 is now paid:
 
 ```text
 H1 Linux backend split
 H2 POSIX loader semantics removed from portable core
 H3 Filesystem private helpers split while preserving one owner
+H4 legacy Tab5 active tree removed and archived
+H5 terminal ANSI/CSI + UTF-8 parser made stateful across reads
 ```
 
-The full Linux integration suite and strict unit suite remained green after the refactor.
+H5 is private to the Linux terminal backend. It adds a small byte-stream parser, a 30 ms standalone-Escape ambiguity window, deterministic parser split-boundary tests, and PTY integration coverage for split CSI, split UTF-8, and standalone Escape.
 
-The only remaining audit item is H5: stateful handling of terminal ANSI/CSI sequences split across transport reads. Its implementation cost is being evaluated separately before deciding whether it should block MiniFT8 DSP work.
+The full Linux integration suite and strict unit suite remain green.
 
 ## Next MiniFT8 boundary
 
-After the H5 decision, the next planned application slice is:
+Housekeeping no longer blocks application work. The next planned slice is:
 
 ```text
 tests/kfs16b12k.wav
