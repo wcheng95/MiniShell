@@ -53,6 +53,7 @@ The MiniFT8 core and profile are the same. Only the MiniShell backend changes.
 9. **Linux remains the reference behavior and full production target.** Portable-core changes must preserve Linux behavior and tests.
 10. **Do not implement live ADV QMX audio merely to finish this checkpoint.** Add ADV Audio when the RX/TX vertical slice actually requires it; the API may report Audio unavailable before then.
 11. **The MiniShell public API is not yet frozen for backward compatibility.** Breaking API changes are allowed when they improve clarity, ownership, portability, or real application fit. A formal binary ABI may be introduced later if independently built `.so` or `.elf` applications need cross-version compatibility.
+12. **Code-facing names are lowercase.** Project names remain MiniShell/MiniFT8 in prose, while executables, runtime app names, source paths, and persistent filenames use forms such as `minishell`, `minift8`, `apps/minift8/`, and `/flash/minift8/station.txt`. Normal C macros remain uppercase.
 
 ## Architectural issue found before the port
 
@@ -65,19 +66,30 @@ core/shell.c    fgets/printf/puts on stdin/stdout
 
 These must be cleaned before ADV is treated as a true peer backend. This is a private MiniShell-core/backend issue; it must not change the public application API semantics unnecessarily.
 
-## Stage A0 — portable resident shell/startup boundary and API terminology cleanup
+## Stage A0 — portable resident shell/startup boundary and terminology cleanup
 
-Goal: remove direct Linux terminal assumptions from the portable MiniShell control plane and make the active code/documentation consistently describe the application boundary as the MiniShell **API**, not a promised stable ABI.
+Goal: remove direct Linux terminal assumptions from the portable MiniShell control plane and keep the active code/documentation terminology consistent.
 
-Tasks:
+Completed one-time normalization:
+
+```text
+ABI-facing terminology -> API terminology
+MINISHELL_ABI_VERSION   -> MINISHELL_API_VERSION
+abi_version             -> api_version
+docs/abi/               -> docs/api/
+apps/MiniFT8/           -> apps/minift8/
+MiniFT8 runtime name    -> minift8
+/flash/MiniFT8/Station.txt -> /flash/minift8/station.txt
+```
+
+Backward-compatibility/append-only promises were also removed while the API remains under active architectural development.
+
+Remaining A0 tasks:
 
 - define a small private resident-console/startup boundary;
 - keep Linux stdin/stdout behavior underneath the Linux backend;
 - allow ADV to provide Cardputer display/keyboard shell I/O underneath the same private boundary;
 - keep `app_manager` and the public MiniShell API behavior intact while doing the shell portability cleanup;
-- rename active public-facing legacy ABI terminology to API terminology where it represents the source/application contract, including identifiers such as `MINISHELL_ABI_VERSION` / `abi_version` if they remain useful as API-version fields;
-- move or rename active `docs/abi/` material to `docs/api/` as appropriate, preserving only genuinely binary-ABI terminology if/when such a contract is later introduced;
-- remove append-only/backward-compatibility requirements that no longer reflect current project policy;
 - keep all existing Linux CTest/unit coverage green.
 
 Exit criteria:
@@ -87,6 +99,7 @@ Linux shell behavior unchanged
 all Linux tests green
 portable shell/core has no direct dependency on POSIX terminal behavior
 active MiniShell application-facing terminology consistently says API
+code-facing runtime/path names follow the lowercase naming rule
 no accidental backward-compatibility promise remains in active architecture/docs
 ```
 
@@ -157,7 +170,7 @@ Exit criteria:
 
 ```text
 ls/cat/basic filesystem behavior works through MiniShell API
-MiniFT8 Station.txt can be read/written through storage_service
+/flash/minift8/station.txt can be read/written through storage_service
 date/time baseline works
 shared Filesystem and Time/Location contract probes pass
 ```
@@ -184,7 +197,7 @@ Tasks:
 - introduce a small MiniFT8-owned profile type/configuration;
 - convert current hard-coded ADV-sized presentation/resource assumptions into `ADV` profile values;
 - add `DESKTOP` values only for real differences we currently need;
-- allow Linux to select profile at runtime, e.g. `MiniFT8 --profile adv` and `MiniFT8 --profile desktop` or an equivalent stable interface;
+- allow Linux to select profile at runtime, e.g. `minift8 --profile adv` and `minift8 --profile desktop` or an equivalent stable interface;
 - keep AutoSeq, QSO policy, scheduler logic, FT8 protocol behavior, logging semantics, and other shared logic profile-independent.
 
 Exit criteria:
@@ -201,7 +214,7 @@ Goal: compile the same MiniFT8 application core into the ADV firmware and run th
 
 Tasks:
 
-- register MiniFT8 in the ADV static app registry;
+- register runtime application `minift8` in the ADV static app registry;
 - default MiniFT8 to `ADV` profile on the Cardputer build;
 - enter/exit MiniFT8 through the normal MiniShell foreground lifecycle;
 - verify configuration persistence and UI navigation;
@@ -213,7 +226,7 @@ Exit criteria:
 Linux + ADV profile works
 ADV   + ADV profile works
 same MiniFT8 core sources are used
-MiniFT8 application tree contains no ADV/ESP-IDF/M5 hardware dependencies
+apps/minift8/ contains no ADV/ESP-IDF/M5 hardware dependencies
 ```
 
 ## Stage V1 — cross-backend/profile validation checkpoint
@@ -234,7 +247,7 @@ Validation should compare application-visible behavior rather than physical rend
 - app launch/exit lifecycle;
 - MiniFT8 default/config state;
 - same UI actions causing the same MiniFT8 state transitions;
-- filesystem semantics and Station.txt persistence;
+- filesystem semantics and `/flash/minift8/station.txt` persistence;
 - logical key meanings;
 - resource-limit behavior where values are intentionally shared;
 - absence of platform-specific logic above the MiniShell API.
