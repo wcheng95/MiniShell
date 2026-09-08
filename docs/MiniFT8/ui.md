@@ -114,14 +114,26 @@ Root:
 
 ```text
 1 Station >
-2 Radio >
+2 I/O Paths >
 3 Band Profiles >
 4 Logging >
 5 Time / GPS >
 6 System >
 ```
 
-The submenus establish UI placement but most backend-dependent values remain `--` until their real contracts exist.
+### S -> I/O Paths
+
+The three station resources are intentionally independent:
+
+```text
+1 RX Audio: --
+2 TX Audio: --
+3 Control: --
+```
+
+There is no monolithic `Radio` selection at the MiniFT8 application boundary. A source/profile may associate these paths with the same physical device, but MiniFT8 configures and reasons about RX Audio, TX Audio, and Control independently.
+
+The submenus establish UI placement but most backend-dependent values remain `--` until their real application wiring exists.
 
 ## View screen — V
 
@@ -136,6 +148,14 @@ Root:
 4 Performance >
 5 System Info >
 6 About >
+```
+
+The Status view uses the same resource vocabulary:
+
+```text
+RX Audio: --
+TX Audio: --
+Control: --
 ```
 
 System Info intentionally reports portable concepts:
