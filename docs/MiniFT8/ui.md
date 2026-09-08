@@ -3,14 +3,14 @@
 ## Vocabulary
 
 ```text
-Mode      operating protocol: FT8 / FT4 / RTTY / CW / future
+Protocol  fixed application identity: FT8 for the `ft8` app
 Screen    top-level UI location: RX / TX / O / S / V
 Submenu   shallow group inside O, S, or V
 Page      visible slice of a longer list when paging is required
 Profile   MiniFT8 resource/presentation policy: ADV / DESKTOP
 ```
 
-`Mode` is application state. It must not be reused to mean a UI screen or hardware platform.
+Protocol selection is not MiniFT8 application state. Switching from FT8 to another protocol means leaving `ft8` and launching another MiniShell application such as future `ft4`, `cw`, `rtty`, or `js8`.
 
 ## Logical geometry
 
@@ -25,7 +25,7 @@ The inherited ADV profile uses:
 with the familiar Cardputer-oriented layout:
 
 ```text
-row 0   status / mode strip
+row 0   status / protocol strip
 row 1   main line 1
 row 2   main line 2
 row 3   main line 3
@@ -48,7 +48,7 @@ Up / Down            move selection
 Left / Right          change supported values
 Enter                 activate selected line
 Esc or `              back/cancel
-q / Q                 exit MiniFT8 to M$>
+q / Q                 exit `ft8` to M$>
 ```
 
 Physical keyboard, touch, buttons, BLE, or another input source must be normalized by MiniShell before MiniFT8 sees it.
@@ -68,7 +68,7 @@ Current TX is a placeholder queue view. QSO/autoseq behavior is not yet integrat
 Root:
 
 ```text
-1 Mode: FT8
+1 Protocol: FT8
 2 Profile: Default
 3 Band: 20m
 4 CQ / Beacon >
@@ -76,7 +76,7 @@ Root:
 6 Message >
 ```
 
-Mode/Profile/Band are live prototype settings. The `Profile` item shown here is the existing station/operating profile concept and should not be confused with the application presentation profiles `ADV` / `DESKTOP`; naming may be revisited when P1 formalizes MiniFT8 application profiles.
+`Protocol: FT8` is informational and not changeable inside the app. Profile and Band are live prototype settings. The `Profile` item shown here is the existing station/operating profile concept and should not be confused with the application presentation profiles `ADV` / `DESKTOP`; naming may be revisited when P1 formalizes MiniFT8 application profiles.
 
 ### O -> CQ / Beacon
 
@@ -147,7 +147,7 @@ Root:
 6 About >
 ```
 
-The Status view uses the same resource vocabulary:
+The Status view reports fixed `Protocol: FT8` plus the same resource vocabulary:
 
 ```text
 RX Audio: --
@@ -163,7 +163,7 @@ System Info intentionally reports portable concepts rather than encouraging appl
 UiModel
    -> ui_shell_render()
    -> profile-sized UiFrame
-   -> minishell_ui_adapter
+   -> ft8_ui_adapter
    -> MiniShell Display API
 ```
 
@@ -171,7 +171,7 @@ Input is the reverse boundary:
 
 ```text
 MiniShell key event
-   -> minishell_ui_adapter
+   -> ft8_ui_adapter
    -> UiInput
    -> ui_shell_handle_input()
    -> AppAction
