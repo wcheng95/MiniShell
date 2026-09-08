@@ -2,10 +2,10 @@
 
 ## 1. Invariant
 
-MiniFT8-V3 depends on MiniShell concepts, never directly on a platform implementation.
+MiniFT8-V3 depends on MiniShell concepts, never directly on a platform implementation. MiniFT8 is the project/design name; its current MiniShell runtime application is `ft8`.
 
 ```text
-MiniFT8 application
+ft8 application
         |
         v
 MiniShell public API
@@ -22,17 +22,29 @@ Linux / NuttX / ESP-IDF / hardware / mocks
 
 Linux is the current reference implementation, but Linux behavior must not leak into the application core.
 
-### 1.1 MiniFT8 application profiles
+### 1.1 Protocol applications
+
+Protocol selection is a MiniShell application-lifecycle decision, not mutable state inside `ft8`:
+
+```text
+ft8      current
+ft4      future
+cw       future
+rtty     future
+js8      future
+```
+
+The current `ft8` application therefore owns FT8 behavior only. Future protocol applications may share implementation modules where real commonality appears, but no umbrella protocol-mode owner is introduced speculatively.
+
+### 1.2 MiniFT8 application profiles
 
 MiniFT8 has an application-side **profile** layer for resource and presentation policy. A profile is not a MiniShell backend and does not identify the physical platform on which the application is running.
-
-The boundary is:
 
 ```text
 MiniFT8 profile
         |
         v
-MiniFT8 application/core
+ft8 application/core
         |
         v
 MiniShell public API
@@ -44,9 +56,9 @@ MiniShell backend/provider
 hardware / OS
 ```
 
-MiniShell tells MiniFT8 what services and capabilities the environment provides. The MiniFT8 profile decides how MiniFT8 chooses to use those resources, for example display line count, history depth, decoder/resource limits, or waterfall dimensions.
+MiniShell tells MiniFT8 what services and capabilities the environment provides. The MiniFT8 profile decides how the FT8 application uses those resources, for example display line count, history depth, decoder/resource limits, or waterfall dimensions.
 
-Profiles must not contain FT8 protocol behavior, QSO policy, autoseq logic, scheduler algorithms, logging semantics, or platform-driver code. Those remain shared application code.
+Profiles must not contain FT8 protocol behavior, QSO policy, autoseq logic, scheduler algorithms, logging semantics, or platform-driver code. Those remain shared `ft8` application logic.
 
 The initial profiles are:
 
@@ -65,15 +77,13 @@ Linux MiniShell + DESKTOP profile
 Linux MiniShell + ADV profile
 ```
 
-Running the ADV profile on Linux is a first-class regression/test configuration. It allows Cardputer-compatible application behavior and limits to be exercised on the reference host without requiring Cardputer hardware.
+Running the ADV profile on Linux is a first-class regression/test configuration. Profile selection should therefore be runtime/application configuration where practical, rather than compile-time platform branching such as `#ifdef CARDPUTER_ADV` in shared FT8 logic.
 
-Profile selection should therefore be runtime/application configuration where practical, rather than compile-time platform branching such as `#ifdef CARDPUTER_ADV` in shared MiniFT8 logic.
-
-Additional profiles such as PaperS3 or Tab5 should be introduced only when those targets are actively developed and real differences justify new profile fields. Profile fields should be added incrementally rather than predicting every future platform variation in advance.
+Additional profiles such as PaperS3 or Tab5 should be introduced only when those targets are actively developed and real differences justify new profile fields.
 
 ## 2. Application control-hub model
 
-`app_controller` is the owner of MiniFT8 domain coordination. Other logical MiniFT8 modules do not coordinate one another behind its back.
+`app_controller` owns FT8-domain coordination. Other logical MiniFT8 modules do not coordinate one another behind its back.
 
 ```text
 MiniShell edge adapters
@@ -84,14 +94,14 @@ MiniShell edge adapters
   v     v      v
 config  qso   future ft8_engine
         scheduler
-   
+
 UiModel / AppAction
         |
         v
      ui_shell
 ```
 
-`minift8_main` owns the foreground application loop and lifecycle only. It wires the edge adapters, controller, and UI together; it must not become a second owner of mode, scheduler, DSP, radio, or configuration state.
+`ft8_main` owns the foreground application loop and lifecycle only. It wires the edge adapters, controller, and UI together; it must not become a second owner of scheduler, DSP, radio/control, or configuration state.
 
 The application edge translates between MiniShell service types and MiniFT8-owned types. MiniFT8 never reaches around MiniShell to Linux, NuttX, ESP-IDF, USB, ALSA, UART, I2S, GPIO, or board-specific drivers.
 
@@ -99,13 +109,13 @@ The application edge translates between MiniShell service types and MiniFT8-owne
 
 | Module | Owns |
 | --- | --- |
-| `minift8_main` | foreground application lifecycle and top-level call sequence |
-| `minishell_ui_adapter` | translation between MiniShell Display/Input and MiniFT8 `UiFrame`/`UiInput` |
-| `app_controller` | active/requested mode and cross-module domain sequencing |
+| `ft8_main` | foreground application lifecycle and top-level call sequence |
+| `ft8_ui_adapter` | translation between MiniShell Display/Input and MiniFT8 `UiFrame`/`UiInput` |
+| `app_controller` | cross-module FT8-domain sequencing |
 | `ui_shell` | Screen/Submenu navigation, rendering, UI-local selection state |
-| `config_service` | parsed/persisted MiniFT8 configuration values |
+| `config_service` | parsed/persisted FT8 configuration values |
 | `qso_scheduler` | scheduler-owned runtime settings and QSO/TX policy |
-| `storage_service` | MiniFT8 file policy and safe text persistence through MiniShell Filesystem |
+| `storage_service` | FT8 file policy and safe text persistence through MiniShell Filesystem |
 | future MiniFT8 RX-audio edge | opening/reading MiniShell RX Audio and assigning source/profile channel meaning |
 | future `ft8_engine` | FT8-specific DSP, encode/decode, symbol generation, waveform synthesis |
 | future MiniFT8 Control edge | use of the future MiniShell Control API; no CAT syntax or platform transport |
@@ -176,7 +186,7 @@ The meaning is a MiniFT8 source/profile contract:
 ```text
 RX = ordinary audio source/profile
     channel 0 / channel 1 = ordinary audio channels
-    MiniFT8 selects or downmixs before FT8 DSP
+    MiniFT8 selects or downmixes before FT8 DSP
 
 RX = I/Q source/profile
     channel 0 = I
@@ -213,11 +223,9 @@ MiniFT8 RX source/profile interpretation
         +--> I/Q            -> I/Q DSP path
 ```
 
-Hardware/OS transport conversion belongs below the MiniShell Audio API. For example, a future QMX provider may convert native 48 kHz / 24-bit / 2-channel UAC to 12 kHz / S16 / 2-channel while preserving channel order.
+Hardware/OS transport conversion belongs below the MiniShell Audio API. The checked-in `tests/kfs16b12k.wav` is PCM 12 kHz / S16 / 2-channel. The Linux WAV provider validates it and streams it unchanged.
 
-The checked-in `tests/kfs16b12k.wav` is PCM 12 kHz / S16 / 2-channel. The Linux WAV provider validates it and streams it unchanged. It does not downmix or interpret the channels.
-
-If the current FT8 decoder requires 6 kHz mono float internally, the 12 kHz two-channel -> selected/downmixed -> 6 kHz float conversion belongs inside MiniFT8, not MiniShell.
+If the FT8 decoder requires a different internal representation, such as 6 kHz mono float, that DSP conversion belongs inside MiniFT8, not MiniShell.
 
 ### 5.3 TX ownership
 
@@ -234,7 +242,7 @@ FT8 message
     -> physical device
 ```
 
-MiniShell must not know FT8/FT4 symbol counts, tone spacing, CPFSK, I/Q meaning, or QSO policy.
+MiniShell must not know FT8 symbol counts, tone spacing, CPFSK, I/Q meaning, or QSO policy.
 
 ## 6. Control boundary
 
@@ -269,9 +277,9 @@ ControlCaps
 
 MiniFT8 owns:
 
-- FT8/FT4 slot and symbol timing;
+- FT8 slot and symbol timing;
 - TX audio offset;
-- mapping protocol symbols to desired RF frequency;
+- mapping FT8 symbols to desired RF frequency;
 - tune policy.
 
 A MiniShell Control backend will own:
@@ -283,13 +291,7 @@ A MiniShell Control backend will own:
 - translating requested RF frequency into the device mechanism;
 - required restoration of radio state after TX.
 
-### Tune
-
 Tune is application policy, not a dedicated MiniShell Control primitive.
-
-### Device time
-
-Setting a radio/device clock is a legitimate future Control capability but remains deferred. When added, it should reuse canonical MiniShell Time/Location data rather than introduce a radio-only time representation.
 
 ## 7. TX realization remains capability-driven
 
@@ -320,21 +322,16 @@ The decision is based on independent capabilities, never a switch on one monolit
 
 `storage_service` owns MiniFT8 file **policy**, not the filesystem:
 
-- MiniFT8 data directory;
-- station configuration naming;
+- `/flash/ft8/` data directory;
+- `station.txt` configuration naming;
 - complete text reads/writes;
 - safe temporary-file save sequence.
 
-MiniShell Filesystem owns:
+MiniShell Filesystem owns logical namespace and paths, handles, lifecycle cleanup, quota policy, and platform/native file operations through its backend.
 
-- logical namespace and paths;
-- file/directory handles;
-- lifecycle cleanup;
-- namespace semantics;
-- quota policy;
-- platform/native file operations through its backend.
+Thus `/flash/ft8/station.txt` is MiniFT8 policy, while how `/flash` maps to Linux, NuttX, FATFS, or another backend is MiniShell policy.
 
-Thus `/flash/minift8/station.txt` is MiniFT8 policy, while how `/flash` maps to Linux, NuttX, FATFS, or another backend is MiniShell policy.
+The FT8-only configuration does not persist a protocol `mode=` value. Protocol identity comes from the application being launched.
 
 ## 9. UI boundary
 
@@ -344,13 +341,13 @@ The inherited V2/Cardputer ADV logical UI frame is currently:
 30 columns x 8 rows
 ```
 
-This is an **ADV profile** choice, not a MiniShell API or universal MiniFT8 architectural limit. The DESKTOP profile may use a larger frame, for example more RX text lines, while using the same application logic and MiniShell Display API.
+This is an **ADV profile** choice, not a MiniShell API or universal MiniFT8 architectural limit. The DESKTOP profile may use a larger frame while using the same application logic and MiniShell Display API.
 
 `ui_shell` sees only MiniFT8-owned `UiModel`, `UiInput`, `UiFrame`, and `AppAction`. It does not know terminal dimensions, ANSI sequences, ncurses, touch hardware, or keyboard scan codes.
 
 ```text
 MiniShell key event
-    -> minishell_ui_adapter
+    -> ft8_ui_adapter
     -> UiInput
     -> ui_shell
     -> AppAction
@@ -360,31 +357,35 @@ app_controller
     -> UiModel
     -> ui_shell
     -> UiFrame
-    -> minishell_ui_adapter
+    -> ft8_ui_adapter
     -> MiniShell Display
 ```
 
 The Settings and Status vocabulary mirrors the architecture directly:
 
 ```text
+Protocol: FT8    fixed identity, not a selector
 RX Audio
 TX Audio
 Control
 ```
 
-There is no UI-level monolithic `Radio` resource.
+There is no UI-level monolithic `Radio` resource and no in-app protocol-mode selector.
 
-## 10. Mode ownership
+## 10. Protocol ownership
 
-`Mode` means operating protocol/application behavior:
+The `ft8` application is FT8. There is no canonical mutable `Mode` state in `app_controller`, `UiModel`, or `station.txt`.
+
+Switching protocols means returning to MiniShell and launching another application:
 
 ```text
-FT8 / FT4 / RTTY / CW / future
+M$> ft8
+...
+q
+M$> ft4       # future
 ```
 
-Canonical mode is owned by `app_controller`. `ui_shell` receives it in `UiModel`; it does not own duplicate application mode state.
-
-Future mode-specific engines remain subordinate to the same controller. FT8-specific DSP belongs in `ft8_engine`, not Display, Audio, Control, or `ui_shell`.
+Future applications may reuse proven modules where the interfaces genuinely match, but FT8-specific DSP remains owned by `ft8_engine` inside the FT8 application unless/until a justified shared lower-level library is extracted.
 
 ## 11. Current implementation boundary
 
@@ -427,11 +428,11 @@ A later I/Q source uses the same Audio API but selects the MiniFT8 I/Q branch in
 ## 12. Boundary rules
 
 1. Application code depends on MiniShell public API only; no platform implementation header or OS/device API may enter MiniFT8.
-2. `app_controller` is the MiniFT8 domain coordinator; edge adapters and `minift8_main` must not become competing owners of application state.
+2. `app_controller` is the FT8-domain coordinator; edge adapters and `ft8_main` must not become competing owners of application state.
 3. Logical MiniFT8 modules communicate through explicit MiniFT8-owned data/contracts rather than calling one another opportunistically.
 4. RX Audio, TX Audio, and Control are independent resources; physical device identity never couples them at the application boundary.
 5. MiniShell Audio owns transport, stream lifecycle, buffering, and native-format conversion; MiniFT8 owns channel meaning and DSP conversion.
-6. MiniFT8 owns FT8/FT4 protocol semantics, timing, modulation, waveform synthesis, and QSO policy.
+6. The `ft8` application owns FT8 protocol semantics, timing, modulation, waveform synthesis, and QSO policy. Other protocols are separate applications.
 7. MiniShell Control, when implemented, owns generic device/radio control realization but never FT8 symbols or tune policy.
 8. `storage_service` owns MiniFT8 file policy; MiniShell Filesystem remains the filesystem/resource owner.
 9. Mocks and simulations stay below MiniShell unless the thing being tested is a pure MiniFT8 module with an explicit MiniFT8-level test interface.
