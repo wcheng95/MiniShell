@@ -20,7 +20,9 @@ MiniShell Audio
     -> ft8_monitor
     -> candidate finder
     -> candidate decoder
-    -> message/result builder
+    -> protocol message codec
+    -> Ft8ProtocolSlot
+    -> rx_result_builder
     -> RxBatch
     -> app_controller
     -> RX UI
@@ -30,33 +32,33 @@ Normal raw audio remains streaming and bounded; the retained decode representati
 
 ## Locked RX refinements
 
-The RX contract fixes these points:
-
 1. **V2 SNR is the structural-cleanup baseline.** Candidate sync score and SNR are separate values. The chosen V2 SNR estimator is preserved while ownership is cleaned, and may be improved later as a deliberate algorithm change.
 2. **Protocol message type is first-class output.** Normal typed FT8 messages keep their decoded type and structured field metadata; V3 must not render text and then re-tokenize it to recover structure.
 3. **Free-text CQ exception.** A protocol `FREE_TEXT` message may additionally be classified as a logical CQ when its canonical text exactly matches the validated grammar `CQ <nnn|AAAA> <valid-callsign> [grid]`. The protocol type remains `FREE_TEXT`.
-4. **Deep-search station hint.** `ft8_engine` may later accept an explicit optional local-callsign/search context for reply-to-me deep search. This is decoder context only; AutoSeq state, reply decisions, IgnoreList, TX stage, and UI policy stay outside the engine.
+4. **Deep-search station hint.** `ft8_engine` may later accept explicit station-aware decoder/search context such as the local callsign. That context may influence candidate search or prior-assisted decoding, but AutoSeq state, reply decisions, IgnoreList, TX stage, and UI policy remain outside the engine.
+5. **Hashed callsigns are explicit engine state.** An instance-owned/context-aware `Ft8HashStore` persists across slots and is aged explicitly; it is not MiniShell state and does not require a global table.
 
-The important distinction is:
+Locked distinction:
 
 ```text
 station identity as decoder/search hint     allowed
 station/QSO policy ownership                not allowed
 ```
 
-## Current task: RX-0
+## RX-0 — architecture and source review — complete
 
-### RX-0A — architecture/source map — complete
+### RX-0A — architecture/source map
 
 `rx.md` records:
 
-- the seven logical RX boundaries;
+- the seven logical RX/DSP boundaries;
+- the separate station-aware `rx_result_builder` boundary;
 - the streaming/RAM rule;
 - MiniFT8-V2 RX source classification;
 - golden-reference policy;
 - RX-0 through RX-7 development sequence.
 
-### RX-0B — extract the V3 decoder contract from V2 — in progress
+### RX-0B — V2 decoder-contract extraction
 
 Completed reviews:
 
@@ -65,6 +67,7 @@ V2 tests/tx_e2e/decode_helper.cpp
 V2 production decode_monitor_results()
 V2 monitor.h / monitor.c
 V2 decode.h / decode.c
+V2 message.h / message.c
 ```
 
 Canonical review artifacts:
@@ -74,11 +77,10 @@ rx-decoder-contract.md
 rx-v2-production-review.md
 rx-monitor-review.md
 rx-decode-review.md
+rx-message-review.md
 ```
 
 ### Monitor direction
-
-The monitor review locks this direction without changing DSP mathematics:
 
 ```text
 explicit Ft8Monitor instance
@@ -89,7 +91,7 @@ explicit Ft8Monitor instance
     + explicit new-window versus stream-discontinuity reset semantics
 ```
 
-The monitor remains narrowly responsible for:
+The monitor owns only:
 
 ```text
 streaming engine-native PCM
@@ -99,46 +101,87 @@ streaming engine-native PCM
 
 ### Decode-core direction
 
-`decode.h/c` is substantially cleaner than `monitor.c` and should be preserved rather than rewritten.
-
-The conceptual internal boundaries are:
+`decode.h/c` is largely a pure bounded algorithm core and should be preserved rather than rewritten:
 
 ```text
 completed waterfall
-    -> candidate finder / Costas sync
-    -> candidate descriptor
+    -> Costas candidate finder
     -> likelihood extraction
-    -> likelihood normalization
+    -> normalization
     -> LDPC/FEC
     -> CRC validation
-    -> validated protocol payload
+    -> validated 77-bit payload
 ```
 
-Locked decode-core cleanup points:
+V2 Costas/likelihood/LDPC/CRC mathematics stay unchanged initially. Production candidate capacity 50, minimum score 5, LDPC max 25, and the current time-search range are explicit V2 profile policy, not permanent protocol constants.
 
-- no mutable global decoder state was found;
-- candidate arrays remain caller-owned and bounded;
-- V2 Costas/likelihood/LDPC/CRC mathematics stay unchanged initially;
-- production candidate capacity 50, minimum score 5, and LDPC max 25 are explicit decode-profile policy rather than protocol constants;
-- the embedded `time_offset=-10..19` search range is preserved first, then may become explicit search policy;
-- candidate score is sync score, never SNR;
-- dead `freq/time` fields in candidate-decode status should not survive as misleading fields;
-- decode outcome should eventually distinguish `OK`, `LDPC_FAIL`, `CRC_FAIL`, and invalid input rather than only boolean + partially written status;
-- unused `db_power_sum[]`, `ft8_decode_multi_symbols()`, and disabled historical alternatives should not be copied into clean V3;
-- future reply-to-me deep search belongs at the engine decode-pass strategy boundary. The local callsign may influence candidate discovery, prior-assisted likelihood/LDPC decoding, or an additional deep pass; it must not be hard-wired specifically into `ftx_find_candidates()`.
+Future deep search is an engine decode-pass strategy. It is not hard-wired specifically into candidate finding and may later use station-aware priors during candidate discovery, likelihood processing, or LDPC recovery.
 
-The next and final planned RX-0B core source review is:
+### Message-codec direction
+
+The protocol codec ends at a typed protocol result:
 
 ```text
-message.h / message.c
+CRC-valid payload
+    -> protocol type classification
+    -> structured message-specific unpack
+    -> Ft8ProtocolMessage
 ```
 
-Goals:
+Rendered text is convenience output derived from typed protocol data, never the canonical source of structure.
 
-- protocol message type and structured field ownership;
-- callsign hash-store interface and lifecycle;
-- Field Day, DXpedition, nonstandard-call, telemetry, and free-text boundaries;
-- decide exactly what `ft8_engine` returns versus what `rx_result_builder` derives;
-- verify that normal typed messages never require rendered-text reparsing.
+The generic V2 three-field/offset representation is not sufficient as the V3 domain model. Field Day and DXpedition already contain richer structure internally and should expose it directly.
 
-Do not copy/refactor implementation code until the RX-0 reviews are complete. After RX-0 is understood, RX-1 begins source-by-source cleanup of the FT8 core. Structural cleanup remains separate from intentional DSP/algorithm improvement.
+Known codec gaps are recorded rather than hidden:
+
+- type 0.6 `CONTESTING` exists in the enum but is not currently mapped by `ftx_message_get_type()`;
+- `EU_VHF`, `ARRL_RTTY`, and `WWROF` are recognized types without generic structured decode handlers;
+- known protocol type and structured-unpack support are therefore separate facts;
+- output buffer capacity safety needs cleanup;
+- exact payload comparison is canonical duplicate identity; the CRC-derived quick hash is not collision-free identity.
+
+The callsign hash callback concept is retained, but V3 removes the global-storage requirement by adding explicit context/ownership through `Ft8HashStore`.
+
+TX-specific message parsing/encoding cleanup is deferred to the TX milestone.
+
+## Current task: RX-1 — clean FT8 decode core
+
+RX-1 starts implementation, but still makes **no deliberate DSP/algorithm change**.
+
+Recommended order:
+
+```text
+RX-1A  establish golden tests/fixtures
+RX-1B  define MiniFT8-owned internal decoder/result types
+RX-1C  clean monitor memory ownership/lifecycle
+RX-1D  bring candidate + likelihood + LDPC + CRC core across
+RX-1E  implement explicit Ft8HashStore
+RX-1F  implement typed protocol message codec
+RX-1G  pure cleaned decoder golden regression
+```
+
+### RX-1A — first implementation step
+
+Before moving decoder code, freeze tests for the boundaries we intend to clean:
+
+```text
+PCM -> V2 monitor -> exact waterfall bytes/hash
+waterfall -> V2 candidate/decode -> payloads
+payload -> V2 message codec -> type + supported decoded semantics
+```
+
+Use committed V2 golden FT8/FT4 WAVs plus independent/real audio where appropriate.
+
+Hard invariants during structural cleanup:
+
+```text
+same monitor waterfall for same engine-native PCM
+same valid protocol payloads
+same supported protocol message types/semantics
+same callsign-hash resolution behavior
+no duplicate exact payloads
+```
+
+Known V2 gaps/fixes are tested separately and never smuggled into a structural commit.
+
+Do not change sample rate, resampling, OSR, SNR algorithm, candidate math, likelihood math, LDPC math, or deep-search behavior in RX-1 structural work.
