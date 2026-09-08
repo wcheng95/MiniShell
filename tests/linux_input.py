@@ -39,6 +39,13 @@ def read_until(fd: int, needle: bytes, timeout: float) -> bytes:
     return bytes(data)
 
 
+def write_split(fd: int, parts: list[bytes], delay: float = 0.005) -> None:
+    for index, part in enumerate(parts):
+        os.write(fd, part)
+        if index + 1 < len(parts):
+            time.sleep(delay)
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: linux_input.py <minishell> <app-dir>", file=sys.stderr)
@@ -68,14 +75,29 @@ def main() -> int:
             transcript = bytearray()
             try:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
+                # Baseline single-byte input behavior.
                 os.write(master_fd, b"run input_probe\n")
                 transcript.extend(read_until(master_fd, b"input_probe: READY", 3.0))
-
                 os.write(master_fd, b"x")
                 app_output = read_until(master_fd, b"M$> ", 3.0)
                 transcript.extend(app_output)
                 if b"input_probe: PASS" not in app_output:
-                    raise RuntimeError("input probe did not report PASS")
+                    raise RuntimeError("baseline input probe did not report PASS")
+
+                # H5 regression: deliberately split terminal sequences across writes.
+                os.write(master_fd, b"run input_probe h5\n")
+                transcript.extend(read_until(master_fd, b"input_probe: READY", 3.0))
+
+                write_split(master_fd, [b"\x1b", b"[", b"A"])
+                write_split(master_fd, [b"\x1b", b"[", b"6", b"~"])
+                write_split(master_fd, [b"\xe4", b"\xb8", b"\xad"])
+                os.write(master_fd, b"\x1b")
+
+                h5_output = read_until(master_fd, b"M$> ", 3.0)
+                transcript.extend(h5_output)
+                if b"input_probe: PASS" not in h5_output:
+                    raise RuntimeError("split-sequence input probe did not report PASS")
 
                 os.write(master_fd, b"exit\n")
                 return_code = process.wait(timeout=3.0)
