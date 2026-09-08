@@ -122,13 +122,13 @@ non-standard-call CQ
 FREE_TEXT CQ-shaped message
 ```
 
-RX-1A also exposed V2 issues that are explicitly **not** desired golden behavior:
+RX-1A also clarified three V2 points:
 
-- type 0.6 `CONTESTING` exists in the enum but currently classifies as `UNKNOWN`;
-- generic telemetry decode has an output-buffer overflow risk;
-- the old host-test hash stub does not correctly model 22/12/10-bit lookup.
+- type 0.6 `CONTESTING` is simply outside current V2 supported message scope; RX-1 does not add support merely because the enum names it;
+- the generic telemetry decode buffer was too small for 18 hex characters + NUL; this was fixed separately in MiniFT8-V2 PR #44 with a direct regression test and no decoder-math change;
+- the **production V2 callsign hashtable is correct** for 22-, 12-, and 10-bit lookups. The simplified `decode_helper.cpp` host-test map is not the production table and should not be used to judge V2 hashtable correctness.
 
-These get independent fixes/tests rather than being smuggled into structural refactoring.
+These distinctions remain explicit so structural refactoring neither invents new protocol scope nor “fixes” behavior that was already correct.
 
 ### RX-1B — top-down RX module/interface design — NEXT
 
