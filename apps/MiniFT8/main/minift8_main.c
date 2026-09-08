@@ -24,7 +24,7 @@ int main(int argc, char **argv)
     (void)argv;
 
     const mini_api_t *api = mini_api_get();
-    if (api == NULL || api->abi_version != MINISHELL_ABI_VERSION ||
+    if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, input) ||
         api->system == NULL || api->fs == NULL ||
         api->system->write == NULL) {
