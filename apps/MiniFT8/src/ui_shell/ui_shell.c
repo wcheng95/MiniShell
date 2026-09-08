@@ -129,7 +129,7 @@ static void render_o(const UiShell *ui, const UiModel *model, UiFrame *frame) {
 
 static void render_s_root(const UiShell *ui, UiFrame *frame) {
     row_item(ui, frame, 0, "Station >");
-    row_item(ui, frame, 1, "Radio >");
+    row_item(ui, frame, 1, "I/O Paths >");
     row_item(ui, frame, 2, "Band Profiles >");
     row_item(ui, frame, 3, "Logging >");
     row_item(ui, frame, 4, "Time / GPS >");
@@ -145,11 +145,11 @@ static void render_s_station(const UiShell *ui, UiFrame *frame) {
     frame_set(frame, 7, "text editors later `back q quit");
 }
 
-static void render_s_radio(const UiShell *ui, UiFrame *frame) {
-    row_item(ui, frame, 0, "Radio: --");
-    row_item(ui, frame, 1, "Control Path: --");
-    row_item(ui, frame, 2, "Audio Path: --");
-    frame_set(frame, 7, "radio service later `back q quit");
+static void render_s_io_paths(const UiShell *ui, UiFrame *frame) {
+    row_item(ui, frame, 0, "RX Audio: --");
+    row_item(ui, frame, 1, "TX Audio: --");
+    row_item(ui, frame, 2, "Control: --");
+    frame_set(frame, 7, "independent paths `back q quit");
 }
 
 static void render_s_band_profiles(const UiShell *ui, const UiModel *model, UiFrame *frame) {
@@ -189,7 +189,7 @@ static void render_s_system(const UiShell *ui, UiFrame *frame) {
 static void render_s(const UiShell *ui, const UiModel *model, UiFrame *frame) {
     switch (ui->submenu) {
         case UI_SUBMENU_S_STATION: render_s_station(ui, frame); break;
-        case UI_SUBMENU_S_RADIO: render_s_radio(ui, frame); break;
+        case UI_SUBMENU_S_IO_PATHS: render_s_io_paths(ui, frame); break;
         case UI_SUBMENU_S_BAND_PROFILES: render_s_band_profiles(ui, model, frame); break;
         case UI_SUBMENU_S_LOGGING: render_s_logging(ui, frame); break;
         case UI_SUBMENU_S_TIME_GPS: render_s_time_gps(ui, frame); break;
@@ -212,10 +212,9 @@ static void render_v_status(const UiModel *model, UiFrame *frame) {
     info_line(frame, 0, "Mode: %s", mode_name(model->active_mode));
     info_line(frame, 1, "Profile: %s", model->profile_name);
     info_line(frame, 2, "Band: %s", model->band_name);
-    info_line(frame, 3, "Scheduler: SkipTX1 %s R%d",
-              model->skip_tx1 ? "ON" : "OFF", model->max_retry);
-    info_line(frame, 4, "Radio: --");
-    info_line(frame, 5, "Audio: --");
+    info_line(frame, 3, "RX Audio: --");
+    info_line(frame, 4, "TX Audio: --");
+    info_line(frame, 5, "Control: --");
     frame_set(frame, 7, "read only        `back q quit");
 }
 
@@ -357,7 +356,7 @@ static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction
 
     if (ui->screen == SCREEN_S && ui->submenu == UI_SUBMENU_NONE) {
         static const UiSubmenu items[UI_MAIN_LINES] = {
-            UI_SUBMENU_S_STATION, UI_SUBMENU_S_RADIO, UI_SUBMENU_S_BAND_PROFILES,
+            UI_SUBMENU_S_STATION, UI_SUBMENU_S_IO_PATHS, UI_SUBMENU_S_BAND_PROFILES,
             UI_SUBMENU_S_LOGGING, UI_SUBMENU_S_TIME_GPS, UI_SUBMENU_S_SYSTEM
         };
         ui->submenu = items[line];
