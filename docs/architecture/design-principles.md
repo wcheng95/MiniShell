@@ -2,7 +2,7 @@
 
 ## Purpose
 
-MiniShell is a platform-adaptive application runtime. Its purpose is to keep application cores independent of Linux, NuttX, ESP-IDF, board drivers, and mocks while providing stable services and an application lifecycle.
+MiniShell is a platform-adaptive application runtime. Its purpose is to keep application cores independent of Linux, NuttX, ESP-IDF, board drivers, and mocks while providing coherent services and an application lifecycle.
 
 Linux Mint on `pc-1` is the reference implementation and a full production target. Portability shapes the interfaces; it does not require every platform implementation to be identical.
 
@@ -13,7 +13,7 @@ Start from required application behavior, then define responsibilities downward:
 ```text
 application behavior
     |
-MiniShell public ABI
+MiniShell public API
     |
 portable service/runtime semantics
     |
@@ -66,28 +66,31 @@ On a thick embedded backend MiniShell may also directly own the driver/hardware.
 
 There are two important contracts:
 
-- **Public ABI:** application-facing and deliberately stable.
+- **Public API:** application-facing source/application contract.
 - **Private backend boundary:** MiniShell-internal and free to evolve as implementations are cleaned up.
 
 Backends may freely use POSIX, NuttX, ESP-IDF, or simulation code below the private boundary. Applications may not.
 
-## 5. Stable ABI, small surface
+The public API is also still under active architectural development. Backward source and binary compatibility are not currently promised. A formal binary ABI may be introduced later if independently built applications need cross-release compatibility.
+
+## 5. Small API, compatibility frozen later
 
 Add public surface only for a demonstrated application need.
 
-Prefer:
+Useful design tools include:
 
 ```text
-append-only tables
 struct_size
 capability bits
 optional sub-APIs
 fixed-width public types
 explicit ownership/lifetime
-stable result values
+clear result values
 ```
 
-Do not expand the ABI merely to imitate POSIX, Linux, or an SDK.
+These improve clarity and feature discovery, but they do **not** currently require append-only growth or stable field offsets. Breaking API changes are allowed when they improve the architecture; in-tree applications are rebuilt against the matching API.
+
+Do not expand the API merely to imitate POSIX, Linux, or an SDK.
 
 Recent examples of justified growth:
 
@@ -96,6 +99,8 @@ MiniFT8/file management -> dir_open/read/close
 storage/resource needs  -> filesystem space(path)
 nano cursor             -> optional inverse text attribute
 ```
+
+Compatibility should be frozen deliberately when there is a real distribution/use case for it, not accidentally during early design.
 
 ## 6. Platform-dependent capability is allowed
 
@@ -137,11 +142,12 @@ The physical form differs by target:
 
 ```text
 Linux/Mint      .so + dlopen/dlsym/dlclose
+Cardputer ADV   V1 compiled-in registry
 Tab5/NuttX      loadable-app mechanism where practical
-Cardputer ADV   compiled-in registry acceptable when dynamic loading costs too much
+future ADV      runtime .elf loading may be explored later
 ```
 
-Application source does not contain loader-specific logic.
+Application source does not contain loader-specific logic. ADV runtime loading is deferred because it is not required for the first backend and adds implementation complexity; it is not architecturally rejected.
 
 ## 9. Resident versus application
 
@@ -197,7 +203,7 @@ Split when:
 
 Do not split a coherent state machine merely to hit a size number, and do not accept a mixed-responsibility file merely because it is short.
 
-`../project/consistency-check.md` records current modules that need decomposition.
+`../project/consistency-check.md` records architecture audit/history.
 
 ## 12. Synchronous and understandable first
 
@@ -210,8 +216,10 @@ Do not add ISR safety, general reentrancy, worker tasks, queues, callbacks, or a
 For each service:
 
 1. test service semantics independently;
-2. test the public ABI through a separately loaded application/probe;
+2. test the public API through an application/probe;
 3. test real platform behavior where platform-specific behavior matters.
+
+The packaging of the probe may differ: dynamically loaded on Linux, statically compiled on ADV V1. The API behavior being tested should be the same.
 
 Linux CI is the reference regression gate. Embedded ports should validate the same observable contract against their hardware/backend.
 
