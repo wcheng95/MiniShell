@@ -18,7 +18,7 @@ Linux backend + ADV profile
 ADV backend   + ADV profile
 ```
 
-Cardputer ADV uses static application composition: MiniShell and MiniFT8 are compiled into one ESP-IDF firmware image. Runtime ELF/application loading is intentionally out of scope on ADV.
+Cardputer ADV V1 uses static application composition: MiniShell and MiniFT8 are compiled into one ESP-IDF firmware image. Runtime ELF/application loading is deferred for later exploration; it is not required for the first ADV backend.
 
 MiniFT8-V2 is reference material for proven Cardputer hardware behavior only. V2 is not modified or refactored as part of this work.
 
