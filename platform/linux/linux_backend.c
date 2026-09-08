@@ -1,6 +1,5 @@
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,18 +9,10 @@
 
 static minishell_services_port_t s_services_port;
 
-void minishell_platform_write(const char *text)
-{
-    if (text != NULL) {
-        fputs(text, stdout);
-        fflush(stdout);
-    }
-}
-
 static void system_write(void *ctx, const char *text)
 {
     (void)ctx;
-    minishell_platform_write(text);
+    minishell_platform_console_write(text);
 }
 
 static void *memory_alloc(void *ctx, uint32_t size)
@@ -71,6 +62,8 @@ static void configure_services_port(void)
 
 int minishell_platform_init(void)
 {
+    linux_console_prepare();
+
     int result = linux_paths_init();
     if (result != 0) return result;
 

@@ -27,8 +27,10 @@ set(MINISHELL_SERVICE_SOURCES
 )
 
 set(MINISHELL_LINUX_SOURCES
+    platform/linux/main.c
     platform/linux/linux_backend.c
     platform/linux/linux_common.c
+    platform/linux/linux_console.c
     platform/linux/linux_filesystem.c
     platform/linux/linux_time_location.c
     platform/linux/linux_terminal.c
@@ -41,7 +43,7 @@ set(MINISHELL_LINUX_SOURCES
 )
 
 add_executable(minishell
-    core/main.c
+    core/minishell_runtime.c
     core/shell.c
     core/app_manager.c
     ${MINISHELL_SERVICE_SOURCES}

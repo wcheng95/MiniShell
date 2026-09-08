@@ -7,6 +7,8 @@
 
 mini_result_t linux_result_from_errno(int error);
 
+void linux_console_prepare(void);
+
 int linux_paths_init(void);
 int linux_prepare_logical_root(void);
 const char *linux_root_dir(void);

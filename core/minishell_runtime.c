@@ -1,23 +1,19 @@
-#include <stdio.h>
+#include "minishell_runtime.h"
 
 #include "minishell_services.h"
 #include "platform_backend.h"
 #include "shell.h"
 
-int main(void)
+int minishell_run(void)
 {
     if (minishell_platform_init() != 0) {
-        fprintf(stderr, "minishell: platform init failed\n");
+        minishell_platform_console_write("minishell: platform init failed\n");
         return 1;
     }
 
-    /* The shell and foreground apps share stdin.  Keep stdio from reading
-     * ahead across the foreground handoff to the Input API. */
-    (void)setvbuf(stdin, NULL, _IONBF, 0);
-
     minishell_resource_limits_t limits = {0};
     if (minishell_platform_resource_limits(&limits) != 0) {
-        fprintf(stderr, "minishell: invalid resource configuration\n");
+        minishell_platform_console_write("minishell: invalid resource configuration\n");
         minishell_platform_shutdown();
         return 1;
     }
@@ -27,7 +23,7 @@ int main(void)
     minishell_platform_services_prepare(&services_port);
     minishell_services_configure(&services_port);
 
-    puts("minishell");
+    minishell_platform_console_write("minishell\n");
     int result = minishell_shell_run();
 
     minishell_services_configure(NULL);
