@@ -119,7 +119,7 @@ future ADV      runtime .elf loading may be explored later
 
 ADV V1 defers runtime ELF loading because it is not needed for the first backend and adds loader/linker/flash-mapping complexity. It is not rejected on the assumption that all executable text must live in RAM.
 
-User-visible behavior remains `apps`, `run <app>`, direct `<app>`, return to `M$>` where practical.
+User-visible behavior remains `apps`, `run <app>`, direct `<app>`, return to `M$>` where practical. Runtime application names are lowercase.
 
 ## 8. Current public services
 
@@ -183,14 +183,14 @@ Typical paths:
 ```text
 /sd/log.txt
 /flash/config.ini
-/flash/MiniFT8/Station.txt
+/flash/minift8/station.txt
 ```
 
 Linux maps the namespace underneath a private host directory, by default `~/.local/share/minishell/fs`. Applications never see the host path.
 
 Filesystem service owns normalization, logical file/directory handles, lifecycle cleanup, namespace semantics, replacement rename semantics, and quota behavior. The backend supplies native filesystem primitives.
 
-A domain application may own file *policy* without owning the filesystem. For example, MiniFT8's `storage_service` owns its Station.txt naming and temporary-file save sequence, while all file handles and namespace semantics remain owned by MiniShell Filesystem.
+A domain application may own file *policy* without owning the filesystem. For example, MiniFT8's `storage_service` owns its `station.txt` naming and temporary-file save sequence, while all file handles and namespace semantics remain owned by MiniShell Filesystem.
 
 ## 11. Time model
 
@@ -240,7 +240,7 @@ exit
 Portable/domain applications include:
 
 ```text
-MiniFT8
+minift8
 hello cat cp date df free ls mkdir mv nano rm rmdir
 ```
 
