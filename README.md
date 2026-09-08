@@ -1,6 +1,6 @@
 # MiniShell
 
-MiniShell is a platform-adaptive application runtime. It keeps application cores independent of Linux, NuttX, ESP-IDF, board drivers, and mocks while providing a small shell, application lifecycle, resource policy, and stable service ABI.
+MiniShell is a platform-adaptive application runtime. It keeps application cores independent of Linux, NuttX, ESP-IDF, board drivers, and mocks while providing a small shell, application lifecycle, resource policy, and public service API.
 
 ## Core model
 
@@ -8,12 +8,12 @@ MiniShell is a platform-adaptive application runtime. It keeps application cores
 Applications
   MiniFT8 / MiniCW / MiniRTTY / tools
                     |
-              MiniShell ABI
+              MiniShell API
                     |
         portable MiniShell core
   shell / lifecycle / services / policy
                     |
-           private backend API
+       private backend interface
         +-----------+-----------+
         |           |           |
       Linux       NuttX      embedded
@@ -61,7 +61,7 @@ M$> ls
 /flash
 
 M$> MiniFT8
-... 30x8 MiniFT8 UI ...
+... MiniFT8 UI ...
 q
 M$>
 ```
@@ -84,9 +84,11 @@ Physical packaging/loading is backend-private:
 
 ```text
 Linux/Mint      .so + dlopen/dlsym/dlclose
+Cardputer ADV   V1 compiled-in application registry
 Tab5/NuttX      loadable-app mechanism where practical
-Cardputer ADV   compiled-in registry acceptable when loading is too expensive
 ```
+
+Runtime `.elf` loading on ADV is deferred for later investigation, not rejected.
 
 The user model remains `apps`, `run <app>`, direct `<app>`, application return, then `M$>`.
 
@@ -136,7 +138,7 @@ MiniShell UTC = startup UTC anchor + monotonic elapsed
 
 `date YYYY-MM-DD HH:MM:SS` re-anchors MiniShell UTC for the current session only. It does not change Linux system time and does not persist an offset. A backend owning a writable RTC may persist the equivalent `utc_set()` operation.
 
-## Public ABI
+## Public API
 
 Source of truth:
 
@@ -144,7 +146,7 @@ Source of truth:
 include/minishell/api.h
 ```
 
-ABI generation 1 currently exposes:
+The current API exposes:
 
 ```text
 System
@@ -156,7 +158,9 @@ Input
 Audio
 ```
 
-Notable application-driven behavior/extensions include:
+`MINISHELL_API_VERSION` identifies the API generation used by the current build. MiniShell is still in active architectural development, so backward source and binary compatibility are not yet promised. In-tree applications are rebuilt when the API changes. A formal binary ABI may be introduced later if separately built `.so` or `.elf` applications need compatibility across MiniShell releases.
+
+Notable application-driven behavior includes:
 
 ```text
 Filesystem     dir_open / dir_read / dir_close
@@ -184,28 +188,19 @@ Backends/providers provide primitives; portable services own application-visible
 
 ## MiniFT8
 
-MiniFT8-V3 is developed directly as a MiniShell application. The current application wiring includes:
+MiniFT8-V3 is developed directly as a MiniShell application. MiniFT8 profiles are application policy and remain independent of the MiniShell backend.
+
+Current validation direction:
 
 ```text
-M$> MiniFT8
-    -> 30x8 UI
-    -> config/scheduler settings
-    -> /flash/MiniFT8/Station.txt
-    -> q
-M$>
+Linux backend + DESKTOP profile
+Linux backend + ADV profile
+ADV backend   + ADV profile
 ```
 
-MiniShell Audio V1 and the deterministic Linux WAV RX provider are established. MiniFT8 treats RX Audio, TX Audio, and Control as independent logical resources. The next integration boundary is:
+The Linux + ADV-profile versus ADV + ADV-profile comparison is the main cross-platform architectural check. MiniFT8 RX-1B is paused until this checkpoint is complete.
 
-```text
-tests/kfs16b12k.wav
-    -> MiniShell Audio
-    -> MiniFT8 source/profile interpretation
-    -> ordinary-audio downmix
-    -> ft8_engine
-```
-
-See `docs/MiniFT8/README.md`.
+See `docs/MiniFT8/README.md` and `docs/project/adv-backend-plan.md`.
 
 ## Linux tests
 
@@ -232,7 +227,7 @@ Start with `docs/README.md`:
 ```text
 docs/
 ├── architecture/   MiniShell system model, ownership, design rules
-├── abi/            MiniShell public application contracts
+├── api/            MiniShell public application contracts
 ├── apps/           small/medium application docs
 ├── MiniFT8/        MiniFT8 application architecture/UI/development
 └── project/        roadmap, audit/debt, progress log
@@ -240,4 +235,4 @@ docs/
 
 ## Current status
 
-The generic Linux MiniShell baseline is complete. Audio V1 and deterministic WAV RX are implemented, and the H1-H5 architecture-audit debt has been paid. No known MiniShell housekeeping issue blocks the deterministic MiniFT8 Audio -> DSP integration slice.
+The Linux reference backend and current service set are established. The active milestone is A0-A3/P1-P2/V1: make the resident shell/startup portable, add the Cardputer ADV backend, formalize MiniFT8 DESKTOP/ADV profiles, and validate the shared application/API boundary across Linux and ADV.
