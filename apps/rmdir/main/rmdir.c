@@ -13,7 +13,7 @@ static void say(const mini_system_api_t *system, const char *text)
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
-    if (api == NULL || api->abi_version != MINISHELL_ABI_VERSION ||
+    if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, fs) ||
         api->system == NULL || api->fs == NULL) {
         return 2;
