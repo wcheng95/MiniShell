@@ -2,7 +2,7 @@
 
 Audit date: 2026-09-07
 
-Public ABI direction is clean. The housekeeping debts identified by the Linux architecture audit are now resolved.
+Public ABI direction is clean. The housekeeping debts identified by the Linux architecture audit are resolved, and a final MiniFT8/MiniShell boundary review found no remaining blocker for deterministic Audio -> DSP work.
 
 ## Debt status
 
@@ -10,7 +10,41 @@ Public ABI direction is clean. The housekeeping debts identified by the Linux ar
 - **H2 — resolved:** portable core no longer interprets POSIX `errno` values for app launch. The private platform boundary exposes MiniShell-internal launch results, while Linux translates its own `errno`/`dlopen()` behavior. Core shell argument splitting also no longer depends on `strtok_r`.
 - **H3 — resolved:** `filesystem_service.c` remains the single Filesystem policy/API owner, while private path normalization, logical-handle/generation bookkeeping, and quota/usage scanning are isolated in focused internal modules.
 - **H4 — resolved:** legacy Tab5 active tree removed; history retained on `archive/tab5-legacy`.
-- **H5 — resolved:** Linux terminal input now preserves incomplete ANSI/CSI and UTF-8 sequences across transport reads using a private byte-stream parser.
+- **H5 — resolved:** Linux terminal input preserves incomplete ANSI/CSI and UTF-8 sequences across transport reads using a private byte-stream parser.
+
+## Final boundary review
+
+The intended dependency direction is:
+
+```text
+MiniFT8 domain/application modules
+        |
+        v
+MiniShell public ABI
+        |
+        v
+portable MiniShell services
+        |
+        v
+private backend/provider hooks
+        |
+        v
+Linux / NuttX / ESP-IDF / hardware / mocks
+```
+
+The review confirmed:
+
+- MiniFT8 has no direct Linux, POSIX, NuttX, ESP-IDF, USB, ALSA, UART, I2S, GPIO, or board-driver dependency.
+- MiniShell-facing MiniFT8 modules may use the MiniShell ABI directly; MiniShell is the platform abstraction and should not be hidden behind a duplicate generic HAL.
+- Pure MiniFT8 domain modules such as `ui_shell`, `qso_scheduler`, and future `ft8_engine` use MiniFT8-owned/standard-C types rather than platform types.
+- `app_controller` remains the MiniFT8 domain coordinator; `minift8_main` owns only lifecycle/top-level call sequencing.
+- `storage_service` owns MiniFT8 file policy while MiniShell Filesystem owns paths/handles/quota/backend semantics.
+- Audio transport and channel meaning are separate: MiniShell transports ordered frames; MiniFT8 source/profile logic decides ordinary audio versus I/Q.
+- RX Audio, TX Audio, and Control are independent resources. The old prototype UI `Radio`/single-`Audio Path` vocabulary was removed and replaced by `RX Audio`, `TX Audio`, and `Control`.
+- MiniShell Control remains conceptual/not yet implemented; no CAT syntax or FT8 control semantics have entered the public ABI.
+- Mocks/providers remain below MiniShell and cannot bypass the MiniFT8 decoder/scheduler when those components are under test.
+
+No second HAL is recommended inside MiniFT8. Platform-facing application modules are allowed to consume MiniShell services; domain engines should not.
 
 ## H5 implementation
 
@@ -22,29 +56,25 @@ linux_terminal_parser.c      pure byte-stream parser state machine
 linux_terminal_parser.h      private parser state/feed/reset/flush interface
 ```
 
-The parser preserves incomplete sequences across reads and handles:
-
-- CSI arrows/Home/End split at any byte boundary;
-- Insert/Delete/PageUp/PageDown split at any byte boundary;
-- UTF-8 code points split across reads;
-- malformed UTF-8 without swallowing a following valid ASCII byte;
-- parser-state reset on input flush/application handoff.
-
-Standalone Escape uses a **30 ms Linux-backend ambiguity window**. An incomplete ESC/CSI prefix is held briefly; continuation bytes arriving inside that window complete the sequence, while expiry emits a normal Escape key. A timed-out partial CSI prefix replays its non-ESC suffix as normal input rather than silently dropping bytes.
-
-This remains entirely private to the Linux backend: no public MiniShell ABI growth, no application changes, and no Input-service ownership change.
-
-## Ownership reminders
-
-Applications depend only on MiniShell public services. Resident services own logical resource policy/lifecycle. Platform backends/providers own OS/device/file primitives. The Linux terminal module owns terminal rendering/input transport and termios app handoff. Audio channel meaning remains application/source-profile state, not MiniShell state.
+The parser preserves incomplete sequences across reads and handles CSI keys, UTF-8, malformed-input recovery, application handoff/reset, and standalone Escape. Standalone Escape uses a **30 ms Linux-backend ambiguity window**; the policy remains completely below the Input ABI.
 
 ## Verification
 
 - PR #13 (`Housekeeping: pay down H1-H3 architecture debt`) passed the full Linux integration suite and strict unit suite before merge.
-- H5 adds `linux_terminal_parser_unit`, which deterministically checks every split boundary for supported CSI sequences plus UTF-8, standalone Escape, partial-CSI flush, malformed input recovery, and reset behavior.
-- `linux_input` now also exercises split CSI, split UTF-8, and standalone Escape through a real PTY.
-- The complete Linux workflow remained green after H5.
+- H5 adds deterministic parser split-boundary tests plus real PTY integration coverage.
+- The final boundary cleanup strengthened `minift8_ui_smoke` to assert the independent `RX Audio` / `TX Audio` / `Control` vocabulary.
+- The complete Linux integration and strict unit workflow passes on the final boundary baseline.
 
 ## Current gate
 
-The H1-H5 architecture-audit debt is paid. No known housekeeping item from this audit blocks deterministic MiniFT8 Audio -> DSP work.
+The architecture-audit debt is paid and the current boundaries are clean. The next approved vertical slice is:
+
+```text
+tests/kfs16b12k.wav
+    -> MiniShell WAV provider
+    -> MiniShell Audio ABI
+    -> MiniFT8 source/profile interpretation
+    -> ordinary-audio select/downmix
+    -> ft8_engine
+    -> decoded RX UI
+```
