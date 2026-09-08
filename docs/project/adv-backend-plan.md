@@ -57,6 +57,8 @@ The MiniFT8 core and profile are the same. Only the MiniShell backend changes.
 11. **The MiniShell public API is not yet frozen for backward compatibility.** Breaking API changes are allowed when they improve clarity, ownership, portability, or real application fit. A formal binary ABI may be introduced later if independently built `.so` or `.elf` applications need cross-version compatibility.
 12. **Code-facing names are lowercase.** Project names remain MiniShell/MiniFT8 in prose, while executables, runtime app names, source paths, and persistent filenames use forms such as `minishell`, `ft8`, `apps/ft8/`, and `/flash/ft8/station.txt`. Normal C macros remain uppercase.
 13. **Protocol selection is application selection.** The current runtime app `ft8` is FT8-only. Future `ft4`, `cw`, `rtty`, `js8`, etc. are separate applications and are created only when their implementation begins.
+14. **ADV persistent storage uses two filesystems and no NVS.** `/flash` is LittleFS on internal flash; `/sd` is FATFS on the removable SD card. Internal configuration and other persistent MiniShell/backend state use ordinary files under `/flash`; do not introduce a second NVS persistence model.
+15. **ADV must operate without an SD card.** When runtime file-based application loading is later enabled, MiniShell searches both `/flash/apps` and `/sd/apps`. `/flash/apps` has precedence for duplicate application names; `/sd/apps` extends the installed app set without being required for normal operation. ADV V1 still uses the compiled-in registry until runtime loading is implemented.
 
 ## Stage A0 — portable resident shell/startup boundary and terminology cleanup — COMPLETE
 
@@ -196,21 +198,47 @@ shared service/input probes pass on hardware
 
 ## Stage A3 — Filesystem and Time/Location
 
-Goal: support the persistent application services needed by MiniFT8 configuration and normal utilities.
+Goal: support the persistent application services needed by MiniFT8 configuration and normal utilities while preserving reliable SD-less operation.
+
+### ADV storage V1 decisions
+
+```text
+/flash    LittleFS on internal flash
+/sd       FATFS on removable SD card
+NVS       not used
+```
+
+LittleFS is the sole internal persistent-storage mechanism. MiniShell/backend settings that need persistence are stored as ordinary files under `/flash` rather than in NVS. FATFS exists only for the removable SD namespace.
+
+The SD card is optional. Failure to mount or absence of `/sd` must not prevent MiniShell from booting, using internal configuration, running compiled-in applications, or using `/flash`.
+
+Future runtime file-based app discovery on ADV uses:
+
+```text
+/flash/apps
+/sd/apps
+```
+
+MiniShell merges the discovered application names. If the same application name exists in both locations, `/flash/apps` wins. This makes internal flash the deterministic baseline and lets SD add applications without being required or silently shadowing the internal copy. This search policy becomes active only when runtime app loading is implemented; ADV V1 continues to use its compiled-in registry.
 
 Tasks:
 
-- map the MiniShell logical `/flash` and `/sd` namespace to ADV storage;
+- mount/map `/flash` to LittleFS on internal flash;
+- mount/map optional `/sd` to FATFS on the removable SD card;
+- do not add NVS persistence;
 - implement file and directory primitives required by the existing Filesystem service;
 - preserve MiniShell normalization, handle ownership, lifecycle, and quota semantics;
 - provide monotonic time and sleep;
-- provide UTC get/set/persistence through the MiniShell Time/Location ownership model;
-- preserve support for configured default location;
+- provide UTC get/set/persistence through the MiniShell Time/Location ownership model using `/flash` when persistence is required;
+- preserve support for configured default location using `/flash` persistence;
 - add GPS/live-location provider later through the existing resident update hooks rather than exposing GPS directly to MiniFT8.
 
 Exit criteria:
 
 ```text
+MiniShell boots and operates with no SD card inserted
+/flash is available through LittleFS
+optional /sd is available through FATFS when inserted
 ls/cat/basic filesystem behavior works through MiniShell API
 /flash/ft8/station.txt can be read/written through storage_service
 date/time baseline works
