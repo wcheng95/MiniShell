@@ -2,9 +2,9 @@
 
 ## 1. Milestone
 
-The next MiniFT8-V3 milestone is **decode RX**.
+The current MiniFT8-V3 milestone is **decode RX**.
 
-MiniFT8 is intentionally being reduced to four major radio-domain blocks:
+The remaining major radio-domain blocks are intentionally:
 
 ```text
 RX
@@ -15,11 +15,9 @@ ADIF log
 
 RX is developed and understood first. AutoSeq, TX, and ADIF remain outside this milestone.
 
-MiniFT8-V2 is the behavioral/golden reference, not a structure to copy wholesale. V2 code may be kept, cleaned, rewritten, or dropped depending on ownership and interface quality. Structural cleanup must be separated from deliberate DSP/algorithm changes so behavioral differences remain explainable.
+MiniFT8-V2 is the behavioral/golden reference, not a structure to copy wholesale. V2 code may be kept, cleaned, rewritten, or dropped according to ownership and interface quality. Structural cleanup is always separated from deliberate DSP/algorithm changes.
 
-## 2. RX pipeline
-
-The seven logical RX/DSP blocks are:
+## 2. Logical RX pipeline
 
 ```text
 MiniShell Audio
@@ -64,85 +62,81 @@ MiniShell Audio
 
 Blocks 4-7 are naturally internal pieces of `ft8_engine`. `rx_result_builder` is deliberately outside the protocol engine because it performs station-aware factual normalization/classification.
 
-These are **logical ownership boundaries**, not a requirement for seven source files. Small adjacent mechanisms may share a module when doing so remains easy to explain and test.
+These are **logical ownership boundaries**, not a requirement for seven source files. RX-1B decides the physical module/file structure from the top down.
 
-## 3. Block ownership
+## 3. Responsibility boundaries
 
 | Block | Owns | Must not own |
 | --- | --- | --- |
 | `rx_audio_adapter` | MiniShell Audio reads and translation into MiniFT8-owned sample blocks | FT8 DSP, WAV/UAC/platform details, channel meaning |
-| `rx_frontend` | MiniFT8 source/profile channel interpretation and ordinary-audio/IQ preprocessing | MiniShell provider behavior, slot timing, FT8 candidate policy |
-| `rx_slot_framer` | slot identity and exact sample accounting inside a slot | whole-slot raw PCM ownership, FFT, decoding |
-| `ft8_monitor` | streaming sample-to-waterfall/FFT analysis and its explicit workspace/state | UI, wall-clock pacing, AutoSeq, platform APIs |
-| candidate finder | Costas/sync search over a completed waterfall | LDPC, UI, AutoSeq |
+| `rx_frontend` | source/profile channel interpretation and ordinary-audio/IQ preprocessing | MiniShell provider behavior, slot timing, FT8 candidate policy |
+| `rx_slot_framer` | slot identity and exact sample accounting | whole-slot raw PCM ownership, FFT, decoding |
+| `ft8_monitor` | streaming sample-to-waterfall analysis and explicit DSP workspace/state | UI, wall-clock pacing, AutoSeq, platform APIs |
+| candidate finder | Costas/sync search over completed waterfall | LDPC, UI, AutoSeq |
 | candidate decoder | likelihood extraction, LDPC, CRC, validated payload/status | message rendering, UI, QSO policy |
 | protocol message codec | payload type classification, structured unpacking, callsign-hash resolution, canonical protocol text | mycall application semantics, reply policy, UI sorting, AutoSeq |
-| `rx_result_builder` | station-aware logical normalization, typed CQ/to-me classification, free-text CQ exception, DXpedition relevance transformation, optional logical dedupe, `RxBatch` construction | FFT, LDPC, CRC, MiniShell calls, reply/TX policy |
+| `rx_result_builder` | station-aware factual normalization/classification and `RxBatch` construction | FFT, LDPC, CRC, MiniShell calls, reply/TX policy |
 
-`app_controller` remains the domain coordinator. RX does not directly call AutoSeq, TX, ADIF, or UI modules.
+`app_controller` remains the coordinator. RX does not directly call AutoSeq, TX, ADIF, or UI modules behind it.
 
-A useful distinction is:
+### Factual classification versus QSO policy
+
+RX may derive factual properties:
 
 ```text
-factual classification:
-    is this message a CQ?
-    is this message addressed to my station?
-        -> RX result builder may answer
+is this a CQ?
+is it addressed to my station?
+is this DXpedition message logically relevant to my station?
+```
 
-QSO policy:
-    should I reply?
-    which station should I work?
-    which TX stage comes next?
-        -> AutoSeq/application policy only
+AutoSeq/application policy owns:
+
+```text
+should I reply?
+which station should I work?
+which TX stage comes next?
+should TX be armed?
 ```
 
 ## 4. Streaming and RAM rule
 
-Raw audio is a streaming resource.
+Raw audio is a streaming resource. Normal RX must not require a complete FT8 slot of raw PCM in RAM.
 
-Normal RX must **not** require a whole FT8 slot of PCM to be stored in RAM. The normal memory classes are:
+Normal memory classes are:
 
 ```text
-bounded audio streaming buffers
-    reusable; independent of slot duration
-
-bounded FFT working memory
-    reusable; explicit monitor ownership
-
+bounded reusable audio buffers
+bounded reusable FFT/workspace memory
 whole decode-window waterfall
-    retained until candidate search/decode completes
 ```
 
-At the current MiniShell Audio boundary:
+At the MiniShell Audio boundary:
 
 ```text
 12000 frames/s x 2 channels x 2 bytes = 48000 bytes/s
 ```
 
-A 15-second whole-slot raw buffer would be about 720 kB, so it must not become an architectural requirement for Cardputer-class targets.
+A 15-second raw two-channel slot is about 720 kB, so whole-slot PCM storage is not a normal architectural requirement for Cardputer-class targets.
 
-A test program may load an entire WAV file into host RAM for convenience, but production RX interfaces remain streaming from the start.
+Locked rule:
 
-### Optional raw-audio research path
+> Stream raw audio; retain the waterfall; retain raw PCM only by explicit exception.
 
-Later research algorithms may explicitly retain raw slot audio, including double buffering:
+### Optional research raw-audio path
+
+Later algorithms may explicitly retain or double-buffer raw slot audio:
 
 ```text
                     +--> normal monitor/waterfall/decode
 streaming samples --+
-                    `--> optional raw-slot capture
-                              |
+                    `--> optional raw capture
                               +--> alternate algorithm A
                               `--> alternate algorithm B
 ```
 
-This optional path is valuable because algorithms can consume the **same captured sample stream**, making comparisons meaningful. More capable hosts may enable it; embedded targets may leave it disabled. Normal decoding must not depend on it.
+This permits meaningful algorithm comparison on identical samples. Linux may enable it; embedded targets may disable it. Normal decode must not depend on it.
 
-Locked RX memory rule:
-
-> Stream raw audio; retain the waterfall; retain raw PCM only by explicit exception.
-
-## 5. Timing rule
+## 5. Timing and audio semantics
 
 For live reception:
 
@@ -151,15 +145,9 @@ UTC          establishes slot identity/boundary
 sample count measures progress inside the slot
 ```
 
-For deterministic file/replay tests, samples are the clock. No real-time sleeping is required.
+For deterministic file/replay tests, samples are the clock; no real-time sleeping is required.
 
-`rx_slot_framer` therefore tracks slot/sample accounting but does not own a whole-slot PCM buffer.
-
-## 6. Audio/channel rule
-
-MiniShell transports ordered channel 0/channel 1 samples without assigning domain meaning.
-
-MiniFT8 source/profile semantics decide interpretation:
+MiniShell transports ordered channel 0/channel 1 data without assigning meaning. MiniFT8 source/profile semantics decide:
 
 ```text
 ordinary audio
@@ -168,95 +156,144 @@ ordinary audio
 I/Q
     channel 0 = I
     channel 1 = Q
-    -> future I/Q processing
+    -> I/Q processing
 ```
 
-The initial reference fixture `tests/kfs16b12k.wav` already matches the MiniShell transport format: 12 kHz, S16, two channels.
+The engine's long-term internal sample rate is intentionally not frozen by V2's current 6 kHz implementation. Structural cleanup first reproduces V2 behavior; 12 kHz versus a justified 12->6 kHz path is a later measured algorithm/design decision.
 
-The FT8 engine's internal sample rate is **not yet locked** to V2's 6 kHz choice. We will preserve V2 behavior first, then compare a clean 12 kHz path versus a justified 12->6 kHz frontend conversion as a separate algorithm decision.
+## 6. V2 source classification
 
-## 7. V2 source classification
-
-Before code is moved, classify V2 sources as:
-
-```text
-KEEP      algorithm/interface already sufficiently clean
-CLEAN     useful behavior but ownership/interface must be corrected
-REWRITE   concept is useful but implementation is unsuitable for V3
-DROP      responsibility moved to MiniShell or is obsolete
-```
-
-RX-0 final map:
+RX-0 final classification:
 
 | MiniFT8-V2 source | V3 role | Decision |
 | --- | --- | --- |
-| `main/audio_source.cpp` | old physical RX-source selector | DROP as V3 transport architecture; reference behavior only |
-| `main/stream_uac.cpp` | UAC/device transport | DROP from MiniFT8; belongs below MiniShell Audio |
-| `main/stream_mic.cpp` | microphone/device transport | DROP from MiniFT8; belongs below MiniShell Audio |
+| `main/audio_source.cpp` | old physical RX selector | DROP as V3 transport architecture; reference only |
+| `main/stream_uac.cpp` | UAC/device transport | DROP from MiniFT8; below MiniShell Audio |
+| `main/stream_mic.cpp` | microphone/device transport | DROP from MiniFT8; below MiniShell Audio |
 | `main/resample.cpp` | channel conversion/resampling ideas | REWRITE after measured review |
 | `main/ft8_audio_pipeline.cpp` | mixed RX pipeline | REWRITE/SPLIT; behavior reference only |
-| `components/ft8_lib/common/monitor.[ch]` | FFT/waterfall engine | KEEP mathematics; CLEAN memory ownership/lifecycle substantially |
-| `components/ft8_lib/ft8/decode.[ch]` | candidate search + likelihood/LDPC/CRC | KEEP algorithms; CLEAN policy/status/interface details |
-| `components/ft8_lib/ft8/message.[ch]` | payload type/unpack + shared encode/hash mechanics | KEEP protocol mechanics; CLEAN typed representation/hash ownership substantially |
-| LDPC/CRC/constants dependencies | pure FT8 math/protocol core | KEEP unless implementation work reveals a concrete issue |
-| `tests/tx_e2e/decode_helper.cpp` | simplest host decoder reference | KEEP as golden/reference concept; do not copy test WAV I/O into engine |
+| `components/ft8_lib/common/monitor.[ch]` | FFT/waterfall | KEEP math; CLEAN ownership/lifecycle substantially |
+| `components/ft8_lib/ft8/decode.[ch]` | candidate + likelihood/LDPC/CRC | KEEP algorithms; CLEAN policy/status/interface details |
+| `components/ft8_lib/ft8/message.[ch]` | payload type/unpack/hash mechanics | KEEP protocol mechanics; CLEAN typed representation/hash ownership |
+| LDPC/CRC/constants | pure protocol/math core | KEEP unless implementation reveals concrete issue |
+| `tests/tx_e2e/decode_helper.cpp` | simplest host reference | KEEP as reference concept; no WAV I/O inside engine |
 
-TX-specific message parsing/packing cleanup is deferred to the TX milestone.
+TX-side message encoding cleanup is deferred to the TX milestone.
 
-## 8. Golden-reference rule
+## 7. Decoder and protocol rules
 
-MiniFT8-V2 defines initial expected behavior.
+### V2 decode profile baseline
 
-Primary golden invariant:
+During structural cleanup:
+
+```text
+candidate capacity      50
+minimum sync score       5
+max LDPC iterations     25
+```
+
+The current V2 time-search range is also preserved first. These are explicit profile/search policy, not FT8 protocol constants.
+
+Candidate score is a synchronization score, not SNR.
+
+### SNR
+
+V2's chosen SNR estimator is the initial baseline. Preserve it during structural cleanup; improve/calibrate it later only as a separate algorithm experiment.
+
+### Message type and structure
+
+Protocol message type is first-class. Normal typed messages must not be decoded to text and then tokenized again to rediscover structure.
+
+The protocol engine should eventually produce a tagged MiniFT8-owned result conceptually containing:
+
+```text
+Ft8ProtocolMessage
+    exact payload identity
+    protocol type
+    parse status
+    typed message-specific fields
+    canonical rendered text
+    candidate/location metadata
+    V2-baseline SNR metadata
+    optional FEC/CRC diagnostics
+```
+
+Known protocol type and structured-unpack support are separate facts.
+
+### Free-text CQ exception
+
+A protocol `FREE_TEXT` message remains `FREE_TEXT`, but `rx_result_builder` may set logical `is_cq=true` when canonical text matches exactly:
+
+```text
+CQ <nnn|AAAA> <valid-callsign> [valid-grid]
+```
+
+This is an explicit classifier, not a return to generic rendered-text parsing.
+
+### Deep-search context
+
+Future reply-to-me deep search may accept explicit station-aware decoder context such as the local callsign. It may influence candidate generation/ranking or prior-assisted likelihood/LDPC decoding.
+
+It must not carry:
+
+```text
+AutoSeq stage
+desired reply target
+IgnoreList
+TX state
+UI priority
+```
+
+Locked distinction:
+
+> Station identity may be a decoder/search hint; station/QSO policy remains outside `ft8_engine`.
+
+### Hash store
+
+Hashed callsigns are FT8 protocol state across slots:
+
+```text
+ft8_engine
+    `-- Ft8HashStore
+          explicit owner
+          context-aware lookup/save
+          explicit aging
+```
+
+No global hash table is required by the codec. MiniShell does not own this state.
+
+## 8. Golden-reference policy
+
+Canonical RX-1A record: `rx-golden.md`.
+
+Primary structural invariant:
 
 ```text
 same input
-    -> same valid decoded FT8 messages/payloads/types
+    -> same reference-host waterfall
+    -> same valid exact payloads
+    -> same supported protocol type/semantics
 ```
 
-Useful diagnostics to record include:
+Candidate score/order, V2 SNR, CRC quick hash, and V2 field offsets are diagnostic rather than hard permanent contracts.
 
-```text
-candidate count
-candidate score/order
-frequency/time offset
-decode status / LDPC / CRC information
-payload identity
-protocol message type
-message text
-V2 SNR
-```
-
-Structural refactors must be isolated from algorithm changes:
+Structural changes and algorithm changes are isolated:
 
 ```text
 A  ownership/global cleanup       -> same decoder behavior
 B  interface/module cleanup       -> same decoder behavior
-C  targeted protocol bug fix      -> independent test/vector
+C  targeted protocol bug fix      -> dedicated vector/test
 D  resampling/FFT change          -> deliberate comparison
-E  time_osr/freq_osr/deep search  -> deliberate comparison
+E  OSR/deep-search/SNR change     -> deliberate comparison
 ```
 
-The V2 SNR estimator is the initial baseline method. Candidate score and SNR remain separate. SNR improvement is deferred to a measured algorithm change.
+Do not automatically rewrite golden values because a refactor fails a test. Investigate the difference first.
 
-Known type/codec gaps such as type 0.6 classification and currently unsupported known message types must be tested explicitly; they are not silently mixed into structural refactoring.
+## 9. Development stages
 
-## 9. RX-0 through RX-7
+### RX-0 — architecture and V2 source review — complete
 
-### RX-0 — Golden reference and code map — complete
-
-RX-0 established:
-
-- seven logical RX/DSP boundaries;
-- station-aware `rx_result_builder` boundary;
-- streaming/RAM rule;
-- V2 source KEEP/CLEAN/REWRITE/DROP classification;
-- golden behavior policy;
-- monitor ownership/reset semantics;
-- candidate/decode policy boundaries;
-- typed protocol-message/hash-store direction.
-
-Canonical reviews are:
+Canonical reviews:
 
 ```text
 rx-decoder-contract.md
@@ -266,27 +303,84 @@ rx-decode-review.md
 rx-message-review.md
 ```
 
-### RX-1 — Clean FT8 decode core
+### RX-1 — clean FT8 decode core
 
-Implement structure before mathematics.
+#### RX-1A — freeze golden boundaries — complete
 
-Initial work order:
+Pinned V2 algorithm baseline:
 
 ```text
-1. establish/copy golden protocol + monitor tests
-2. define MiniFT8-owned internal decoder/result types
-3. clean monitor ownership/workspace with byte-identical waterfall target
-4. bring candidate/LDPC/CRC core across with V2 policy profile
-5. build explicit Ft8HashStore
-6. build typed protocol message decoder
-7. run golden tests after every structural step
+5bd3ef98f72388a850bebad04bd7300b90edb63c
 ```
 
-No resampling, OSR, SNR, deep-search, or other algorithm improvement is mixed into these steps.
+Hard Linux reference anchors include:
 
-### RX-2 — Pure host FT8 decoder
+```text
+FT8 active-waterfall FNV-1a-64  18BE1E838FD9C6AF
+FT4 active-waterfall FNV-1a-64  CBDD2509276E5030
+unique CQ payload                000000206016500A1988
+```
 
-Build a MiniShell-independent test path:
+Fixed protocol vectors cover standard CQ, ARRL Field Day, DXpedition, non-standard CQ, and a FREE_TEXT CQ-shaped message. Existing V2 `golden_rx` plus the new boundary regression pass in CI.
+
+Known V2 defects are explicitly excluded from desired golden behavior:
+
+- type 0.6 `CONTESTING` currently maps to `UNKNOWN`;
+- generic telemetry decode has a buffer-overflow risk;
+- the old host hash stub does not correctly model 22/12/10-bit lookup.
+
+#### RX-1B — top-down module/interface design — NEXT
+
+No V2 decoder source migration begins before this is complete.
+
+Design sequence:
+
+```text
+RX goal
+  -> top-level responsibilities
+  -> module boundaries
+  -> ownership
+  -> data contracts
+  -> lifecycle/state transitions
+  -> memory/workspace ownership
+  -> dependency direction
+  -> error/status contracts
+  -> unit-test boundaries
+  -> only then implementation migration
+```
+
+RX-1B will determine the physical module/file boundaries. The current likely ownership shape is only a starting hypothesis:
+
+```text
+RX
+|
++-- rx_audio_adapter
++-- rx_frontend
++-- rx_slot_framer
++-- ft8_engine
+|     +-- monitor/waterfall
+|     +-- candidate search
+|     +-- candidate decode / LDPC / CRC
+|     +-- protocol message codec
+|     `-- hash store
+`-- rx_result_builder
+```
+
+The V2 directory structure does not dictate this design.
+
+#### RX-1C+ — implementation after RX-1B
+
+Expected direction, subject to RX-1B dependency review:
+
+```text
+RX-1C  monitor ownership/workspace/lifecycle
+RX-1D  candidate + likelihood + LDPC + CRC core
+RX-1E  explicit Ft8HashStore
+RX-1F  typed protocol message codec
+RX-1G  pure cleaned decoder golden regression
+```
+
+### RX-2 — pure host FT8 decoder
 
 ```text
 known engine-native PCM
@@ -296,36 +390,23 @@ known engine-native PCM
 
 No UI, MiniShell, AutoSeq, or TX.
 
-### RX-3 — MiniFT8 RX frontend
-
-Build/test:
+### RX-3 — RX frontend
 
 ```text
 12 kHz / S16 / 2-channel
-    -> source/profile interpretation
-    -> ordinary-audio select/downmix or future IQ path
+    -> MiniFT8 source/profile semantics
+    -> select/downmix or future IQ path
     -> engine-native streaming samples
 ```
 
-This is where the internal 12 kHz versus 6 kHz decision is measured and made.
+### RX-4 — streaming slot framing
 
-### RX-4 — Streaming slot framing
+Verify exact slot/sample accounting, boundary behavior, partial-first-slot handling, no lost/duplicated samples, explicit new-window versus stream-discontinuity reset behavior, and bounded memory.
 
-Verify:
-
-- exact slot/sample accounting;
-- correct boundary behavior;
-- partial first slot handling;
-- no lost or duplicated samples;
-- correct monitor new-window/stream-discontinuity behavior;
-- memory does not grow with slot duration.
-
-### RX-5 — Pure RX block
-
-Assemble and test:
+### RX-5 — pure RX assembly
 
 ```text
-bounded PCM blocks
+bounded PCM
     -> rx_frontend
     -> rx_slot_framer
     -> ft8_engine
@@ -334,21 +415,19 @@ bounded PCM blocks
     -> RxBatch
 ```
 
-No MiniShell requirement in the principal golden test.
-
 ### RX-6 — MiniShell WAV Audio integration
 
 ```text
 tests/kfs16b12k.wav
-    -> MiniShell WAV Audio provider
+    -> MiniShell WAV Audio
     -> rx_audio_adapter
     -> RX
     -> RxBatch
 ```
 
-Changing the provider later from WAV to QMX must not change the RX domain pipeline.
+Changing WAV to a future QMX provider must not alter the RX domain pipeline.
 
-### RX-7 — Real decoded RX UI
+### RX-7 — real decoded RX UI
 
 ```text
 RxBatch
@@ -357,105 +436,4 @@ RxBatch
     -> ui_shell
 ```
 
-Replace prototype RX lines with real decoded messages, then stop the milestone. Do not add AutoSeq, TX, or ADIF as part of RX completion.
-
-## 10. Protocol and RX output direction
-
-Exact C syntax is defined during RX-1, but the two-level result is now conceptually clear.
-
-Protocol engine output:
-
-```text
-Ft8ProtocolSlot
-    protocol
-    message count
-    messages[]
-
-Ft8ProtocolMessage
-    exact payload identity
-    protocol message type
-    parse status
-    typed message-specific fields
-    canonical rendered text
-    candidate score
-    frequency/time metadata
-    V2-baseline SNR metadata
-    optional LDPC/CRC diagnostics
-```
-
-The protocol type is always first-class. Known protocol type and structured-unpack support are different facts.
-
-Application RX output:
-
-```text
-RxBatch
-    slot identity
-    message count
-    RxMessage[]
-```
-
-`rx_result_builder` may add factual station-aware properties such as:
-
-```text
-is_cq
-is_to_me
-DXpedition logical relevance
-```
-
-and the explicit free-text CQ exception:
-
-```text
-protocol type = FREE_TEXT
-text = CQ <nnn|AAAA> <valid-callsign> [valid-grid]
-    -> logical is_cq = true
-```
-
-The protocol type remains `FREE_TEXT`.
-
-RX still must not decide:
-
-```text
-whether to reply
-which station to work
-which TX stage comes next
-whether to arm TX
-```
-
-Those are AutoSeq/application policies.
-
-## 11. Decoder/search context
-
-Normal FT8 decode semantics remain protocol-level. Future deep-search algorithms may accept explicit station-aware search/prior hints, including the local callsign, if that improves recovery of reply-to-me messages.
-
-Conceptually:
-
-```text
-Ft8DecodeContext
-    optional local_callsign
-    deep_search_enabled
-    future explicit algorithmic hints
-```
-
-This context may influence candidate generation/ranking or prior-assisted likelihood/LDPC decoding. It must not carry AutoSeq stage, desired reply target, IgnoreList, TX state, or UI priority.
-
-Locked distinction:
-
-> Station identity may be a decoder/search hint; station/QSO policy remains outside `ft8_engine`.
-
-## 12. Hash-store direction
-
-Hashed callsigns are FT8 protocol state and persist across slots.
-
-V3 direction:
-
-```text
-ft8_engine
-    `-- Ft8HashStore
-          explicit storage owner
-          context-aware lookup/save
-          explicit slot aging
-```
-
-No global hash table is required by the message codec. MiniShell does not own this state.
-
-Exact payload comparison is the canonical duplicate identity. A CRC/hash may be used as a quick prefilter but not as a collision-free identity.
+At that point stop the RX milestone. AutoSeq, TX, and ADIF remain separate major blocks.
