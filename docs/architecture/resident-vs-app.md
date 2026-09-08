@@ -53,7 +53,7 @@ rm
 rmdir
 ```
 
-These use only the public MiniShell ABI and can be rebuilt for another MiniShell platform with the required capabilities.
+These use only the public MiniShell API and can be rebuilt for another MiniShell platform with the required capabilities.
 
 Large domain applications such as MiniFT8, MiniCW, and MiniRTTY belong on this side of the boundary as well.
 
@@ -89,7 +89,7 @@ df    -> Filesystem space
 date  -> Time/Location UTC
 ```
 
-Keeping them as apps tests the same ABI that real applications will use instead of creating privileged shell-only paths.
+Keeping them as apps tests the same API that real applications use instead of creating privileged shell-only paths.
 
 ## Loader/container independence
 
@@ -97,11 +97,14 @@ Do not describe applications conceptually as "ELF apps" or ".so apps". Those are
 
 ```text
 Linux/Mint      .so
+Cardputer ADV   V1 compiled-in registry
 NuttX           native loadable mechanism where practical
-ADV             compiled-in registry acceptable when necessary
+future ADV      runtime .elf loading may be explored later
 ```
 
-The application contract remains `main(argc, argv)` plus `mini_api_get()` for the current native ABI.
+The current source-level application contract remains `main(argc, argv)` plus `mini_api_get()`. Applications are rebuilt for the target and current MiniShell API.
+
+A formal binary ABI is intentionally deferred until independently built applications need compatibility across MiniShell releases.
 
 ## One-owner rule still applies to resident functionality
 
@@ -111,7 +114,7 @@ Resident functionality must still have:
 - a small internal interface;
 - platform-private implementation below the backend boundary;
 - focused tests;
-- no unnecessary public ABI expansion.
+- no unnecessary public API expansion.
 
 Moving a feature resident is not permission to put its implementation into `shell.c`.
 
@@ -123,7 +126,7 @@ Keep ordinary tools separate first because that gives:
 clear ownership
 small understandable source
 independent testing
-load only what is needed
+load/select only what is needed
 ```
 
 A future grouped `minitools` package is acceptable only if measurement shows that individual packaging creates meaningful cost. It is an optimization, not the base architecture.
@@ -133,7 +136,7 @@ A future grouped `minitools` package is acceptable only if measurement shows tha
 | Function | Default placement |
 | --- | --- |
 | Shell dispatch | resident |
-| App lifecycle/loader contract | resident |
+| App lifecycle/packaging boundary | resident |
 | Memory/FS/Time/Display/Input service semantics | resident |
 | `status` | resident diagnostic |
 | `ls`, `cat`, `cp`, `nano`, `free`, `df`, `date` | portable app |
@@ -141,4 +144,4 @@ A future grouped `minitools` package is acceptable only if measurement shows tha
 | Recovery transfer | platform-dependent resident function |
 | Power/system control | platform-dependent resident function |
 
-See `../project/command-roadmap.md` for the current command baseline and `../project/consistency-check.md` for internal architecture debt.
+See `../project/command-roadmap.md` for the current command baseline and `../project/consistency-check.md` for architecture audit/history.
