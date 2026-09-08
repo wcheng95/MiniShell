@@ -6,6 +6,8 @@ This is the current development priority.
 
 MiniFT8 RX-1B is **paused, not abandoned**. RX-1A remains the frozen decoder/golden baseline. RX-1B resumes after the cross-platform checkpoint defined below is complete.
 
+Stage **A0 is complete**. The next implementation stage is **A1 — ADV ESP-IDF build skeleton**.
+
 ## Goal
 
 Use two MiniShell backends and two MiniFT8 profiles to exercise the architecture from both directions:
@@ -56,18 +58,7 @@ The MiniFT8 core and profile are the same. Only the MiniShell backend changes.
 12. **Code-facing names are lowercase.** Project names remain MiniShell/MiniFT8 in prose, while executables, runtime app names, source paths, and persistent filenames use forms such as `minishell`, `ft8`, `apps/ft8/`, and `/flash/ft8/station.txt`. Normal C macros remain uppercase.
 13. **Protocol selection is application selection.** The current runtime app `ft8` is FT8-only. Future `ft4`, `cw`, `rtty`, `js8`, etc. are separate applications and are created only when their implementation begins.
 
-## Architectural issue found before the port
-
-The application API is backend-neutral, but the resident MiniShell shell/startup still contains Linux-style assumptions:
-
-```text
-core/main.c     normal C main()/stdio startup assumptions
-core/shell.c    fgets/printf/puts on stdin/stdout
-```
-
-These must be cleaned before ADV is treated as a true peer backend. This is a private MiniShell-core/backend issue; it must not change the public application API semantics unnecessarily.
-
-## Stage A0 — portable resident shell/startup boundary and terminology cleanup
+## Stage A0 — portable resident shell/startup boundary and terminology cleanup — COMPLETE
 
 Goal: remove direct Linux terminal assumptions from the portable MiniShell control plane and keep the active code/documentation terminology consistent.
 
@@ -86,23 +77,35 @@ protocol Mode state     -> removed from ft8; protocol switching is app switching
 
 Backward-compatibility/append-only promises were also removed while the API remains under active architectural development.
 
-Remaining A0 tasks:
+Portable shell/startup cleanup completed:
 
-- define a small private resident-console/startup boundary;
-- keep Linux stdin/stdout behavior underneath the Linux backend;
-- allow ADV to provide Cardputer display/keyboard shell I/O underneath the same private boundary;
-- keep `app_manager` and the public MiniShell API behavior intact while doing the shell portability cleanup;
-- keep all existing Linux CTest/unit coverage green.
+```text
+core/minishell_runtime.c     portable MiniShell lifecycle via minishell_run()
+platform/linux/main.c        Linux C entry point only
+platform/linux/linux_console.c
+                             Linux stdin/stdout + stdio buffering ownership
+core/shell.c                 shell parsing/control only; no stdin/stdout access
+core/platform_backend.h      private resident console read/write boundary
+```
 
-Exit criteria:
+The private resident console is intentionally **not** part of the public MiniShell API. Applications continue to use Display, Input, System, and other public services.
+
+Exit criteria — passed:
 
 ```text
 Linux shell behavior unchanged
-all Linux tests green
+all Linux integration/unit tests green
 portable shell/core has no direct dependency on POSIX terminal behavior
+Linux main()/stdin/stdout details live under platform/linux/
 active MiniShell application-facing terminology consistently says API
 code-facing runtime/path names follow the lowercase naming rule
 no accidental backward-compatibility promise remains in active architecture/docs
+```
+
+Reference commit:
+
+```text
+1cb44be4  refactor: isolate resident console and startup boundary
 ```
 
 ## Stage A1 — ADV ESP-IDF build skeleton
@@ -114,6 +117,7 @@ Tasks:
 - add an ESP-IDF firmware composition for Cardputer ADV;
 - compile portable MiniShell core/services into the firmware;
 - provide ADV platform init/shutdown and platform identity;
+- provide the private resident console boundary for Cardputer display/keyboard shell I/O;
 - define explicit resource limits for the ADV MiniShell application domain;
 - add the compiled-in app-registry mechanism;
 - initially register a tiny probe/hello app before `ft8`.
