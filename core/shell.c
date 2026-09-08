@@ -40,11 +40,11 @@ static void show_app(const char *name, void *ctx)
 static void cmd_help(void)
 {
     puts("help              show this help");
-    puts("status            show MiniShell platform/service status");
+    puts("status            show minishell platform/service status");
     puts("apps              list installed applications");
     puts("run <app> [...]   run an application");
     puts("<app> [...]       run an application directly");
-    puts("exit              leave MiniShell");
+    puts("exit              leave minishell");
 }
 
 static int api_has_audio(const mini_api_t *api)

@@ -8,8 +8,8 @@
 #define FIELD_END(type, field) \
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
 
-#define MINIFT8_DATA_DIR "/flash/MiniFT8"
-#define MINIFT8_STATION_PATH "/flash/MiniFT8/Station.txt"
+#define MINIFT8_DATA_DIR "/flash/minift8"
+#define MINIFT8_STATION_PATH "/flash/minift8/station.txt"
 
 static void say(const mini_api_t *api, const char *text)
 {
@@ -33,13 +33,13 @@ int main(int argc, char **argv)
 
     AppController app;
     if (!app_controller_init(&app, api->fs, MINIFT8_DATA_DIR, MINIFT8_STATION_PATH)) {
-        say(api, "MiniFT8: failed to initialize storage/configuration\n");
+        say(api, "minift8: failed to initialize storage/configuration\n");
         return 3;
     }
 
-    MiniFt8UiAdapter adapter;
+    minift8_ui_adapter_t adapter;
     if (!minift8_ui_adapter_init(&adapter, api)) {
-        say(api, "MiniFT8: requires MiniShell text Display >= 30x8 and key Input\n");
+        say(api, "minift8: requires minishell text Display >= 30x8 and key Input\n");
         return 4;
     }
 
@@ -78,6 +78,6 @@ int main(int argc, char **argv)
     }
 
     minift8_ui_adapter_shutdown(&adapter);
-    if (result != 0) say(api, "MiniFT8: application error\n");
+    if (result != 0) say(api, "minift8: application error\n");
     return result;
 }

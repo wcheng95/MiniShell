@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
-project(MiniShell VERSION 0.1.0 LANGUAGES C)
+project(minishell VERSION 0.1.0 LANGUAGES C)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR
-        "MiniShell reference build targets Linux. "
+        "minishell reference build targets Linux. "
         "This build directory appears to contain a non-Linux toolchain cache. "
         "Use a fresh build directory, for example: cmake -S . -B build-linux")
 endif()
@@ -95,22 +95,22 @@ add_minishell_app(nano
     apps/nano/main/nano_util.c
 )
 
-add_minishell_app(MiniFT8
-    apps/MiniFT8/main/minift8_main.c
-    apps/MiniFT8/main/minishell_ui_adapter.c
-    apps/MiniFT8/src/app_controller/app_controller.c
-    apps/MiniFT8/src/config_service/config_service.c
-    apps/MiniFT8/src/qso_scheduler/qso_scheduler.c
-    apps/MiniFT8/src/storage_service/storage_service.c
-    apps/MiniFT8/src/ui_shell/ui_shell.c
+add_minishell_app(minift8
+    apps/minift8/main/minift8_main.c
+    apps/minift8/main/minishell_ui_adapter.c
+    apps/minift8/src/app_controller/app_controller.c
+    apps/minift8/src/config_service/config_service.c
+    apps/minift8/src/qso_scheduler/qso_scheduler.c
+    apps/minift8/src/storage_service/storage_service.c
+    apps/minift8/src/ui_shell/ui_shell.c
 )
-target_include_directories(MiniFT8 PRIVATE
-    apps/MiniFT8/include
-    apps/MiniFT8/src/app_controller
-    apps/MiniFT8/src/config_service
-    apps/MiniFT8/src/qso_scheduler
-    apps/MiniFT8/src/storage_service
-    apps/MiniFT8/src/ui_shell
+target_include_directories(minift8 PRIVATE
+    apps/minift8/include
+    apps/minift8/src/app_controller
+    apps/minift8/src/config_service
+    apps/minift8/src/qso_scheduler
+    apps/minift8/src/storage_service
+    apps/minift8/src/ui_shell
 )
 
 add_library(service_probe MODULE tests/apps/service_probe.c)
@@ -160,11 +160,11 @@ target_compile_options(audio_probe PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(minift8_ui_smoke
     tests/minift8_ui_smoke.c
-    apps/MiniFT8/src/ui_shell/ui_shell.c
+    apps/minift8/src/ui_shell/ui_shell.c
 )
 target_include_directories(minift8_ui_smoke PRIVATE
-    apps/MiniFT8/include
-    apps/MiniFT8/src/ui_shell
+    apps/minift8/include
+    apps/minift8/src/ui_shell
 )
 target_compile_options(minift8_ui_smoke PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -258,5 +258,5 @@ add_test(
     COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/linux_minift8.py
             $<TARGET_FILE:minishell>
-            $<TARGET_FILE_DIR:MiniFT8>
+            $<TARGET_FILE_DIR:minift8>
 )

@@ -68,7 +68,7 @@ def main() -> int:
             transcript = bytearray()
             try:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
-                os.write(master_fd, b"MiniFT8\n")
+                os.write(master_fd, b"minift8\n")
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
 
                 os.write(master_fd, b"o")
@@ -86,16 +86,16 @@ def main() -> int:
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
-                station = os.path.join(root, "flash", "MiniFT8", "Station.txt")
+                station = os.path.join(root, "flash", "minift8", "station.txt")
                 temp_station = station + ".tmp"
                 with open(station, "r", encoding="utf-8") as handle:
                     saved = handle.read()
                 if "mode=1\n" not in saved or "skip_tx1=1\n" not in saved:
-                    raise RuntimeError(f"unexpected Station.txt contents: {saved!r}")
+                    raise RuntimeError(f"unexpected station.txt contents: {saved!r}")
                 if os.path.exists(temp_station):
-                    raise RuntimeError("atomic save left Station.txt.tmp behind")
+                    raise RuntimeError("atomic save left station.txt.tmp behind")
 
-                os.write(master_fd, b"MiniFT8\n")
+                os.write(master_fd, b"minift8\n")
                 transcript.extend(read_until(master_fd, b"FT4  20m", 3.0))
                 os.write(master_fd, b"o")
                 transcript.extend(read_until(master_fd, b"Mode: FT4", 3.0))
@@ -107,7 +107,7 @@ def main() -> int:
                 os.write(master_fd, b"exit\n")
                 return_code = process.wait(timeout=3.0)
                 if return_code != 0:
-                    raise RuntimeError(f"MiniShell exited with {return_code}")
+                    raise RuntimeError(f"minishell exited with {return_code}")
             except Exception:
                 print(transcript.decode("utf-8", errors="replace"), end="")
                 process.kill()

@@ -7,17 +7,17 @@
 int main(void)
 {
     if (minishell_platform_init() != 0) {
-        fprintf(stderr, "MiniShell: platform init failed\n");
+        fprintf(stderr, "minishell: platform init failed\n");
         return 1;
     }
 
     /* The shell and foreground apps share stdin.  Keep stdio from reading
-     * ahead across the foreground handoff to the Input ABI. */
+     * ahead across the foreground handoff to the Input API. */
     (void)setvbuf(stdin, NULL, _IONBF, 0);
 
     minishell_resource_limits_t limits = {0};
     if (minishell_platform_resource_limits(&limits) != 0) {
-        fprintf(stderr, "MiniShell: invalid resource configuration\n");
+        fprintf(stderr, "minishell: invalid resource configuration\n");
         minishell_platform_shutdown();
         return 1;
     }
@@ -27,7 +27,7 @@ int main(void)
     minishell_platform_services_prepare(&services_port);
     minishell_services_configure(&services_port);
 
-    puts("MiniShell");
+    puts("minishell");
     int result = minishell_shell_run();
 
     minishell_services_configure(NULL);

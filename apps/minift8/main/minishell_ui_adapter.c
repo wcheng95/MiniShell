@@ -6,7 +6,7 @@
 #define FIELD_END(type, field) \
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
 
-bool minift8_ui_adapter_init(MiniFt8UiAdapter *adapter, const mini_api_t *api)
+bool minift8_ui_adapter_init(minift8_ui_adapter_t *adapter, const mini_api_t *api)
 {
     if (adapter == NULL || api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, input) ||
@@ -42,7 +42,7 @@ bool minift8_ui_adapter_init(MiniFt8UiAdapter *adapter, const mini_api_t *api)
     return true;
 }
 
-bool minift8_ui_adapter_render(const MiniFt8UiAdapter *adapter, const UiFrame *frame)
+bool minift8_ui_adapter_render(const minift8_ui_adapter_t *adapter, const UiFrame *frame)
 {
     if (adapter == NULL || frame == NULL || adapter->text == NULL || adapter->display == NULL) {
         return false;
@@ -57,7 +57,7 @@ bool minift8_ui_adapter_render(const MiniFt8UiAdapter *adapter, const UiFrame *f
     return adapter->display->present() == MINI_OK;
 }
 
-bool minift8_ui_adapter_read_input(const MiniFt8UiAdapter *adapter, UiInput *out_input)
+bool minift8_ui_adapter_read_input(const minift8_ui_adapter_t *adapter, UiInput *out_input)
 {
     if (adapter == NULL || adapter->key == NULL || out_input == NULL) return false;
 
@@ -93,7 +93,7 @@ bool minift8_ui_adapter_read_input(const MiniFt8UiAdapter *adapter, UiInput *out
     return true;
 }
 
-void minift8_ui_adapter_shutdown(const MiniFt8UiAdapter *adapter)
+void minift8_ui_adapter_shutdown(const minift8_ui_adapter_t *adapter)
 {
     if (adapter == NULL || adapter->text == NULL || adapter->display == NULL) return;
     (void)adapter->text->clear();
