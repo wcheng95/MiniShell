@@ -12,7 +12,7 @@ uint64_t filesystem_path_hash(const char *text)
     return hash;
 }
 
-filesystem_path_normalize(const char *path, char *out)
+mini_result_t filesystem_path_normalize(const char *path, char *out)
 {
     if (path == NULL || out == NULL || path[0] != '/') return MINI_ERR_INVALID;
 
