@@ -6,12 +6,18 @@ Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves ch
 
 Control remains independent and generic; QMX/KH1 CAT-frequency TX belongs to Control, QDX modulation belongs to TX Audio, tune composes normal primitives, and device `set_time` is deferred.
 
-The H1-H3 MiniShell housekeeping gate is complete: Linux backend responsibilities are split, POSIX loader semantics no longer leak into portable core, and Filesystem private mechanisms are separated while preserving one service owner.
+The MiniShell H1-H5 housekeeping audit is complete. Linux backend responsibilities are split, POSIX loader semantics do not leak into portable core, Filesystem private mechanisms are separated behind one service owner, and terminal ANSI/CSI/UTF-8 split-read state remains private below Input.
 
-H5 terminal split-read robustness is now a cost/priority decision rather than a blocking architecture debt.
-
-Next MiniFT8 slice after that decision:
+No known MiniShell housekeeping debt blocks the next MiniFT8 slice:
 
 ```text
-WAV -> Audio ABI -> MiniFT8 channel interpretation/downmix -> ft8_engine -> decoded RX UI
+tests/kfs16b12k.wav
+    -> MiniShell WAV Audio provider
+    -> 12 kHz / S16 / 2-channel Audio ABI
+    -> MiniFT8 RX source/profile interpretation
+    -> ordinary-audio downmix
+    -> ft8_engine
+    -> decoded RX UI
 ```
+
+Keep the boundary strict: MiniShell transports ordered audio channels; MiniFT8 assigns channel meaning and owns all FT8-specific DSP.
