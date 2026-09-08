@@ -11,14 +11,31 @@ Current baseline:
 - Control remains independent from Audio; device `set_time` is deferred.
 - Historical Tab5 work is preserved on `archive/tab5-legacy`.
 
-Current housekeeping before DSP/radio expansion:
+## Housekeeping paydown completed
+
+PR #13 resolved the three active internal architecture debts:
 
 ```text
-H1 split Linux backend
-H2 remove POSIX loader semantics from portable core
-H3 split Filesystem private helpers
+H1 Linux backend split
+H2 POSIX loader semantics removed from portable core
+H3 Filesystem private helpers split while preserving one owner
 ```
 
-After H1-H3, evaluate H5 stateful ANSI/CSI parser cost.
+The full Linux integration suite and strict unit suite remained green after the refactor.
 
-Next MiniFT8 slice afterward is deterministic WAV -> MiniFT8 channel interpretation -> `ft8_engine` -> decoded RX UI, followed later by live QMX/UAC.
+The only remaining audit item is H5: stateful handling of terminal ANSI/CSI sequences split across transport reads. Its implementation cost is being evaluated separately before deciding whether it should block MiniFT8 DSP work.
+
+## Next MiniFT8 boundary
+
+After the H5 decision, the next planned application slice is:
+
+```text
+tests/kfs16b12k.wav
+    -> MiniShell WAV Audio provider
+    -> 12 kHz / S16 / 2-channel
+    -> MiniFT8 source/profile interpretation
+    -> ft8_engine
+    -> decoded RX UI
+```
+
+Live QMX/UAC follows deterministic replay.
