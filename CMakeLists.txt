@@ -32,6 +32,7 @@ set(MINISHELL_LINUX_SOURCES
     platform/linux/linux_filesystem.c
     platform/linux/linux_time_location.c
     platform/linux/linux_terminal.c
+    platform/linux/linux_terminal_parser.c
     platform/linux/linux_loader.c
     platform/linux/linux_services.c
     platform/linux/linux_audio_wav.c
@@ -167,6 +168,18 @@ target_include_directories(minift8_ui_smoke PRIVATE
 )
 target_compile_options(minift8_ui_smoke PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(linux_terminal_parser_unit
+    tests/linux_terminal_parser_test.c
+    platform/linux/linux_terminal_parser.c
+)
+target_include_directories(linux_terminal_parser_unit PRIVATE
+    include
+    platform/linux
+)
+target_compile_options(linux_terminal_parser_unit PRIVATE
+    -Wall -Wextra -Werror -Wpedantic
+)
+
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -238,6 +251,7 @@ add_test(
 )
 
 add_test(NAME minift8_ui_smoke COMMAND minift8_ui_smoke)
+add_test(NAME linux_terminal_parser_unit COMMAND linux_terminal_parser_unit)
 
 add_test(
     NAME linux_minift8
