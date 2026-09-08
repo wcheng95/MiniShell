@@ -22,6 +22,19 @@ Applications
 
 Applications use MiniShell services only. Mocks and simulated providers also live below MiniShell.
 
+## Naming rule
+
+Project/product names remain **MiniShell** and **MiniFT8** in normal prose. Code-facing names use lowercase/snake_case:
+
+```text
+minishell
+minift8
+apps/minift8/
+/flash/minift8/station.txt
+```
+
+Normal C conventions still apply, so preprocessor macros remain uppercase, for example `MINISHELL_API_VERSION` and `MINIFT8_DATA_DIR`.
+
 ## Linux shell baseline
 
 Resident commands are intentionally small:
@@ -38,7 +51,7 @@ exit
 Current portable applications include:
 
 ```text
-MiniFT8
+minift8
 hello
 cat
 cp
@@ -60,7 +73,7 @@ M$> ls
 /sd
 /flash
 
-M$> MiniFT8
+M$> minift8
 ... MiniFT8 UI ...
 q
 M$>
