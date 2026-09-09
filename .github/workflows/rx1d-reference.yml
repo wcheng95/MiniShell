@@ -1,0 +1,31 @@
+name: RX-1D Reference
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  decoder-golden:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout MiniShell
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned MiniFT8-V2 reference
+        uses: actions/checkout@v4
+        with:
+          repository: wcheng95/Mini-FT8
+          ref: 5bd3ef98f72388a850bebad04bd7300b90edb63c
+          path: reference/Mini-FT8
+
+      - name: Configure RX-1D reference test
+        run: >-
+          cmake -S . -B build-rx1d
+          -DFT8_RX1D_REFERENCE_WAV=${{ github.workspace }}/reference/Mini-FT8/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav
+
+      - name: Build RX-1D decoder tests
+        run: cmake --build build-rx1d -j2 --target ft8_decoder_rx1d_unit ft8_decoder_rx1d_reference
+
+      - name: Run RX-1D decoder tests
+        run: ctest --test-dir build-rx1d -R '^ft8_decoder_rx1d' --output-on-failure
