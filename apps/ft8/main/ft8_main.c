@@ -90,6 +90,18 @@ static bool model_clock_changed(const UiModel *a, const UiModel *b)
            a->slot_counter != b->slot_counter;
 }
 
+static bool model_memory_changed(const UiModel *a, const UiModel *b)
+{
+    return a->memory_app_valid != b->memory_app_valid ||
+           a->memory_app_allocated_bytes != b->memory_app_allocated_bytes ||
+           a->memory_app_allocation_count != b->memory_app_allocation_count ||
+           a->memory_free_valid != b->memory_free_valid ||
+           a->memory_free_bytes != b->memory_free_bytes ||
+           a->memory_largest_valid != b->memory_largest_valid ||
+           a->memory_largest_free_block != b->memory_largest_free_block ||
+           a->rx_active != b->rx_active;
+}
+
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
@@ -158,6 +170,7 @@ int main(int argc, char **argv)
     while (running) {
         bool rx_changed = false;
         bool rx_active;
+        bool memory_visible;
         bool has_input = false;
         UiInput input;
         UiFrame frame;
@@ -170,7 +183,14 @@ int main(int argc, char **argv)
         if (rx_changed) redraw = true;
 
         app_controller_build_ui_model(&app, &model);
-        if (!have_rendered_model || model_clock_changed(&model, &rendered_model)) redraw = true;
+        memory_visible = ui.screen == SCREEN_V && ui.submenu == UI_SUBMENU_V_MEMORY;
+        if (memory_visible) {
+            app_controller_build_memory_model(&app, &model);
+        }
+        if (!have_rendered_model || model_clock_changed(&model, &rendered_model) ||
+            (memory_visible && model_memory_changed(&model, &rendered_model))) {
+            redraw = true;
+        }
 
         if (redraw) {
             ui_shell_render(&ui, &model, &frame);

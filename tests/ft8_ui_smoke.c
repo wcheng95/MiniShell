@@ -134,6 +134,53 @@ static void test_adv_locked_top_and_rx_paging(void)
     assert(ui.page_index == 0u);
     ui_shell_render(&ui, &model, &frame);
     assert(strcmp(frame.rows[0], "V  20 14:32:08 1/1 8") == 0);
+    assert(strstr(frame.rows[1], "Memory") != NULL);
+}
+
+static void test_adv_memory_view(void)
+{
+    UiShell ui;
+    UiModel model;
+    UiFrame frame;
+    AppAction action;
+
+    set_default_model(&model);
+    model.memory_app_valid = true;
+    model.memory_app_allocated_bytes = 4u * 1024u;
+    model.memory_app_allocation_count = 4u;
+    model.memory_free_valid = true;
+    model.memory_free_bytes = 200u * 1024u;
+    model.memory_largest_valid = true;
+    model.memory_largest_free_block = 180u * 1024u;
+    model.rx_active = false;
+
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    assert(!ui_shell_handle_input(&ui, &model, key('v'), &action));
+    assert(!ui_shell_handle_input(&ui, &model, key('1'), &action));
+    assert(ui.submenu == UI_SUBMENU_V_MEMORY);
+
+    ui_shell_render(&ui, &model, &frame);
+    assert(strcmp(frame.rows[0], "V  20 14:32:08 1/1 8") == 0);
+    assert(strstr(frame.rows[1], "Heap free: 200.0K") != NULL);
+    assert(strstr(frame.rows[2], "Largest: 180.0K") != NULL);
+    assert(strstr(frame.rows[3], "App alloc: 4.0K") != NULL);
+    assert(strstr(frame.rows[4], "Alloc count: 4") != NULL);
+    assert(strstr(frame.rows[5], "Largest/free: 90%") != NULL);
+    assert(strstr(frame.rows[6], "RX: OFF") != NULL);
+
+    model.rx_active = true;
+    ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[6], "RX: ON") != NULL);
+
+    model.memory_app_valid = false;
+    model.memory_free_valid = false;
+    model.memory_largest_valid = false;
+    ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[1], "Heap free: --") != NULL);
+    assert(strstr(frame.rows[2], "Largest: --") != NULL);
+    assert(strstr(frame.rows[3], "App alloc: --") != NULL);
+    assert(strstr(frame.rows[4], "Alloc count: --") != NULL);
+    assert(strstr(frame.rows[5], "Largest/free: --") != NULL);
 }
 
 static void test_adv_no_utc(void)
@@ -155,6 +202,7 @@ int main(void)
     test_profile_contract();
     test_desktop_existing_navigation();
     test_adv_locked_top_and_rx_paging();
+    test_adv_memory_view();
     test_adv_no_utc();
     puts("ft8_ui_smoke: PASS");
     return 0;
