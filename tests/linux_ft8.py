@@ -68,6 +68,8 @@ def main() -> int:
             transcript = bytearray()
             try:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
+                # Default launch remains DESKTOP and exercises live config mutation.
                 os.write(master_fd, b"ft8\n")
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
 
@@ -94,15 +96,33 @@ def main() -> int:
                     raise RuntimeError(f"unexpected station.txt contents: {saved!r}")
                 if "mode=" in saved or "mode0_" in saved:
                     raise RuntimeError(f"obsolete mode state persisted: {saved!r}")
+                if "presentation=" in saved:
+                    raise RuntimeError(f"presentation must not persist in station.txt: {saved!r}")
                 if os.path.exists(temp_station):
                     raise RuntimeError("atomic save left station.txt.tmp behind")
 
-                os.write(master_fd, b"ft8\n")
-                transcript.extend(read_until(master_fd, b"FT8  20m", 3.0))
+                # P1: explicit Linux + DESKTOP profile.
+                os.write(master_fd, b"ft8 --profile desktop\n")
+                transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
+                os.write(master_fd, b"v")
+                transcript.extend(read_until(master_fd, b"System Info", 3.0))
+                os.write(master_fd, b"5")
+                transcript.extend(read_until(master_fd, b"Presentation: DESKTOP", 3.0))
+                os.write(master_fd, b"q")
+                transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
+                # P1: the same app/core on Linux using the 20x7 ADV presentation.
+                os.write(master_fd, b"ft8 --profile adv\n")
+                transcript.extend(read_until(master_fd, b"Default RX", 3.0))
                 os.write(master_fd, b"o")
                 transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
                 os.write(master_fd, b"5")
                 transcript.extend(read_until(master_fd, b"Skip TX1: ON", 3.0))
+                os.write(master_fd, b"v")
+                transcript.extend(read_until(master_fd, b"System Info", 3.0))
+                os.write(master_fd, b"5")
+                transcript.extend(read_until(master_fd, b"Presentation: ADV", 3.0))
+                transcript.extend(read_until(master_fd, b"UI: text 20x7", 3.0))
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
