@@ -18,6 +18,7 @@ idf_component_register(
     SRCS
         "app_main.c"
         "hello_static.c"
+        "probe_static.c"
         "${MINISHELL_ROOT}/core/minishell_runtime.c"
         "${MINISHELL_ROOT}/core/shell.c"
         "${MINISHELL_ROOT}/core/app_manager.c"

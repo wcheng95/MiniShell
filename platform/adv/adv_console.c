@@ -27,11 +27,17 @@ int adv_console_prepare(void)
     return 0;
 }
 
-void minishell_platform_console_write(const char *text)
+void adv_console_debug_write(const char *text)
 {
     if (text == NULL) return;
     (void)fputs(text, stdout);
     (void)fflush(stdout);
+}
+
+void minishell_platform_console_write(const char *text)
+{
+    if (text == NULL) return;
+    adv_console_debug_write(text);
     adv_display_console_write(text);
 }
 

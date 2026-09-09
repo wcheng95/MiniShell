@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 int adv_console_prepare(void);
+void adv_console_debug_write(const char *text);
 
 int adv_display_prepare(void);
 bool adv_display_ready(void);

@@ -11,7 +11,9 @@ static bool s_keyboard_ready;
 static void system_write(void *ctx, const char *text)
 {
     (void)ctx;
-    minishell_platform_console_write(text);
+    /* System.write is a diagnostic sink, not the application Display surface.
+     * Keep it on USB/debug so app diagnostics cannot overwrite an app UI. */
+    adv_console_debug_write(text);
 }
 
 static void configure_services_port(void)
