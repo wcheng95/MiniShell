@@ -277,6 +277,22 @@ ft8_engine
           explicit aging
 ```
 
+RX-1E implements this as one caller-owned store suitable for one future engine instance. The pinned V2 production behavior remains:
+
+```text
+capacity                     128 entries
+entry                         16 bytes
+stored hash                  full 22-bit hash
+lookup widths                22 / 12 / 10 bits
+bucket                       (top10 * 23) % 128
+age                          uint8, saturating
+save/lookup                  refresh age to zero
+trim-created holes           scan full table on lookup
+full-table policy            trim to 78, then insert -> 79
+```
+
+`ft8_hash_store_age_slot()` is an explicit lifecycle operation. The eventual engine/slot owner calls it once per FT8 slot; the store itself does not read clocks or slot counters.
+
 No global hash table is required by the codec. MiniShell does not own this state.
 
 ## 8. Golden-reference policy
@@ -443,28 +459,55 @@ Unit and pinned-V2 golden tests pass. Exact RX-1A payload remains:
 
 Candidate score/order remain diagnostics and are not made permanent golden identity.
 
-#### RX-1E — explicit per-engine Ft8HashStore — NEXT
+#### RX-1E — explicit per-engine Ft8HashStore — complete
 
-Introduce explicit hashed-callsign protocol state before migrating the message codec.
-
-Required ownership proof:
+Canonical record:
 
 ```text
-one Ft8HashStore per ft8_engine instance
-22-bit / 12-bit / 10-bit lookup behavior preserved
-save/update behavior explicit
-aging/lifetime explicit
-no global mutable table
-multiple engine instances independent
-no MiniShell/platform dependency
+rx-1e-hash-store.md
 ```
+
+RX-1E replaces V2's process-global/static callsign table with an explicit caller-owned `Ft8HashStore` suitable for one future `Ft8Engine` instance.
+
+The implementation preserves:
+
+```text
+128-entry capacity
+16-byte compact entries
+full 22-bit canonical stored hash
+22 / 12 / 10-bit lookup semantics
+(top10 * 23) % 128 bucket mapping
+full-table lookup through trim-created holes
+save/lookup age refresh
+uint8 saturating slot age
+same-full-hash callsign replacement
+V2 128 -> 78 -> 79 full-table policy
+```
+
+`age_slot()` makes cross-slot lifetime explicit instead of depending on V2's global slot guard. The store has no MiniShell, clock, platform, UI, AutoSeq, or TX dependency.
+
+Unit tests prove two-store independence, all three lookup widths, collision replacement, age refresh, trim-hole probing, full-table eviction behavior, and invalid-input handling. Linux and the RX-1C/RX-1D regressions remain green.
 
 Message unpacking/rendering remains RX-1F.
 
-#### RX-1F+
+#### RX-1F — typed protocol message codec + Ft8ProtocolSlot — NEXT
+
+Migrate the supported V2 RX message unpacking behind `ft8_engine` and connect it directly/contextually to `Ft8HashStore`.
+
+Preserve supported V2 protocol semantics while replacing:
 
 ```text
-RX-1F  typed protocol message codec + Ft8ProtocolSlot
+ftx_message_t dependency
+three generic fields as canonical representation
+global callback context
+hidden output-buffer capacities
+```
+
+Protocol type remains first-class. Station/QSO policy stays outside the codec.
+
+#### RX-1G
+
+```text
 RX-1G  pure cleaned ft8_engine golden regression
 ```
 
