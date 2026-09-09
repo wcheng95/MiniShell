@@ -59,19 +59,19 @@ MiniShell Audio
         `--> future AutoSeq
 ```
 
-`app_controller` remains the only application coordinator. RX-5 deliberately does not introduce an `rx_pipeline`, `rx_manager`, or other second coordinator.
+`app_controller` remains the only production application coordinator. There is no second RX manager/pipeline coordinator.
 
 ## 3. Ownership
 
 | Block | Owns | Must not own |
 | --- | --- | --- |
-| `rx_audio_adapter` | MiniFT8's MiniShell Audio stream handle and open/start/read/stop/close lifecycle | provider/device details, FT8 DSP, slot timing, channel meaning |
+| `rx_audio_adapter` | MiniFT8's MiniShell Audio stream handle and open/start/read/stop/close lifecycle | provider/device/backend details, FT8 DSP, slot timing, channel meaning |
 | `RxFrontend` | source/profile channel interpretation and 12 kHz S16/two-channel -> 6 kHz mono-float adaptation state | MiniShell provider behavior, slot timing, FT8 candidate policy |
 | `RxSlotFramer` | slot identity, exact 6 kHz sample accounting, one bounded partial 960-sample accumulator | whole-slot PCM, FFT, protocol decoding |
 | `Ft8Engine` | monitor/workspace, candidate array, decoder policy, persistent hash store, protocol decode, payload dedupe, current window identity | MiniShell, UI, wall-clock pacing, QSO policy, AutoSeq, TX |
 | `RxResultBuilder` | factual application normalization/classification and caller-owned `RxBatch` construction | FFT/LDPC/CRC, MiniShell calls, reply/TX/UI policy |
 
-A module may consume another module's interface but must not reach through it and manipulate the underlying resource.
+MiniShell owns the physical/provider Audio resource underneath the public stream handle. A module may consume another module's interface but must not reach through it and manipulate the underlying resource.
 
 ## 4. Factual classification versus QSO policy
 
@@ -121,8 +121,6 @@ Locked rule:
 
 > Stream raw audio; retain the waterfall; retain raw PCM only by explicit exception.
 
-Optional research paths may retain raw audio on hosts, but normal decode must not depend on that feature.
-
 ## 6. Timing contract
 
 For live reception:
@@ -132,7 +130,7 @@ UTC/time establishes initial slot_id + sample_offset
 sample count owns progress after that
 ```
 
-`Ft8Engine` never reads a clock. `RxSlotFramer` never calls MiniShell Time directly.
+`Ft8Engine` never reads a clock. `RxSlotFramer` never calls MiniShell Time directly. `rx_audio_adapter` owns Audio lifecycle, not UTC.
 
 FT8 engine rate and slot size:
 
@@ -150,9 +148,9 @@ Therefore:
 remainder = 720 samples
 ```
 
-The 720-sample slot-end remainder is discarded rather than carried into the next slot.
+The 720-sample slot-end remainder is discarded rather than carried into the next slot. The first partial slot after stream start or discontinuity is also discarded.
 
-The first partial slot after stream start or discontinuity is also discarded. Normal next-window transition and stream discontinuity remain separate operations.
+For deterministic file/replay tests, the caller may supply a known initial `slot_id + sample_offset`; real-time sleeping is unnecessary.
 
 ## 7. Audio semantics
 
@@ -168,7 +166,7 @@ Current ordinary-audio baseline:
     -> 6 kHz mono float
 ```
 
-`RxFrontend` owns decimation phase across arbitrary transport reads so transport chunk boundaries cannot alter the engine sample stream.
+`RxFrontend` owns decimation phase across arbitrary Audio reads so provider/read chunk boundaries cannot alter the engine sample stream.
 
 During structural cleanup the `Ft8Engine` input remains fixed at **6 kHz mono float**. Any future filter, resampler, engine-rate, FFT, OSR, candidate-search, LDPC, or SNR change is a separate measured algorithm experiment.
 
@@ -187,9 +185,7 @@ minimum sync score            5
 max LDPC iterations          25
 ```
 
-Candidate sync score is not SNR.
-
-Exact 10-byte payload bytes are authoritative protocol-message identity. CRC or quick hashes may be diagnostics/accelerators but are not collision-free identity.
+Candidate sync score is not SNR. Exact 10-byte payload bytes are authoritative protocol-message identity.
 
 Protocol type is first-class. Typed protocol fields are authoritative; canonical rendered text is convenience.
 
@@ -204,8 +200,6 @@ ARRL_FD
 TELEMETRY
 ```
 
-Recognized-but-unimplemented families remain explicit unsupported results rather than being silently approximated.
-
 ### FREE_TEXT CQ exception
 
 Protocol type remains `FREE_TEXT`, but `RxResultBuilder` may additionally set `is_cq=true` only when canonical text matches:
@@ -214,35 +208,13 @@ Protocol type remains `FREE_TEXT`, but `RxResultBuilder` may additionally set `i
 CQ <nnn|AAAA> <valid-callsign> [valid-grid]
 ```
 
-Examples:
-
-```text
-CQ POTA K7XYZ     -> logical CQ
-CQ 123 K7XYZ DM43 -> logical CQ
-CQ HELLO WORLD    -> not logical CQ
-```
-
-This remains factual classification and does not imply a reply.
+This is factual classification and does not imply a reply.
 
 ### Callsign hash ownership
 
 ```text
 Ft8Engine
     `-- Ft8HashStore
-```
-
-The pinned V2 behavior remains:
-
-```text
-capacity          128 entries
-entry             16 bytes
-stored hash       full 22-bit hash
-lookup widths     22 / 12 / 10 bits
-bucket            (top10 * 23) % 128
-age               uint8 saturating
-save/lookup       refresh age to zero
-trim holes        lookup scans through holes
-full-table policy 128 -> trim to 78 -> insert -> 79
 ```
 
 The hash store is explicit per-engine state, not MiniShell state and not a process-global table.
@@ -274,11 +246,7 @@ same input
 
 Do not rewrite golden values merely because a refactor fails. Investigate the difference first.
 
-RX-1C demonstrated why: a mathematically equivalent reassociation of Hann-window float multiplication changed the compact waterfall fingerprint. Restoring V2's exact operation grouping restored the golden.
-
-## 10. Completed stages
-
-Detailed records are kept separately so this file can remain the concise canonical plan.
+## 10. Stage status
 
 ```text
 RX-0   COMPLETE  architecture + V2 source review
@@ -293,6 +261,8 @@ RX-2   IMPLEMENTED  Linux 6 kHz host decoder; pc-1 manual test pending
 RX-3   COMPLETE  RxFrontend 12 kHz -> 6 kHz
 RX-4   COMPLETE  RxSlotFramer sample-count slot framing
 RX-5   COMPLETE  pure RX assembly -> RxBatch
+RX-6   COMPLETE  MiniShell Audio + Linux WAV integration
+RX-7   NEXT      real decoded RX screen
 ```
 
 Canonical records:
@@ -309,14 +279,17 @@ rx-2-host-decoder.md
 rx-3-frontend.md
 rx-4-slot-framer.md
 rx-5-pure-assembly.md
+rx-6-minishell-audio.md
 ```
 
-## 11. RX-5 proof
+## 11. RX-6 proof
 
-RX-5 is the first full pure MiniFT8 receive-domain proof:
+RX-6 is the first proof through the actual MiniShell public Audio boundary:
 
 ```text
-12 kHz S16 stereo
+Linux WAV provider
+    -> MiniShell Audio
+    -> rx_audio_adapter
     -> RxFrontend
     -> RxSlotFramer
     -> Ft8Engine
@@ -325,65 +298,32 @@ RX-5 is the first full pure MiniFT8 receive-domain proof:
     -> RxBatch
 ```
 
-The reference deliberately uses odd 257-frame transport chunks so frontend decimation pairs repeatedly cross read boundaries. The remainder of the 15-second slot is zero-filled.
+The Linux fixture is a real 15-second 12 kHz/S16/stereo WAV built from the pinned V2 CQ golden. The MiniShell test application reads it through the public Audio API in bounded 257-frame chunks.
 
 Result:
 
 ```text
-rx_result_builder_rx5_test: PASS
-RX5 slot=12345 blocks=93 messages=1 cq=1 to_me=0 text="CQ W1XYZ FN42"
-rx5_pure_assembly_reference: PASS
+M$> RX6 frames=180000 slot=12345 blocks=93 messages=1 text="CQ W1XYZ FN42"
+ft8_rx_probe: PASS
 ```
 
-No MiniShell service is involved in this proof.
+No changes were required inside `RxFrontend`, `RxSlotFramer`, `Ft8Engine`, or `RxResultBuilder` to add MiniShell Audio.
 
-## 12. RX-6 — NEXT: MiniShell Audio integration
+Provider-substitution rule:
 
-RX-6 adds the missing MiniShell-facing owner:
+> A future QMX or other MiniShell Audio provider must plug in below this boundary without requiring changes to the pure RX modules.
+
+## 12. RX-7 — NEXT: decoded RX screen
+
+RX-7 moves the validated receive composition into the normal `ft8` application and consumes real `RxBatch` results on the RX screen.
+
+Development target remains:
 
 ```text
-MiniShell Audio
-12 kHz / S16 / 2-channel
-        |
-        v
-rx_audio_adapter
-        |
-        v
-RxFrontend
-        |
-        v
-RxSlotFramer
-        |
-        v
-Ft8Engine
-        |
-        v
-RxResultBuilder
-        |
-        v
-RxBatch
+backend       Linux
+presentation  ADV 20x7
 ```
 
-`rx_audio_adapter` belongs to MiniFT8. It owns MiniFT8's use of a MiniShell Audio stream handle:
+RX-7 should establish the production timing reference at the coordinator edge and preserve the module ownership above. It must not pull in AutoSeq, TX, or ADIF.
 
-```text
-open
-start
-read
-stop
-close
-```
-
-MiniShell still owns the actual provider/device/transport resource.
-
-Initial RX-6 target is the Linux backend and deterministic MiniShell WAV Audio provider. The critical architecture proof is:
-
-> Replacing the WAV provider later with QMX or another MiniShell Audio provider must not require changes inside `RxFrontend`, `RxSlotFramer`, `Ft8Engine`, or `RxResultBuilder`.
-
-## 13. Later RX stage
-
-```text
-RX-7  real decoded RX UI using the ADV presentation on Linux first
-```
-
-Stop the decode-RX milestone there. AutoSeq, TX, and ADIF remain separate major blocks.
+Stop the decode-RX milestone after the real decoded RX UI is validated. AutoSeq, TX, and ADIF remain separate major blocks.
