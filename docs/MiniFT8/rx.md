@@ -29,9 +29,11 @@ MiniShell Audio
         v
 [2] rx_frontend
         |
+        | 6 kHz mono float
         v
 [3] rx_slot_framer
         |
+        | exact 960-sample FT8 engine blocks
         v
 [4] ft8_monitor
         |
@@ -60,17 +62,27 @@ MiniShell Audio
         `--> future AutoSeq
 ```
 
-Blocks 4-7 are naturally internal pieces of `ft8_engine`. `rx_result_builder` is deliberately outside the protocol engine because it performs station-aware factual normalization/classification.
+Blocks 4-7 are internal pieces of `ft8_engine`. `rx_result_builder` is deliberately outside the protocol engine because it performs station-aware factual normalization/classification.
 
-These are **logical ownership boundaries**, not a requirement for seven source files. RX-1B decides the physical module/file structure from the top down.
+RX-1B fixed the physical application-level modules as:
+
+```text
+rx_audio_adapter
+rx_frontend
+rx_slot_framer
+ft8_engine
+rx_result_builder
+```
+
+`app_controller` remains the only application coordinator. Canonical RX-1B design: `rx-1b-design.md`.
 
 ## 3. Responsibility boundaries
 
 | Block | Owns | Must not own |
 | --- | --- | --- |
-| `rx_audio_adapter` | MiniShell Audio reads and translation into MiniFT8-owned sample blocks | FT8 DSP, WAV/UAC/platform details, channel meaning |
-| `rx_frontend` | source/profile channel interpretation and ordinary-audio/IQ preprocessing | MiniShell provider behavior, slot timing, FT8 candidate policy |
-| `rx_slot_framer` | slot identity and exact sample accounting | whole-slot raw PCM ownership, FFT, decoding |
+| `rx_audio_adapter` | MiniShell Audio stream lifecycle and translation into MiniFT8-owned bounded sample blocks | FT8 DSP, WAV/UAC/platform details, channel meaning |
+| `rx_frontend` | source/profile channel interpretation and 12 kHz S16/two-channel -> 6 kHz mono-float adaptation state | MiniShell provider behavior, slot timing, FT8 candidate policy |
+| `rx_slot_framer` | slot identity, exact 6 kHz sample accounting, bounded partial 960-sample block accumulation | whole-slot raw PCM ownership, FFT, decoding |
 | `ft8_monitor` | streaming sample-to-waterfall analysis and explicit DSP workspace/state | UI, wall-clock pacing, AutoSeq, platform APIs |
 | candidate finder | Costas/sync search over completed waterfall | LDPC, UI, AutoSeq |
 | candidate decoder | likelihood extraction, LDPC, CRC, validated payload/status | message rendering, UI, QSO policy |
@@ -141,8 +153,8 @@ This permits meaningful algorithm comparison on identical samples. Linux may ena
 For live reception:
 
 ```text
-UTC          establishes slot identity/boundary
-sample count measures progress inside the slot
+UTC/sample timestamp establishes initial slot identity/boundary
+sample count          measures progress after that
 ```
 
 For deterministic file/replay tests, samples are the clock; no real-time sleeping is required.
@@ -159,7 +171,7 @@ I/Q
     -> I/Q processing
 ```
 
-The engine's long-term internal sample rate is intentionally not frozen by V2's current 6 kHz implementation. Structural cleanup first reproduces V2 behavior; 12 kHz versus a justified 12->6 kHz path is a later measured algorithm/design decision.
+During ownership/interface cleanup the `ft8_engine` input is deliberately fixed at **6 kHz mono float**, preserving the proven MiniFT8-V2 monitor/decode behavior. MiniShell transport remains 12 kHz/S16/two-channel; `rx_frontend` owns the 12 -> 6 kHz adaptation. Any future 12 kHz engine, filter, FFT, OSR, or search change is a separate measured DSP/algorithm experiment.
 
 ## 6. V2 source classification
 
@@ -170,7 +182,7 @@ RX-0 final classification:
 | `main/audio_source.cpp` | old physical RX selector | DROP as V3 transport architecture; reference only |
 | `main/stream_uac.cpp` | UAC/device transport | DROP from MiniFT8; below MiniShell Audio |
 | `main/stream_mic.cpp` | microphone/device transport | DROP from MiniFT8; below MiniShell Audio |
-| `main/resample.cpp` | channel conversion/resampling ideas | REWRITE after measured review |
+| `main/resample.cpp` | channel conversion/resampling ideas | REWRITE behind `rx_frontend`; preserve 6 kHz baseline, no filter redesign during cleanup |
 | `main/ft8_audio_pipeline.cpp` | mixed RX pipeline | REWRITE/SPLIT; behavior reference only |
 | `components/ft8_lib/common/monitor.[ch]` | FFT/waterfall | KEEP math; CLEAN ownership/lifecycle substantially |
 | `components/ft8_lib/ft8/decode.[ch]` | candidate + likelihood/LDPC/CRC | KEEP algorithms; CLEAN policy/status/interface details |
@@ -187,9 +199,14 @@ TX-side message encoding cleanup is deferred to the TX milestone.
 During structural cleanup:
 
 ```text
-candidate capacity      50
-minimum sync score       5
-max LDPC iterations     25
+sample rate            6000 Hz
+f_min                    200 Hz
+f_max                   2900 Hz
+time_osr                    2
+freq_osr                    1
+candidate capacity          50
+minimum sync score           5
+max LDPC iterations         25
 ```
 
 The current V2 time-search range is also preserved first. These are explicit profile/search policy, not FT8 protocol constants.
@@ -323,67 +340,60 @@ unique CQ payload                000000206016500A1988
 
 Fixed protocol vectors cover standard CQ, ARRL Field Day, DXpedition, non-standard CQ, and a FREE_TEXT CQ-shaped message. Existing V2 `golden_rx` plus the new boundary regression pass in CI.
 
-Known V2 defects are explicitly excluded from desired golden behavior:
+Known V2 behaviors/limitations outside the structural golden remain explicitly documented in `rx-golden.md` and the RX source reviews; RX-1 does not silently expand protocol scope or alter decoder math while cleaning ownership.
 
-- type 0.6 `CONTESTING` currently maps to `UNKNOWN`;
-- generic telemetry decode has a buffer-overflow risk;
-- the old host hash stub does not correctly model 22/12/10-bit lookup.
+#### RX-1B — top-down module/interface design — complete
 
-#### RX-1B — top-down module/interface design — NEXT
-
-No V2 decoder source migration begins before this is complete.
-
-Design sequence:
+Canonical design:
 
 ```text
-RX goal
-  -> top-level responsibilities
-  -> module boundaries
-  -> ownership
-  -> data contracts
-  -> lifecycle/state transitions
-  -> memory/workspace ownership
-  -> dependency direction
-  -> error/status contracts
-  -> unit-test boundaries
-  -> only then implementation migration
+rx-1b-design.md
 ```
 
-RX-1B will determine the physical module/file boundaries. The current likely ownership shape is only a starting hypothesis:
+RX-1B fixed:
 
 ```text
-RX
-|
-+-- rx_audio_adapter
-+-- rx_frontend
-+-- rx_slot_framer
-+-- ft8_engine
-|     +-- monitor/waterfall
-|     +-- candidate search
-|     +-- candidate decode / LDPC / CRC
-|     +-- protocol message codec
-|     `-- hash store
-`-- rx_result_builder
+five physical RX modules
+single owner for every mutable RX resource/state
+12 kHz MiniShell transport -> 6 kHz engine boundary
+960-sample FT8 engine block contract
+slot/window and stream-discontinuity semantics
+caller-allocated / engine-logically-owned workspace
+raw ft8_lib types private inside ft8_engine
+dependency direction
+error/status distinctions
+unit-test responsibility by boundary
 ```
 
-The V2 directory structure does not dictate this design.
+No V2 decoder source was migrated during RX-1B.
 
-#### RX-1C+ — implementation after RX-1B
+#### RX-1C — clean monitor ownership/workspace/lifecycle — ACTIVE
 
-Expected direction, subject to RX-1B dependency review:
+RX-1C is the first implementation-migration stage. Preserve the V2 monitor mathematics byte-for-byte while replacing hidden singleton storage and ambiguous lifecycle with an explicit instance/workspace contract.
+
+Required proof:
 
 ```text
-RX-1C  monitor ownership/workspace/lifecycle
-RX-1D  candidate + likelihood + LDPC + CRC core
-RX-1E  explicit Ft8HashStore
-RX-1F  typed protocol message codec
-RX-1G  pure cleaned decoder golden regression
+same engine-native PCM
+    -> same active waterfall bytes
+    -> FNV-1a-64 18BE1E838FD9C6AF for the RX-1A FT8 golden
+```
+
+Also prove two-instance independence, explicit init failure, explicit full-waterfall status, and the distinction between new decode window and stream discontinuity.
+
+#### RX-1D+ — implementation after the monitor boundary
+
+```text
+RX-1D  candidate search + likelihood/LDPC/CRC behind ft8_engine
+RX-1E  explicit per-engine Ft8HashStore
+RX-1F  typed protocol message codec + Ft8ProtocolSlot
+RX-1G  pure cleaned ft8_engine golden regression
 ```
 
 ### RX-2 — pure host FT8 decoder
 
 ```text
-known engine-native PCM
+known 6 kHz engine-native PCM
     -> cleaned ft8 core
     -> typed protocol messages
 ```
@@ -395,13 +405,15 @@ No UI, MiniShell, AutoSeq, or TX.
 ```text
 12 kHz / S16 / 2-channel
     -> MiniFT8 source/profile semantics
-    -> select/downmix or future IQ path
-    -> engine-native streaming samples
+    -> select/downmix
+    -> 6 kHz mono float engine-native stream
 ```
+
+Preserve baseline behavior first; filtering/resampling redesign is outside this structural stage.
 
 ### RX-4 — streaming slot framing
 
-Verify exact slot/sample accounting, boundary behavior, partial-first-slot handling, no lost/duplicated samples, explicit new-window versus stream-discontinuity reset behavior, and bounded memory.
+Verify exact 6 kHz slot/sample accounting, 960-sample engine blocks, boundary behavior, partial-first-slot handling, no lost/duplicated samples, explicit new-window versus stream-discontinuity reset behavior, and bounded memory.
 
 ### RX-5 — pure RX assembly
 
