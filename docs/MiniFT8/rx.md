@@ -221,7 +221,7 @@ V2's chosen SNR estimator is the initial baseline. Preserve it during structural
 
 Protocol message type is first-class. Normal typed messages must not be decoded to text and then tokenized again to rediscover structure.
 
-The protocol engine should eventually produce a tagged MiniFT8-owned result conceptually containing:
+The cleaned protocol result is now represented by `Ft8ProtocolMessage`:
 
 ```text
 Ft8ProtocolMessage
@@ -230,12 +230,11 @@ Ft8ProtocolMessage
     parse status
     typed message-specific fields
     canonical rendered text
-    candidate/location metadata
-    V2-baseline SNR metadata
-    optional FEC/CRC diagnostics
+    unresolved-hash fact
+    candidate/LDPC/CRC diagnostics
 ```
 
-Known protocol type and structured-unpack support are separate facts.
+Known protocol type and structured-unpack support are separate facts. RX-1F implements this representation for the V2-supported receive families.
 
 ### Free-text CQ exception
 
@@ -292,6 +291,8 @@ full-table policy            trim to 78, then insert -> 79
 ```
 
 `ft8_hash_store_age_slot()` is an explicit lifecycle operation. The eventual engine/slot owner calls it once per FT8 slot; the store itself does not read clocks or slot counters.
+
+RX-1F connects 22-, 12-, and 10-bit protocol lookups directly to this store. A missing hash remains a valid parsed message rendered as `<...>` and additionally carries `has_unresolved_hash=true`.
 
 No global hash table is required by the codec. MiniShell does not own this state.
 
@@ -488,28 +489,49 @@ V2 128 -> 78 -> 79 full-table policy
 
 Unit tests prove two-store independence, all three lookup widths, collision replacement, age refresh, trim-hole probing, full-table eviction behavior, and invalid-input handling. Linux and the RX-1C/RX-1D regressions remain green.
 
-Message unpacking/rendering remains RX-1F.
+#### RX-1F — typed protocol message codec + Ft8ProtocolSlot — complete
 
-#### RX-1F — typed protocol message codec + Ft8ProtocolSlot — NEXT
-
-Migrate the supported V2 RX message unpacking behind `ft8_engine` and connect it directly/contextually to `Ft8HashStore`.
-
-Preserve supported V2 protocol semantics while replacing:
+Canonical record:
 
 ```text
-ftx_message_t dependency
-three generic fields as canonical representation
-global callback context
-hidden output-buffer capacities
+rx-1f-message-codec.md
 ```
 
-Protocol type remains first-class. Station/QSO policy stays outside the codec.
-
-#### RX-1G
+RX-1F implements:
 
 ```text
-RX-1G  pure cleaned ft8_engine golden regression
+Ft8DecodedPayload
+    -> protocol type classification
+    -> typed structured unpacking
+    -> Ft8HashStore lookup/save
+    -> canonical protocol text
+    -> Ft8ProtocolMessage
+    -> exact-payload dedupe
+    -> Ft8ProtocolSlot
 ```
+
+The canonical representation is typed; rendered text is derived convenience. Protocol type and parse status are separate. V2-supported RX families remain `STANDARD`, `NONSTD_CALL`, `FREE_TEXT`, `DXPEDITION`, `ARRL_FD`, and `TELEMETRY`; recognized but unimplemented families remain explicit `UNSUPPORTED`, and type `0.6` remains `UNKNOWN`.
+
+All five frozen RX-1A codec vectors reproduce their exact canonical text. The codec resolves/saves callsigns through the explicit RX-1E store with real 22/12/10-bit lookup semantics. Hash misses remain valid protocol parses using `<...>` plus explicit unresolved state.
+
+`Ft8ProtocolSlot` uses caller-supplied `Ft8ProtocolMessage[]` storage and exact 10-byte payload comparison for dedupe; no hidden allocator or slot-sized message array is introduced.
+
+The RX-1F code-bearing head passes Linux 16/16 tests, RX-1C pinned waterfall regression, and RX-1D pinned payload regression.
+
+#### RX-1G — pure cleaned ft8_engine golden regression — NEXT
+
+Assemble the already-clean pieces behind one explicit engine lifecycle:
+
+```text
+Ft8Monitor
+    -> candidate search
+    -> LDPC/CRC
+    -> Ft8HashStore
+    -> typed message codec
+    -> Ft8ProtocolSlot
+```
+
+RX-1G must reproduce the frozen 6 kHz FT8 result without adding frontend adaptation, MiniShell Audio, station-aware `rx_result_builder`, AutoSeq, TX, UI, or algorithm changes.
 
 ### RX-2 — pure host FT8 decoder
 
