@@ -7,6 +7,7 @@ typedef struct { const char *name; test_fn_t fn; } test_case_t;
 
 static const test_case_t tests[] = {
     {"system", test_system},
+    {"console", test_console},
     {"memory", test_memory},
     {"filesystem", test_filesystem},
     {"time_location", test_time_location},
