@@ -1,212 +1,213 @@
 # MiniFT8-V3 UI
 
+This document is the canonical MiniFT8-V3 UI definition. New V3 decisions override older MiniFT8-V2 behavior; where V3 has not defined something yet, MiniFT8-V2 is the default behavioral baseline.
+
+## Decision status
+
+### DECIDED
+
+- First-release UI is text-only: **20 columns x 7 lines**.
+- A **2-pixel gap/separator** is placed below the top line.
+- First release has **no countdown bar** and **no graphical waterfall**.
+- The 20-character top line is fully defined below.
+- Top-level UIScreen switching uses case-insensitive reserved letters: `R`, `T`, `O`, `S`, `V`, `Q`.
+- `Q` means Quit.
+- Other character keys may be defined as shortcuts inside an individual UIScreen.
+- Page Up/Down remains part of a UIScreen's top level; paging does not enter a submenu.
+- Switching UIScreens always enters the destination UIScreen at its top level.
+- Up/Down page navigation wraps around.
+- Current MiniFT8 Back/ESC behavior is retained.
+- UIScreen state and TX/RX operation are independent; TX/RX activity does not add special UIScreen or edit restrictions.
+
+### OPEN
+
+- The final role, content, or possible removal of the `S` UIScreen is undecided. `station.txt` can be edited from MiniShell before `ft8` starts, so some V2-style in-app settings may no longer need an `S` menu.
+- Detailed contents and shortcuts for each UIScreen remain to be reviewed against MiniFT8-V2.
+
+### TODO
+
+- Review `R` against MiniFT8-V2 and define its V3 pages/actions.
+- Review `T` against MiniFT8-V2 and define its V3 pages/actions.
+- Review `O` against MiniFT8-V2 and define its V3 pages/actions.
+- Decide the V3 role of `S`.
+- Review `V` against MiniFT8-V2 and define its V3 pages/actions.
+- Define UIScreen-local shortcuts only where useful.
+
 ## Vocabulary
 
 ```text
 Protocol       fixed application identity: FT8 for the `ft8` app
-Screen         top-level UI location: RX / TX / O / S / V
-Submenu        shallow group inside O, S, or V
+UIScreen       top-level UI location: R / T / O / S / V
+Top level      inside a UIScreen, but not inside one of its submenus
+Submenu        shallow group entered from a UIScreen
 Page           visible slice of a longer list when paging is required
-Presentation   MiniFT8 UI/resource presentation: ADV / DESKTOP
 Station Profile
-               operating-profile setting shown on O as Default/User/etc.
+               operating-profile setting shown inside MiniFT8 where applicable
 ```
+
+Page navigation does **not** count as entering a submenu. A UIScreen can therefore be on page 2/3 and still be at its top level.
 
 Protocol selection is not MiniFT8 application state. Switching from FT8 to another protocol means leaving `ft8` and launching another MiniShell application such as future `ft4`, `cw`, `rtty`, or `js8`.
 
-`Presentation` is also separate from MiniShell backend identity. Linux can run either MiniFT8 presentation, which is the basis of the P1 cross-profile test.
+## First-release screen layout
 
-## P1 presentation profiles
-
-P1 defines two application-level presentations:
+MiniFT8-V3 uses a fixed text layout:
 
 ```text
-DESKTOP   30 columns x 8 rows
-ADV       20 columns x 7 rows
+20 columns x 7 lines
 ```
 
-Both use the same MiniFT8 controller, `UiModel`, navigation, actions, and screen definitions.
-
-### DESKTOP
+The top line is followed by a 2-pixel visual gap/separator. The remaining six lines are UIScreen-owned content.
 
 ```text
-row 0   status / protocol strip
-row 1   main line 1
-row 2   main line 2
-row 3   main line 3
-row 4   main line 4
-row 5   main line 5
-row 6   main line 6
-row 7   contextual help/footer
+line 0   fixed 20-character status line
+         2-pixel gap/separator below
+line 1   UIScreen content
+line 2   UIScreen content
+line 3   UIScreen content
+line 4   UIScreen content
+line 5   UIScreen content
+line 6   UIScreen content
 ```
 
-### ADV
+For the first release there is deliberately:
+
+- no countdown bar;
+- no graphical waterfall.
+
+These can be reconsidered later without changing the basic UIScreen model.
+
+## Top line
+
+The 20-character top line is:
 
 ```text
-row 0   compact status / protocol strip
-row 1   main line 1
-row 2   main line 2
-row 3   main line 3
-row 4   main line 4
-row 5   main line 5
-row 6   main line 6
+[UIscreen:2:left][space][Band:2:zero-padded][space][UTC:HH:MM:SS][space][currentpage/totalpage:3][space][counter:1:0-E]
 ```
 
-ADV deliberately omits the footer rather than reducing the six main lines. This exactly fits the MiniShell Cardputer ADV Display surface of 20x7.
-
-Presentation selection is launch policy, not persisted station state:
+Character allocation:
 
 ```text
-M$> ft8                    # default: DESKTOP
-M$> ft8 --profile desktop
-M$> ft8 --profile adv
+2 + 1 + 2 + 1 + 8 + 1 + 3 + 1 + 1 = 20
 ```
 
-`station.txt` does not contain a `presentation=` key.
-
-The application does not inspect `platform=linux` or `platform=adv` to choose presentation. P2 will arrange for the compiled-in ADV `ft8` entry to launch the ADV presentation explicitly.
-
-## Input
-
-Current logical controls:
+Example:
 
 ```text
-R / T / O / S / V    direct Screen selection
-1..6                 activate visible main line
-Up / Down            move selection
-Left / Right          change supported values
-Enter                 activate selected line
-Esc or `              back/cancel
-q / Q                 exit `ft8` to M$>
+RX 20 14:32:08 1/3 A
 ```
 
-Physical keyboard, touch, buttons, BLE, or another input source must be normalized by MiniShell before MiniFT8 sees it.
-
-## RX
-
-The current implementation uses prototype decode lines only. Real decoded FT8 output will later populate the same `UiModel` path.
-
-Both P1 presentations retain six visible RX lines. A future DESKTOP enhancement may expose more data, but P1 intentionally keeps content semantics identical so profile/backend comparisons are easy to reason about.
-
-## TX
-
-Current TX is a placeholder queue view. QSO/autoseq behavior is not yet integrated.
-
-## Operation screen — O
-
-Root:
+Fields:
 
 ```text
-1 Protocol: FT8
-2 Profile: Default
-3 Band: 20m
-4 CQ / Beacon >
-5 TX >
-6 Message >
+UIScreen   2 characters, left-aligned
+Band       2 characters, zero-padded
+UTC        HH:MM:SS
+Page       current/total, 3 characters
+Counter    one hexadecimal-like slot character: 0 through E
 ```
 
-`Protocol: FT8` is informational and not changeable inside the app.
+## Generic UIScreen behavior
 
-The `Profile` item here is the **station/operating profile**. It is intentionally not the ADV/DESKTOP application presentation.
+### Top level
 
-### O -> CQ / Beacon
+A UIScreen is at its **top level** when the user has entered that UIScreen but has not entered one of its submenus.
+
+Page Up/Down navigation does not leave the top level.
+
+### UIScreen switching
+
+At the top level of any UIScreen, these letter keys are reserved and case-insensitive:
 
 ```text
-1 CQ Type: --
-2 Beacon: --
+R / T / O / S / V    switch UIScreen
+Q                     quit MiniFT8 and return to MiniShell
 ```
 
-### O -> TX
+Other character keys may be assigned as shortcuts inside the current UIScreen.
+
+Switching to another UIScreen always enters the destination UIScreen at its top level rather than restoring a previous submenu position.
+
+### Page navigation
+
+Use Up/Down to move between pages. Paging wraps around.
+
+For a three-page UIScreen:
 
 ```text
-1 Offset Source: --
-2 Fixed Offset: --
-3 Skip TX1: OFF
-4 Max Retry: 3
-5 Tune: --
+Page Down: 1/3 -> 2/3 -> 3/3 -> 1/3
+Page Up:   1/3 -> 3/3 -> 2/3 -> 1/3
 ```
 
-`Skip TX1` and `Max Retry` are currently live scheduler-owned values and persist to `station.txt`.
+### Back / ESC
 
-### O -> Message
+Keep the existing MiniFT8 Back/ESC behavior. No V3-specific change is required.
+
+### Independence from TX/RX
+
+UIScreen navigation and radio TX/RX operation are independent state dimensions.
+
+Do not add special UIScreen-switching, paging, submenu, or edit restrictions merely because MiniFT8 is transmitting or receiving.
+
+## Input boundary
+
+Logical UI input is interpreted by MiniFT8 after MiniShell normalizes the physical source.
+
+Physical keyboard, touch, buttons, BLE, or another input source must therefore map to the same logical input behavior before MiniFT8 handles it.
+
+At the MiniFT8 level, the generic controls currently include:
 
 ```text
-1 Send FreeText >
-2 Edit FreeText >
-3 Current: (empty)
+R / T / O / S / V    top-level UIScreen selection
+Q                     quit at UIScreen top level
+Up / Down             page navigation at top level; submenu-specific use where defined
+Left / Right          UIScreen/submenu-specific use where defined
+Enter                 activate selected item where applicable
+Esc or `              existing MiniFT8 back/cancel behavior
+other characters      UIScreen-local shortcuts where defined
 ```
 
-## Settings screen — S
+## MiniFT8-V2 baseline rule
 
-Root:
+For each UIScreen, MiniFT8-V2 behavior and content are the starting point unless they conflict with an explicit MiniFT8-V3 decision in this document or with the MiniShell architecture.
 
-```text
-1 Station >
-2 I/O Paths >
-3 Band Profiles >
-4 Logging >
-5 Time / GPS >
-6 System >
-```
+This is a compatibility-of-behavior guideline, not a requirement to preserve V2 implementation structure.
 
-### S -> I/O Paths
+## UIScreen notes
 
-The three station resources are intentionally independent:
+### R
 
-```text
-1 RX Audio: --
-2 TX Audio: --
-3 Control: --
-```
+Use MiniFT8-V2 RX behavior as the baseline. Detailed V3 content is TODO.
 
-There is no monolithic `Radio` selection at the MiniFT8 application boundary. A source/profile may associate these paths with the same physical device, but MiniFT8 configures and reasons about RX Audio, TX Audio, and Control independently.
+### T
 
-The submenus establish UI placement but most backend-dependent values remain `--` until their real application wiring exists.
+Use MiniFT8-V2 TX behavior as the baseline. Detailed V3 content is TODO.
 
-## View screen — V
+### O
 
-V is read-only.
+Use MiniFT8-V2 O-screen behavior as the baseline. Detailed V3 content is TODO.
 
-Root:
+### S
 
-```text
-1 Status >
-2 GPS >
-3 QSO / Log >
-4 Performance >
-5 System Info >
-6 About >
-```
+**OPEN.**
 
-The Status view reports fixed `Protocol: FT8` plus the same resource vocabulary:
+MiniFT8-V2 used `S` as an in-application settings/menu screen. In V3, `station.txt` can be edited in MiniShell before launching `ft8`, so some or all of the old `S` responsibilities may belong outside the running application.
 
-```text
-RX Audio: --
-TX Audio: --
-Control: --
-```
+Keep `S` reserved until this is decided.
 
-System Info reports the active application presentation explicitly:
+### V
 
-```text
-Runtime: MiniShell
-Presentation: ADV       # or DESKTOP
-UI: text 20x7           # or 30x8
-App: ft8
-Station: Default
-Band: 20m
-```
-
-This remains application policy; it does not expose or branch on MiniShell backend identity.
+Use MiniFT8-V2 V-screen behavior as the baseline. Detailed V3 content is TODO.
 
 ## Rendering boundary
 
+The UI remains behind the MiniFT8/MiniShell display boundary:
+
 ```text
-ft8 presentation profile
-   -> geometry/footer policy
+MiniFT8 UI state
    -> UiModel
-   -> ui_shell_render()
-   -> profile-sized UiFrame
+   -> renderer
+   -> 20x7 UiFrame
    -> ft8_ui_adapter
    -> MiniShell Display API
 ```
@@ -214,11 +215,11 @@ ft8 presentation profile
 Input is the reverse boundary:
 
 ```text
-MiniShell key event
+MiniShell input event
    -> ft8_ui_adapter
    -> UiInput
-   -> ui_shell_handle_input()
+   -> MiniFT8 UI/controller
    -> AppAction
 ```
 
-`ui_shell` remains independently unit-testable without a terminal or hardware display. The same smoke test renders both DESKTOP 30x8 and ADV 20x7 frames.
+The application UI/controller should remain independently unit-testable without requiring a physical display or keyboard.
