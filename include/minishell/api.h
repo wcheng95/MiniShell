@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-#define MINISHELL_API_VERSION 0x00000001u
+#define MINISHELL_API_VERSION 0x00000002u
 
 #if defined(__GNUC__)
 #define MINI_IMPORT __attribute__((visibility("default")))
@@ -39,6 +39,13 @@ typedef struct {
     uint32_t struct_size;
     void (*write)(const char *text);
 } mini_system_api_t;
+
+/* User-facing, line-oriented application output. This is distinct from
+ * System.write diagnostics and from full-screen Display ownership. */
+typedef struct {
+    uint32_t struct_size;
+    void (*write)(const char *text);
+} mini_console_api_t;
 
 #define MINI_MEM_INFO_APP_USAGE      (1ull << 0)
 #define MINI_MEM_INFO_FREE_BYTES     (1ull << 1)
@@ -318,6 +325,7 @@ typedef struct {
     uint32_t api_version;
     uint32_t struct_size;
     const mini_system_api_t *system;
+    const mini_console_api_t *console;
     const mini_memory_api_t *memory;
     const mini_fs_api_t *fs;
     const mini_time_location_api_t *time_location;
