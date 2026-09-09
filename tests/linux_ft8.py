@@ -121,8 +121,10 @@ def main() -> int:
                 os.write(master_fd, b"v")
                 transcript.extend(read_until(master_fd, b"System Info", 3.0))
                 os.write(master_fd, b"5")
-                transcript.extend(read_until(master_fd, b"Presentation: ADV", 3.0))
-                transcript.extend(read_until(master_fd, b"UI: text 20x7", 3.0))
+                adv_system = read_until(master_fd, b"UI: text 20x7", 3.0)
+                if b"Presentation: ADV" not in adv_system:
+                    raise RuntimeError(f"ADV system view missing presentation label: {adv_system!r}")
+                transcript.extend(adv_system)
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
