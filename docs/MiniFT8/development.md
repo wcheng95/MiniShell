@@ -6,9 +6,9 @@ Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves ch
 
 The MiniShell H1-H5 housekeeping audit and final boundary review are complete. No known MiniShell debt blocks MiniFT8 RX work.
 
-## Current priority: RX-1C clean monitor ownership/workspace/lifecycle
+## Current priority: RX-1D candidate + likelihood/LDPC/CRC boundary
 
-RX-1A golden boundaries, RX-1B top-down ownership design, and the P1/P2/V1 cross-backend/profile checkpoint are complete.
+RX-1A golden boundaries, RX-1B top-down ownership design, RX-1C monitor cleanup, and the P1/P2/V1 cross-backend/profile checkpoint are complete.
 
 Validated platform/presentation matrix:
 
@@ -68,10 +68,11 @@ Canonical platform/profile plan:
 
 Canonical RX architecture and staged development are in `rx.md`.
 
-Canonical RX-1B ownership/interface design:
+Canonical completed design/implementation records:
 
 ```text
 rx-1b-design.md
+rx-1c-monitor.md
 ```
 
 The locked receive shape is:
@@ -112,6 +113,7 @@ Normal raw audio remains streaming and bounded. The retained normal decode repre
 7. **Hashed callsigns are explicit FT8-engine state.** `Ft8HashStore` persists across slots and is aged explicitly; it is not MiniShell state and must not require a global table.
 8. **Exact payload bytes are protocol-message identity.** CRC/hash values may accelerate lookup/dedupe but are not collision-free identity.
 9. **Ownership/interface cleanup is not an optimization project.** Preserve FFT, OSR, candidate search, LDPC, SNR, and other proven algorithm behavior unless a structural blocker forces a narrowly documented exception.
+10. **Mathematical equivalence is not enough during DSP cleanup.** Preserve expression-level float behavior when the frozen golden proves that reassociation changes output.
 
 ## RX-0 — architecture and V2 source review — complete
 
@@ -169,14 +171,6 @@ waterfall -> exact unique valid payload
 fixed payload -> protocol type + canonical text
 ```
 
-Reference tests live in the V2 repository:
-
-```text
-tests/tx_e2e/test_rx1a_boundaries.cpp
-tests/tx_e2e/rx1a_reference_dump.cpp
-.github/workflows/rx1a-reference.yml
-```
-
 Hard structural anchors include:
 
 ```text
@@ -200,8 +194,6 @@ RX-1A also clarified three V2 points:
 - type 0.6 `CONTESTING` is outside current V2 supported message scope; RX-1 does not add support merely because the enum names it;
 - the generic telemetry decode buffer issue was fixed separately in MiniFT8-V2 with a direct regression test and no decoder-math change;
 - the production V2 callsign hashtable is correct for 22-, 12-, and 10-bit lookups. The simplified `decode_helper.cpp` host-test map is not the production table.
-
-These distinctions remain explicit so structural refactoring neither invents new protocol scope nor changes behavior that is already correct.
 
 ### RX-1B — top-down RX module/interface design — complete
 
@@ -237,43 +229,73 @@ unit-test ownership by module boundary
 
 No production decoder source was migrated during RX-1B.
 
-### RX-1C — clean monitor ownership/workspace/lifecycle — ACTIVE
+### RX-1C — clean monitor ownership/workspace/lifecycle — complete
 
-RX-1C is the first source-migration stage.
-
-Goal:
-
-> Preserve the V2 monitor mathematics exactly while replacing hidden mutable singleton storage, implicit allocation/fallback behavior, and ambiguous initialization/reset semantics with one explicit monitor instance and caller-supplied/queryable workspace.
-
-Required proofs:
+Canonical record:
 
 ```text
-same 6 kHz engine-native PCM
-    -> byte-identical active waterfall
-    -> FT8 FNV-1a-64 18BE1E838FD9C6AF
+rx-1c-monitor.md
 ```
 
-and:
+RX-1C introduced the first cleaned `ft8_engine` implementation boundary:
+
+```text
+6 kHz mono float
+    -> explicit Ft8Monitor
+    -> compact waterfall
+```
+
+The monitor now has:
+
+```text
+one explicit instance
+caller-supplied/queryable workspace
+no allocator dependency
+no mutable DSP singleton
+explicit invalid/workspace/full status
+explicit begin-window versus reset-stream semantics
+```
+
+On the Linux RX-1C reference build the baseline workspace query returns 105808 bytes. This is a host measurement rather than a hard-coded target requirement; 32-bit embedded alignment/FFT-plan size may differ slightly.
+
+Tests prove:
 
 ```text
 two monitor instances are independent
-invalid config fails explicitly
-insufficient workspace fails explicitly
-failed init is safely destructible
-waterfall-full is observable
+invalid/misaligned/insufficient workspace fails cleanly
 new decode window preserves analysis history
-stream discontinuity clears analysis history
-no mutable DSP singleton remains
+stream reset clears analysis history
+waterfall-full is observable
+safe destruction
+exact V2 dimensions
+exact active waterfall bytes
+FNV-1a-64 = 18BE1E838FD9C6AF
 ```
 
-No candidate-search/LDPC/message migration belongs in RX-1C.
+The first refactor attempt failed the exact golden even though dimensions matched; restoring V2's exact Hann float multiplication grouping restored the fingerprint. No golden value was changed.
 
-### RX-1D and later
+### RX-1D — candidate + likelihood/LDPC/CRC boundary — NEXT
 
-Dependency-ordered implementation sequence:
+Goal:
+
+> Move the pinned V2 candidate search and candidate decode mathematics behind the `ft8_engine` boundary without changing search policy or decode behavior.
+
+Preserve:
 
 ```text
-RX-1D  candidate search + likelihood/LDPC/CRC behind ft8_engine
+candidate capacity      50
+minimum sync score       5
+max LDPC iterations     25
+exact RX-1A valid payload
+```
+
+RX-1D must keep raw decoder/LDPC types private to `ft8_engine`, keep candidate score distinct from SNR, expose explicit statuses/results, and avoid message-text/hash/application policy work that belongs to later stages.
+
+Do not introduce candidate ranking improvements, deep search, SNR changes, or performance tuning.
+
+### RX-1E and later
+
+```text
 RX-1E  explicit per-engine Ft8HashStore
 RX-1F  typed protocol message codec + Ft8ProtocolSlot
 RX-1G  pure cleaned ft8_engine golden regression
