@@ -6,9 +6,9 @@ Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves ch
 
 The MiniShell H1-H5 housekeeping audit and final boundary review are complete. No known MiniShell debt blocks MiniFT8 RX work.
 
-## Current priority: RX-1E explicit per-engine Ft8HashStore
+## Current priority: RX-1F typed protocol message codec
 
-RX-1A golden boundaries, RX-1B top-down ownership design, RX-1C monitor cleanup, RX-1D candidate/LDPC/CRC migration, and the P1/P2/V1 cross-backend/profile checkpoint are complete.
+RX-1A golden boundaries, RX-1B top-down ownership design, RX-1C monitor cleanup, RX-1D candidate/LDPC/CRC migration, RX-1E explicit callsign-hash ownership, and the P1/P2/V1 cross-backend/profile checkpoint are complete.
 
 Validated platform/presentation matrix:
 
@@ -74,6 +74,7 @@ Canonical completed design/implementation records:
 rx-1b-design.md
 rx-1c-monitor.md
 rx-1d-decoder.md
+rx-1e-hash-store.md
 ```
 
 The locked receive shape is:
@@ -90,8 +91,8 @@ MiniShell Audio
        monitor/waterfall
        candidate search
        likelihood/LDPC/CRC
-       protocol message codec
        Ft8HashStore
+       protocol message codec
     -> Ft8ProtocolSlot
     -> rx_result_builder
     -> RxBatch
@@ -111,9 +112,9 @@ Normal raw audio remains streaming and bounded. The retained normal decode repre
 4. **Protocol message type is first-class output.** Normal typed messages are not rendered and re-tokenized to recover structure.
 5. **Free-text CQ exception.** A `FREE_TEXT` message may additionally be classified as logical CQ only when it matches `CQ <nnn|AAAA> <valid-callsign> [grid]`; protocol type remains `FREE_TEXT`.
 6. **Station identity may be decoder context, not QSO policy.** Future deep search may use local callsign as an explicit search/prior hint. AutoSeq state, reply decisions, IgnoreList, TX stage, and UI policy remain outside `ft8_engine`.
-7. **Hashed callsigns are explicit FT8-engine state.** `Ft8HashStore` persists across slots and is aged explicitly; it is not MiniShell state and must not require a global table.
+7. **Hashed callsigns are explicit FT8-engine state.** `Ft8HashStore` persists across slots, is caller/per-engine owned, and is aged explicitly once per slot; it is not MiniShell state and has no global table.
 8. **Exact payload bytes are protocol-message identity.** CRC/hash values may accelerate lookup/dedupe but are not collision-free identity.
-9. **Ownership/interface cleanup is not an optimization project.** Preserve FFT, OSR, candidate search, LDPC, SNR, and other proven algorithm behavior unless a structural blocker forces a narrowly documented exception.
+9. **Ownership/interface cleanup is not an optimization project.** Preserve FFT, OSR, candidate search, LDPC, SNR, hash lookup, and other proven algorithm behavior unless a structural blocker forces a narrowly documented exception.
 10. **Mathematical equivalence is not enough during DSP cleanup.** Preserve expression-level float behavior when the frozen golden proves that reassociation changes output.
 
 ## RX-0 — architecture and V2 source review — complete
@@ -266,7 +267,7 @@ Canonical record:
 rx-1d-decoder.md
 ```
 
-RX-1D now implements:
+RX-1D implements:
 
 ```text
 Ft8WaterfallView
@@ -298,30 +299,57 @@ Unit and pinned-V2 reference tests pass. The exact RX-1A valid payload remains:
 
 Candidate score/order remain diagnostics rather than permanent golden identity.
 
-### RX-1E — explicit per-engine Ft8HashStore — NEXT
+### RX-1E — explicit per-engine Ft8HashStore — complete
+
+Canonical record:
+
+```text
+rx-1e-hash-store.md
+```
+
+RX-1E replaces V2's global/static callsign table with one explicit caller-owned `Ft8HashStore` instance suitable for one future `Ft8Engine` instance.
+
+The pinned V2 production behavior is preserved:
+
+```text
+capacity                     128 entries
+callsign                     11 chars + NUL
+entry size                   16 bytes
+stored hash                  full 22-bit hash
+lookup                       22 / 12 / 10 bits
+bucket                       (top10 * 23) % 128
+age                          uint8, saturating
+save/lookup                  refresh age to zero
+trim-created holes           full-table lookup scan
+full-table policy            trim to 78, then insert -> 79
+```
+
+The store has no time/platform dependency. `age_slot()` is an explicit lifecycle call that the eventual engine/slot owner invokes exactly once per FT8 slot.
+
+Unit coverage proves independent instances, 22/12/10-bit lookup, same-full-hash replacement, age refresh, oldest-entry trimming, lookup through trim-created holes, the V2 full-table trim policy, and invalid-input handling.
+
+Current Linux and prior-stage regressions pass.
+
+### RX-1F — typed protocol message codec + Ft8ProtocolSlot — NEXT
 
 Goal:
 
-> Make hashed-callsign knowledge explicit per-engine protocol state before migrating the typed message codec.
+> Migrate the supported V2 RX message unpacking into MiniFT8-owned typed protocol results and connect hashed-callsign resolution/saving to the explicit `Ft8HashStore`.
 
-RX-1E should define and prove:
+RX-1F should preserve supported V2 protocol behavior while cleaning:
 
 ```text
-one explicit owner per engine instance
-22-bit / 12-bit / 10-bit lookup semantics
-save/update behavior
-explicit aging/lifetime policy
-no global hash table
-multi-instance independence
-no MiniShell/platform dependency
+ftx_message_t dependency
+three-generic-field canonical representation
+global callback context
+hidden output-buffer capacities
 ```
 
-Do not migrate message rendering/unpacking yet; that belongs to RX-1F.
+It must keep protocol type first-class and keep station/QSO/application policy outside the codec.
 
-### RX-1F and later
+### RX-1G
 
 ```text
-RX-1F  typed protocol message codec + Ft8ProtocolSlot
 RX-1G  pure cleaned ft8_engine golden regression
 ```
 
