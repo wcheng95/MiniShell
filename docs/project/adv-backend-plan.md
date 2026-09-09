@@ -6,7 +6,7 @@ This is the current development priority.
 
 MiniFT8 RX-1B is **paused, not abandoned**. RX-1A remains the frozen decoder/golden baseline. RX-1B resumes after the cross-platform checkpoint defined below is complete.
 
-Stage **A0 is complete**. Stage **A1 — ADV ESP-IDF build skeleton** has passed software/build CI and is awaiting real Cardputer ADV boot validation.
+Stages **A0** and **A1** are complete. The active implementation stage is **A2 — System, Memory, Display, and Input**.
 
 ## Goal
 
@@ -111,7 +111,7 @@ Reference commit:
 1cb44be4  refactor: isolate resident console and startup boundary
 ```
 
-## Stage A1 — ADV ESP-IDF build skeleton — BUILD COMPLETE / HARDWARE CHECK PENDING
+## Stage A1 — ADV ESP-IDF build skeleton — COMPLETE
 
 Goal: create `platform/adv/` as the second real MiniShell backend and prove the portable runtime/application lifecycle can be composed as ESP32-S3 firmware.
 
@@ -143,14 +143,7 @@ ADV static app-registry unit test passes
 ESP-IDF v5.5.1 esp32s3 firmware builds in GitHub CI
 ```
 
-Reference commits:
-
-```text
-b795842e  feat: add ADV A1 ESP-IDF build skeleton
-142dced2  fix: package ADV hello without CMake source mutation
-```
-
-Remaining A1 hardware validation:
+Real-device validation — passed on Cardputer ADV:
 
 ```text
 Cardputer ADV boots MiniShell
@@ -161,7 +154,14 @@ hello prints through System.write
 hello returns cleanly to M$>
 ```
 
-A1 is complete only after this real-device check passes.
+Reference commits:
+
+```text
+b795842e  feat: add ADV A1 ESP-IDF build skeleton
+142dced2  fix: package ADV hello without CMake source mutation
+```
+
+A1 exit criteria are fully satisfied. Development proceeds to A2.
 
 ## Stage A2 — System, Memory, Display, and Input
 
