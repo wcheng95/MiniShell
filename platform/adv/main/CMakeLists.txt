@@ -21,6 +21,8 @@ idf_component_register(
         "probe_static.c"
         "a3_probe_static.c"
         "date_static.c"
+        "ls_static.c"
+        "cat_static.c"
         "${MINISHELL_ROOT}/core/minishell_runtime.c"
         "${MINISHELL_ROOT}/core/shell.c"
         "${MINISHELL_ROOT}/core/app_manager.c"
