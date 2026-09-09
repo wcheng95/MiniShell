@@ -270,6 +270,18 @@ add_executable(ft8_engine_rx1g_unit tests/ft8_engine_rx1g_test.c)
 target_link_libraries(ft8_engine_rx1g_unit PRIVATE ft8_engine_core)
 target_compile_options(ft8_engine_rx1g_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
+add_executable(rx_audio_adapter_rx6_unit
+    tests/rx_audio_adapter_rx6_test.c
+    apps/ft8/src/rx_audio_adapter/rx_audio_adapter.c
+)
+target_include_directories(rx_audio_adapter_rx6_unit PRIVATE
+    include
+    apps/ft8/src/rx_audio_adapter
+)
+target_compile_options(rx_audio_adapter_rx6_unit PRIVATE
+    -Wall -Wextra -Werror -Wpedantic
+)
+
 set(FT8_RX1C_REFERENCE_WAV "" CACHE FILEPATH
     "Optional pinned MiniFT8-V2 6 kHz RX-1A golden WAV")
 if(FT8_RX1C_REFERENCE_WAV)
@@ -380,6 +392,7 @@ add_test(NAME ft8_decoder_rx1d_unit COMMAND ft8_decoder_rx1d_unit)
 add_test(NAME ft8_hash_store_rx1e_unit COMMAND ft8_hash_store_rx1e_unit)
 add_test(NAME ft8_message_codec_rx1f_unit COMMAND ft8_message_codec_rx1f_unit)
 add_test(NAME ft8_engine_rx1g_unit COMMAND ft8_engine_rx1g_unit)
+add_test(NAME rx_audio_adapter_rx6_unit COMMAND rx_audio_adapter_rx6_unit)
 
 if(FT8_RX1C_REFERENCE_WAV)
     add_test(
