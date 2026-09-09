@@ -71,6 +71,29 @@ static void info_line(UiFrame *frame, int line, const char *fmt, ...)
     frame_set(frame, line + 1, "%s", text);
 }
 
+static void format_memory_bytes(uint64_t bytes, char *out, size_t out_size)
+{
+    const uint64_t kib = 1024ull;
+    const uint64_t mib = 1024ull * 1024ull;
+    const uint64_t gib = 1024ull * 1024ull * 1024ull;
+    uint64_t unit = 1u;
+    char suffix = 'B';
+
+    if (bytes >= gib) { unit = gib; suffix = 'G'; }
+    else if (bytes >= mib) { unit = mib; suffix = 'M'; }
+    else if (bytes >= kib) { unit = kib; suffix = 'K'; }
+
+    if (unit == 1u) {
+        (void)snprintf(out, out_size, "%lluB", (unsigned long long)bytes);
+    } else {
+        uint64_t whole = bytes / unit;
+        uint64_t tenth = ((bytes % unit) * 10u) / unit;
+        (void)snprintf(out, out_size, "%llu.%llu%c",
+                       (unsigned long long)whole,
+                       (unsigned long long)tenth, suffix);
+    }
+}
+
 static uint32_t paged_count(size_t item_count)
 {
     uint32_t pages = (uint32_t)((item_count + UI_MAIN_LINES - 1u) / UI_MAIN_LINES);
@@ -299,7 +322,7 @@ static void render_s(const UiShell *ui, const UiModel *model, UiFrame *frame)
 
 static void render_v_root(const UiShell *ui, UiFrame *frame)
 {
-    row_item(ui, frame, 0, "Status >");
+    row_item(ui, frame, 0, "Memory >");
     row_item(ui, frame, 1, "GPS >");
     row_item(ui, frame, 2, "QSO / Log >");
     row_item(ui, frame, 3, "Performance >");
@@ -308,14 +331,46 @@ static void render_v_root(const UiShell *ui, UiFrame *frame)
     frame_footer(frame, "1-6 Enter  read only  q quit");
 }
 
-static void render_v_status(const UiModel *model, UiFrame *frame)
+static void render_v_memory(const UiModel *model, UiFrame *frame)
 {
-    info_line(frame, 0, "Protocol: FT8");
-    info_line(frame, 1, "Profile: %s", model->profile_name);
-    info_line(frame, 2, "Band: %s", model->band_name);
-    info_line(frame, 3, "RX Audio: --");
-    info_line(frame, 4, "TX Audio: --");
-    info_line(frame, 5, "Control: --");
+    char free_text[24] = "--";
+    char largest_text[24] = "--";
+    char app_text[24] = "--";
+
+    if (model->memory_free_valid) {
+        format_memory_bytes(model->memory_free_bytes, free_text, sizeof(free_text));
+    }
+    if (model->memory_largest_valid) {
+        format_memory_bytes(model->memory_largest_free_block,
+                            largest_text, sizeof(largest_text));
+    }
+    if (model->memory_app_valid) {
+        format_memory_bytes(model->memory_app_allocated_bytes, app_text, sizeof(app_text));
+    }
+
+    info_line(frame, 0, "Heap free: %s", free_text);
+    info_line(frame, 1, "Largest: %s", largest_text);
+    info_line(frame, 2, "App alloc: %s", app_text);
+    if (model->memory_app_valid) {
+        info_line(frame, 3, "Alloc count: %u",
+                  (unsigned)model->memory_app_allocation_count);
+    } else {
+        info_line(frame, 3, "Alloc count: --");
+    }
+
+    /* This is contiguous-largest/free, not a fragmentation percentage. */
+    if (model->memory_free_valid && model->memory_largest_valid &&
+        model->memory_free_bytes > 0u) {
+        uint64_t largest = model->memory_largest_free_block;
+        uint64_t free_bytes = model->memory_free_bytes;
+        uint64_t percent = largest >= free_bytes
+                               ? 100u
+                               : (largest * 100u) / free_bytes;
+        info_line(frame, 4, "Largest/free: %u%%", (unsigned)percent);
+    } else {
+        info_line(frame, 4, "Largest/free: --");
+    }
+    info_line(frame, 5, "RX: %s", model->rx_active ? "ON" : "OFF");
     frame_footer(frame, "read only        `back q quit");
 }
 
@@ -375,7 +430,7 @@ static void render_v_about(UiFrame *frame)
 static void render_v(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
     switch (ui->submenu) {
-        case UI_SUBMENU_V_STATUS: render_v_status(model, frame); break;
+        case UI_SUBMENU_V_MEMORY: render_v_memory(model, frame); break;
         case UI_SUBMENU_V_GPS: render_v_gps(frame); break;
         case UI_SUBMENU_V_QSO: render_v_qso(frame); break;
         case UI_SUBMENU_V_PERF: render_v_perf(frame); break;
@@ -488,7 +543,7 @@ static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction
 
     if (ui->screen == SCREEN_V && ui->submenu == UI_SUBMENU_NONE) {
         static const UiSubmenu items[UI_MAIN_LINES] = {
-            UI_SUBMENU_V_STATUS, UI_SUBMENU_V_GPS, UI_SUBMENU_V_QSO,
+            UI_SUBMENU_V_MEMORY, UI_SUBMENU_V_GPS, UI_SUBMENU_V_QSO,
             UI_SUBMENU_V_PERF, UI_SUBMENU_V_SYSTEM, UI_SUBMENU_V_ABOUT
         };
         ui->submenu = items[line];
