@@ -6,9 +6,9 @@ Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves ch
 
 The MiniShell H1-H5 housekeeping audit and final boundary review are complete. No known MiniShell debt blocks MiniFT8 RX work.
 
-## Current priority: RX-1D candidate + likelihood/LDPC/CRC boundary
+## Current priority: RX-1E explicit per-engine Ft8HashStore
 
-RX-1A golden boundaries, RX-1B top-down ownership design, RX-1C monitor cleanup, and the P1/P2/V1 cross-backend/profile checkpoint are complete.
+RX-1A golden boundaries, RX-1B top-down ownership design, RX-1C monitor cleanup, RX-1D candidate/LDPC/CRC migration, and the P1/P2/V1 cross-backend/profile checkpoint are complete.
 
 Validated platform/presentation matrix:
 
@@ -73,6 +73,7 @@ Canonical completed design/implementation records:
 ```text
 rx-1b-design.md
 rx-1c-monitor.md
+rx-1d-decoder.md
 ```
 
 The locked receive shape is:
@@ -245,58 +246,81 @@ RX-1C introduced the first cleaned `ft8_engine` implementation boundary:
     -> compact waterfall
 ```
 
-The monitor now has:
-
-```text
-one explicit instance
-caller-supplied/queryable workspace
-no allocator dependency
-no mutable DSP singleton
-explicit invalid/workspace/full status
-explicit begin-window versus reset-stream semantics
-```
+The monitor now has one explicit instance, caller-supplied/queryable workspace, no allocator dependency, no mutable DSP singleton, explicit failure/full status, and explicit begin-window versus reset-stream semantics.
 
 On the Linux RX-1C reference build the baseline workspace query returns 105808 bytes. This is a host measurement rather than a hard-coded target requirement; 32-bit embedded alignment/FFT-plan size may differ slightly.
 
-Tests prove:
+Tests prove two-instance independence, explicit invalid/workspace/full behavior, new-window history preservation, stream-reset history clearing, safe destruction, exact V2 dimensions, and the exact active waterfall fingerprint:
 
 ```text
-two monitor instances are independent
-invalid/misaligned/insufficient workspace fails cleanly
-new decode window preserves analysis history
-stream reset clears analysis history
-waterfall-full is observable
-safe destruction
-exact V2 dimensions
-exact active waterfall bytes
-FNV-1a-64 = 18BE1E838FD9C6AF
+18BE1E838FD9C6AF
 ```
 
 The first refactor attempt failed the exact golden even though dimensions matched; restoring V2's exact Hann float multiplication grouping restored the fingerprint. No golden value was changed.
 
-### RX-1D — candidate + likelihood/LDPC/CRC boundary — NEXT
+### RX-1D — candidate + likelihood/LDPC/CRC boundary — complete
 
-Goal:
+Canonical record:
 
-> Move the pinned V2 candidate search and candidate decode mathematics behind the `ft8_engine` boundary without changing search policy or decode behavior.
+```text
+rx-1d-decoder.md
+```
 
-Preserve:
+RX-1D now implements:
+
+```text
+Ft8WaterfallView
+    -> FT8 Costas candidate search
+    -> max-log likelihood extraction
+    -> BP-LDPC
+    -> CRC-14
+    -> Ft8DecodedPayload
+```
+
+The cleaned boundary returns a validated exact 10-byte payload plus candidate/LDPC/CRC diagnostics; it does not depend on `ftx_message_t`, text rendering, or callsign hash state.
+
+Pinned structural policy remains:
 
 ```text
 candidate capacity      50
 minimum sync score       5
 max LDPC iterations     25
-exact RX-1A valid payload
+time search             -10..19 blocks
 ```
 
-RX-1D must keep raw decoder/LDPC types private to `ft8_engine`, keep candidate score distinct from SNR, expose explicit statuses/results, and avoid message-text/hash/application policy work that belongs to later stages.
+RX-1D also removes V2's pointer-before-array candidate addressing by resolving absolute waterfall blocks before constructing pointers. The LDPC implementation keeps one canonical parity-check topology and reconstructs the reverse three-check references deterministically in V2 row order rather than storing duplicated topology tables.
 
-Do not introduce candidate ranking improvements, deep search, SNR changes, or performance tuning.
-
-### RX-1E and later
+Unit and pinned-V2 reference tests pass. The exact RX-1A valid payload remains:
 
 ```text
-RX-1E  explicit per-engine Ft8HashStore
+000000206016500A1988
+```
+
+Candidate score/order remain diagnostics rather than permanent golden identity.
+
+### RX-1E — explicit per-engine Ft8HashStore — NEXT
+
+Goal:
+
+> Make hashed-callsign knowledge explicit per-engine protocol state before migrating the typed message codec.
+
+RX-1E should define and prove:
+
+```text
+one explicit owner per engine instance
+22-bit / 12-bit / 10-bit lookup semantics
+save/update behavior
+explicit aging/lifetime policy
+no global hash table
+multi-instance independence
+no MiniShell/platform dependency
+```
+
+Do not migrate message rendering/unpacking yet; that belongs to RX-1F.
+
+### RX-1F and later
+
+```text
 RX-1F  typed protocol message codec + Ft8ProtocolSlot
 RX-1G  pure cleaned ft8_engine golden regression
 ```
