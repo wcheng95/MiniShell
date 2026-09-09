@@ -23,7 +23,9 @@ ADV       20 x 7 text frame, six main lines and no footer
 
 They use the same controller, configuration, scheduler settings, `UiModel`, navigation, and MiniShell Display/Input adapter.
 
-Presentation is launch policy rather than backend identity or station configuration:
+Presentation is launch/composition policy rather than backend identity or station configuration.
+
+Linux:
 
 ```text
 M$> ft8                    # DESKTOP default
@@ -31,9 +33,15 @@ M$> ft8 --profile desktop
 M$> ft8 --profile adv
 ```
 
-The ADV/DESKTOP presentation is not persisted in `/flash/ft8/station.txt`. The O-screen `Profile: Default` item is a separate station/operating-profile concept.
+Cardputer ADV P2 statically packages the same MiniFT8 source files and supplies `ADV` as the composition default:
 
-Linux integration tests exercise both DESKTOP and ADV presentations. P2 will package `ft8` into the Cardputer ADV static registry and launch the ADV presentation there.
+```text
+M$> ft8                    # ADV default on the ADV firmware
+```
+
+There is no runtime platform check inside MiniFT8 to select this. The small ADV static wrapper only supplies the application default during composition.
+
+The ADV/DESKTOP presentation is not persisted in `/flash/ft8/station.txt`. The O-screen `Profile: Default` item is a separate station/operating-profile concept.
 
 Current application integration includes the text UI, configuration, scheduler settings, and persistent `/flash/ft8/station.txt` through MiniShell Display, Input, and Filesystem services.
 
