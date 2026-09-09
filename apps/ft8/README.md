@@ -85,7 +85,7 @@ The baseline remained effectively unchanged across repeated `ft8` launch/exit cy
 
 ## RX status
 
-RX-1 is complete. The cleaned `Ft8Engine` now owns the platform-independent 6 kHz FT8 protocol/DSP core:
+RX-1 is complete. The cleaned `Ft8Engine` owns the platform-independent 6 kHz FT8 protocol/DSP core:
 
 ```text
 6 kHz mono float
@@ -114,7 +114,7 @@ Example:
 CQ W1XYZ FN42
 ```
 
-The pinned RX-2 CI reference and full Linux CI pass. RX-2 remains the active stage until the same utility is validated by the user on `pc-1`.
+The pinned RX-2 CI reference and full Linux CI pass. Manual pc-1 validation remains pending but does not block the next structural RX stages.
 
 Canonical RX-2 record:
 
@@ -122,13 +122,39 @@ Canonical RX-2 record:
 docs/MiniFT8/rx-2-host-decoder.md
 ```
 
-After pc-1 validation, RX-3 adds the MiniFT8-owned frontend:
+RX-3 is implemented and CI-validated as the MiniFT8-owned frontend:
 
 ```text
 12 kHz S16 two-channel
     -> rx_frontend
+       ordinary-audio channel policy
+       S16 normalization/downmix
+       retained 2:1 decimation phase
     -> 6 kHz mono float
     -> same Ft8Engine
+```
+
+The baseline ordinary-audio path preserves the pinned V2 conversion style: normalize the two channels, average L/R, then use simple decimation. No new FIR/filter/resampling algorithm is introduced during structural cleanup.
+
+Transport-block boundaries are invisible to the output because `RxFrontend` owns the 2:1 decimation phase across calls. The RX-3 golden deliberately uses odd 257-frame chunks and still reproduces:
+
+```text
+CQ W1XYZ FN42
+```
+
+Canonical RX-3 records:
+
+```text
+docs/MiniFT8/rx-3-frontend.md
+apps/ft8/src/rx_frontend/README.md
+```
+
+Current RX development gate:
+
+```text
+RX-2  IMPLEMENTED / pc-1 manual validation pending
+RX-3  COMPLETE / CI validated
+RX-4  NEXT — streaming slot framing
 ```
 
 Current application integration still includes the text UI, configuration, scheduler settings, and persistent `/flash/ft8/station.txt` through MiniShell Display, Input, and Filesystem services. MiniShell Audio V1 and the deterministic Linux WAV RX provider are also implemented, but they are not yet connected to the cleaned RX pipeline.
