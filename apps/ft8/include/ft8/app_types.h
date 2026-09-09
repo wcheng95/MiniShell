@@ -3,11 +3,12 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
-#define UI_COLS 30
-#define UI_ROWS 8
+#define UI_MAX_COLS 30
+#define UI_MAX_ROWS 8
 #define UI_MAIN_LINES 6
-#define UI_TEXT_CAP (UI_COLS + 1)
+#define UI_TEXT_CAP (UI_MAX_COLS + 1)
 
 #define APP_MAX_RX_LINES UI_MAIN_LINES
 #define APP_MAX_TX_LINES UI_MAIN_LINES
@@ -53,7 +54,10 @@ typedef struct {
 } UiModel;
 
 typedef struct {
-    char rows[UI_ROWS][UI_TEXT_CAP];
+    uint32_t column_count;
+    uint32_t row_count;
+    bool has_footer;
+    char rows[UI_MAX_ROWS][UI_TEXT_CAP];
 } UiFrame;
 
 typedef enum {
