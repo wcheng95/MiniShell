@@ -346,6 +346,7 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
 
     model->skip_tx1 = qso_scheduler_get_skip_tx1(&app->scheduler);
     model->max_retry = qso_scheduler_get_max_retry(&app->scheduler);
+    model->rx_active = app_controller_rx_active(app);
     build_utc_model(app, model);
 
     if (app->rx != NULL && app->rx->have_batch) {
@@ -359,6 +360,41 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
 
     model->tx_count = 1u;
     snprintf(model->tx_lines[0], UI_TEXT_CAP, "%s", "TX queue empty (prototype)");
+}
+
+void app_controller_build_memory_model(const AppController *app, UiModel *model)
+{
+    mini_memory_info_t info = {.struct_size = sizeof(info)};
+
+    if (model == NULL) return;
+    model->memory_app_valid = false;
+    model->memory_app_allocated_bytes = 0u;
+    model->memory_app_allocation_count = 0u;
+    model->memory_free_valid = false;
+    model->memory_free_bytes = 0u;
+    model->memory_largest_valid = false;
+    model->memory_largest_free_block = 0u;
+    model->rx_active = app_controller_rx_active(app);
+
+    if (app == NULL || app->api == NULL || app->api->memory == NULL ||
+        app->api->memory->get_info == NULL ||
+        app->api->memory->get_info(&info) != MINI_OK) {
+        return;
+    }
+
+    if ((info.valid_fields & MINI_MEM_INFO_APP_USAGE) != 0u) {
+        model->memory_app_valid = true;
+        model->memory_app_allocated_bytes = info.app_allocated_bytes;
+        model->memory_app_allocation_count = info.app_allocation_count;
+    }
+    if ((info.valid_fields & MINI_MEM_INFO_FREE_BYTES) != 0u) {
+        model->memory_free_valid = true;
+        model->memory_free_bytes = info.free_bytes;
+    }
+    if ((info.valid_fields & MINI_MEM_INFO_LARGEST_BLOCK) != 0u) {
+        model->memory_largest_valid = true;
+        model->memory_largest_free_block = info.largest_free_block;
+    }
 }
 
 bool app_controller_apply_action(AppController *app, const AppAction *action)
