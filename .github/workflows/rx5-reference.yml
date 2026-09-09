@@ -1,0 +1,82 @@
+name: RX-5 Reference
+
+on:
+  push:
+    paths:
+      - 'apps/ft8/src/ft8_engine/**'
+      - 'apps/ft8/src/rx_frontend/**'
+      - 'apps/ft8/src/rx_slot_framer/**'
+      - 'apps/ft8/src/rx_result_builder/**'
+      - 'tests/rx_result_builder_rx5_test.c'
+      - 'tests/rx5_pure_assembly_reference.c'
+      - '.github/workflows/rx5-reference.yml'
+      - 'docs/MiniFT8/**'
+  pull_request:
+    paths:
+      - 'apps/ft8/src/ft8_engine/**'
+      - 'apps/ft8/src/rx_frontend/**'
+      - 'apps/ft8/src/rx_slot_framer/**'
+      - 'apps/ft8/src/rx_result_builder/**'
+      - 'tests/rx_result_builder_rx5_test.c'
+      - 'tests/rx5_pure_assembly_reference.c'
+      - '.github/workflows/rx5-reference.yml'
+      - 'docs/MiniFT8/**'
+
+jobs:
+  pure-rx:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout MiniShell
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned MiniFT8-V2 reference
+        uses: actions/checkout@v4
+        with:
+          repository: wcheng95/Mini-FT8
+          ref: 5bd3ef98f72388a850bebad04bd7300b90edb63c
+          path: reference/Mini-FT8
+
+      - name: Configure engine dependencies
+        run: cmake -S . -B build-rx5
+
+      - name: Build engine core
+        run: cmake --build build-rx5 -j2 --target ft8_engine_core
+
+      - name: Build RX-5 tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cc -std=c11 -Wall -Wextra -Werror -Wpedantic \
+            -Iapps/ft8/src/ft8_engine \
+            -Iapps/ft8/src/rx_result_builder \
+            tests/rx_result_builder_rx5_test.c \
+            apps/ft8/src/rx_result_builder/rx_result_builder.c \
+            build-rx5/libft8_protocol_core.a \
+            build-rx5/libft8_hash_store_core.a \
+            -o build-rx5/rx_result_builder_rx5_unit
+
+          cc -std=c11 -D_POSIX_C_SOURCE=200112L \
+            -Wall -Wextra -Werror -Wpedantic \
+            -Iapps/ft8/src/ft8_engine \
+            -Iapps/ft8/src/rx_frontend \
+            -Iapps/ft8/src/rx_slot_framer \
+            -Iapps/ft8/src/rx_result_builder \
+            tests/rx5_pure_assembly_reference.c \
+            apps/ft8/src/rx_frontend/rx_frontend.c \
+            apps/ft8/src/rx_slot_framer/rx_slot_framer.c \
+            apps/ft8/src/rx_result_builder/rx_result_builder.c \
+            build-rx5/libft8_engine_core.a \
+            build-rx5/libft8_monitor_core.a \
+            build-rx5/libft8_decoder_core.a \
+            build-rx5/libft8_protocol_core.a \
+            build-rx5/libft8_hash_store_core.a \
+            -lm \
+            -o build-rx5/rx5_pure_assembly_reference
+
+      - name: Run RX-5 result builder unit tests
+        run: ./build-rx5/rx_result_builder_rx5_unit
+
+      - name: Run RX-5 pure assembly golden
+        run: |
+          ./build-rx5/rx5_pure_assembly_reference \
+            "${{ github.workspace }}/reference/Mini-FT8/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav"
