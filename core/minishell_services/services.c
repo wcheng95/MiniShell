@@ -9,6 +9,7 @@ static mini_api_t s_api = {
     .api_version = MINISHELL_API_VERSION,
     .struct_size = sizeof(mini_api_t),
     .system = NULL,
+    .console = NULL,
     .memory = NULL,
     .fs = NULL,
     .time_location = NULL,
@@ -45,6 +46,7 @@ static void refresh_api_table(void)
     s_api.api_version = MINISHELL_API_VERSION;
     s_api.struct_size = sizeof(mini_api_t);
     s_api.system = minishell_system_service_api();
+    s_api.console = minishell_console_service_available() ? minishell_console_service_api() : NULL;
     s_api.memory = minishell_memory_service_available() ? minishell_memory_service_api() : NULL;
     s_api.fs = minishell_filesystem_service_available() ? minishell_filesystem_service_api() : NULL;
     s_api.time_location = minishell_time_location_service_available()
