@@ -27,8 +27,11 @@ typedef struct {
 typedef struct {
     void *ctx;
 
-    /* System */
+    /* System diagnostics. */
     void (*system_write)(void *ctx, const char *text);
+
+    /* User-facing line-oriented console output. */
+    void (*console_write)(void *ctx, const char *text);
 
     /* Memory */
     void *(*memory_alloc)(void *ctx, uint32_t size);
