@@ -6,7 +6,7 @@ This is the current development priority.
 
 MiniFT8 RX-1B is **paused, not abandoned**. RX-1A remains the frozen decoder/golden baseline. RX-1B resumes after the cross-platform checkpoint defined below is complete.
 
-Stages **A0** and **A1** are complete. The active implementation stage is **A2 — System, Memory, Display, and Input**.
+Stages **A0, A1, and A2 are complete**. The active implementation stage is **A3 — Filesystem and Time/Location**.
 
 ## Goal
 
@@ -60,6 +60,7 @@ The MiniFT8 core and profile are the same. Only the MiniShell backend changes.
 14. **ADV persistent storage uses two filesystems and no NVS.** `/flash` is LittleFS on internal flash; `/sd` is FATFS on the removable SD card. Internal configuration and other persistent MiniShell/backend state use ordinary files under `/flash`; do not introduce a second NVS persistence model.
 15. **ADV must operate without an SD card.** Compiled-in applications always have priority. When runtime file-based loading is later enabled, names not provided internally are searched in `/flash/apps` first and `/sd/apps` second. External applications are not expected to replace internal ones unless an explicit override mechanism is designed later.
 16. **Initial ADV `/flash` size is 2 MiB LittleFS, provisional.** This is an initial partition choice, not a permanent API/property; change it later if measured firmware size, application storage, or field use justifies a different allocation.
+17. **ADV resident-shell scrollback is deferred, not rejected.** The current shell reacquires a clean 7-row display after a foreground app exits. A later console enhancement should retain about 50 lines and allow scrolling the 7-row viewport. This belongs to private resident-console behavior and must not alter application Display semantics.
 
 ## Stage A0 — portable resident shell/startup boundary and terminology cleanup — COMPLETE
 
@@ -131,7 +132,7 @@ Implemented:
 - GitHub ESP-IDF v5.5.1 firmware-build workflow;
 - initial 8 MiB flash partition table reserving 2 MiB LittleFS for future `/flash` mounting.
 
-A1 intentionally does **not** implement public Memory, Display, Input, Filesystem, Time/Location, or Audio providers merely to satisfy the build skeleton. `System.write` is provided because the portable `hello` probe requires it.
+A1 intentionally does **not** implement public Memory, Display, Input, Filesystem, Time/Location, or Audio providers merely to satisfy the build skeleton. `System.write` is provided because the portable A1 `hello` probe requires it.
 
 Do not copy V2 structure. V2 may be consulted for proven board initialization and hardware behavior only.
 
@@ -150,7 +151,6 @@ Cardputer ADV boots MiniShell
 USB Serial/JTAG shows M$>
 status reports platform : adv
 apps lists hello
-hello prints through System.write
 hello returns cleanly to M$>
 ```
 
@@ -161,23 +161,26 @@ b795842e  feat: add ADV A1 ESP-IDF build skeleton
 142dced2  fix: package ADV hello without CMake source mutation
 ```
 
-A1 exit criteria are fully satisfied. Development proceeds to A2.
+A1 exit criteria are fully satisfied.
 
-## Stage A2 — System, Memory, Display, and Input
+## Stage A2 — System, Memory, Display, and Input — COMPLETE
 
 Goal: make the shell and portable UI usable on real Cardputer hardware.
 
-Tasks:
+Implemented:
 
-- replace the temporary A1 USB Serial/JTAG resident-console path with the Cardputer-facing shell implementation;
-- System write/status primitives for normal ADV operation;
-- ESP-IDF heap-backed Memory provider and useful free/largest-block reporting;
+- Cardputer-facing resident shell on the ADV display and keyboard;
+- USB Serial/JTAG retained as diagnostic mirror/fallback;
+- System diagnostic sink kept distinct from application Display;
+- ESP-IDF heap-backed Memory provider with application accounting/free-block information;
 - Cardputer 240x135 text Display provider reporting a 20-column x 7-row logical text surface;
-- Cardputer keyboard Input provider using logical MiniShell key events;
-- preserve Display/Input separation;
-- reuse portable Input queue/service semantics rather than exposing keyboard-driver state to applications.
+- `MINI_TEXT_ATTR_INVERSE` rendering;
+- Cardputer ADV TCA8418 keyboard Input provider normalized to logical MiniShell key events;
+- standalone special-key meanings needed by Cardputer controls without exposing matrix/scancode details;
+- shared portable Input queue/service semantics preserved;
+- M5 dependencies kept below MiniShell and audio-sensitive initialization behavior preserved.
 
-V2 is the reference for known-good Cardputer display/keyboard initialization and key behavior.
+V2 was used only as the reference for known-good Cardputer display/keyboard pins, key behavior, and the critical display-only initialization pattern. A2 does not call `M5.begin()` and does not claim mic, speaker, codec, or I2S resources.
 
 ### ADV Display V1 decisions
 
@@ -190,7 +193,7 @@ logical text surface       20 columns x 7 rows
 target fixed-width font    12 x 16 pixels
 ```
 
-The intended physical row mapping is:
+The physical row mapping is:
 
 ```text
 logical row 0              19 px
@@ -200,11 +203,9 @@ logical rows 1..6          19 px each
 total                      135 px
 ```
 
-The exact 12x16 font asset and its vertical placement within each 19-pixel row are ADV backend implementation details to settle during A2 hardware bring-up. Applications see only the logical 20x7 cell grid and never pixel coordinates or the 2-pixel physical gap.
+Pixel/font/controller details remain ADV-backend implementation details. Applications see only the logical 20x7 cell grid and never pixel coordinates or the 2-pixel physical gap.
 
-ADV should implement the existing text operations and `present()`. `MINI_TEXT_ATTR_INVERSE` is desirable for cursors/selections if practical, but remains an optional existing API feature and does not block bring-up.
-
-Graphics remain deferred. In particular, ADV V1 does not require a graphical waterfall or graphical countdown. An application may render a countdown as ordinary text when useful. If a real future application requirement justifies graphics, extend Display separately rather than distorting the text API.
+Graphics remain deferred. ADV V1 does not require a graphical waterfall or graphical countdown. An application may render a countdown as ordinary text when useful. If a real future application requirement justifies graphics, extend Display separately rather than distorting the text API.
 
 Meaning of logical rows belongs above MiniShell. For the `ft8` ADV profile, the intended policy is:
 
@@ -215,14 +216,36 @@ rows 1..6   main FT8 content
 
 That is `ft8` application/profile policy, **not** an ADV backend or MiniShell Display rule. Other applications may use all seven rows differently.
 
-Exit criteria:
+The portable `hello` application now acts as a normal foreground application: it uses Display/Input, remains visible until explicit exit, and returns the screen to the shell afterward. The A2 public API probe verifies Memory, Display geometry, inverse text, and Input on real hardware.
+
+Real-device validation — passed:
 
 ```text
-MiniShell prompt visible on ADV display
-Cardputer keyboard command entry works
-status works
-shared service/input probes pass on hardware
+MiniShell prompt visible on ADV display      PASS
+Cardputer keyboard command entry             PASS
+status System/Memory/Display/Input ready      PASS
+hello foreground Display/Input lifecycle     PASS
+A2 Memory accounting                         PASS
+A2 Display 20x7                              PASS
+A2 inverse text                              PASS
+A2 Cardputer Input                           PASS
+a2_probe: PASS diagnostic over USB           PASS
 ```
+
+Current post-app shell behavior is intentionally simple: after a foreground app releases the display, the shell reacquires a clean 7-row screen and writes `M$>` at the top. A future private-console enhancement should maintain roughly 50 lines of shell history with scroll up/down; USB provides long history in the meantime.
+
+Reference commits include:
+
+```text
+d1736367  feat: add ADV A2 display keyboard and memory providers
+e7d40b8b  test: add ADV A2 public API probe
+fea18d0f  docs: describe ADV A2 hardware providers
+e6dc0dcc  refactor: make hello a foreground display app
+5864a8e9  test: exercise hello as foreground app
+d3ba0106  docs: describe hello as foreground app
+```
+
+A2 exit criteria are fully satisfied.
 
 ## Stage A3 — Filesystem and Time/Location
 
