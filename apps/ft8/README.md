@@ -33,6 +33,8 @@ M$> ft8 --profile desktop
 M$> ft8 --profile adv
 ```
 
+Current development policy is Linux backend first and ADV presentation for MiniFT8 UI work until a real ADV backend dependency must be exercised.
+
 Cardputer ADV statically packages the same MiniFT8 source files and supplies `ADV` as the composition default:
 
 ```text
@@ -81,8 +83,52 @@ app allocations 0 after ft8 exits
 
 The baseline remained effectively unchanged across repeated `ft8` launch/exit cycles.
 
-The active MiniFT8 stage is now **RX-1B — top-down RX module/interface design**.
+## RX status
 
-Current application integration includes the text UI, configuration, scheduler settings, and persistent `/flash/ft8/station.txt` through MiniShell Display, Input, and Filesystem services.
+RX-1 is complete. The cleaned `Ft8Engine` now owns the platform-independent 6 kHz FT8 protocol/DSP core:
 
-MiniShell Audio V1 and the deterministic Linux WAV RX provider are also implemented. RX Audio, TX Audio, and Control remain independent application resources. Control/Radio, FT8 decoding, TX realization, and logging are not yet integrated into the application.
+```text
+6 kHz mono float
+    -> Ft8Engine
+       -> monitor/waterfall
+       -> candidate search
+       -> likelihood/LDPC/CRC
+       -> Ft8HashStore
+       -> typed protocol codec
+       -> exact-payload dedupe
+    -> Ft8ProtocolSlot
+```
+
+RX-2 is implemented as a Linux host development utility:
+
+```text
+apps/ft8/tools/ft8_decode.c
+```
+
+It is not a MiniShell runtime application and has no presentation profile. It accepts one 6 kHz/mono/S16 PCM WAV decode window and prints every unique decoded FT8 message to stdout.
+
+Example:
+
+```text
+./build/ft8_decode ft8_cq_w1xyz_fn42.wav
+CQ W1XYZ FN42
+```
+
+The pinned RX-2 CI reference and full Linux CI pass. RX-2 remains the active stage until the same utility is validated by the user on `pc-1`.
+
+Canonical RX-2 record:
+
+```text
+docs/MiniFT8/rx-2-host-decoder.md
+```
+
+After pc-1 validation, RX-3 adds the MiniFT8-owned frontend:
+
+```text
+12 kHz S16 two-channel
+    -> rx_frontend
+    -> 6 kHz mono float
+    -> same Ft8Engine
+```
+
+Current application integration still includes the text UI, configuration, scheduler settings, and persistent `/flash/ft8/station.txt` through MiniShell Display, Input, and Filesystem services. MiniShell Audio V1 and the deterministic Linux WAV RX provider are also implemented, but they are not yet connected to the cleaned RX pipeline.
