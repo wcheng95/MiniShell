@@ -18,6 +18,7 @@ minishell_run()
       |
       +-- public MiniShell services
              System        USB/debug diagnostic sink
+             Console       resident text console + USB mirror
              Memory        ESP-IDF heap
              Display       20 x 7 logical text surface
              Input         normalized TCA8418 key events
@@ -51,7 +52,7 @@ MicroSD SPI/FATFS        adv_filesystem -> ESP-IDF SDSPI/FATFS
 
 The private resident shell and public Display/Input services share the same backend owners; they do not initialize hardware independently.
 
-## Display and Input
+## Display, Console, and Input
 
 ```text
 physical panel       240 x 135
@@ -63,7 +64,17 @@ capability            text only
 inverse attribute    supported
 ```
 
-Pixel coordinates remain backend-private. `System.write()` is a diagnostic sink on USB/debug; user-facing application output belongs on Display.
+Pixel coordinates remain backend-private.
+
+Output domains are intentionally distinct:
+
+```text
+Console.write()   user-facing line-oriented utility output
+Display           application-owned/full-screen UI
+System.write()    USB/debug diagnostics
+```
+
+On ADV, Console output joins the resident text-console stream and is mirrored to USB. Therefore utilities such as `date`, `ls`, and `cat` print on the Cardputer screen; after they return, the next `M$>` continues below their output. System diagnostics remain USB-only so they cannot overwrite a foreground application's Display UI.
 
 The Cardputer ADV keyboard uses the proven V2 wiring:
 
@@ -163,7 +174,7 @@ After exit the USB diagnostic sink prints:
 a3_probe: PASS
 ```
 
-A3 also packages the portable `date`, `ls`, and `cat` utilities on ADV for direct service-level checks.
+A3 also packages the portable `date`, `ls`, and `cat` utilities on ADV for direct service-level checks. These utilities use the public Console service for user-facing output.
 
 ## Flash layout
 
