@@ -81,6 +81,7 @@ static void cmd_status(void)
     const mini_api_t *api = mini_api_get();
     shell_printf("platform : %s\n", minishell_platform_name());
     shell_printf("system   : %s\n", api != NULL && api->system != NULL ? "ready" : "unavailable");
+    shell_printf("console  : %s\n", api != NULL && api->console != NULL ? "ready" : "unavailable");
     shell_printf("memory   : %s\n", api != NULL && api->memory != NULL ? "ready" : "unavailable");
     shell_printf("fs       : %s\n", api != NULL && api->fs != NULL ? "ready" : "unavailable");
     shell_printf("time     : %s\n", api != NULL && api->time_location != NULL ? "ready" : "unavailable");
