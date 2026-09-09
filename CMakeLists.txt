@@ -201,9 +201,26 @@ target_include_directories(ft8_monitor_core PUBLIC
 target_compile_options(ft8_monitor_core PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(ft8_monitor_core PUBLIC m)
 
+set(FT8_DECODER_SOURCES
+    apps/ft8/src/ft8_engine/ft8_decoder.c
+    apps/ft8/src/ft8_engine/ft8_ldpc.c
+    apps/ft8/src/ft8_engine/ft8_crc.c
+)
+
+add_library(ft8_decoder_core STATIC ${FT8_DECODER_SOURCES})
+target_include_directories(ft8_decoder_core PUBLIC
+    apps/ft8/src/ft8_engine
+)
+target_compile_options(ft8_decoder_core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ft8_decoder_core PUBLIC m)
+
 add_executable(ft8_monitor_rx1c_unit tests/ft8_monitor_rx1c_test.c)
 target_link_libraries(ft8_monitor_rx1c_unit PRIVATE ft8_monitor_core)
 target_compile_options(ft8_monitor_rx1c_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+add_executable(ft8_decoder_rx1d_unit tests/ft8_decoder_rx1d_test.c)
+target_link_libraries(ft8_decoder_rx1d_unit PRIVATE ft8_decoder_core)
+target_compile_options(ft8_decoder_rx1d_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
 set(FT8_RX1C_REFERENCE_WAV "" CACHE FILEPATH
     "Optional pinned MiniFT8-V2 6 kHz RX-1A golden WAV")
@@ -214,6 +231,17 @@ if(FT8_RX1C_REFERENCE_WAV)
     add_executable(ft8_monitor_rx1c_reference tests/ft8_monitor_rx1c_reference.c)
     target_link_libraries(ft8_monitor_rx1c_reference PRIVATE ft8_monitor_core)
     target_compile_options(ft8_monitor_rx1c_reference PRIVATE -Wall -Wextra -Werror -Wpedantic)
+endif()
+
+set(FT8_RX1D_REFERENCE_WAV "" CACHE FILEPATH
+    "Optional pinned MiniFT8-V2 6 kHz RX-1A golden WAV for decoder regression")
+if(FT8_RX1D_REFERENCE_WAV)
+    if(NOT EXISTS "${FT8_RX1D_REFERENCE_WAV}")
+        message(FATAL_ERROR "FT8_RX1D_REFERENCE_WAV does not exist: ${FT8_RX1D_REFERENCE_WAV}")
+    endif()
+    add_executable(ft8_decoder_rx1d_reference tests/ft8_decoder_rx1d_reference.c)
+    target_link_libraries(ft8_decoder_rx1d_reference PRIVATE ft8_monitor_core ft8_decoder_core)
+    target_compile_options(ft8_decoder_rx1d_reference PRIVATE -Wall -Wextra -Werror -Wpedantic)
 endif()
 
 enable_testing()
@@ -289,11 +317,19 @@ add_test(
 add_test(NAME ft8_ui_smoke COMMAND ft8_ui_smoke)
 add_test(NAME linux_terminal_parser_unit COMMAND linux_terminal_parser_unit)
 add_test(NAME ft8_monitor_rx1c_unit COMMAND ft8_monitor_rx1c_unit)
+add_test(NAME ft8_decoder_rx1d_unit COMMAND ft8_decoder_rx1d_unit)
 
 if(FT8_RX1C_REFERENCE_WAV)
     add_test(
         NAME ft8_monitor_rx1c_reference
         COMMAND ft8_monitor_rx1c_reference "${FT8_RX1C_REFERENCE_WAV}"
+    )
+endif()
+
+if(FT8_RX1D_REFERENCE_WAV)
+    add_test(
+        NAME ft8_decoder_rx1d_reference
+        COMMAND ft8_decoder_rx1d_reference "${FT8_RX1D_REFERENCE_WAV}"
     )
 endif()
 
