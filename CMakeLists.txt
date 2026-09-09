@@ -222,6 +222,15 @@ target_include_directories(ft8_hash_store_core PUBLIC
 )
 target_compile_options(ft8_hash_store_core PRIVATE -Wall -Wextra -Wpedantic)
 
+add_library(ft8_protocol_core STATIC
+    apps/ft8/src/ft8_engine/ft8_message_codec.c
+)
+target_include_directories(ft8_protocol_core PUBLIC
+    apps/ft8/src/ft8_engine
+)
+target_compile_options(ft8_protocol_core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ft8_protocol_core PUBLIC ft8_hash_store_core)
+
 add_executable(ft8_monitor_rx1c_unit tests/ft8_monitor_rx1c_test.c)
 target_link_libraries(ft8_monitor_rx1c_unit PRIVATE ft8_monitor_core)
 target_compile_options(ft8_monitor_rx1c_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
@@ -233,6 +242,10 @@ target_compile_options(ft8_decoder_rx1d_unit PRIVATE -Wall -Wextra -Werror -Wped
 add_executable(ft8_hash_store_rx1e_unit tests/ft8_hash_store_rx1e_test.c)
 target_link_libraries(ft8_hash_store_rx1e_unit PRIVATE ft8_hash_store_core)
 target_compile_options(ft8_hash_store_rx1e_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+add_executable(ft8_message_codec_rx1f_unit tests/ft8_message_codec_rx1f_test.c)
+target_link_libraries(ft8_message_codec_rx1f_unit PRIVATE ft8_protocol_core)
+target_compile_options(ft8_message_codec_rx1f_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
 set(FT8_RX1C_REFERENCE_WAV "" CACHE FILEPATH
     "Optional pinned MiniFT8-V2 6 kHz RX-1A golden WAV")
@@ -331,6 +344,7 @@ add_test(NAME linux_terminal_parser_unit COMMAND linux_terminal_parser_unit)
 add_test(NAME ft8_monitor_rx1c_unit COMMAND ft8_monitor_rx1c_unit)
 add_test(NAME ft8_decoder_rx1d_unit COMMAND ft8_decoder_rx1d_unit)
 add_test(NAME ft8_hash_store_rx1e_unit COMMAND ft8_hash_store_rx1e_unit)
+add_test(NAME ft8_message_codec_rx1f_unit COMMAND ft8_message_codec_rx1f_unit)
 
 if(FT8_RX1C_REFERENCE_WAV)
     add_test(
