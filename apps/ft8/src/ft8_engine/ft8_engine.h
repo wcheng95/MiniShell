@@ -13,6 +13,10 @@
 extern "C" {
 #endif
 
+/* Public engine-native RX contract. */
+#define FT8_ENGINE_SAMPLE_RATE_HZ FT8_MONITOR_SAMPLE_RATE_HZ
+#define FT8_ENGINE_BLOCK_SIZE FT8_MONITOR_BLOCK_SIZE
+
 typedef enum {
     FT8_ENGINE_OK = 0,
     FT8_ENGINE_NO_MESSAGES = 1,
@@ -73,7 +77,7 @@ Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine);
 /* Process exactly one engine-native 960-sample / 6 kHz mono-float block. */
 Ft8EngineStatus ft8_engine_process_block(
     Ft8Engine *engine,
-    const float samples[FT8_MONITOR_BLOCK_SIZE]);
+    const float samples[FT8_ENGINE_BLOCK_SIZE]);
 
 /*
  * Decode the current completed window into caller-supplied protocol-message
