@@ -32,7 +32,7 @@ int main(int argc, char **argv)
     (void)argv;
     const mini_api_t *api = mini_api_get();
     if (argc != 1) return 2;
-    if (api == NULL || api->system == NULL || api->system->write == NULL ||
+    if (api == NULL || api->console == NULL || api->console->write == NULL ||
         api->memory == NULL || api->memory->get_info == NULL) {
         return 2;
     }
@@ -41,7 +41,7 @@ int main(int argc, char **argv)
     if (api->memory->get_info(&info) != MINI_OK ||
         (info.valid_fields & MINI_MEM_INFO_APP_USAGE) == 0u ||
         (info.valid_fields & MINI_MEM_INFO_FREE_BYTES) == 0u) {
-        api->system->write("free: unavailable\n");
+        api->console->write("free: unavailable\n");
         return 1;
     }
 
@@ -55,6 +55,6 @@ int main(int argc, char **argv)
     format_bytes(total, total_text, sizeof(total_text));
     (void)snprintf(line, sizeof(line), "used %s  free %s  total %s\n",
                    used_text, free_text, total_text);
-    api->system->write(line);
+    api->console->write(line);
     return 0;
 }
