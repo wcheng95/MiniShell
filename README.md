@@ -35,7 +35,7 @@ apps/ft8/
 
 Normal C conventions still apply, so preprocessor macros remain uppercase, for example `MINISHELL_API_VERSION` and `FT8_DATA_DIR`.
 
-## Linux shell baseline
+## Shell baseline
 
 Resident commands are intentionally small:
 
@@ -107,7 +107,34 @@ Runtime `.elf` loading on ADV is deferred for later investigation, not rejected.
 
 The user model remains `apps`, `run <app>`, direct `<app>`, application return, then `M$>`.
 
-The resident shell itself uses a private platform console boundary. Linux implements that boundary with stdin/stdout. ADV A1 used USB Serial/JTAG for bring-up; A2 moved normal ADV shell interaction to the Cardputer display/keyboard. Applications do **not** use the private console and continue through the public MiniShell APIs.
+The resident shell itself uses a private platform console boundary. Linux implements that boundary with stdin/stdout. ADV A1 used USB Serial/JTAG for bring-up; A2 moved normal ADV shell interaction to the Cardputer display/keyboard.
+
+Applications do not call that private boundary directly. Command-style applications use the public Console service; full-screen applications use Display/Input; diagnostics use System.
+
+## Application output domains
+
+```text
+Console.write()   user-facing command/utility output
+Display           interactive/full-screen application UI
+System.write()    diagnostics/debugging
+```
+
+On Linux, Console and System both ultimately appear in the host terminal. On Cardputer ADV, Console joins the resident 20x7 text console and USB mirror, while System remains USB/debug-only. This prevents diagnostics from overwriting a foreground application's Display UI.
+
+Examples:
+
+```text
+date / ls / cat / cp / df / free / mkdir / mv / rm / rmdir
+    -> Console
+
+hello / ft8 / nano-style interactive UI
+    -> Display + Input
+
+service probes and debug diagnostics
+    -> System
+```
+
+See `docs/api/console-api.md`.
 
 ## Build on Linux Mint
 
@@ -155,6 +182,14 @@ MiniShell UTC = startup UTC anchor + monotonic elapsed
 
 `date YYYY-MM-DD HH:MM:SS` re-anchors MiniShell UTC for the current session only. It does not change Linux system time and does not persist an offset. A backend owning a writable RTC may persist the equivalent `utc_set()` operation.
 
+Cardputer ADV A3 deliberately does not pretend flash persistence is an RTC. Until a real RTC/GPS provider is added, each ADV boot starts from:
+
+```text
+2026-09-01 06:00:00 UTC
+```
+
+The user may correct the time for that running session with `date`.
+
 ## Public API
 
 Source of truth:
@@ -167,6 +202,7 @@ The current API exposes:
 
 ```text
 System
+Console
 Memory
 Filesystem
 Time/Location
@@ -180,6 +216,7 @@ Audio
 Notable application-driven behavior includes:
 
 ```text
+Console        line-oriented user-facing output
 Filesystem     dir_open / dir_read / dir_close
 Filesystem     space(path)
 Filesystem     rename replaces an existing regular-file destination
@@ -193,6 +230,7 @@ Audio transports ordered frames. MiniShell does not assign application semantics
 
 ```text
 app lifecycle       app_manager
+user text output    Console service + backend resident console provider
 app allocations     Memory service
 files/dirs/quota    Filesystem service
 UTC/location        Time/Location service
@@ -237,7 +275,7 @@ The root Linux CTest suite currently has 11 tests covering:
 10. stateful Linux terminal parser split-boundary behavior;
 11. `ft8` PTY launch/navigation/persistence/relaunch/exit integration.
 
-CI also runs the platform-neutral service/unit suite, including Audio.
+CI also runs the platform-neutral service/unit suite. Each public service, including Console, has direct unit coverage.
 
 ## Documentation
 
@@ -256,25 +294,20 @@ docs/
 
 Stages **A0, A1, and A2 are complete**.
 
-A1 proved that the portable MiniShell runtime can boot and run on a real Cardputer ADV. A2 then made the device natively usable through its own 240x135 display and keyboard while preserving the public MiniShell boundary.
+A1 proved that the portable MiniShell runtime can boot and run on a real Cardputer ADV. A2 made the device natively usable through its own 240x135 display and keyboard while preserving the public MiniShell boundary.
 
-Validated A2 behavior includes:
+A3 is active. The A3a internal-storage/time checkpoint is complete on real hardware:
 
 ```text
-System diagnostic output       USB Serial/JTAG
-Memory provider                ready
-Display                        20 x 7 logical text surface
-Input                          Cardputer keyboard logical events
-resident shell                 ADV display/keyboard
-hello foreground lifecycle     PASS
-A2 Memory/Display/Input probe  PASS
+/flash LittleFS             PASS
+file/directory public API   PASS
+monotonic time              PASS
+session UTC                 PASS
+default location storage    PASS
+a3_probe                    PASS
 ```
 
-M5 dependencies remain below the MiniShell backend. A2 deliberately preserves the proven display-only initialization approach and does not claim microphone, speaker, codec, or I2S resources.
-
-On ADV, returning from a foreground app currently gives the shell a clean 7-row display with `M$>` at the top. A future console enhancement will retain roughly 50 lines of shell history and allow scrolling the 7-row viewport; that is deferred and is not part of application Display semantics.
-
-The active stage is **A3 — Filesystem and Time/Location**:
+ADV storage policy:
 
 ```text
 /flash    2 MiB LittleFS initially, provisional
@@ -282,4 +315,6 @@ The active stage is **A3 — Filesystem and Time/Location**:
 NVS       not used
 ```
 
-A3 will make `/flash` persistent storage available, add optional removable-SD support, and implement the ADV Time/Location persistence needed by normal utilities and MiniFT8 configuration.
+A3b adds the optional MicroSD/FATFS path. Absence of an SD card remains a normal successful boot condition. RTC and GPS integration are intentionally deferred so they do not distract from the current backend/profile checkpoint.
+
+On ADV, returning from a full-screen foreground app currently gives the shell a clean 7-row display with `M$>` at the top. Command-style Console output remains on the resident console and the following `M$>` continues below it. A future console enhancement will retain roughly 50 lines of shell history and allow scrolling the 7-row viewport; that is private console behavior and not part of application Display semantics.
