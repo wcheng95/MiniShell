@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "presentation_profile.h"
 #include "ui_shell.h"
 
 static UiInput key(char c)
@@ -22,7 +23,27 @@ static void set_default_model(UiModel *model)
     model->max_retry = 3;
 }
 
-int main(void)
+static void test_profile_contract(void)
+{
+    ft8_presentation_profile_t profile;
+    ft8_presentation_spec_t spec;
+
+    assert(ft8_presentation_parse("desktop", &profile));
+    assert(profile == FT8_PRESENTATION_DESKTOP);
+    assert(strcmp(ft8_presentation_name(profile), "DESKTOP") == 0);
+    assert(ft8_presentation_get_spec(profile, &spec));
+    assert(spec.columns == 30u && spec.rows == 8u && spec.has_footer);
+
+    assert(ft8_presentation_parse("ADV", &profile));
+    assert(profile == FT8_PRESENTATION_ADV);
+    assert(strcmp(ft8_presentation_name(profile), "ADV") == 0);
+    assert(ft8_presentation_get_spec(profile, &spec));
+    assert(spec.columns == 20u && spec.rows == 7u && !spec.has_footer);
+
+    assert(!ft8_presentation_parse("linux", &profile));
+}
+
+static void test_desktop(void)
 {
     UiShell ui;
     UiModel model;
@@ -30,8 +51,11 @@ int main(void)
     AppAction action;
 
     set_default_model(&model);
-    ui_shell_init(&ui);
+    ui_shell_init(&ui, FT8_PRESENTATION_DESKTOP);
     ui_shell_render(&ui, &model, &frame);
+    assert(frame.column_count == 30u);
+    assert(frame.row_count == 8u);
+    assert(frame.has_footer);
     assert(strstr(frame.rows[0], "FT8") != NULL);
     assert(strstr(frame.rows[7], "R T O S V") != NULL);
 
@@ -87,8 +111,50 @@ int main(void)
     assert(ui.submenu == UI_SUBMENU_V_SYSTEM);
     ui_shell_render(&ui, &model, &frame);
     assert(strstr(frame.rows[1], "Runtime: MiniShell") != NULL);
-    assert(strstr(frame.rows[3], "App: ft8") != NULL);
+    assert(strstr(frame.rows[2], "Presentation: DESKTOP") != NULL);
+    assert(strstr(frame.rows[3], "UI: text 30x8") != NULL);
+    assert(strstr(frame.rows[4], "App: ft8") != NULL);
+}
 
+static void test_adv(void)
+{
+    UiShell ui;
+    UiModel model;
+    UiFrame frame;
+    AppAction action;
+
+    set_default_model(&model);
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    ui_shell_render(&ui, &model, &frame);
+    assert(frame.column_count == 20u);
+    assert(frame.row_count == 7u);
+    assert(!frame.has_footer);
+    assert(strstr(frame.rows[0], "FT8") != NULL);
+    assert(strstr(frame.rows[0], "20m") != NULL);
+    assert(strstr(frame.rows[0], "RX") != NULL);
+    assert(frame.rows[7][0] == '\0');
+
+    assert(!ui_shell_handle_input(&ui, &model, key('o'), &action));
+    ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[1], "Protocol: FT8") != NULL);
+    assert(strstr(frame.rows[6], "Message") != NULL);
+
+    assert(!ui_shell_handle_input(&ui, &model, key('v'), &action));
+    assert(!ui_shell_handle_input(&ui, &model, key('5'), &action));
+    ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[1], "Runtime: MiniShell") != NULL);
+    assert(strstr(frame.rows[2], "Presentation: ADV") != NULL);
+    assert(strstr(frame.rows[3], "UI: text 20x7") != NULL);
+    assert(strstr(frame.rows[4], "App: ft8") != NULL);
+    assert(strstr(frame.rows[5], "Station: Default") != NULL);
+    assert(strstr(frame.rows[6], "Band: 20m") != NULL);
+}
+
+int main(void)
+{
+    test_profile_contract();
+    test_desktop();
+    test_adv();
     puts("ft8_ui_smoke: PASS");
     return 0;
 }
