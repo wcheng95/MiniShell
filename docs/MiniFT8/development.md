@@ -6,9 +6,9 @@ Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves ch
 
 The MiniShell H1-H5 housekeeping audit and final boundary review are complete. No known MiniShell debt blocks MiniFT8 RX work.
 
-## Current priority: RX-1G pure cleaned ft8_engine golden regression
+## Current priority: RX-2 pure host FT8 decoder/use harness
 
-RX-1A golden boundaries, RX-1B top-down ownership design, RX-1C monitor cleanup, RX-1D candidate/LDPC/CRC migration, RX-1E explicit callsign-hash ownership, RX-1F typed protocol codec, and the P1/P2/V1 cross-backend/profile checkpoint are complete.
+RX-1A golden boundaries, RX-1B top-down ownership design, RX-1C monitor cleanup, RX-1D candidate/LDPC/CRC migration, RX-1E explicit callsign-hash ownership, RX-1F typed protocol codec, RX-1G pure `Ft8Engine` assembly/golden regression, and the P1/P2/V1 cross-backend/profile checkpoint are complete.
 
 Validated platform/presentation matrix:
 
@@ -76,6 +76,7 @@ rx-1c-monitor.md
 rx-1d-decoder.md
 rx-1e-hash-store.md
 rx-1f-message-codec.md
+rx-1g-engine.md
 ```
 
 The locked receive shape is:
@@ -88,12 +89,13 @@ MiniShell Audio
        6 kHz mono float
     -> rx_slot_framer
        exact 960-sample FT8 engine blocks
-    -> ft8_engine
+    -> Ft8Engine
        monitor/waterfall
        candidate search
        likelihood/LDPC/CRC
        Ft8HashStore
        typed protocol message codec
+       exact-payload dedupe
     -> Ft8ProtocolSlot
     -> rx_result_builder
     -> RxBatch
@@ -113,7 +115,7 @@ Normal raw audio remains streaming and bounded. The retained normal decode repre
 4. **Protocol message type is first-class output.** Normal typed messages are not rendered and re-tokenized to recover structure.
 5. **Free-text CQ exception.** A `FREE_TEXT` message may additionally be classified as logical CQ only when it matches `CQ <nnn|AAAA> <valid-callsign> [grid]`; protocol type remains `FREE_TEXT`.
 6. **Station identity may be decoder context, not QSO policy.** Future deep search may use local callsign as an explicit search/prior hint. AutoSeq state, reply decisions, IgnoreList, TX stage, and UI policy remain outside `ft8_engine`.
-7. **Hashed callsigns are explicit FT8-engine state.** `Ft8HashStore` persists across slots, is caller/per-engine owned, and is aged explicitly once per slot; it is not MiniShell state and has no global table.
+7. **Hashed callsigns are explicit FT8-engine state.** `Ft8HashStore` persists across slots, is owned by one `Ft8Engine`, and is aged explicitly once per completed slot transition; it is not MiniShell state and has no global table.
 8. **Exact payload bytes are protocol-message identity.** CRC/hash values may accelerate lookup/dedupe but are not collision-free identity.
 9. **Ownership/interface cleanup is not an optimization project.** Preserve FFT, OSR, candidate search, LDPC, SNR, hash lookup, message unpacking, and other proven algorithm behavior unless a structural blocker forces a narrowly documented exception.
 10. **Mathematical equivalence is not enough during DSP cleanup.** Preserve expression-level float behavior when the frozen golden proves that reassociation changes output.
@@ -325,7 +327,7 @@ trim-created holes           full-table lookup scan
 full-table policy            trim to 78, then insert -> 79
 ```
 
-The store has no time/platform dependency. `age_slot()` is an explicit lifecycle call that the eventual engine/slot owner invokes exactly once per FT8 slot.
+The store has no time/platform dependency. `age_slot()` is an explicit lifecycle call.
 
 Unit coverage proves independent instances, 22/12/10-bit lookup, same-full-hash replacement, age refresh, oldest-entry trimming, lookup through trim-created holes, the V2 full-table trim policy, and invalid-input handling.
 
@@ -354,36 +356,71 @@ Ft8DecodedPayload
 
 Protocol type and parse status are independent. Supported families are `STANDARD`, `NONSTD_CALL`, `FREE_TEXT`, `DXPEDITION`, `ARRL_FD`, and `TELEMETRY`; recognized-but-unimplemented families remain explicit `UNSUPPORTED` results. Type `0.6` remains `UNKNOWN` as in the pinned V2 baseline.
 
-The five fixed RX-1A codec vectors reproduce their exact canonical text. Hash resolution now uses the explicit RX-1E store directly for 22-, 12-, and 10-bit lookups. A hash miss remains a valid protocol parse rendered as `<...>` and is marked `has_unresolved_hash=true`.
+The five fixed RX-1A codec vectors reproduce their exact canonical text. Hash resolution uses the explicit RX-1E store directly for 22-, 12-, and 10-bit lookups. A hash miss remains a valid protocol parse rendered as `<...>` and is marked `has_unresolved_hash=true`.
 
 `Ft8ProtocolSlot` uses caller-supplied message storage and exact 10-byte payload comparison for dedupe; it introduces no hidden allocator or slot-sized message buffer.
 
-The Linux suite passes 16/16 tests on the RX-1F code-bearing head, with RX-1C and RX-1D pinned goldens also passing.
+### RX-1G — pure cleaned Ft8Engine golden regression — complete
 
-### RX-1G — pure cleaned ft8_engine golden regression — NEXT
+Canonical record:
+
+```text
+rx-1g-engine.md
+```
+
+RX-1G adds the explicit pure engine owner/lifecycle:
+
+```text
+Ft8Engine
+    -> Ft8Monitor
+    -> candidate search + LDPC/CRC
+    -> Ft8HashStore
+    -> typed message codec
+    -> exact-payload dedupe
+    -> Ft8ProtocolSlot
+```
+
+The engine is caller-owned, takes caller-supplied/queryable DSP workspace, and has no MiniShell or platform dependency. It owns one monitor, one candidate array, one persistent hash store, and current window/slot state.
+
+Lifecycle is explicit:
+
+```text
+query requirements
+init
+begin_window(slot_id)
+process exact 960-sample blocks
+finalize_window -> Ft8ProtocolSlot
+reset_stream on discontinuity
+repeat
+destroy
+```
+
+`reset_stream()` clears monitor continuity and cancels the active window while preserving callsign-hash knowledge. Beginning a new window after a completed window is the explicit owner of once-per-slot hash aging.
+
+The dedicated pinned-V2 RX-1G CI golden passes:
+
+```text
+6 kHz WAV
+    -> Ft8Engine
+    -> message_count = 1
+       payload = 000000206016500A1988
+       type    = STANDARD
+       text    = CQ W1XYZ FN42
+```
+
+The normal Linux suite and RX-1G lifecycle/unit tests pass on the code-bearing head.
+
+## RX-2 — pure MiniShell-independent host decoder/use harness — NEXT
 
 Goal:
 
-> Assemble the already-clean RX-1C through RX-1F pieces behind one pure `ft8_engine` lifecycle and reproduce the frozen 6 kHz end-to-end result.
+> Put the completed `Ft8Engine` behind a small host-side use boundary that consumes engine-native 6 kHz PCM and returns typed protocol messages without MiniShell, UI, station-aware result building, or platform-specific dependencies.
 
-RX-1G should connect:
-
-```text
-Ft8Monitor
-candidate search + LDPC/CRC
-Ft8HashStore
-typed message codec
-Ft8ProtocolSlot
-```
-
-without adding `rx_frontend`, MiniShell Audio, station-aware `rx_result_builder` logic, AutoSeq, TX, UI, or algorithm changes.
+RX-2 should make the cleaned engine straightforward to exercise as a reusable pure decoder before introducing the 12 kHz frontend and slot framer.
 
 ## Later RX stages
 
-After the cleaned FT8 core is stable:
-
 ```text
-RX-2  pure MiniShell-independent host FT8 decoder at 6 kHz
 RX-3  MiniFT8 RX frontend: 12k S16 2ch -> 6k mono float
 RX-4  streaming slot framing with exact 960-sample engine blocks
 RX-5  assemble pure RX -> Ft8ProtocolSlot -> RxBatch
