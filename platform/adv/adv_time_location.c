@@ -8,10 +8,13 @@
 #include "adv_internal.h"
 
 #define ADV_STATE_DIR "/flash/minishell"
-#define ADV_UTC_PATH ADV_STATE_DIR "/utc.txt"
-#define ADV_UTC_TEMP ADV_STATE_DIR "/utc.tmp"
 #define ADV_LOCATION_PATH ADV_STATE_DIR "/location.txt"
 #define ADV_LOCATION_TEMP ADV_STATE_DIR "/location.tmp"
+
+/* ADV has no time source in A3a.  Start every boot from a deterministic UTC
+ * anchor and let the user correct it for the current session with `date`.
+ * RTC/GPS providers can replace this bootstrap later without changing apps. */
+#define ADV_DEFAULT_UTC_SECONDS ((int64_t)1788242400) /* 2026-09-01 06:00:00 UTC */
 
 static mini_result_t result_from_errno(int error)
 {
@@ -60,35 +63,9 @@ static mini_result_t utc_load(void *ctx, int64_t *out_seconds,
 {
     (void)ctx;
     if (out_seconds == NULL || out_nanoseconds == NULL) return MINI_ERR_INVALID;
-    FILE *file = fopen(ADV_UTC_PATH, "r");
-    if (file == NULL) return result_from_errno(errno);
-
-    long long seconds = 0;
-    unsigned long nanoseconds = 0u;
-    int matched = fscanf(file, "%lld %lu", &seconds, &nanoseconds);
-    int close_result = fclose(file);
-    if (matched != 2 || close_result != 0 || nanoseconds >= 1000000000ul) {
-        return MINI_ERR_IO;
-    }
-    *out_seconds = (int64_t)seconds;
-    *out_nanoseconds = (uint32_t)nanoseconds;
+    *out_seconds = ADV_DEFAULT_UTC_SECONDS;
+    *out_nanoseconds = 0u;
     return MINI_OK;
-}
-
-static mini_result_t utc_store(void *ctx, int64_t seconds, uint32_t nanoseconds)
-{
-    (void)ctx;
-    if (nanoseconds >= 1000000000u) return MINI_ERR_INVALID;
-    FILE *file = fopen(ADV_UTC_TEMP, "w");
-    if (file == NULL) return result_from_errno(errno);
-    if (fprintf(file, "%lld %lu\n", (long long)seconds,
-                (unsigned long)nanoseconds) < 0) {
-        int error = errno;
-        (void)fclose(file);
-        (void)unlink(ADV_UTC_TEMP);
-        return result_from_errno(error);
-    }
-    return commit_file(file, ADV_UTC_TEMP, ADV_UTC_PATH);
 }
 
 static mini_result_t default_location_load(void *ctx,
@@ -146,7 +123,7 @@ void adv_time_location_configure(minishell_services_port_t *port)
         MINI_TIMELOC_CAP_DEFAULT_LOCATION |
         MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION;
     port->utc_load = utc_load;
-    port->utc_store = utc_store;
+    /* No utc_store in A3a: manual `date` correction is session-only. */
     port->default_location_load = default_location_load;
     port->default_location_store = default_location_store;
     port->default_location_clear = default_location_clear;
