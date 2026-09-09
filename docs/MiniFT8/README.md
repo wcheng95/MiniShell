@@ -57,32 +57,38 @@ They are coordinated through `app_controller`; they do not call one another behi
 
 ## Current priority
 
-RX-0 architecture/source review and RX-1A golden-boundary freeze are complete. RX-1B is **paused, not abandoned** while the architecture is exercised across two MiniShell backends and two MiniFT8 presentations.
+RX-0 architecture/source review, RX-1A golden-boundary freeze, RX-1B top-down ownership design, and the P1/P2/V1 platform/presentation checkpoint are complete.
 
-Validation matrix:
-
-```text
-Linux backend + DESKTOP presentation   P1 PASS
-Linux backend + ADV presentation       P1 PASS
-ADV backend   + ADV presentation       P2/V1 next
-```
-
-P1 proved that application presentation is independent of MiniShell backend identity. The same Linux-loaded `ft8.so`, controller, configuration, navigation, and UI shell run in both profiles:
+Validated matrix:
 
 ```text
-DESKTOP   30 x 8
-ADV       20 x 7
+Linux backend + DESKTOP presentation   PASS
+Linux backend + ADV presentation       PASS
+ADV backend   + ADV presentation       PASS
 ```
 
-The key remaining comparison is Linux + ADV versus real ADV + ADV: same MiniFT8 core/presentation, different MiniShell backend.
-
-Canonical current plan:
+Real ADV P2/V1 testing also established the current pre-RX memory baseline:
 
 ```text
-../project/adv-backend-plan.md
+heap free       ~282 KiB
+largest block   ~228 KiB
 ```
 
-After P2 and the V1 validation checkpoint pass, development resumes at RX-1B: top-down RX module/interface design.
+The active stage is:
+
+```text
+RX-1C  clean monitor ownership/workspace/lifecycle
+```
+
+RX-1C begins source migration only after RX-1B fixed the ownership contracts. It preserves the V2 6 kHz monitor mathematics and must reproduce the RX-1A waterfall exactly.
+
+Canonical current plans:
+
+```text
+rx.md
+rx-1b-design.md
+development.md
+```
 
 ## Current integrated baseline
 
@@ -116,7 +122,17 @@ signed 16-bit PCM
 
 MiniShell preserves channel ordering but does not assign channel meaning. Ordinary audio versus I/Q is a MiniFT8 source/profile contract.
 
-Examples:
+During the RX ownership-cleanup stages, `rx_frontend` adapts the MiniShell transport to the locked FT8-engine boundary:
+
+```text
+6000 Hz
+mono float
+960 samples per FT8 monitor block
+```
+
+This preserves proven MiniFT8-V2 decoder behavior. Changing the engine sample rate, FFT/OSR, filters, candidate policy, LDPC behavior, or SNR estimator is explicitly deferred to later algorithm work.
+
+Examples of future source semantics:
 
 ```text
 RX = QMX-AUDIO
@@ -132,6 +148,22 @@ RX = QMX-IQ
 Hardware-native transport conversion stays below MiniShell; protocol-specific DSP, channel interpretation, and TX waveform synthesis stay inside MiniFT8.
 
 Control remains a planned independent MiniShell service. Its eventual generic operations must not expose FT8 symbols or device-specific CAT syntax.
+
+## RX ownership shape
+
+RX-1B fixed five application-level modules beneath `app_controller`:
+
+```text
+app_controller
+    |
+    +-- rx_audio_adapter
+    +-- rx_frontend
+    +-- rx_slot_framer
+    +-- ft8_engine
+    `-- rx_result_builder
+```
+
+`app_controller` remains the only coordinator. `ft8_engine` owns the logical use of monitor/waterfall/candidate/decode/hash state but has no MiniShell, UI, storage, AutoSeq, TX, or platform dependency.
 
 ## RX memory rule
 
@@ -149,6 +181,8 @@ A whole raw-audio slot is not required. Optional research modes may retain or do
 Locked rule:
 
 > Stream raw audio; retain the waterfall; retain raw PCM only by explicit exception.
+
+The V2-compatible 6 kHz/time_osr=2/freq_osr=1 monitor uses roughly 80.5 KiB for the magnitude waterfall plus FFT/history/scratch workspace. RX-1C will make the exact cleaned workspace requirement queryable rather than hiding it in mutable globals.
 
 ## Run
 
@@ -201,16 +235,20 @@ The O-screen `Profile: Default` setting is a station/operating profile and is di
 
 - `architecture.md` — ownership, dependency direction, Audio and RX/TX/Control boundaries.
 - `rx.md` — canonical decode-RX pipeline, RAM rules, V2 classification, golden-reference policy, and staged RX development plan.
+- `rx-1b-design.md` — locked RX-1B physical module boundaries, ownership, 6 kHz engine contract, lifecycle, workspace, error, and unit-test responsibilities.
 - `rx-decoder-contract.md` — RX-0B review of V2 `decode_helper.cpp` and the extracted decoder contract.
 - `rx-v2-production-review.md` — RX-0B review of production `decode_monitor_results()`, with mixed V2 responsibilities assigned to V3 owners.
 - `rx-monitor-review.md` — RX-0B review of `monitor.h/c`, DSP/workspace ownership, reset semantics, RAM requirements, and monitor-level golden strategy.
 - `rx-decode-review.md` — RX-0B review of `decode.h/c`, candidate search, likelihood/LDPC/CRC boundaries, status cleanup, and deep-search extension points.
 - `rx-message-review.md` — RX-0B review of `message.h/c`, typed protocol results, callsign-hash ownership, special-message handling, and codec gaps.
 - `rx-golden.md` — RX-1A pinned V2 golden boundaries: reference WAVs, exact Linux waterfall fingerprints, payload/codec vectors, and known V2 gaps that are not golden targets.
-- `ui.md` — P1 presentation geometry, UI model, and controls.
+- `v1-validation.md` — P1/P2/V1 cross-backend/profile validation record.
+- `ui.md` — presentation geometry, UI model, and controls.
 - `development.md` — current development gate and next task.
 
 ## Source
+
+Current implemented application source:
 
 ```text
 apps/ft8/
@@ -224,5 +262,17 @@ apps/ft8/
     ├── storage_service/
     └── ui_shell/
 ```
+
+RX-1B reserves the next ownership modules as implementation begins:
+
+```text
+    ├── rx_audio_adapter/
+    ├── rx_frontend/
+    ├── rx_slot_framer/
+    ├── ft8_engine/
+    └── rx_result_builder/
+```
+
+Do not create placeholder modules merely to mirror the design document. Add each source module when its implementation/test stage begins.
 
 As functionality grows, new modules should be introduced only when their ownership and interfaces are clear. A logical owner may use several small private implementation files; one-owner does not mean one giant source file.
