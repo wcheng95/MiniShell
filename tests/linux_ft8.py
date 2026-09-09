@@ -86,6 +86,16 @@ def main() -> int:
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
                 os.write(master_fd, b"v")
                 transcript.extend(read_until(master_fd, b"System Info", 3.0))
+
+                # V -> 1 Memory reads the real MiniShell Memory API while ft8 is alive.
+                os.write(master_fd, b"1")
+                memory_view = read_until(master_fd, b"RX: OFF", 3.0)
+                if b"Heap free:" not in memory_view or b"App alloc:" not in memory_view:
+                    raise RuntimeError(f"Memory view missing runtime fields: {memory_view!r}")
+                transcript.extend(memory_view)
+                os.write(master_fd, b"`")
+                transcript.extend(read_until(master_fd, b"System Info", 3.0))
+
                 os.write(master_fd, b"5")
                 transcript.extend(read_until(master_fd, b"Presentation: DESKTOP", 3.0))
                 os.write(master_fd, b"q")
