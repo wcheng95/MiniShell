@@ -103,7 +103,7 @@ static int open_pcm_data(const char *path, FILE **out_file, uint32_t *out_sample
     return -1;
 }
 
-static int payload_seen(const uint8_t unique[][FT8_PAYLOAD_BYTES],
+static int payload_seen(uint8_t unique[][FT8_PAYLOAD_BYTES],
                         size_t count,
                         const uint8_t payload[FT8_PAYLOAD_BYTES])
 {
