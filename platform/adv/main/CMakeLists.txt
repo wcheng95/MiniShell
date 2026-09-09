@@ -24,6 +24,11 @@ idf_component_register(
         ${MINISHELL_SERVICE_SOURCES}
         "${CMAKE_CURRENT_LIST_DIR}/../adv_backend.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_console.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_display.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_i2c.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_input.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_keyboard.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_memory.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_apps.c"
         "${CMAKE_CURRENT_LIST_DIR}/../platform_info.c"
         "${CMAKE_CURRENT_LIST_DIR}/../resource_config.c"
@@ -33,7 +38,9 @@ idf_component_register(
         "${MINISHELL_ROOT}/core/minishell_services"
         "${CMAKE_CURRENT_LIST_DIR}/.."
     REQUIRES
+        esp_driver_i2c
         esp_driver_usb_serial_jtag
+        esp_timer
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Wpedantic)

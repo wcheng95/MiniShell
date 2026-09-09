@@ -1,6 +1,6 @@
 # MiniShell Input API
 
-Status: **implemented and exercised on the Linux reference backend.**
+Status: **implemented and exercised on the Linux reference backend; ADV hardware mapping is being added in A2.**
 
 ## Purpose
 
@@ -49,7 +49,11 @@ typedef struct {
 
 CHAR events carry a Unicode scalar value and no special-key value. SPECIAL events carry a MiniShell key value and zero codepoint.
 
-Modifiers currently include SHIFT, CTRL, and ALT. Initial special keys include arrows, Enter, Backspace, Delete, Escape, Tab, Home, End, Page Up/Down, and Insert.
+Modifiers include SHIFT, CTRL, ALT, FN, and OPT. The modifier mask describes the modifier state associated with an event/chord.
+
+Special keys include arrows, Enter, Backspace, Delete, Escape, Tab, Home, End, Page Up/Down, Insert, and standalone SHIFT/CTRL/ALT/FN/OPT key presses. The standalone modifier key values are intentional: devices such as Cardputer can use Ctrl, Fn, or Opt as actions by themselves, not only as modifiers attached to another key.
+
+The current logical-key API is press-oriented; it does not expose raw key-release events. A future need for full key-up/key-down or scan-code streams should be a separate capability rather than leaking hardware state into this API.
 
 ASCII is the minimum guaranteed character repertoire; the event format can carry additional Unicode scalar values.
 
@@ -107,7 +111,26 @@ The Linux backend:
 - converts tested ANSI cursor/navigation sequences into SPECIAL events;
 - leaves termios and terminal byte parsing below MiniShell.
 
+A terminal cannot necessarily report a bare physical modifier press, so standalone modifier SPECIAL events are backend-dependent physical capabilities even though their logical representation is portable.
+
 Portable apps such as `nano` therefore respond to `MINI_KEY_LEFT`, `MINI_MOD_CTRL`, etc., not escape bytes.
+
+## ADV mapping
+
+The Cardputer ADV backend owns the TCA8418 keyboard matrix and normalizes its physical events below MiniShell. The mapping preserves the proven MiniFT8-V2 ADV row/column remap and key layout.
+
+Current ADV conventions include:
+
+```text
+Fn + ;          Up
+Fn + ,          Left
+Fn + .          Down
+Fn + /          Right
+Fn + `          Escape
+Fn + Backspace  Delete
+```
+
+Shift/Ctrl/Alt/Fn/Opt state is attached to generated events. Pressing one of those modifier keys by itself also yields the corresponding SPECIAL event.
 
 ## API evolution
 
@@ -125,12 +148,14 @@ Linux tests cover:
 - queue ordering/foreground handoff through a real PTY;
 - nano interaction through the public Input API.
 
+ADV A2 adds hardware verification for the TCA8418 mapping and shell/app handoff.
+
 ## Deferred input families
 
 Keep separate from logical key input until required:
 
 ```text
-raw scan codes / key up/down
+raw scan codes / full key up/down
 pointer/mouse
 raw touch contacts
 gestures

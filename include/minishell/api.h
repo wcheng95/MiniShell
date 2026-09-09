@@ -222,6 +222,8 @@ typedef struct {
 #define MINI_MOD_SHIFT  (1u << 0)
 #define MINI_MOD_CTRL   (1u << 1)
 #define MINI_MOD_ALT    (1u << 2)
+#define MINI_MOD_FN     (1u << 3)
+#define MINI_MOD_OPT    (1u << 4)
 
 #define MINI_KEY_UP         1u
 #define MINI_KEY_DOWN       2u
@@ -237,6 +239,11 @@ typedef struct {
 #define MINI_KEY_PAGE_UP    12u
 #define MINI_KEY_PAGE_DOWN  13u
 #define MINI_KEY_INSERT     14u
+#define MINI_KEY_SHIFT      15u
+#define MINI_KEY_CTRL       16u
+#define MINI_KEY_ALT        17u
+#define MINI_KEY_FN         18u
+#define MINI_KEY_OPT        19u
 
 #define MINI_WAIT_NONE     0u
 #define MINI_WAIT_FOREVER  0xFFFFFFFFu
