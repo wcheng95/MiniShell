@@ -19,7 +19,10 @@ static const char *screen_name(Screen screen)
 
 static void frame_set(UiFrame *frame, int row, const char *fmt, ...)
 {
-    if (row < 0 || row >= UI_ROWS) return;
+    if (frame == NULL || row < 0 || (uint32_t)row >= frame->row_count ||
+        frame->column_count == 0u || frame->column_count > UI_MAX_COLS) {
+        return;
+    }
 
     char temp[128];
     va_list ap;
@@ -28,10 +31,23 @@ static void frame_set(UiFrame *frame, int row, const char *fmt, ...)
     va_end(ap);
 
     size_t len = strlen(temp);
-    if (len > UI_COLS) len = UI_COLS;
+    if (len > frame->column_count) len = frame->column_count;
     memcpy(frame->rows[row], temp, len);
-    for (size_t i = len; i < UI_COLS; ++i) frame->rows[row][i] = ' ';
-    frame->rows[row][UI_COLS] = '\0';
+    for (size_t i = len; i < frame->column_count; ++i) frame->rows[row][i] = ' ';
+    frame->rows[row][frame->column_count] = '\0';
+}
+
+static void frame_footer(UiFrame *frame, const char *fmt, ...)
+{
+    if (frame == NULL || !frame->has_footer || frame->row_count == 0u) return;
+
+    char text[128];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(text, sizeof(text), fmt, ap);
+    va_end(ap);
+
+    frame_set(frame, (int)(frame->row_count - 1u), "%s", text);
 }
 
 static void row_item(const UiShell *ui, UiFrame *frame, int line, const char *fmt, ...)
@@ -42,7 +58,7 @@ static void row_item(const UiShell *ui, UiFrame *frame, int line, const char *fm
     vsnprintf(text, sizeof(text), fmt, ap);
     va_end(ap);
 
-    frame_set(frame, line + 1, "%c%d %-26s",
+    frame_set(frame, line + 1, "%c%d %s",
               ui->selected_line == line ? '>' : ' ', line + 1, text);
 }
 
@@ -53,11 +69,17 @@ static void info_line(UiFrame *frame, int line, const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(text, sizeof(text), fmt, ap);
     va_end(ap);
-    frame_set(frame, line + 1, "%-30s", text);
+    frame_set(frame, line + 1, "%s", text);
 }
 
 static void render_top(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
+    if (ui->presentation == FT8_PRESENTATION_ADV) {
+        frame_set(frame, 0, "FT8 %-4.4s %-7.7s %-2.2s",
+                  model->band_name, model->profile_name, screen_name(ui->screen));
+        return;
+    }
+
     frame_set(frame, 0, "%-4s %-4s %-10s %-2s",
               "FT8", model->band_name, model->profile_name, screen_name(ui->screen));
 }
@@ -69,7 +91,7 @@ static void render_rx(const UiModel *model, UiFrame *frame)
             frame_set(frame, i + 1, "%d %s", i + 1, model->rx_lines[i]);
         }
     }
-    frame_set(frame, 7, "R T O S V  1-6 reply  q quit");
+    frame_footer(frame, "R T O S V  1-6 reply  q quit");
 }
 
 static void render_tx(const UiModel *model, UiFrame *frame)
@@ -79,7 +101,7 @@ static void render_tx(const UiModel *model, UiFrame *frame)
             frame_set(frame, i + 1, "%d %s", i + 1, model->tx_lines[i]);
         }
     }
-    frame_set(frame, 7, "R T O S V  arrows/Ent q quit");
+    frame_footer(frame, "R T O S V  arrows/Ent q quit");
 }
 
 static void render_o_root(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -90,14 +112,14 @@ static void render_o_root(const UiShell *ui, const UiModel *model, UiFrame *fram
     row_item(ui, frame, 3, "CQ / Beacon >");
     row_item(ui, frame, 4, "TX >");
     row_item(ui, frame, 5, "Message >");
-    frame_set(frame, 7, "2-6 Enter <>chg `back q quit");
+    frame_footer(frame, "2-6 Enter <>chg `back q quit");
 }
 
 static void render_o_cq(const UiShell *ui, UiFrame *frame)
 {
     row_item(ui, frame, 0, "CQ Type: --");
     row_item(ui, frame, 1, "Beacon: --");
-    frame_set(frame, 7, "CQ controls later  `back q quit");
+    frame_footer(frame, "CQ controls later  `back q quit");
 }
 
 static void render_o_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -107,7 +129,7 @@ static void render_o_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
     row_item(ui, frame, 2, "Skip TX1: %s", model->skip_tx1 ? "ON" : "OFF");
     row_item(ui, frame, 3, "Max Retry: %d", model->max_retry);
     row_item(ui, frame, 4, "Tune: --");
-    frame_set(frame, 7, "<> changes wired items `back q");
+    frame_footer(frame, "<> changes wired items `back q");
 }
 
 static void render_o_message(const UiShell *ui, UiFrame *frame)
@@ -115,7 +137,7 @@ static void render_o_message(const UiShell *ui, UiFrame *frame)
     row_item(ui, frame, 0, "Send FreeText >");
     row_item(ui, frame, 1, "Edit FreeText >");
     row_item(ui, frame, 2, "Current: (empty)");
-    frame_set(frame, 7, "message editor later `back q quit");
+    frame_footer(frame, "message editor later `back q quit");
 }
 
 static void render_o(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -136,7 +158,7 @@ static void render_s_root(const UiShell *ui, UiFrame *frame)
     row_item(ui, frame, 3, "Logging >");
     row_item(ui, frame, 4, "Time / GPS >");
     row_item(ui, frame, 5, "System >");
-    frame_set(frame, 7, "1-6 Enter        `back q quit");
+    frame_footer(frame, "1-6 Enter        `back q quit");
 }
 
 static void render_s_station(const UiShell *ui, UiFrame *frame)
@@ -145,7 +167,7 @@ static void render_s_station(const UiShell *ui, UiFrame *frame)
     row_item(ui, frame, 1, "Grid: --");
     row_item(ui, frame, 2, "Ignore List: --");
     row_item(ui, frame, 3, "ADIF Comment: --");
-    frame_set(frame, 7, "text editors later `back q quit");
+    frame_footer(frame, "text editors later `back q quit");
 }
 
 static void render_s_io_paths(const UiShell *ui, UiFrame *frame)
@@ -153,7 +175,7 @@ static void render_s_io_paths(const UiShell *ui, UiFrame *frame)
     row_item(ui, frame, 0, "RX Audio: --");
     row_item(ui, frame, 1, "TX Audio: --");
     row_item(ui, frame, 2, "Control: --");
-    frame_set(frame, 7, "independent paths `back q quit");
+    frame_footer(frame, "independent paths `back q quit");
 }
 
 static void render_s_band_profiles(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -162,7 +184,7 @@ static void render_s_band_profiles(const UiShell *ui, const UiModel *model, UiFr
     row_item(ui, frame, 1, "Enabled Bands >");
     row_item(ui, frame, 2, "Frequencies >");
     row_item(ui, frame, 3, "User Profiles >");
-    frame_set(frame, 7, "profile editor later `back q quit");
+    frame_footer(frame, "profile editor later `back q quit");
 }
 
 static void render_s_logging(const UiShell *ui, UiFrame *frame)
@@ -170,7 +192,7 @@ static void render_s_logging(const UiShell *ui, UiFrame *frame)
     row_item(ui, frame, 0, "RxTx Log: --");
     row_item(ui, frame, 1, "ADIF Log: --");
     row_item(ui, frame, 2, "ADIF Comment: --");
-    frame_set(frame, 7, "logging later       `back q");
+    frame_footer(frame, "logging later       `back q");
 }
 
 static void render_s_time_gps(const UiShell *ui, UiFrame *frame)
@@ -180,7 +202,7 @@ static void render_s_time_gps(const UiShell *ui, UiFrame *frame)
     row_item(ui, frame, 2, "Date: --");
     row_item(ui, frame, 3, "Time: --");
     row_item(ui, frame, 4, "Sync Now: --");
-    frame_set(frame, 7, "time/GPS later    `back q quit");
+    frame_footer(frame, "time/GPS later    `back q quit");
 }
 
 static void render_s_system(const UiShell *ui, UiFrame *frame)
@@ -191,7 +213,7 @@ static void render_s_system(const UiShell *ui, UiFrame *frame)
     row_item(ui, frame, 3, "Restart");
     row_item(ui, frame, 4, "Storage: --");
     row_item(ui, frame, 5, "Config: station.txt");
-    frame_set(frame, 7, "system actions later `back q");
+    frame_footer(frame, "system actions later `back q");
 }
 
 static void render_s(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -215,7 +237,7 @@ static void render_v_root(const UiShell *ui, UiFrame *frame)
     row_item(ui, frame, 3, "Performance >");
     row_item(ui, frame, 4, "System Info >");
     row_item(ui, frame, 5, "About >");
-    frame_set(frame, 7, "1-6 Enter  read only  q quit");
+    frame_footer(frame, "1-6 Enter  read only  q quit");
 }
 
 static void render_v_status(const UiModel *model, UiFrame *frame)
@@ -226,7 +248,7 @@ static void render_v_status(const UiModel *model, UiFrame *frame)
     info_line(frame, 3, "RX Audio: --");
     info_line(frame, 4, "TX Audio: --");
     info_line(frame, 5, "Control: --");
-    frame_set(frame, 7, "read only        `back q quit");
+    frame_footer(frame, "read only        `back q quit");
 }
 
 static void render_v_gps(UiFrame *frame)
@@ -236,7 +258,7 @@ static void render_v_gps(UiFrame *frame)
     info_line(frame, 2, "Grid: --");
     info_line(frame, 3, "Source: --");
     info_line(frame, 4, "Satellites: --");
-    frame_set(frame, 7, "read only        `back q quit");
+    frame_footer(frame, "read only        `back q quit");
 }
 
 static void render_v_qso(UiFrame *frame)
@@ -245,7 +267,7 @@ static void render_v_qso(UiFrame *frame)
     info_line(frame, 1, "Last QSO: --");
     info_line(frame, 2, "ADIF: --");
     info_line(frame, 3, "RxTx Log: --");
-    frame_set(frame, 7, "read only        `back q quit");
+    frame_footer(frame, "read only        `back q quit");
 }
 
 static void render_v_perf(UiFrame *frame)
@@ -255,18 +277,21 @@ static void render_v_perf(UiFrame *frame)
     info_line(frame, 2, "CPU: --");
     info_line(frame, 3, "Memory: --");
     info_line(frame, 4, "Audio blocks: --");
-    frame_set(frame, 7, "read only        `back q quit");
+    frame_footer(frame, "read only        `back q quit");
 }
 
-static void render_v_system(const UiModel *model, UiFrame *frame)
+static void render_v_system(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
+    ft8_presentation_spec_t spec;
+    (void)ft8_presentation_get_spec(ui->presentation, &spec);
+
     info_line(frame, 0, "Runtime: MiniShell");
-    info_line(frame, 1, "UI: text 30x8");
-    info_line(frame, 2, "App: ft8");
-    info_line(frame, 3, "Profile: %s", model->profile_name);
-    info_line(frame, 4, "Band: %s", model->band_name);
-    info_line(frame, 5, "Config: station.txt");
-    frame_set(frame, 7, "read only        `back q quit");
+    info_line(frame, 1, "Presentation: %s", ft8_presentation_name(ui->presentation));
+    info_line(frame, 2, "UI: text %ux%u", (unsigned)spec.columns, (unsigned)spec.rows);
+    info_line(frame, 3, "App: ft8");
+    info_line(frame, 4, "Station: %s", model->profile_name);
+    info_line(frame, 5, "Band: %s", model->band_name);
+    frame_footer(frame, "read only        `back q quit");
 }
 
 static void render_v_about(UiFrame *frame)
@@ -276,7 +301,7 @@ static void render_v_about(UiFrame *frame)
     info_line(frame, 2, "Runtime app: ft8");
     info_line(frame, 3, "FT8 protocol only");
     info_line(frame, 4, "V is strictly read-only");
-    frame_set(frame, 7, "read only        `back q quit");
+    frame_footer(frame, "read only        `back q quit");
 }
 
 static void render_v(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -286,23 +311,32 @@ static void render_v(const UiShell *ui, const UiModel *model, UiFrame *frame)
         case UI_SUBMENU_V_GPS: render_v_gps(frame); break;
         case UI_SUBMENU_V_QSO: render_v_qso(frame); break;
         case UI_SUBMENU_V_PERF: render_v_perf(frame); break;
-        case UI_SUBMENU_V_SYSTEM: render_v_system(model, frame); break;
+        case UI_SUBMENU_V_SYSTEM: render_v_system(ui, model, frame); break;
         case UI_SUBMENU_V_ABOUT: render_v_about(frame); break;
         default: render_v_root(ui, frame); break;
     }
 }
 
-void ui_shell_init(UiShell *ui)
+void ui_shell_init(UiShell *ui, ft8_presentation_profile_t presentation)
 {
     ui->screen = SCREEN_RX;
     ui->submenu = UI_SUBMENU_NONE;
     ui->selected_line = 0;
+    ui->presentation = presentation;
 }
 
 void ui_shell_render(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
+    ft8_presentation_spec_t spec;
+    if (!ft8_presentation_get_spec(ui->presentation, &spec)) {
+        (void)ft8_presentation_get_spec(FT8_PRESENTATION_DESKTOP, &spec);
+    }
+
     memset(frame, 0, sizeof(*frame));
-    for (int r = 0; r < UI_ROWS; ++r) frame_set(frame, r, "");
+    frame->column_count = spec.columns;
+    frame->row_count = spec.rows;
+    frame->has_footer = spec.has_footer;
+    for (uint32_t r = 0u; r < frame->row_count; ++r) frame_set(frame, (int)r, "");
 
     render_top(ui, model, frame);
     switch (ui->screen) {
