@@ -119,6 +119,8 @@ At the MiniShell Filesystem root:
 
 An absent or invalid SD card is not a boot failure. Cross-filesystem rename is unsupported; portable copy logic can move data between volumes when needed.
 
+ESP-IDF v5.5.x defaults FATFS to 8.3-only filenames. The ADV configuration explicitly enables heap-backed long filenames, a 255-character LFN limit, and UTF-8 API encoding so `/sd` can satisfy the MiniShell Filesystem filename contract instead of exposing an 8.3-only backend.
+
 ## A3 time policy
 
 Cardputer ADV has no time source enabled in A3. To avoid pretending that flash persistence is an RTC, every boot starts from this deterministic UTC anchor:
