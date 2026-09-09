@@ -32,6 +32,31 @@ application
 
 Applications never depend directly on Linux, ESP-IDF, NuttX, board support code, or backend-private types.
 
+## Current service domains
+
+```text
+System          diagnostics/debug output
+Console         user-facing line-oriented utility output
+Memory          application allocation/accounting
+Filesystem      logical files/directories/storage namespaces
+Time/Location   monotonic time, UTC, location
+Display         application-owned presentation surface
+Input           normalized logical input events
+Audio           independent RX/TX streams
+```
+
+Output ownership is intentionally explicit:
+
+```text
+Console.write()   command-style results, usage, user-visible errors
+Display           interactive/full-screen application UI
+System.write()    diagnostics, probes, debugging
+```
+
+This distinction is materially important on embedded backends. For example, on Cardputer ADV, Console joins the resident 20x7 shell surface while System remains on the USB/debug sink; a diagnostic message therefore cannot overwrite an application's Display UI.
+
+See `docs/api/console-api.md` for the Console contract.
+
 ## API design rules
 
 Even without a backward-compatibility promise, the API keeps disciplined contracts:
