@@ -7,54 +7,54 @@
 #define FIELD_END(type, field) \
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
 
-static void say(const mini_system_api_t *system, const char *text)
+static void say(const mini_console_api_t *console, const char *text)
 {
-    system->write(text);
+    console->write(text);
 }
 
-static void report_result(const mini_system_api_t *system, cp_copy_result_t result)
+static void report_result(const mini_console_api_t *console, cp_copy_result_t result)
 {
     switch (result) {
     case CP_COPY_OK:
         return;
     case CP_COPY_ERR_SAME_PATH:
-        say(system, "cp: source and destination are the same path\n");
+        say(console, "cp: source and destination are the same path\n");
         return;
     case CP_COPY_ERR_SOURCE_STAT:
-        say(system, "cp: cannot stat source\n");
+        say(console, "cp: cannot stat source\n");
         return;
     case CP_COPY_ERR_SOURCE_IS_DIR:
-        say(system, "cp: source is not a regular file\n");
+        say(console, "cp: source is not a regular file\n");
         return;
     case CP_COPY_ERR_DEST_STAT:
-        say(system, "cp: cannot stat destination\n");
+        say(console, "cp: cannot stat destination\n");
         return;
     case CP_COPY_ERR_DEST_IS_DIR:
-        say(system, "cp: destination is not a regular file path\n");
+        say(console, "cp: destination is not a regular file path\n");
         return;
     case CP_COPY_ERR_OPEN_SOURCE:
-        say(system, "cp: cannot open source\n");
+        say(console, "cp: cannot open source\n");
         return;
     case CP_COPY_ERR_OPEN_DEST:
-        say(system, "cp: cannot open destination\n");
+        say(console, "cp: cannot open destination\n");
         return;
     case CP_COPY_ERR_READ:
-        say(system, "cp: read error\n");
+        say(console, "cp: read error\n");
         return;
     case CP_COPY_ERR_WRITE:
-        say(system, "cp: write error\n");
+        say(console, "cp: write error\n");
         return;
     case CP_COPY_ERR_SYNC:
-        say(system, "cp: sync error\n");
+        say(console, "cp: sync error\n");
         return;
     case CP_COPY_ERR_CLOSE_DEST:
-        say(system, "cp: destination close error\n");
+        say(console, "cp: destination close error\n");
         return;
     case CP_COPY_ERR_CLOSE_SOURCE:
-        say(system, "cp: source close error\n");
+        say(console, "cp: source close error\n");
         return;
     default:
-        say(system, "cp: invalid operation\n");
+        say(console, "cp: invalid operation\n");
         return;
     }
 }
@@ -64,15 +64,15 @@ int main(int argc, char **argv)
     const mini_api_t *api = mini_api_get();
     if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, fs) ||
-        api->system == NULL || api->fs == NULL) {
+        api->console == NULL || api->fs == NULL) {
         return 2;
     }
 
-    const mini_system_api_t *system = api->system;
+    const mini_console_api_t *console = api->console;
     const mini_fs_api_t *fs = api->fs;
 
-    if (system->struct_size < FIELD_END(mini_system_api_t, write) ||
-        system->write == NULL ||
+    if (console->struct_size < FIELD_END(mini_console_api_t, write) ||
+        console->write == NULL ||
         fs->struct_size < FIELD_END(mini_fs_api_t, stat) ||
         fs->open == NULL || fs->close == NULL || fs->read == NULL ||
         fs->write == NULL || fs->sync == NULL || fs->stat == NULL) {
@@ -80,11 +80,11 @@ int main(int argc, char **argv)
     }
 
     if (argc != 3) {
-        say(system, "usage: cp <source> <destination>\n");
+        say(console, "usage: cp <source> <destination>\n");
         return 1;
     }
 
     cp_copy_result_t result = cp_copy_file(fs, argv[1], argv[2]);
-    report_result(system, result);
+    report_result(console, result);
     return result == CP_COPY_OK ? 0 : 1;
 }
