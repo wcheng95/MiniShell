@@ -95,7 +95,7 @@ static int make_seconds(int year, int month, int day,
     return 1;
 }
 
-static void print_utc(const mini_api_t *api, int64_t seconds)
+static void print_utc(const mini_console_api_t *console, int64_t seconds)
 {
     int64_t days = seconds / 86400;
     int64_t sod = seconds % 86400;
@@ -115,24 +115,24 @@ static void print_utc(const mini_api_t *api, int64_t seconds)
     char line[40];
     (void)snprintf(line, sizeof(line), "%04d-%02u-%02u %02u:%02u:%02u UTC\n",
                    year, month, day, hour, minute, second);
-    api->system->write(line);
+    console->write(line);
 }
 
 static int read_and_print(const mini_api_t *api)
 {
     mini_utc_time_t now = {.struct_size = sizeof(now)};
     if (api->time_location->utc_get(&now) != MINI_OK) {
-        api->system->write("date: time unavailable\n");
+        api->console->write("date: time unavailable\n");
         return 1;
     }
-    print_utc(api, now.unix_seconds);
+    print_utc(api->console, now.unix_seconds);
     return 0;
 }
 
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
-    if (api == NULL || api->system == NULL || api->system->write == NULL ||
+    if (api == NULL || api->console == NULL || api->console->write == NULL ||
         api->time_location == NULL || api->time_location->utc_get == NULL) {
         return 2;
     }
@@ -153,18 +153,18 @@ int main(int argc, char **argv)
     }
 
     if (!valid) {
-        api->system->write("usage: date [YYYY-MM-DD HH:MM:SS]\n");
+        api->console->write("usage: date [YYYY-MM-DD HH:MM:SS]\n");
         return 2;
     }
     if ((api->time_location->capabilities & MINI_TIMELOC_CAP_SET_UTC) == 0u ||
         api->time_location->utc_set == NULL) {
-        api->system->write("date: setting time unsupported\n");
+        api->console->write("date: setting time unsupported\n");
         return 1;
     }
 
     int64_t seconds;
     if (!make_seconds(year, month, day, hour, minute, second, &seconds)) {
-        api->system->write("date: invalid time\n");
+        api->console->write("date: invalid time\n");
         return 2;
     }
 
@@ -174,7 +174,7 @@ int main(int argc, char **argv)
         .nanoseconds = 0u,
     };
     if (api->time_location->utc_set(&value) != MINI_OK) {
-        api->system->write("date: set failed\n");
+        api->console->write("date: set failed\n");
         return 1;
     }
     return read_and_print(api);
