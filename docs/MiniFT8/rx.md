@@ -35,16 +35,13 @@ MiniShell Audio
         |
         | exact 960-sample FT8 engine blocks
         v
-[4] ft8_monitor
+[4] Ft8Engine
         |
-        v
-[5] candidate finder
-        |
-        v
-[6] candidate decoder
-        |
-        v
-[7] protocol message codec
+        +--> monitor / waterfall
+        +--> candidate finder
+        +--> candidate decoder / LDPC / CRC
+        +--> Ft8HashStore
+        `--> typed protocol message codec
         |
         v
  Ft8ProtocolSlot
@@ -62,7 +59,7 @@ MiniShell Audio
         `--> future AutoSeq
 ```
 
-Blocks 4-7 are internal pieces of `ft8_engine`. `rx_result_builder` is deliberately outside the protocol engine because it performs station-aware factual normalization/classification.
+The monitor, candidate finder/decoder, hash store, and protocol codec are internal pieces of `ft8_engine`. `rx_result_builder` is deliberately outside the protocol engine because it performs station-aware factual normalization/classification.
 
 RX-1B fixed the physical application-level modules as:
 
@@ -83,10 +80,7 @@ rx_result_builder
 | `rx_audio_adapter` | MiniShell Audio stream lifecycle and translation into MiniFT8-owned bounded sample blocks | FT8 DSP, WAV/UAC/platform details, channel meaning |
 | `rx_frontend` | source/profile channel interpretation and 12 kHz S16/two-channel -> 6 kHz mono-float adaptation state | MiniShell provider behavior, slot timing, FT8 candidate policy |
 | `rx_slot_framer` | slot identity, exact 6 kHz sample accounting, bounded partial 960-sample block accumulation | whole-slot raw PCM ownership, FFT, decoding |
-| `ft8_monitor` | streaming sample-to-waterfall analysis and explicit DSP workspace/state | UI, wall-clock pacing, AutoSeq, platform APIs |
-| candidate finder | Costas/sync search over completed waterfall | LDPC, UI, AutoSeq |
-| candidate decoder | likelihood extraction, LDPC, CRC, validated payload/status | message rendering, UI, QSO policy |
-| protocol message codec | payload type classification, structured unpacking, callsign-hash resolution, canonical protocol text | mycall application semantics, reply policy, UI sorting, AutoSeq |
+| `Ft8Engine` | monitor state/workspace, candidate array, decoder policy, persistent hash store, protocol decode, exact-payload dedupe, current window identity | MiniShell, UI, wall-clock pacing, station/QSO policy, AutoSeq, TX |
 | `rx_result_builder` | station-aware factual normalization/classification and `RxBatch` construction | FFT, LDPC, CRC, MiniShell calls, reply/TX policy |
 
 `app_controller` remains the coordinator. RX does not directly call AutoSeq, TX, ADIF, or UI modules behind it.
@@ -269,14 +263,14 @@ Locked distinction:
 Hashed callsigns are FT8 protocol state across slots:
 
 ```text
-ft8_engine
+Ft8Engine
     `-- Ft8HashStore
-          explicit owner
+          explicit per-engine owner
           context-aware lookup/save
           explicit aging
 ```
 
-RX-1E implements this as one caller-owned store suitable for one future engine instance. The pinned V2 production behavior remains:
+The pinned V2 production behavior remains:
 
 ```text
 capacity                     128 entries
@@ -290,7 +284,7 @@ trim-created holes           scan full table on lookup
 full-table policy            trim to 78, then insert -> 79
 ```
 
-`ft8_hash_store_age_slot()` is an explicit lifecycle operation. The eventual engine/slot owner calls it once per FT8 slot; the store itself does not read clocks or slot counters.
+RX-1G establishes the actual aging owner. The first decode window does not age an empty/new store. Beginning a new window after a completed window calls `ft8_hash_store_age_slot()` exactly once. An aborted window caused by stream reset is not counted as a completed slot for aging.
 
 RX-1F connects 22-, 12-, and 10-bit protocol lookups directly to this store. A missing hash remains a valid parsed message rendered as `<...>` and additionally carries `has_unresolved_hash=true`.
 
@@ -516,32 +510,70 @@ All five frozen RX-1A codec vectors reproduce their exact canonical text. The co
 
 `Ft8ProtocolSlot` uses caller-supplied `Ft8ProtocolMessage[]` storage and exact 10-byte payload comparison for dedupe; no hidden allocator or slot-sized message array is introduced.
 
-The RX-1F code-bearing head passes Linux 16/16 tests, RX-1C pinned waterfall regression, and RX-1D pinned payload regression.
+The RX-1F code-bearing head passes Linux, RX-1C pinned waterfall regression, and RX-1D pinned payload regression.
 
-#### RX-1G — pure cleaned ft8_engine golden regression — NEXT
+#### RX-1G — pure cleaned Ft8Engine golden regression — complete
 
-Assemble the already-clean pieces behind one explicit engine lifecycle:
+Canonical record:
 
 ```text
-Ft8Monitor
-    -> candidate search
-    -> LDPC/CRC
-    -> Ft8HashStore
-    -> typed message codec
+rx-1g-engine.md
+```
+
+RX-1G assembles the cleaned RX-1C through RX-1F pieces behind one explicit pure engine owner:
+
+```text
+6 kHz mono float
+    -> Ft8Engine
+       -> Ft8Monitor
+       -> candidate search
+       -> likelihood / LDPC / CRC
+       -> Ft8HashStore
+       -> typed message codec
+       -> exact-payload dedupe
     -> Ft8ProtocolSlot
 ```
 
-RX-1G must reproduce the frozen 6 kHz FT8 result without adding frontend adaptation, MiniShell Audio, station-aware `rx_result_builder`, AutoSeq, TX, UI, or algorithm changes.
+The engine is caller-owned and has no allocator or MiniShell dependency. Its external workspace remains the queried monitor workspace; candidate storage and the compact hash store are fixed state inside the engine instance and are reported separately by `Ft8EngineRequirements`.
 
-### RX-2 — pure host FT8 decoder
+Lifecycle is explicit:
+
+```text
+query requirements
+init
+begin_window(slot_id)
+process exact 960-sample blocks
+finalize_window -> Ft8ProtocolSlot
+reset_stream on discontinuity
+repeat
+destroy
+```
+
+A new window cannot begin while another is active. A successful slot with no valid messages returns `FT8_ENGINE_NO_MESSAGES`. `reset_stream()` cancels the active window and clears monitor continuity while preserving protocol/hash knowledge.
+
+The dedicated RX-1G pinned-V2 golden passes:
+
+```text
+ft8_cq_w1xyz_fn42.wav
+    -> Ft8Engine
+    -> one message
+       payload = 000000206016500A1988
+       type    = STANDARD
+       parse   = OK
+       text    = CQ W1XYZ FN42
+```
+
+The RX-1G lifecycle/unit test and normal Linux suite pass as well.
+
+### RX-2 — pure host FT8 decoder/use harness — NEXT
 
 ```text
 known 6 kHz engine-native PCM
-    -> cleaned ft8 core
+    -> completed Ft8Engine
     -> typed protocol messages
 ```
 
-No UI, MiniShell, AutoSeq, or TX.
+RX-2 should make the pure cleaned engine easy to use and test as a host-side decoder without MiniShell, UI, station-aware result building, AutoSeq, or TX.
 
 ### RX-3 — RX frontend
 
@@ -564,7 +596,7 @@ Verify exact 6 kHz slot/sample accounting, 960-sample engine blocks, boundary be
 bounded PCM
     -> rx_frontend
     -> rx_slot_framer
-    -> ft8_engine
+    -> Ft8Engine
     -> Ft8ProtocolSlot
     -> rx_result_builder
     -> RxBatch
