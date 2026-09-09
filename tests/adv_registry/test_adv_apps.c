@@ -7,6 +7,8 @@ static int s_seen_hello;
 static int s_seen_probe;
 static int s_seen_a3probe;
 static int s_seen_date;
+static int s_seen_ls;
+static int s_seen_cat;
 
 static void capture_app(const char *name, void *ctx)
 {
@@ -16,6 +18,8 @@ static void capture_app(const char *name, void *ctx)
     else if (strcmp(name, "probe") == 0) ++s_seen_probe;
     else if (strcmp(name, "a3probe") == 0) ++s_seen_a3probe;
     else if (strcmp(name, "date") == 0) ++s_seen_date;
+    else if (strcmp(name, "ls") == 0) ++s_seen_ls;
+    else if (strcmp(name, "cat") == 0) ++s_seen_cat;
 }
 
 int minishell_app_hello_main(int argc, char **argv)
@@ -48,6 +52,20 @@ int minishell_app_date_main(int argc, char **argv)
     return 0;
 }
 
+int minishell_app_ls_main(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    return 0;
+}
+
+int minishell_app_cat_main(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    return 0;
+}
+
 int main(void)
 {
     assert(minishell_platform_apps_list(NULL, NULL) == MINISHELL_PLATFORM_ERR_INVALID);
@@ -56,11 +74,15 @@ int main(void)
     s_seen_probe = 0;
     s_seen_a3probe = 0;
     s_seen_date = 0;
+    s_seen_ls = 0;
+    s_seen_cat = 0;
     assert(minishell_platform_apps_list(capture_app, NULL) == MINISHELL_PLATFORM_OK);
     assert(s_seen_hello == 1);
     assert(s_seen_probe == 1);
     assert(s_seen_a3probe == 1);
     assert(s_seen_date == 1);
+    assert(s_seen_ls == 1);
+    assert(s_seen_cat == 1);
 
     char *argv[] = {(char *)"hello", (char *)"probe"};
     int app_result = 0;
