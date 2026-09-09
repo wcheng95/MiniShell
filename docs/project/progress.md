@@ -39,7 +39,17 @@ Linux backend + ADV profile
 ADV backend   + ADV profile
 ```
 
-Cardputer ADV V1 will use a compiled-in application registry. MiniShell and runtime app `ft8` are built into one ESP-IDF firmware image. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable applications without blocking the initial ADV backend.
+Cardputer ADV V1 uses a compiled-in application registry. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable applications without blocking the initial ADV backend.
+
+ADV persistent-storage policy is already decided for A3:
+
+```text
+/flash    2 MiB LittleFS initially, provisional
+/sd       optional FATFS
+NVS       not used
+```
+
+Compiled-in applications have priority. Future external discovery checks `/flash/apps` and then `/sd/apps` for application names not already provided internally.
 
 ## A0 — complete
 
@@ -74,28 +84,86 @@ The resident console boundary is private MiniShell infrastructure; applications 
 
 Commit `1cb44be4` (`refactor: isolate resident console and startup boundary`) passed the full Linux workflow, including all 11 integration tests and the platform-neutral unit suite.
 
-## Next: A1
+## A1 — implementation in progress
 
-Create `platform/adv/` and the ESP-IDF/Cardputer ADV firmware skeleton. The first goal is deliberately small:
+The initial ADV backend skeleton is now checked in under `platform/adv/`.
+
+Implemented A1 pieces:
 
 ```text
-firmware builds
-MiniShell boots
-private shell console works on Cardputer display/keyboard
-platform reports ADV
-static app registry lists/runs a tiny probe/hello app
-app returns to M$>
+ESP-IDF firmware project targeting ESP32-S3
+app_main() -> portable minishell_run()
+platform name = adv
+private USB Serial/JTAG bring-up console
+System.write provider for the portable hello app
+compiled-in application registry
+portable hello app packaged statically behind a private entry rename
+host-side static-registry unit test
+GitHub ADV firmware build workflow using ESP-IDF v5.5.1
+8 MiB flash table with a reserved 2 MiB LittleFS /flash partition
 ```
 
-MiniFT8-V2 remains reference material for proven Cardputer hardware behavior only; V2 will not be modified or refactored for this work.
+The USB Serial/JTAG shell is deliberately temporary A1 infrastructure. Cardputer display and keyboard are brought in during A2, where they become the proper resident/public Display/Input implementations. This keeps A1 focused on proving firmware composition and lifecycle rather than prematurely implementing the final UI backend.
 
-The cross-platform checkpoint focuses first on System/Memory, Display/Input, Filesystem, Time/Location, static app lifecycle, and MiniFT8 UI/config behavior. Live ADV QMX Audio is deliberately deferred until the RX/TX vertical slice actually needs it.
+A1 intentionally leaves these public services unavailable:
+
+```text
+Memory          A2
+Display         A2
+Input           A2
+Filesystem      A3
+Time/Location   A3
+Audio           later RX/TX vertical slice
+```
+
+ADV A1 sets the global MiniShell memory and storage quotas to `0`, meaning no extra global quota beyond physical/backend limits. The 2 MiB LittleFS partition size is therefore not incorrectly applied as a future `/sd` storage cap.
+
+Primary implementation commit:
+
+```text
+b795842e  feat: add ADV A1 ESP-IDF build skeleton
+```
+
+The first CI configuration pass exposed an ESP-IDF CMake restriction on source-property mutation. The static hello packaging was adjusted to an ADV-private wrapper without changing portable `apps/hello/hello.c`:
+
+```text
+142dced2  fix: package ADV hello without CMake source mutation
+```
+
+The Linux workflow and ADV static-registry unit test remain green. Firmware CI and real Cardputer hardware validation determine completion of A1.
+
+A1 hardware exit check is deliberately small:
+
+```text
+MiniShell boots on Cardputer ADV
+USB Serial/JTAG shows M$>
+status reports platform : adv
+apps lists hello
+hello prints through System.write
+hello returns cleanly to M$>
+```
+
+## Next after A1
+
+A2 adds the real Cardputer-facing System/Memory/Display/Input providers. The agreed ADV text surface is:
+
+```text
+240 x 135 physical panel
+20 columns x 7 logical text rows
+12 x 16 target fixed-width font
+19-pixel row pitch with a 2-pixel physical gap after row 0
+```
+
+Pixel geometry remains backend-private. The `ft8` ADV profile owns the application meaning of row 0 versus rows 1-6.
+
+MiniFT8-V2 remains reference material for proven Cardputer hardware behavior only; V2 will not be modified or refactored for this work.
 
 Canonical plans/policy:
 
 ```text
 docs/project/adv-backend-plan.md
 docs/api/api-foundation.md
+platform/adv/README.md
 ```
 
 After the Linux+ADV-profile versus ADV+ADV-profile validation checkpoint passes, resume RX-1B.
