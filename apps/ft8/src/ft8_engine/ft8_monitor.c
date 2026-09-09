@@ -197,7 +197,8 @@ Ft8MonitorStatus ft8_monitor_init(Ft8Monitor *monitor,
     monitor->fft_norm = 2.0f / (float)req.nfft;
     for (i = 0u; i < req.nfft; ++i) {
         float x = sinf((float)M_PI * (float)i / (float)req.nfft);
-        monitor->window[i] = monitor->fft_norm * x * x;
+        float hann = x * x;
+        monitor->window[i] = monitor->fft_norm * hann;
     }
 
     memset(monitor->history, 0, req.history_bytes);
