@@ -340,7 +340,7 @@ FT4 active-waterfall FNV-1a-64  CBDD2509276E5030
 unique CQ payload                000000206016500A1988
 ```
 
-Fixed protocol vectors cover standard CQ, ARRL Field Day, DXpedition, non-standard CQ, and a FREE_TEXT CQ-shaped message. Existing V2 `golden_rx` plus the new boundary regression pass in CI.
+Fixed protocol vectors cover standard CQ, ARRL Field Day, DXpedition, non-standard CQ, and a FREE_TEXT CQ-shaped message. Existing V2 `golden_rx` plus the boundary regression pass in CI.
 
 Known V2 behaviors/limitations outside the structural golden remain explicitly documented in `rx-golden.md` and the RX source reviews; RX-1 does not silently expand protocol scope or alter decoder math while cleaning ownership.
 
@@ -392,38 +392,78 @@ total                 105808 bytes
 
 The exact total is queried rather than hard-coded and may differ slightly on a 32-bit target.
 
-RX-1C unit/golden tests prove:
+RX-1C unit/golden tests prove exact V2-compatible dimensions, two independent monitor instances, explicit invalid/workspace/full status, new-window history preservation, stream-reset history clearing, safe destruction, and byte-identical RX-1A active FT8 waterfall:
 
 ```text
-exact V2-compatible dimensions
-two independent monitor instances
-explicit invalid/workspace/full status
-new-window history preservation
-stream-reset history clearing
-safe destruction
-byte-identical RX-1A active FT8 waterfall
 FNV-1a-64 = 18BE1E838FD9C6AF
 ```
 
 No candidate-search/LDPC/message code was migrated in RX-1C.
 
-#### RX-1D — candidate + likelihood/LDPC/CRC boundary — NEXT
+#### RX-1D — candidate search + likelihood/LDPC/CRC — complete
 
-Bring the pinned V2 candidate search and candidate decode mathematics behind `ft8_engine` while preserving:
+Canonical record:
+
+```text
+rx-1d-decoder.md
+```
+
+RX-1D migrated the pinned V2 FT8 candidate/decode path behind `ft8_engine`:
+
+```text
+Ft8WaterfallView
+    -> candidate search
+    -> max-log likelihoods
+    -> BP-LDPC
+    -> CRC-14
+    -> Ft8DecodedPayload
+```
+
+Locked policy remains:
 
 ```text
 candidate capacity      50
 minimum sync score       5
 max LDPC iterations     25
-exact RX-1A valid payload behavior
+time search             -10..19 blocks
 ```
 
-Keep candidate score distinct from SNR. Do not introduce ranking/search/deep-search improvements.
+The boundary returns exact validated payload bytes and decoder diagnostics. It deliberately does not depend on V2 `ftx_message_t`, callsign hashing, message rendering, MiniShell, UI, AutoSeq, or TX.
 
-#### RX-1E+
+Two structural cleanups are now regression-proven:
+
+- negative candidate time offsets use absolute in-array waterfall addressing rather than forming a pointer before the array;
+- the LDPC reverse adjacency is reconstructed deterministically from one canonical parity-check topology rather than storing duplicate forward/reverse tables.
+
+Unit and pinned-V2 golden tests pass. Exact RX-1A payload remains:
 
 ```text
-RX-1E  explicit per-engine Ft8HashStore
+000000206016500A1988
+```
+
+Candidate score/order remain diagnostics and are not made permanent golden identity.
+
+#### RX-1E — explicit per-engine Ft8HashStore — NEXT
+
+Introduce explicit hashed-callsign protocol state before migrating the message codec.
+
+Required ownership proof:
+
+```text
+one Ft8HashStore per ft8_engine instance
+22-bit / 12-bit / 10-bit lookup behavior preserved
+save/update behavior explicit
+aging/lifetime explicit
+no global mutable table
+multiple engine instances independent
+no MiniShell/platform dependency
+```
+
+Message unpacking/rendering remains RX-1F.
+
+#### RX-1F+
+
+```text
 RX-1F  typed protocol message codec + Ft8ProtocolSlot
 RX-1G  pure cleaned ft8_engine golden regression
 ```
