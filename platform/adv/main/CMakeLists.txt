@@ -44,9 +44,13 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/.."
     REQUIRES
         esp_driver_i2c
+        esp_driver_spi
+        esp_driver_sdspi
         esp_driver_usb_serial_jtag
         esp_timer
+        fatfs
         littlefs
+        sdmmc
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Wpedantic)
