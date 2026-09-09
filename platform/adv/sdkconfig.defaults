@@ -3,9 +3,9 @@ CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# The resident shell and statically linked applications currently execute on
-# ESP-IDF's main task.  The ESP-IDF default is only 3584 bytes, which is too
-# tight once filesystem/LittleFS calls are nested below the shell.
+# The resident MiniShell runtime/shell executes on ESP-IDF's main task.  Keep
+# enough stack for shell/backend call depth; foreground applications run on a
+# separate ADV-managed application task and do not borrow this stack.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 # Fail clearly on future task-stack exhaustion instead of allowing silent
