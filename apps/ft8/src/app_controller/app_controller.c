@@ -41,6 +41,14 @@ struct AppRxState {
     uint64_t batch_generation;
 };
 
+static void copy_ui_text(char out[UI_TEXT_CAP], const char *text)
+{
+    size_t length = strlen(text);
+    if (length >= UI_TEXT_CAP) length = UI_TEXT_CAP - 1u;
+    memcpy(out, text, length);
+    out[length] = '\0';
+}
+
 static bool app_save_config(AppController *app)
 {
     char text[2048];
@@ -345,8 +353,7 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
         if (count > APP_MAX_RX_LINES) count = APP_MAX_RX_LINES;
         model->rx_count = count;
         for (i = 0u; i < count; ++i) {
-            snprintf(model->rx_lines[i], UI_TEXT_CAP, "%s",
-                     app->rx->batch.messages[i].canonical_text);
+            copy_ui_text(model->rx_lines[i], app->rx->batch.messages[i].canonical_text);
         }
     }
 
