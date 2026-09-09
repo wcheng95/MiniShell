@@ -37,6 +37,14 @@ ft8_message_codec.[ch]  typed RX protocol codec and Ft8ProtocolSlot boundary
 vendor/kissfft/         pinned FFT implementation used by the cleaned monitor
 ```
 
+The RX-2 Linux host utility lives outside the engine:
+
+```text
+apps/ft8/tools/ft8_decode.c
+```
+
+It accepts one 6 kHz/mono/S16 WAV decode window, streams it through `Ft8Engine`, and prints every unique decoded protocol message to stdout. It does not use MiniShell APIs and does not reach into engine-private monitor/decoder/codec state.
+
 Ownership rules:
 
 - no MiniShell API calls inside the DSP/protocol core;
@@ -66,6 +74,15 @@ query requirements
     -> reset_stream on discontinuity when needed
     -> destroy
 ```
+
+The engine-native public RX aliases are:
+
+```text
+FT8_ENGINE_SAMPLE_RATE_HZ = 6000
+FT8_ENGINE_BLOCK_SIZE     = 960
+```
+
+These preserve the RX structural baseline while allowing callers such as RX-2 to depend on the engine edge rather than private monitor naming.
 
 `reset_stream()` clears monitor/DSP continuity and cancels the active window while deliberately preserving callsign-hash knowledge.
 
@@ -110,7 +127,7 @@ validated FT8 payload             000000206016500A1988
 canonical decoded text            CQ W1XYZ FN42
 ```
 
-RX-1G now proves the complete cleaned core in one regression:
+RX-1G proves the complete cleaned core in one regression:
 
 ```text
 pinned 6 kHz PCM
@@ -120,6 +137,15 @@ pinned 6 kHz PCM
        type    = STANDARD
        text    = CQ W1XYZ FN42
 ```
+
+RX-2 proves the same engine as a human-facing Linux utility:
+
+```text
+./build/ft8_decode ft8_cq_w1xyz_fn42.wav
+CQ W1XYZ FN42
+```
+
+The RX-2 utility iterates all messages returned in `Ft8ProtocolSlot`, so a one-window WAV with several valid simultaneous FT8 signals prints one line per unique decoded payload.
 
 The five fixed RX-1A codec vectors for STANDARD, ARRL Field Day, DXpedition, non-standard CQ, and FREE_TEXT also remain covered by the RX-1F codec tests.
 
@@ -134,6 +160,7 @@ docs/MiniFT8/rx-1d-decoder.md
 docs/MiniFT8/rx-1e-hash-store.md
 docs/MiniFT8/rx-1f-message-codec.md
 docs/MiniFT8/rx-1g-engine.md
+docs/MiniFT8/rx-2-host-decoder.md
 ```
 
-Next stage: **RX-2 — pure MiniShell-independent host decoder/use harness around the completed engine boundary.**
+RX-2 is implemented and CI-green; it remains the active stage until the user validates the utility on `pc-1`. After that, RX-3 adds the 12 kHz/S16/two-channel MiniFT8 frontend in front of the same engine.
