@@ -90,6 +90,7 @@ void fake_fs_add_file(const char *path, const char *content);
 void fake_fs_add_dir(const char *path);
 
 bool test_system(void);
+bool test_console(void);
 bool test_memory(void);
 bool test_filesystem(void);
 bool test_time_location(void);
