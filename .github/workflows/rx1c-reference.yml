@@ -1,0 +1,31 @@
+name: RX-1C Reference
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  monitor-golden:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout MiniShell
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned MiniFT8-V2 reference
+        uses: actions/checkout@v4
+        with:
+          repository: wcheng95/Mini-FT8
+          ref: 5bd3ef98f72388a850bebad04bd7300b90edb63c
+          path: reference/Mini-FT8
+
+      - name: Configure RX-1C reference test
+        run: >-
+          cmake -S . -B build-rx1c
+          -DFT8_RX1C_REFERENCE_WAV=${{ github.workspace }}/reference/Mini-FT8/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav
+
+      - name: Build RX-1C monitor tests
+        run: cmake --build build-rx1c -j2 --target ft8_monitor_rx1c_unit ft8_monitor_rx1c_reference
+
+      - name: Run RX-1C monitor tests
+        run: ctest --test-dir build-rx1c -R '^ft8_monitor_rx1c' --output-on-failure
