@@ -33,6 +33,7 @@ idf_component_register(
         "probe_static.c"
         "a3_probe_static.c"
         "date_static.c"
+        "free_static.c"
         "ls_static.c"
         "cat_static.c"
         ${MINIFT8_SOURCES}
