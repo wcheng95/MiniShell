@@ -2,7 +2,9 @@
 #define FT8_UI_SHELL_H
 
 #include <stdbool.h>
+
 #include "ft8/app_types.h"
+#include "presentation_profile.h"
 
 typedef enum {
     UI_SUBMENU_NONE = 0,
@@ -27,9 +29,10 @@ typedef struct {
     Screen screen;
     UiSubmenu submenu;
     int selected_line;
+    ft8_presentation_profile_t presentation;
 } UiShell;
 
-void ui_shell_init(UiShell *ui);
+void ui_shell_init(UiShell *ui, ft8_presentation_profile_t presentation);
 void ui_shell_render(const UiShell *ui, const UiModel *model, UiFrame *frame);
 bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
                            UiInput input, AppAction *action_out);
