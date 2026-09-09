@@ -27,7 +27,7 @@ H5 terminal ANSI/CSI + UTF-8 parser made stateful across reads
 
 The full Linux integration suite and strict unit suite remain green.
 
-## Current priority: A1 ADV hardware validation
+## Current priority: A2 ADV System/Memory/Display/Input
 
 RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while the architecture is exercised across a second real backend and a second MiniFT8 profile.
 
@@ -84,7 +84,7 @@ The resident console boundary is private MiniShell infrastructure; applications 
 
 Commit `1cb44be4` (`refactor: isolate resident console and startup boundary`) passed the full Linux workflow, including all 11 integration tests and the platform-neutral unit suite.
 
-## A1 — software/build complete; hardware validation pending
+## A1 — complete
 
 The initial ADV backend skeleton is checked in under `platform/adv/`.
 
@@ -103,7 +103,7 @@ GitHub ADV firmware build workflow using ESP-IDF v5.5.1
 8 MiB flash table with a reserved 2 MiB LittleFS /flash partition
 ```
 
-The USB Serial/JTAG shell is deliberately temporary A1 infrastructure. Cardputer display and keyboard are brought in during A2, where they become the proper resident/public Display/Input implementations. This keeps A1 focused on proving firmware composition and lifecycle rather than prematurely implementing the final UI backend.
+The USB Serial/JTAG shell is deliberately temporary A1 infrastructure. Cardputer display and keyboard are brought in during A2, where they become the proper resident/public Display/Input implementations.
 
 A1 intentionally leaves these public services unavailable:
 
@@ -118,42 +118,33 @@ Audio           later RX/TX vertical slice
 
 ADV A1 sets the global MiniShell memory and storage quotas to `0`, meaning no extra global quota beyond physical/backend limits. The 2 MiB LittleFS partition size is therefore not incorrectly applied as a future `/sd` storage cap.
 
-Primary implementation commit:
+Primary implementation commits:
 
 ```text
 b795842e  feat: add ADV A1 ESP-IDF build skeleton
-```
-
-The first CI configuration pass exposed an ESP-IDF CMake restriction on source-property mutation. The static hello packaging was adjusted to an ADV-private wrapper without changing portable `apps/hello/hello.c`:
-
-```text
 142dced2  fix: package ADV hello without CMake source mutation
 ```
 
-Software/build validation now passes:
+A1 validation passed:
 
 ```text
 Linux reference workflow                     PASS
 ADV static app-registry unit test             PASS
 ESP-IDF v5.5.1 / ESP32-S3 firmware build      PASS
+real Cardputer ADV boot                       PASS
+USB Serial/JTAG M$>                           PASS
+status -> platform : adv                      PASS
+apps -> hello                                 PASS
+hello -> clean return to M$>                  PASS
 ```
 
-The firmware-build success was verified on ADV workflow run `34302864766` after the packaging fix.
+A1 is closed.
 
-A1 remains open only for the real-device check:
+## Current stage: A2
 
-```text
-MiniShell boots on Cardputer ADV
-USB Serial/JTAG shows M$>
-status reports platform : adv
-apps lists hello
-hello prints through System.write
-hello returns cleanly to M$>
-```
+A2 adds the real Cardputer-facing System/Memory/Display/Input providers and replaces the temporary A1 serial-console interaction with the Cardputer display/keyboard shell path.
 
-## Next after A1
-
-A2 adds the real Cardputer-facing System/Memory/Display/Input providers. The agreed ADV text surface is:
+The agreed ADV text surface is:
 
 ```text
 240 x 135 physical panel
