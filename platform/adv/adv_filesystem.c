@@ -10,16 +10,26 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "driver/spi_master.h"
 #include "esp_littlefs.h"
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
 
 #include "adv_internal.h"
 
 #define ADV_FLASH_PATH "/flash"
 #define ADV_FLASH_LABEL "flash"
+#define ADV_SD_PATH "/sd"
 #define ADV_DIR_MAGIC 0x41445644u
-/* Backend-native scratch/path storage. The portable Filesystem service performs
- * logical-path normalization before paths reach this provider. */
 #define ADV_FS_PATH_CAPACITY 512u
+
+/* Proven Cardputer/Cardputer ADV MicroSD wiring from MiniFT8-V2/M5Cardputer. */
+#define ADV_SD_SPI_HOST SPI2_HOST
+#define ADV_SD_SCK_GPIO 40
+#define ADV_SD_MISO_GPIO 39
+#define ADV_SD_MOSI_GPIO 14
+#define ADV_SD_CS_GPIO 12
+#define ADV_SD_FREQ_KHZ 20000u
 
 typedef enum {
     ADV_DIR_ROOT = 1,
@@ -35,6 +45,9 @@ typedef struct {
 } adv_dir_handle_t;
 
 static bool s_flash_mounted;
+static bool s_sd_mounted;
+static bool s_sd_bus_initialized;
+static sdmmc_card_t *s_sd_card;
 
 static mini_result_t result_from_errno(int error)
 {
@@ -63,11 +76,33 @@ static mini_result_t result_from_errno(int error)
     }
 }
 
+static bool is_volume_path(const char *path, const char *root, bool mounted)
+{
+    if (!mounted || path == NULL) return false;
+    if (strcmp(path, root) == 0) return true;
+    size_t root_length = strlen(root);
+    return strncmp(path, root, root_length) == 0 && path[root_length] == '/';
+}
+
 static bool is_flash_path(const char *path)
 {
-    if (!s_flash_mounted || path == NULL) return false;
-    if (strcmp(path, ADV_FLASH_PATH) == 0) return true;
-    return strncmp(path, ADV_FLASH_PATH "/", sizeof(ADV_FLASH_PATH)) == 0;
+    return is_volume_path(path, ADV_FLASH_PATH, s_flash_mounted);
+}
+
+static bool is_sd_path(const char *path)
+{
+    return is_volume_path(path, ADV_SD_PATH, s_sd_mounted);
+}
+
+static bool is_native_path(const char *path)
+{
+    return is_flash_path(path) || is_sd_path(path);
+}
+
+static bool same_volume(const char *a, const char *b)
+{
+    return (is_flash_path(a) && is_flash_path(b)) ||
+           (is_sd_path(a) && is_sd_path(b));
 }
 
 static minishell_backend_file_t file_handle_from_fd(int fd)
@@ -97,8 +132,10 @@ static mini_result_t fs_open(void *ctx, const char *path, uint32_t flags,
     (void)ctx;
     if (out_file == NULL || path == NULL) return MINI_ERR_INVALID;
     *out_file = MINISHELL_BACKEND_FILE_INVALID;
-    if (!is_flash_path(path)) return MINI_ERR_NOT_FOUND;
-    if (strcmp(path, ADV_FLASH_PATH) == 0) return MINI_ERR_IS_DIR;
+    if (!is_native_path(path)) return MINI_ERR_NOT_FOUND;
+    if (strcmp(path, ADV_FLASH_PATH) == 0 || strcmp(path, ADV_SD_PATH) == 0) {
+        return MINI_ERR_IS_DIR;
+    }
 
     int oflags;
     if ((flags & MINI_FS_READ) != 0u && (flags & MINI_FS_WRITE) != 0u) oflags = O_RDWR;
@@ -209,8 +246,8 @@ static mini_result_t fs_stat(void *ctx, const char *path,
         *out_size = 0u;
         return MINI_OK;
     }
-    if (!is_flash_path(path)) return MINI_ERR_NOT_FOUND;
-    if (strcmp(path, ADV_FLASH_PATH) == 0) {
+    if (!is_native_path(path)) return MINI_ERR_NOT_FOUND;
+    if (strcmp(path, ADV_FLASH_PATH) == 0 || strcmp(path, ADV_SD_PATH) == 0) {
         *out_type = MINI_FS_TYPE_DIRECTORY;
         *out_size = 0u;
         return MINI_OK;
@@ -229,30 +266,29 @@ static mini_result_t fs_rename(void *ctx, const char *old_path,
                                const char *new_path)
 {
     (void)ctx;
-    if (!is_flash_path(old_path) || !is_flash_path(new_path)) {
-        return MINI_ERR_UNSUPPORTED;
-    }
+    if (!is_native_path(old_path) || !is_native_path(new_path)) return MINI_ERR_NOT_FOUND;
+    if (!same_volume(old_path, new_path)) return MINI_ERR_UNSUPPORTED;
     return rename(old_path, new_path) == 0 ? MINI_OK : result_from_errno(errno);
 }
 
 static mini_result_t fs_remove_file(void *ctx, const char *path)
 {
     (void)ctx;
-    if (!is_flash_path(path)) return MINI_ERR_NOT_FOUND;
+    if (!is_native_path(path)) return MINI_ERR_NOT_FOUND;
     return unlink(path) == 0 ? MINI_OK : result_from_errno(errno);
 }
 
 static mini_result_t fs_mkdir(void *ctx, const char *path)
 {
     (void)ctx;
-    if (!is_flash_path(path)) return MINI_ERR_NOT_FOUND;
+    if (!is_native_path(path)) return MINI_ERR_NOT_FOUND;
     return mkdir(path, 0777) == 0 ? MINI_OK : result_from_errno(errno);
 }
 
 static mini_result_t fs_rmdir(void *ctx, const char *path)
 {
     (void)ctx;
-    if (!is_flash_path(path)) return MINI_ERR_NOT_FOUND;
+    if (!is_native_path(path)) return MINI_ERR_NOT_FOUND;
     return rmdir(path) == 0 ? MINI_OK : result_from_errno(errno);
 }
 
@@ -272,7 +308,7 @@ static mini_result_t fs_dir_open(void *ctx, const char *path,
         *out_dir = (minishell_backend_dir_t)(uintptr_t)handle;
         return MINI_OK;
     }
-    if (!is_flash_path(path)) {
+    if (!is_native_path(path)) {
         free(handle);
         return MINI_ERR_NOT_FOUND;
     }
@@ -297,6 +333,27 @@ static mini_result_t fs_dir_open(void *ctx, const char *path,
     return MINI_OK;
 }
 
+static mini_result_t root_entry(adv_dir_handle_t *handle,
+                                char *out_name, uint32_t name_size,
+                                uint32_t *out_type, uint32_t *out_has_entry)
+{
+    while (handle->root_index < 2u) {
+        uint32_t index = handle->root_index++;
+        const char *name = NULL;
+        if (index == 0u && s_flash_mounted) name = "flash";
+        if (index == 1u && s_sd_mounted) name = "sd";
+        if (name == NULL) continue;
+
+        size_t length = strlen(name) + 1u;
+        if (length > name_size) return MINI_ERR_NAME_TOO_LONG;
+        memcpy(out_name, name, length);
+        *out_type = MINI_FS_TYPE_DIRECTORY;
+        *out_has_entry = 1u;
+        return MINI_OK;
+    }
+    return MINI_OK;
+}
+
 static mini_result_t fs_dir_read(void *ctx, minishell_backend_dir_t dir,
                                  char *out_name, uint32_t name_size,
                                  uint32_t *out_type, uint32_t *out_has_entry)
@@ -314,12 +371,7 @@ static mini_result_t fs_dir_read(void *ctx, minishell_backend_dir_t dir,
     if (handle == NULL) return MINI_ERR_BAD_HANDLE;
 
     if (handle->kind == ADV_DIR_ROOT) {
-        if (handle->root_index++ != 0u || !s_flash_mounted) return MINI_OK;
-        if (name_size < sizeof("flash")) return MINI_ERR_NAME_TOO_LONG;
-        memcpy(out_name, "flash", sizeof("flash"));
-        *out_type = MINI_FS_TYPE_DIRECTORY;
-        *out_has_entry = 1u;
-        return MINI_OK;
+        return root_entry(handle, out_name, name_size, out_type, out_has_entry);
     }
 
     for (;;) {
@@ -363,6 +415,57 @@ static mini_result_t fs_dir_close(void *ctx, minishell_backend_dir_t dir)
     return result;
 }
 
+static void sd_shutdown(void)
+{
+    if (s_sd_mounted) {
+        (void)esp_vfs_fat_sdcard_unmount(ADV_SD_PATH, s_sd_card);
+        s_sd_card = NULL;
+        s_sd_mounted = false;
+    }
+    if (s_sd_bus_initialized) {
+        (void)spi_bus_free(ADV_SD_SPI_HOST);
+        s_sd_bus_initialized = false;
+    }
+}
+
+static void sd_try_mount(void)
+{
+    spi_bus_config_t bus_config = {
+        .mosi_io_num = ADV_SD_MOSI_GPIO,
+        .miso_io_num = ADV_SD_MISO_GPIO,
+        .sclk_io_num = ADV_SD_SCK_GPIO,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 16 * 1024,
+    };
+
+    esp_err_t error = spi_bus_initialize(ADV_SD_SPI_HOST, &bus_config, SPI_DMA_CH_AUTO);
+    if (error != ESP_OK) return;
+    s_sd_bus_initialized = true;
+
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = ADV_SD_SPI_HOST;
+    host.max_freq_khz = ADV_SD_FREQ_KHZ;
+
+    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot_config.host_id = ADV_SD_SPI_HOST;
+    slot_config.gpio_cs = ADV_SD_CS_GPIO;
+
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+        .format_if_mount_failed = false,
+        .max_files = 8,
+        .allocation_unit_size = 16 * 1024,
+    };
+
+    error = esp_vfs_fat_sdspi_mount(ADV_SD_PATH, &host, &slot_config,
+                                    &mount_config, &s_sd_card);
+    if (error != ESP_OK) {
+        sd_shutdown();
+        return;
+    }
+    s_sd_mounted = true;
+}
+
 int adv_filesystem_prepare(void)
 {
     esp_vfs_littlefs_conf_t config = {
@@ -385,19 +488,30 @@ int adv_filesystem_prepare(void)
         s_flash_mounted = false;
         return -1;
     }
+
+    /* SD is deliberately optional. Failure to initialize/mount it must not
+     * affect /flash availability or MiniShell boot. */
+    sd_try_mount();
     return 0;
 }
 
 void adv_filesystem_shutdown(void)
 {
-    if (!s_flash_mounted) return;
-    (void)esp_vfs_littlefs_unregister(ADV_FLASH_LABEL);
-    s_flash_mounted = false;
+    sd_shutdown();
+    if (s_flash_mounted) {
+        (void)esp_vfs_littlefs_unregister(ADV_FLASH_LABEL);
+        s_flash_mounted = false;
+    }
 }
 
 bool adv_filesystem_flash_ready(void)
 {
     return s_flash_mounted;
+}
+
+bool adv_filesystem_sd_ready(void)
+{
+    return s_sd_mounted;
 }
 
 void adv_filesystem_configure(minishell_services_port_t *port)
