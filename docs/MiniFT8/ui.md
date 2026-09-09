@@ -16,7 +16,7 @@ This document is the canonical MiniFT8-V3 UI definition. New V3 decisions overri
 - Page Up/Down remains part of a UIScreen's top level; paging does not enter a submenu.
 - Switching UIScreens always enters the destination UIScreen at its top level.
 - Up/Down page navigation wraps around.
-- Current MiniFT8 Back/ESC behavior is retained.
+- Keep the Back/ESC behavior already implemented in `MiniShell/MiniFT8-V3` unchanged.
 - UIScreen state and TX/RX operation are independent; TX/RX activity does not add special UIScreen or edit restrictions.
 
 ### OPEN
@@ -141,7 +141,7 @@ Page Up:   1/3 -> 3/3 -> 2/3 -> 1/3
 
 ### Back / ESC
 
-Keep the existing MiniFT8 Back/ESC behavior. No V3-specific change is required.
+Keep the Back/ESC behavior already implemented in `MiniShell/MiniFT8-V3`. No UI behavior change is required.
 
 ### Independence from TX/RX
 
@@ -163,7 +163,7 @@ Q                     quit at UIScreen top level
 Up / Down             page navigation at top level; submenu-specific use where defined
 Left / Right          UIScreen/submenu-specific use where defined
 Enter                 activate selected item where applicable
-Esc or `              existing MiniFT8 back/cancel behavior
+Esc or `              Back/cancel behavior already implemented in MiniFT8-V3
 other characters      UIScreen-local shortcuts where defined
 ```
 
