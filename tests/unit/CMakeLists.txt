@@ -8,6 +8,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 add_executable(minishell_unit_tests
     ../../core/minishell_services/services.c
     ../../core/minishell_services/system_service.c
+    ../../core/minishell_services/console_service.c
     ../../core/minishell_services/memory_service.c
     ../../core/minishell_services/filesystem_service.c
     ../../core/minishell_services/filesystem_paths.c
@@ -21,6 +22,7 @@ add_executable(minishell_unit_tests
     ../../apps/cp/main/cp_copy.c
     test_support.c
     test_system.c
+    test_console.c
     test_memory.c
     test_filesystem.c
     test_time_location.c
@@ -42,8 +44,8 @@ target_include_directories(minishell_unit_tests PRIVATE
 target_compile_options(minishell_unit_tests PRIVATE -Wall -Wextra -Werror)
 
 enable_testing()
-foreach(group system memory filesystem time_location display input audio)
-    add_test(NAME abi_${group}_unit COMMAND minishell_unit_tests ${group})
+foreach(group system console memory filesystem time_location display input audio)
+    add_test(NAME api_${group}_unit COMMAND minishell_unit_tests ${group})
 endforeach()
 add_test(NAME nano_editor_unit COMMAND minishell_unit_tests nano_buffer)
 add_test(NAME cp_copy_unit COMMAND minishell_unit_tests cp_copy)
