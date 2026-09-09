@@ -55,6 +55,16 @@ typedef struct {
     uint8_t utc_second;
     uint8_t slot_counter; /* 0..14, rendered as 0..E. */
 
+    /* V -> Memory. Populated only while that read-only page is visible. */
+    bool memory_app_valid;
+    uint64_t memory_app_allocated_bytes;
+    uint32_t memory_app_allocation_count;
+    bool memory_free_valid;
+    uint64_t memory_free_bytes;
+    bool memory_largest_valid;
+    uint64_t memory_largest_free_block;
+    bool rx_active;
+
     char rx_lines[APP_MAX_RX_LINES][UI_TEXT_CAP];
     size_t rx_count;
     char tx_lines[APP_MAX_TX_LINES][UI_TEXT_CAP];
