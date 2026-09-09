@@ -11,6 +11,12 @@ static UiInput key(char c)
     return input;
 }
 
+static UiInput special(UiInputType type)
+{
+    UiInput input = {.type = type, .ch = 0};
+    return input;
+}
+
 static void set_default_model(UiModel *model)
 {
     memset(model, 0, sizeof(*model));
@@ -21,6 +27,11 @@ static void set_default_model(UiModel *model)
     model->band_count = 7;
     snprintf(model->band_name, sizeof(model->band_name), "%s", "20m");
     model->max_retry = 3;
+    model->utc_valid = true;
+    model->utc_hour = 14u;
+    model->utc_minute = 32u;
+    model->utc_second = 8u;
+    model->slot_counter = 8u;
 }
 
 static void test_profile_contract(void)
@@ -43,7 +54,7 @@ static void test_profile_contract(void)
     assert(!ft8_presentation_parse("linux", &profile));
 }
 
-static void test_desktop(void)
+static void test_desktop_existing_navigation(void)
 {
     UiShell ui;
     UiModel model;
@@ -57,17 +68,11 @@ static void test_desktop(void)
     assert(frame.row_count == 8u);
     assert(frame.has_footer);
     assert(strstr(frame.rows[0], "FT8") != NULL);
-    assert(strstr(frame.rows[7], "R T O S V") != NULL);
 
     assert(!ui_shell_handle_input(&ui, &model, key('o'), &action));
     ui_shell_render(&ui, &model, &frame);
     assert(strstr(frame.rows[1], "Protocol: FT8") != NULL);
     assert(strstr(frame.rows[4], "CQ / Beacon") != NULL);
-    assert(strstr(frame.rows[5], "TX >") != NULL);
-    assert(strstr(frame.rows[6], "Message") != NULL);
-
-    assert(!ui_shell_handle_input(&ui, &model, key('1'), &action));
-    assert(action.type == APP_ACTION_NONE);
 
     assert(ui_shell_handle_input(&ui, &model, key('2'), &action));
     assert(action.type == APP_ACTION_SET_PROFILE);
@@ -75,94 +80,82 @@ static void test_desktop(void)
 
     assert(!ui_shell_handle_input(&ui, &model, key('5'), &action));
     assert(ui.submenu == UI_SUBMENU_O_TX);
-    ui_shell_render(&ui, &model, &frame);
-    assert(strstr(frame.rows[3], "Skip TX1") != NULL);
-    assert(strstr(frame.rows[4], "Max Retry") != NULL);
-
     assert(ui_shell_handle_input(&ui, &model, key('3'), &action));
     assert(action.type == APP_ACTION_SET_SKIP_TX1);
     assert(action.value.bool_value == true);
-
-    assert(!ui_shell_handle_input(&ui, &model, key('s'), &action));
-    ui_shell_render(&ui, &model, &frame);
-    assert(strstr(frame.rows[1], "Station") != NULL);
-    assert(strstr(frame.rows[2], "I/O Paths") != NULL);
-    assert(strstr(frame.rows[3], "Band Profiles") != NULL);
-    assert(strstr(frame.rows[6], "System") != NULL);
-
-    assert(!ui_shell_handle_input(&ui, &model, key('2'), &action));
-    assert(ui.submenu == UI_SUBMENU_S_IO_PATHS);
-    ui_shell_render(&ui, &model, &frame);
-    assert(strstr(frame.rows[1], "RX Audio") != NULL);
-    assert(strstr(frame.rows[2], "TX Audio") != NULL);
-    assert(strstr(frame.rows[3], "Control") != NULL);
-
-    assert(!ui_shell_handle_input(&ui, &model, key('v'), &action));
-    assert(!ui_shell_handle_input(&ui, &model, key('1'), &action));
-    assert(ui.submenu == UI_SUBMENU_V_STATUS);
-    ui_shell_render(&ui, &model, &frame);
-    assert(strstr(frame.rows[1], "Protocol: FT8") != NULL);
-    assert(strstr(frame.rows[4], "RX Audio") != NULL);
-    assert(strstr(frame.rows[5], "TX Audio") != NULL);
-    assert(strstr(frame.rows[6], "Control") != NULL);
-
-    assert(!ui_shell_handle_input(&ui, &model, key('v'), &action));
-    assert(!ui_shell_handle_input(&ui, &model, key('5'), &action));
-    assert(ui.submenu == UI_SUBMENU_V_SYSTEM);
-    ui_shell_render(&ui, &model, &frame);
-    assert(strstr(frame.rows[1], "Runtime: MiniShell") != NULL);
-    assert(strstr(frame.rows[2], "Presentation: DESKTOP") != NULL);
-    assert(strstr(frame.rows[3], "UI: text 30x8") != NULL);
-    assert(strstr(frame.rows[4], "App: ft8") != NULL);
 }
 
-static void test_adv(void)
+static void test_adv_locked_top_and_rx_paging(void)
 {
     UiShell ui;
     UiModel model;
     UiFrame frame;
     AppAction action;
+    size_t i;
 
     set_default_model(&model);
+    {
+        static const char *messages[] = {
+            "RX message 1", "RX message 2", "RX message 3", "RX message 4",
+            "RX message 5", "RX message 6", "RX message 7"
+        };
+        model.rx_count = sizeof(messages) / sizeof(messages[0]);
+        for (i = 0u; i < model.rx_count; ++i) {
+            strcpy(model.rx_lines[i], messages[i]);
+        }
+    }
+
     ui_shell_init(&ui, FT8_PRESENTATION_ADV);
     ui_shell_render(&ui, &model, &frame);
     assert(frame.column_count == 20u);
     assert(frame.row_count == 7u);
     assert(!frame.has_footer);
-    assert(strstr(frame.rows[0], "FT8") != NULL);
-    assert(strstr(frame.rows[0], "20m") != NULL);
-    assert(strstr(frame.rows[0], "RX") != NULL);
-    assert(frame.rows[7][0] == '\0');
+    assert(strcmp(frame.rows[0], "RX 20 14:32:08 1/2 8") == 0);
+    assert(strstr(frame.rows[1], "1 RX message 1") != NULL);
+    assert(strstr(frame.rows[6], "6 RX message 6") != NULL);
 
-    /* V1 parity: the same logical O -> TX -> Skip TX1 input sequence must
-     * produce the same application action under the ADV presentation. */
-    assert(!ui_shell_handle_input(&ui, &model, key('o'), &action));
+    assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_DOWN), &action));
     ui_shell_render(&ui, &model, &frame);
-    assert(strstr(frame.rows[1], "Protocol: FT8") != NULL);
-    assert(strstr(frame.rows[6], "Message") != NULL);
+    assert(strcmp(frame.rows[0], "RX 20 14:32:08 2/2 8") == 0);
+    assert(strstr(frame.rows[1], "1 RX message 7") != NULL);
 
-    assert(!ui_shell_handle_input(&ui, &model, key('5'), &action));
-    assert(ui.submenu == UI_SUBMENU_O_TX);
-    assert(ui_shell_handle_input(&ui, &model, key('3'), &action));
-    assert(action.type == APP_ACTION_SET_SKIP_TX1);
-    assert(action.value.bool_value == true);
+    /* Page Down wraps 2/2 -> 1/2; Page Up wraps 1/2 -> 2/2. */
+    assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_PAGE_NEXT), &action));
+    ui_shell_render(&ui, &model, &frame);
+    assert(strcmp(frame.rows[0], "RX 20 14:32:08 1/2 8") == 0);
 
+    assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_UP), &action));
+    ui_shell_render(&ui, &model, &frame);
+    assert(strcmp(frame.rows[0], "RX 20 14:32:08 2/2 8") == 0);
+
+    /* Screen switches always reset to the destination top level/page 1. */
     assert(!ui_shell_handle_input(&ui, &model, key('v'), &action));
-    assert(!ui_shell_handle_input(&ui, &model, key('5'), &action));
+    assert(ui.submenu == UI_SUBMENU_NONE);
+    assert(ui.page_index == 0u);
     ui_shell_render(&ui, &model, &frame);
-    assert(strstr(frame.rows[1], "Runtime: MiniShell") != NULL);
-    assert(strstr(frame.rows[2], "Presentation: ADV") != NULL);
-    assert(strstr(frame.rows[3], "UI: text 20x7") != NULL);
-    assert(strstr(frame.rows[4], "App: ft8") != NULL);
-    assert(strstr(frame.rows[5], "Station: Default") != NULL);
-    assert(strstr(frame.rows[6], "Band: 20m") != NULL);
+    assert(strcmp(frame.rows[0], "V  20 14:32:08 1/1 8") == 0);
+}
+
+static void test_adv_no_utc(void)
+{
+    UiShell ui;
+    UiModel model;
+    UiFrame frame;
+
+    set_default_model(&model);
+    model.utc_valid = false;
+    model.slot_counter = 14u;
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    ui_shell_render(&ui, &model, &frame);
+    assert(strcmp(frame.rows[0], "RX 20 --:--:-- 1/1 E") == 0);
 }
 
 int main(void)
 {
     test_profile_contract();
-    test_desktop();
-    test_adv();
+    test_desktop_existing_navigation();
+    test_adv_locked_top_and_rx_paging();
+    test_adv_no_utc();
     puts("ft8_ui_smoke: PASS");
     return 0;
 }

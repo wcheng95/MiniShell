@@ -70,29 +70,23 @@ bool ft8_ui_adapter_render(const ft8_ui_adapter_t *adapter, const UiFrame *frame
     return adapter->display->present() == MINI_OK;
 }
 
-bool ft8_ui_adapter_read_input(const ft8_ui_adapter_t *adapter, UiInput *out_input)
+static void translate_event(const mini_key_event_t *event, UiInput *out_input)
 {
-    if (adapter == NULL || adapter->key == NULL || out_input == NULL) return false;
-
-    memset(out_input, 0, sizeof(*out_input));
-    mini_key_event_t event = {.struct_size = sizeof(event)};
-    if (adapter->key->read(&event, MINI_WAIT_FOREVER) != MINI_OK) return false;
-
-    if (event.type == MINI_KEY_EVENT_CHAR) {
-        if (event.codepoint == 'q' || event.codepoint == 'Q') {
+    if (event->type == MINI_KEY_EVENT_CHAR) {
+        if (event->codepoint == 'q' || event->codepoint == 'Q') {
             out_input->type = UI_INPUT_QUIT;
-        } else if (event.codepoint == '`') {
+        } else if (event->codepoint == '`') {
             out_input->type = UI_INPUT_BACK;
-        } else if (event.codepoint <= 255u) {
+        } else if (event->codepoint <= 255u) {
             out_input->type = UI_INPUT_CHAR;
-            out_input->ch = (int)event.codepoint;
+            out_input->ch = (int)event->codepoint;
         }
-        return true;
+        return;
     }
 
-    if (event.type != MINI_KEY_EVENT_SPECIAL) return true;
+    if (event->type != MINI_KEY_EVENT_SPECIAL) return;
 
-    switch (event.key) {
+    switch (event->key) {
         case MINI_KEY_UP: out_input->type = UI_INPUT_UP; break;
         case MINI_KEY_DOWN: out_input->type = UI_INPUT_DOWN; break;
         case MINI_KEY_LEFT: out_input->type = UI_INPUT_LEFT; break;
@@ -103,7 +97,38 @@ bool ft8_ui_adapter_read_input(const ft8_ui_adapter_t *adapter, UiInput *out_inp
         case MINI_KEY_PAGE_DOWN: out_input->type = UI_INPUT_PAGE_NEXT; break;
         default: out_input->type = UI_INPUT_NONE; break;
     }
+}
+
+bool ft8_ui_adapter_read_input_timeout(const ft8_ui_adapter_t *adapter,
+                                       uint32_t timeout_ms,
+                                       UiInput *out_input,
+                                       bool *out_has_input)
+{
+    mini_result_t result;
+    mini_key_event_t event = {.struct_size = sizeof(event)};
+
+    if (adapter == NULL || adapter->key == NULL || out_input == NULL || out_has_input == NULL)
+        return false;
+
+    memset(out_input, 0, sizeof(*out_input));
+    *out_has_input = false;
+    result = adapter->key->read(&event, timeout_ms);
+    if (result == MINI_ERR_NOT_READY || result == MINI_ERR_TIMEOUT) return true;
+    if (result != MINI_OK) return false;
+
+    translate_event(&event, out_input);
+    *out_has_input = true;
     return true;
+}
+
+bool ft8_ui_adapter_read_input(const ft8_ui_adapter_t *adapter, UiInput *out_input)
+{
+    bool has_input = false;
+    if (!ft8_ui_adapter_read_input_timeout(adapter, MINI_WAIT_FOREVER,
+                                           out_input, &has_input)) {
+        return false;
+    }
+    return has_input;
 }
 
 void ft8_ui_adapter_shutdown(const ft8_ui_adapter_t *adapter)

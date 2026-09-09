@@ -24,6 +24,19 @@ set(MINIFT8_SOURCES
     "${MINISHELL_ROOT}/apps/ft8/src/qso_scheduler/qso_scheduler.c"
     "${MINISHELL_ROOT}/apps/ft8/src/storage_service/storage_service.c"
     "${MINISHELL_ROOT}/apps/ft8/src/ui_shell/ui_shell.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/rx_audio_adapter/rx_audio_adapter.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/rx_frontend/rx_frontend.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/rx_slot_framer/rx_slot_framer.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/rx_result_builder/rx_result_builder.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/ft8_engine.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/ft8_monitor.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/ft8_decoder.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/ft8_ldpc.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/ft8_crc.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/ft8_hash_store.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/ft8_message_codec.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fft.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fftr.c"
 )
 
 idf_component_register(
@@ -66,6 +79,12 @@ idf_component_register(
         "${MINISHELL_ROOT}/apps/ft8/src/qso_scheduler"
         "${MINISHELL_ROOT}/apps/ft8/src/storage_service"
         "${MINISHELL_ROOT}/apps/ft8/src/ui_shell"
+        "${MINISHELL_ROOT}/apps/ft8/src/rx_audio_adapter"
+        "${MINISHELL_ROOT}/apps/ft8/src/rx_frontend"
+        "${MINISHELL_ROOT}/apps/ft8/src/rx_slot_framer"
+        "${MINISHELL_ROOT}/apps/ft8/src/rx_result_builder"
+        "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine"
+        "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/vendor/kissfft"
         "${CMAKE_CURRENT_LIST_DIR}/.."
     REQUIRES
         esp_driver_i2c

@@ -24,11 +24,11 @@ M$> ft8 --profile desktop
 M$> ft8 --profile adv
 ```
 
-Current development policy is **Linux backend first**, using the ADV presentation whenever UI is involved. Cardputer ADV supplies ADV as its composition default. Presentation is not persisted station configuration.
+Current development policy is **Linux backend first**, using ADV presentation whenever UI is involved. Cardputer ADV supplies ADV as its composition default.
 
-## Current RX architecture
+## Production RX architecture
 
-RX-6 validates the receive path through the MiniShell public Audio API:
+RX-7 completes the decode-RX path through the normal application:
 
 ```text
 MiniShell Audio
@@ -49,35 +49,12 @@ MiniShell Audio
     -> Ft8ProtocolSlot
     -> RxResultBuilder
     -> RxBatch
+    -> app_controller
+    -> UiModel
+    -> UI presentation
 ```
 
 `app_controller` remains the sole production coordinator. There is no second RX manager or pipeline coordinator.
-
-Ownership:
-
-```text
-MiniShell
-    owns Audio provider/device/backend resource
-
-rx_audio_adapter
-    owns MiniFT8's public RX Audio stream handle and
-    open/start/read/stop/close lifecycle
-
-RxFrontend
-    owns channel interpretation and 12 kHz -> 6 kHz adaptation
-
-RxSlotFramer
-    owns slot identity/sample counting and one bounded 960-sample accumulator
-
-Ft8Engine
-    owns FT8 DSP/protocol/hash state
-
-RxResultBuilder
-    owns factual RxBatch projection
-
-app_controller
-    owns application coordination/policy
-```
 
 Normal RX streams raw audio and does not retain a complete raw PCM slot.
 
@@ -90,47 +67,10 @@ RX-3        COMPLETE
 RX-4        COMPLETE
 RX-5        COMPLETE
 RX-6        COMPLETE
-RX-7        NEXT — real decoded RX screen
+RX-7        COMPLETE — real decoded RX screen + ADV build
 ```
 
 RX-2's pinned Linux reference is green, so its pending manual test does not block the structural sequence.
-
-## RX-6 MiniShell Audio proof
-
-The RX-6 integration test launches through the actual MiniShell Linux runtime and opens a real 15-second 12 kHz/S16/stereo WAV through the public Audio API.
-
-The Audio provider is therefore outside MiniFT8:
-
-```text
-Linux WAV provider
-    -> MiniShell Audio API
-    -> rx_audio_adapter
-    -> unchanged pure RX modules
-```
-
-Result:
-
-```text
-M$> RX6 frames=180000 slot=12345 blocks=93 messages=1 text="CQ W1XYZ FN42"
-ft8_rx_probe: PASS
-```
-
-Exact golden identity remains:
-
-```text
-waterfall FNV-1a-64   18BE1E838FD9C6AF
-payload                000000206016500A1988
-canonical text         CQ W1XYZ FN42
-```
-
-Replacing the Linux WAV provider later with QMX or another MiniShell Audio provider must not require changes inside `RxFrontend`, `RxSlotFramer`, `Ft8Engine`, or `RxResultBuilder`.
-
-Canonical RX-6 records:
-
-```text
-docs/MiniFT8/rx-6-minishell-audio.md
-apps/ft8/src/rx_audio_adapter/README.md
-```
 
 ## Timing
 
@@ -141,7 +81,7 @@ UTC/time establishes initial slot_id + sample_offset
 sample count owns progress afterward
 ```
 
-`rx_audio_adapter` deliberately does not own UTC. The deterministic RX-6 replay test supplies a known initial slot reference directly. Production coordination supplies the timing reference when the real application is wired in RX-7.
+Production `app_controller` obtains the initial MiniShell time reference. `rx_audio_adapter` does not own UTC; `Ft8Engine` never reads a clock.
 
 For a 15-second FT8 slot at the engine boundary:
 
@@ -151,21 +91,42 @@ For a 15-second FT8 slot at the engine boundary:
 720-sample slot-end remainder discarded
 ```
 
-## Existing application services
+## RX-7 reference proof
 
-The normal `ft8` application already uses MiniShell Display, Input, Filesystem, configuration, and lifecycle services. RX-6 proves MiniShell Audio separately before changing the real RX screen.
-
-P1/P2/V1 real-ADV validation remains the pre-RX hardware baseline:
+The RX-7 integration test launches the actual production `ft8` application through MiniShell, opens a real 12 kHz/S16/stereo WAV through the public Audio API, and verifies the pinned V2 CQ appears on the ADV RX screen.
 
 ```text
-heap free       about 282 KiB
-largest block   about 228 KiB
+M$> ft8 --profile adv --rx /flash/rx7.wav --rx-slot 12345
+RX 20 HH:MM:SS 1/1 <0-E>
+1 CQ W1XYZ FN42
 ```
 
-Do not optimize RX RAM prematurely; measure after production integration.
+Exact golden identity remains:
 
-## Next: RX-7
+```text
+waterfall FNV-1a-64   18BE1E838FD9C6AF
+payload                000000206016500A1988
+canonical text         CQ W1XYZ FN42
+```
 
-RX-7 will wire the validated receive composition into the normal `ft8` application and render real decoded `RxBatch` messages using the **Linux backend + ADV 20x7 presentation** first.
+The RX-7 head also cross-compiles successfully for Cardputer ADV with ESP-IDF v5.5.1 / ESP32-S3. This is a build-portability proof; a live ADV Audio provider is not part of RX-7.
 
-AutoSeq, TX, and ADIF remain separate major blocks after the decode-RX milestone.
+Replacing the Linux WAV provider later with QMX or another MiniShell Audio provider must not require changes inside `RxFrontend`, `RxSlotFramer`, `Ft8Engine`, or `RxResultBuilder`.
+
+## UI behavior established in RX-7
+
+ADV uses the locked 20-character status line. Real RX messages are available from the latest `RxBatch`, six lines per page. Top-level Up/Down paging wraps, and switching UIScreens returns to the destination screen's top level.
+
+Detailed per-UIScreen actions remain governed by `docs/MiniFT8/ui.md` and are separate from the decode-RX milestone.
+
+## Canonical RX records
+
+```text
+docs/MiniFT8/rx.md
+docs/MiniFT8/rx-6-minishell-audio.md
+docs/MiniFT8/rx-7-decoded-ui.md
+```
+
+## After RX-7
+
+Decode RX stops here. AutoSeq, TX, ADIF, live radio/provider integration, and remaining UI behavior stay separate major blocks.

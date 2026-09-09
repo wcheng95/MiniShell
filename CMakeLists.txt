@@ -107,6 +107,19 @@ add_minishell_app(ft8
     apps/ft8/src/qso_scheduler/qso_scheduler.c
     apps/ft8/src/storage_service/storage_service.c
     apps/ft8/src/ui_shell/ui_shell.c
+    apps/ft8/src/rx_audio_adapter/rx_audio_adapter.c
+    apps/ft8/src/rx_frontend/rx_frontend.c
+    apps/ft8/src/rx_slot_framer/rx_slot_framer.c
+    apps/ft8/src/rx_result_builder/rx_result_builder.c
+    apps/ft8/src/ft8_engine/ft8_engine.c
+    apps/ft8/src/ft8_engine/ft8_monitor.c
+    apps/ft8/src/ft8_engine/ft8_decoder.c
+    apps/ft8/src/ft8_engine/ft8_ldpc.c
+    apps/ft8/src/ft8_engine/ft8_crc.c
+    apps/ft8/src/ft8_engine/ft8_hash_store.c
+    apps/ft8/src/ft8_engine/ft8_message_codec.c
+    apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fft.c
+    apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fftr.c
 )
 target_include_directories(ft8 PRIVATE
     apps/ft8/include
@@ -116,7 +129,14 @@ target_include_directories(ft8 PRIVATE
     apps/ft8/src/qso_scheduler
     apps/ft8/src/storage_service
     apps/ft8/src/ui_shell
+    apps/ft8/src/rx_audio_adapter
+    apps/ft8/src/rx_frontend
+    apps/ft8/src/rx_slot_framer
+    apps/ft8/src/rx_result_builder
+    apps/ft8/src/ft8_engine
+    apps/ft8/src/ft8_engine/vendor/kissfft
 )
+target_link_libraries(ft8 PRIVATE m)
 
 add_library(service_probe MODULE tests/apps/service_probe.c)
 target_include_directories(service_probe PRIVATE include)

@@ -10,7 +10,8 @@
 #define UI_MAIN_LINES 6
 #define UI_TEXT_CAP (UI_MAX_COLS + 1)
 
-#define APP_MAX_RX_LINES UI_MAIN_LINES
+/* One Ft8Engine window can return at most 50 decoded candidates. */
+#define APP_MAX_RX_LINES 50
 #define APP_MAX_TX_LINES UI_MAIN_LINES
 
 typedef enum {
@@ -47,6 +48,13 @@ typedef struct {
     char band_name[8];
     bool skip_tx1;
     int max_retry;
+
+    bool utc_valid;
+    uint8_t utc_hour;
+    uint8_t utc_minute;
+    uint8_t utc_second;
+    uint8_t slot_counter; /* 0..14, rendered as 0..E. */
+
     char rx_lines[APP_MAX_RX_LINES][UI_TEXT_CAP];
     size_t rx_count;
     char tx_lines[APP_MAX_TX_LINES][UI_TEXT_CAP];

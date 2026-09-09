@@ -46,7 +46,6 @@ static void frame_footer(UiFrame *frame, const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(text, sizeof(text), fmt, ap);
     va_end(ap);
-
     frame_set(frame, (int)(frame->row_count - 1u), "%s", text);
 }
 
@@ -72,11 +71,76 @@ static void info_line(UiFrame *frame, int line, const char *fmt, ...)
     frame_set(frame, line + 1, "%s", text);
 }
 
+static uint32_t paged_count(size_t item_count)
+{
+    uint32_t pages = (uint32_t)((item_count + UI_MAIN_LINES - 1u) / UI_MAIN_LINES);
+    return pages == 0u ? 1u : pages;
+}
+
+static uint32_t screen_page_count(const UiShell *ui, const UiModel *model)
+{
+    if (ui->submenu != UI_SUBMENU_NONE) return 1u;
+    if (ui->screen == SCREEN_RX) return paged_count(model->rx_count);
+    if (ui->screen == SCREEN_TX) return paged_count(model->tx_count);
+    return 1u;
+}
+
+static uint32_t visible_page(const UiShell *ui, const UiModel *model)
+{
+    uint32_t pages = screen_page_count(ui, model);
+    return pages == 0u ? 0u : ui->page_index % pages;
+}
+
+static unsigned band_number(const char *name)
+{
+    unsigned value = 0u;
+    int found = 0;
+    if (name == NULL) return 0u;
+    while (*name >= '0' && *name <= '9') {
+        found = 1;
+        value = value * 10u + (unsigned)(*name - '0');
+        ++name;
+    }
+    return found ? value : 0u;
+}
+
+static char counter_char(uint8_t counter)
+{
+    counter %= 15u;
+    return counter < 10u ? (char)('0' + counter)
+                         : (char)('A' + (counter - 10u));
+}
+
 static void render_top(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
     if (ui->presentation == FT8_PRESENTATION_ADV) {
-        frame_set(frame, 0, "FT8 %-4.4s %-7.7s %-2.2s",
-                  model->band_name, model->profile_name, screen_name(ui->screen));
+        char utc[9];
+        uint32_t pages = screen_page_count(ui, model);
+        uint32_t page = visible_page(ui, model) + 1u;
+        unsigned band = band_number(model->band_name) % 100u;
+
+        if (model->utc_valid) {
+            unsigned hour = (unsigned)model->utc_hour % 24u;
+            unsigned minute = (unsigned)model->utc_minute % 60u;
+            unsigned second = (unsigned)model->utc_second % 60u;
+            utc[0] = (char)('0' + hour / 10u);
+            utc[1] = (char)('0' + hour % 10u);
+            utc[2] = ':';
+            utc[3] = (char)('0' + minute / 10u);
+            utc[4] = (char)('0' + minute % 10u);
+            utc[5] = ':';
+            utc[6] = (char)('0' + second / 10u);
+            utc[7] = (char)('0' + second % 10u);
+            utc[8] = '\0';
+        } else {
+            memcpy(utc, "--:--:--", sizeof(utc));
+        }
+
+        /* Locked ADV first-release format: exactly 20 characters. */
+        frame_set(frame, 0, "%-2.2s %02u %s %u/%u %c",
+                  screen_name(ui->screen), band, utc,
+                  (unsigned)page, (unsigned)pages,
+                  counter_char(model->slot_counter));
         return;
     }
 
@@ -84,21 +148,25 @@ static void render_top(const UiShell *ui, const UiModel *model, UiFrame *frame)
               "FT8", model->band_name, model->profile_name, screen_name(ui->screen));
 }
 
-static void render_rx(const UiModel *model, UiFrame *frame)
+static void render_rx(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
+    size_t start = (size_t)visible_page(ui, model) * UI_MAIN_LINES;
     for (int i = 0; i < UI_MAIN_LINES; ++i) {
-        if ((size_t)i < model->rx_count) {
-            frame_set(frame, i + 1, "%d %s", i + 1, model->rx_lines[i]);
+        size_t index = start + (size_t)i;
+        if (index < model->rx_count) {
+            frame_set(frame, i + 1, "%d %s", i + 1, model->rx_lines[index]);
         }
     }
-    frame_footer(frame, "R T O S V  1-6 reply  q quit");
+    frame_footer(frame, "R T O S V  1-6 select q quit");
 }
 
-static void render_tx(const UiModel *model, UiFrame *frame)
+static void render_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
+    size_t start = (size_t)visible_page(ui, model) * UI_MAIN_LINES;
     for (int i = 0; i < UI_MAIN_LINES; ++i) {
-        if ((size_t)i < model->tx_count) {
-            frame_set(frame, i + 1, "%d %s", i + 1, model->tx_lines[i]);
+        size_t index = start + (size_t)i;
+        if (index < model->tx_count) {
+            frame_set(frame, i + 1, "%d %s", i + 1, model->tx_lines[index]);
         }
     }
     frame_footer(frame, "R T O S V  arrows/Ent q quit");
@@ -322,6 +390,7 @@ void ui_shell_init(UiShell *ui, ft8_presentation_profile_t presentation)
     ui->screen = SCREEN_RX;
     ui->submenu = UI_SUBMENU_NONE;
     ui->selected_line = 0;
+    ui->page_index = 0u;
     ui->presentation = presentation;
 }
 
@@ -340,8 +409,8 @@ void ui_shell_render(const UiShell *ui, const UiModel *model, UiFrame *frame)
 
     render_top(ui, model, frame);
     switch (ui->screen) {
-        case SCREEN_RX: render_rx(model, frame); break;
-        case SCREEN_TX: render_tx(model, frame); break;
+        case SCREEN_RX: render_rx(ui, model, frame); break;
+        case SCREEN_TX: render_tx(ui, model, frame); break;
         case SCREEN_O: render_o(ui, model, frame); break;
         case SCREEN_S: render_s(ui, model, frame); break;
         case SCREEN_V: render_v(ui, model, frame); break;
@@ -353,6 +422,7 @@ static void enter_screen(UiShell *ui, Screen screen)
     ui->screen = screen;
     ui->submenu = UI_SUBMENU_NONE;
     ui->selected_line = 0;
+    ui->page_index = 0u;
 }
 
 static void clear_action(AppAction *action)
@@ -412,6 +482,7 @@ static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction
         };
         ui->submenu = items[line];
         ui->selected_line = 0;
+        ui->page_index = 0u;
         return false;
     }
 
@@ -422,6 +493,7 @@ static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction
         };
         ui->submenu = items[line];
         ui->selected_line = 0;
+        ui->page_index = 0u;
         return false;
     }
 
@@ -453,6 +525,23 @@ static bool adjust_selected(UiShell *ui, const UiModel *model, int delta, AppAct
     return false;
 }
 
+static void move_page(UiShell *ui, const UiModel *model, int delta)
+{
+    uint32_t pages = screen_page_count(ui, model);
+    if (pages <= 1u) {
+        ui->page_index = 0u;
+        return;
+    }
+
+    uint32_t current = visible_page(ui, model);
+    if (delta < 0) {
+        ui->page_index = current == 0u ? pages - 1u : current - 1u;
+    } else {
+        ui->page_index = (current + 1u) % pages;
+    }
+    ui->selected_line = 0;
+}
+
 bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
                            UiInput input, AppAction *action_out)
 {
@@ -470,10 +559,20 @@ bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
 
     switch (input.type) {
         case UI_INPUT_UP:
-            ui->selected_line = (ui->selected_line + UI_MAIN_LINES - 1) % UI_MAIN_LINES;
+        case UI_INPUT_PAGE_PREV:
+            if (ui->submenu == UI_SUBMENU_NONE) {
+                move_page(ui, model, -1);
+            } else {
+                ui->selected_line = (ui->selected_line + UI_MAIN_LINES - 1) % UI_MAIN_LINES;
+            }
             return false;
         case UI_INPUT_DOWN:
-            ui->selected_line = (ui->selected_line + 1) % UI_MAIN_LINES;
+        case UI_INPUT_PAGE_NEXT:
+            if (ui->submenu == UI_SUBMENU_NONE) {
+                move_page(ui, model, +1);
+            } else {
+                ui->selected_line = (ui->selected_line + 1) % UI_MAIN_LINES;
+            }
             return false;
         case UI_INPUT_LEFT:
             return adjust_selected(ui, model, -1, action_out);
@@ -485,6 +584,7 @@ bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
             if (ui->submenu != UI_SUBMENU_NONE) {
                 ui->submenu = UI_SUBMENU_NONE;
                 ui->selected_line = 0;
+                ui->page_index = 0u;
             } else if (ui->screen != SCREEN_RX) {
                 enter_screen(ui, SCREEN_RX);
             }

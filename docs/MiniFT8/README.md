@@ -1,12 +1,12 @@
 # MiniFT8-V3
 
-MiniFT8-V3 is the portable FT8 application hosted by MiniShell. The MiniShell runtime application name is:
+MiniFT8-V3 is the portable FT8 application hosted by MiniShell. Its MiniShell runtime application name is:
 
 ```text
 ft8
 ```
 
-Other digital modes are separate future MiniShell applications rather than modes inside `ft8`.
+Other digital protocols are separate future MiniShell applications rather than modes inside `ft8`.
 
 ## Boundary
 
@@ -32,11 +32,11 @@ backend       Linux
 presentation  ADV when UI is involved
 ```
 
-Stay on Linux until a genuine ADV-backend dependency needs to be exercised.
+Linux remains the production/reference development target until a genuine embedded-backend dependency needs to be exercised.
 
 ## Current RX path
 
-RX is now validated through the MiniShell public Audio boundary:
+RX-7 completes the decode-RX milestone through the normal `ft8` application:
 
 ```text
 MiniShell Audio
@@ -56,9 +56,12 @@ MiniShell Audio
     -> Ft8ProtocolSlot
     -> RxResultBuilder
     -> RxBatch
+    -> app_controller
+    -> UiModel
+    -> ADV 20x7 presentation
 ```
 
-`app_controller` remains MiniFT8's sole production application coordinator. RX-6 did not introduce a second RX manager/pipeline abstraction.
+`app_controller` remains MiniFT8's sole production application coordinator. RX-7 does not introduce an `rx_pipeline`, `rx_manager`, or second coordinator.
 
 Current gate:
 
@@ -70,7 +73,7 @@ RX-3        COMPLETE
 RX-4        COMPLETE
 RX-5        COMPLETE
 RX-6        COMPLETE
-RX-7        NEXT — decoded RX UI, Linux + ADV presentation
+RX-7        COMPLETE — real decoded RX UI, Linux reference + ADV build
 ```
 
 RX-2's manual pc-1 validation does not block the structural sequence because its pinned Linux reference is green.
@@ -97,10 +100,8 @@ RxResultBuilder
     owns factual application projection into RxBatch
 
 app_controller
-    owns application coordination/policy
+    owns production application coordination/policy
 ```
-
-An application/module failure should remain local and must not destabilize MiniShell or unrelated applications.
 
 ## Locked transport / timing contracts
 
@@ -128,7 +129,7 @@ For one 15-second FT8 slot:
 720 slot-end samples discarded
 ```
 
-The first partial slot after stream start/discontinuity is also discarded. Time establishes only the initial slot reference; sample count owns progression afterward. `rx_audio_adapter` owns Audio lifecycle, not UTC.
+The first partial slot after stream start/discontinuity is also discarded. Time establishes only the initial slot reference; sample count owns progression afterward. `Ft8Engine` never reads a clock.
 
 ## Golden anchors
 
@@ -146,14 +147,22 @@ unique CQ payload            000000206016500A1988
 canonical CQ text            CQ W1XYZ FN42
 ```
 
-RX-6 full MiniShell proof:
+RX-6 public-Audio proof:
 
 ```text
 M$> RX6 frames=180000 slot=12345 blocks=93 messages=1 text="CQ W1XYZ FN42"
 ft8_rx_probe: PASS
 ```
 
-The Linux WAV provider can later be replaced by QMX or another MiniShell Audio provider without changing the pure RX modules.
+RX-7 production-application proof:
+
+```text
+M$> ft8 --profile adv --rx /flash/rx7.wav --rx-slot 12345
+RX 20 HH:MM:SS 1/1 <0-E>
+1 CQ W1XYZ FN42
+```
+
+The RX-7 reference launches the real `ft8` application through MiniShell, streams the pinned golden through the complete RX chain, and verifies the decoded message on the ADV RX screen. The ADV ESP32-S3 firmware build is also green.
 
 ## Presentation
 
@@ -171,7 +180,7 @@ M$> ft8 --profile desktop
 M$> ft8 --profile adv
 ```
 
-Presentation is launch/composition policy, not backend identity and not persisted station configuration.
+The ADV status line follows the locked 20-character UI definition and RX messages page six at a time with wraparound.
 
 ## ADV baseline
 
@@ -184,7 +193,7 @@ heap free       ~282 KiB
 largest block   ~228 KiB
 ```
 
-Do not optimize RX RAM prematurely; measure the integrated workload first.
+RX-7 CI proves the integrated RX code cross-compiles for ESP32-S3. Live ADV Audio/provider behavior remains a later hardware integration concern.
 
 ## Canonical documentation
 
@@ -210,6 +219,7 @@ rx-3-frontend.md
 rx-4-slot-framer.md
 rx-5-pure-assembly.md
 rx-6-minishell-audio.md
+rx-7-decoded-ui.md
 ```
 
 Other major documents:
@@ -219,8 +229,6 @@ architecture.md
 ui.md
 v1-validation.md
 ```
-
-Source-local ownership notes are kept in `README.md` files beside the corresponding modules.
 
 ## Current source shape
 
@@ -242,8 +250,6 @@ apps/ft8/
     └── rx_result_builder/
 ```
 
-## Next: RX-7
+## After RX-7
 
-RX-7 moves the validated receive chain into the normal `ft8` application and renders real `RxBatch` results on the RX screen using the **Linux backend + ADV 20x7 presentation** first.
-
-AutoSeq, TX, and ADIF remain separate major blocks and are not pulled into RX merely to demonstrate decoding.
+The decode-RX milestone stops here. AutoSeq, TX, ADIF, live QMX integration, and the remaining detailed UIScreen work stay separate major blocks. The next major development block is intentionally not selected in this document.

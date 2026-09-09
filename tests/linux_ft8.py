@@ -13,27 +13,22 @@ import time
 def read_until(fd: int, needle: bytes, timeout: float) -> bytes:
     deadline = time.monotonic() + timeout
     data = bytearray()
-
     while needle not in data:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError(f"timed out waiting for {needle!r}; got {bytes(data)!r}")
-
         readable, _, _ = select.select([fd], [], [], remaining)
         if not readable:
             continue
-
         try:
             chunk = os.read(fd, 4096)
         except OSError as exc:
             if exc.errno == errno.EIO:
                 break
             raise
-
         if not chunk:
             break
         data.extend(chunk)
-
     if needle not in data:
         raise TimeoutError(f"stream ended waiting for {needle!r}; got {bytes(data)!r}")
     return bytes(data)
@@ -53,55 +48,40 @@ def main() -> int:
             env = os.environ.copy()
             env["MINISHELL_APP_DIR"] = app_dir
             env["MINISHELL_ROOT"] = root
-
             process = subprocess.Popen(
-                [minishell],
-                stdin=slave_fd,
-                stdout=slave_fd,
-                stderr=slave_fd,
-                env=env,
-                close_fds=True,
+                [minishell], stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+                env=env, close_fds=True,
             )
             os.close(slave_fd)
             slave_fd = -1
-
             transcript = bytearray()
             try:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
-                # Default launch remains DESKTOP and exercises live config mutation.
+                # Default DESKTOP launch still exercises live config mutation.
                 os.write(master_fd, b"ft8\n")
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
-
                 os.write(master_fd, b"o")
                 transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
-
                 os.write(master_fd, b"1")
                 transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
-
                 os.write(master_fd, b"5")
                 transcript.extend(read_until(master_fd, b"Skip TX1: OFF", 3.0))
-
                 os.write(master_fd, b"3")
                 transcript.extend(read_until(master_fd, b"Skip TX1: ON", 3.0))
-
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
                 station = os.path.join(root, "flash", "ft8", "station.txt")
-                temp_station = station + ".tmp"
                 with open(station, "r", encoding="utf-8") as handle:
                     saved = handle.read()
                 if "profile=0\n" not in saved or "band=3\n" not in saved or "skip_tx1=1\n" not in saved:
                     raise RuntimeError(f"unexpected station.txt contents: {saved!r}")
-                if "mode=" in saved or "mode0_" in saved:
-                    raise RuntimeError(f"obsolete mode state persisted: {saved!r}")
-                if "presentation=" in saved:
-                    raise RuntimeError(f"presentation must not persist in station.txt: {saved!r}")
-                if os.path.exists(temp_station):
+                if "mode=" in saved or "mode0_" in saved or "presentation=" in saved:
+                    raise RuntimeError(f"unexpected persisted state: {saved!r}")
+                if os.path.exists(station + ".tmp"):
                     raise RuntimeError("atomic save left station.txt.tmp behind")
 
-                # P1: explicit Linux + DESKTOP profile.
                 os.write(master_fd, b"ft8 --profile desktop\n")
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
                 os.write(master_fd, b"v")
@@ -111,9 +91,9 @@ def main() -> int:
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
-                # P1: the same app/core on Linux using the 20x7 ADV presentation.
+                # ADV uses the locked 20-character top row; profile name is no longer there.
                 os.write(master_fd, b"ft8 --profile adv\n")
-                transcript.extend(read_until(master_fd, b"Default RX", 3.0))
+                transcript.extend(read_until(master_fd, b"RX 20 ", 3.0))
                 os.write(master_fd, b"o")
                 transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
                 os.write(master_fd, b"5")
@@ -143,7 +123,6 @@ def main() -> int:
         if slave_fd >= 0:
             os.close(slave_fd)
         os.close(master_fd)
-
     return 0
 
 
