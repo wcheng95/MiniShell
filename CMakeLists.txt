@@ -272,6 +272,7 @@ add_test(
     COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/linux_services.py
             $<TARGET_FILE:minishell>
+            $<TARGET_FILE_DIR:service_probe>
 )
 
 add_test(
