@@ -12,10 +12,14 @@ typedef struct {
 
 extern int minishell_app_hello_main(int argc, char **argv);
 extern int minishell_app_a2_probe_main(int argc, char **argv);
+extern int minishell_app_a3_probe_main(int argc, char **argv);
+extern int minishell_app_date_main(int argc, char **argv);
 
 static const adv_app_entry_t s_apps[] = {
     {"hello", minishell_app_hello_main},
     {"probe", minishell_app_a2_probe_main},
+    {"a3probe", minishell_app_a3_probe_main},
+    {"date", minishell_app_date_main},
 };
 
 static int valid_app_name(const char *name)

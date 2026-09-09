@@ -19,6 +19,8 @@ idf_component_register(
         "app_main.c"
         "hello_static.c"
         "probe_static.c"
+        "a3_probe_static.c"
+        "date_static.c"
         "${MINISHELL_ROOT}/core/minishell_runtime.c"
         "${MINISHELL_ROOT}/core/shell.c"
         "${MINISHELL_ROOT}/core/app_manager.c"
@@ -26,10 +28,12 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_backend.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_console.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_display.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_filesystem.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_i2c.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_input.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_keyboard.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_memory.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_time_location.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_apps.c"
         "${CMAKE_CURRENT_LIST_DIR}/../platform_info.c"
         "${CMAKE_CURRENT_LIST_DIR}/../resource_config.c"
@@ -42,6 +46,7 @@ idf_component_register(
         esp_driver_i2c
         esp_driver_usb_serial_jtag
         esp_timer
+        littlefs
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Wpedantic)

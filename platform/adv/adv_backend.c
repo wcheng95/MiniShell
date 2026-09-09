@@ -7,6 +7,7 @@
 static minishell_services_port_t s_services_port;
 static bool s_display_ready;
 static bool s_keyboard_ready;
+static bool s_filesystem_ready;
 
 static void system_write(void *ctx, const char *text)
 {
@@ -27,11 +28,14 @@ static void configure_services_port(void)
     s_services_port.memory_free = adv_memory_free;
     s_services_port.memory_get_info = adv_memory_get_info;
 
-    /* Input timeout accounting needs a monotonic clock now. UTC/location
-     * capabilities remain zero until A3. */
     s_services_port.monotonic_us = adv_monotonic_us;
     s_services_port.sleep_ms = adv_sleep_ms;
     s_services_port.time_location_capabilities = 0u;
+
+    if (s_filesystem_ready) {
+        adv_filesystem_configure(&s_services_port);
+        adv_time_location_configure(&s_services_port);
+    }
 
     if (s_display_ready) {
         s_services_port.display_capabilities = MINI_DISPLAY_CAP_TEXT;
@@ -52,18 +56,21 @@ static void configure_services_port(void)
 
 int minishell_platform_init(void)
 {
-    /* Keep the proven A1 USB console alive as a recovery/debug path while
-     * Cardputer display/keyboard are brought online. */
     if (adv_console_prepare() != 0) return -1;
 
     s_display_ready = adv_display_prepare() == 0;
     if (!s_display_ready) {
-        minishell_platform_console_write("ADV: display unavailable; USB console remains active\n");
+        adv_console_debug_write("ADV: display unavailable; USB console remains active\n");
     }
 
     s_keyboard_ready = adv_keyboard_prepare() == 0;
     if (!s_keyboard_ready) {
-        minishell_platform_console_write("ADV: keyboard unavailable; USB input remains active\n");
+        adv_console_debug_write("ADV: keyboard unavailable; USB input remains active\n");
+    }
+
+    s_filesystem_ready = adv_filesystem_prepare() == 0;
+    if (!s_filesystem_ready) {
+        adv_console_debug_write("ADV: /flash LittleFS unavailable; continuing without persistence\n");
     }
 
     configure_services_port();
@@ -72,6 +79,7 @@ int minishell_platform_init(void)
 
 void minishell_platform_shutdown(void)
 {
+    adv_filesystem_shutdown();
 }
 
 const minishell_services_port_t *minishell_platform_services_port(void)
