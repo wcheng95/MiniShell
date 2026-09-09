@@ -267,3 +267,10 @@ add_test(
             $<TARGET_FILE:minishell>
             $<TARGET_FILE_DIR:ft8>
 )
+
+add_test(
+    NAME ft8_platform_boundary
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ft8_platform_boundary.py
+            ${CMAKE_SOURCE_DIR}
+)
