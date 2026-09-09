@@ -244,6 +244,12 @@ target_link_libraries(ft8_engine_core PUBLIC
     ft8_protocol_core
 )
 
+add_executable(ft8_decode
+    apps/ft8/tools/ft8_decode.c
+)
+target_link_libraries(ft8_decode PRIVATE ft8_engine_core)
+target_compile_options(ft8_decode PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
 add_executable(ft8_monitor_rx1c_unit tests/ft8_monitor_rx1c_test.c)
 target_link_libraries(ft8_monitor_rx1c_unit PRIVATE ft8_monitor_core)
 target_compile_options(ft8_monitor_rx1c_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
