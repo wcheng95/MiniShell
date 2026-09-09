@@ -112,6 +112,28 @@ static int valid_grid4(const char *text)
            isdigit((unsigned char)text[3]);
 }
 
+static size_t split_fields(char *buffer, char **tokens, size_t capacity)
+{
+    size_t count = 0u;
+    char *p = buffer;
+
+    while (*p != '\0') {
+        while (*p == ' ')
+            ++p;
+        if (*p == '\0')
+            break;
+        if (count == capacity)
+            return capacity + 1u;
+
+        tokens[count++] = p;
+        while (*p != '\0' && *p != ' ')
+            ++p;
+        if (*p == ' ')
+            *p++ = '\0';
+    }
+    return count;
+}
+
 /*
  * Locked V3 exception: FREE_TEXT may additionally be a logical CQ only for
  * "CQ <nnn|AAAA> <valid-callsign> [grid]". Protocol type remains FREE_TEXT.
@@ -122,15 +144,10 @@ static int classify_free_text_cq(const char *text,
 {
     char copy[RX_RESULT_TEXT_CAP];
     char *tokens[5] = {0};
-    size_t count = 0u;
-    char *p;
+    size_t count;
 
     copy_text(copy, sizeof(copy), text);
-    p = strtok(copy, " ");
-    while (p != NULL && count < 5u) {
-        tokens[count++] = p;
-        p = strtok(NULL, " ");
-    }
+    count = split_fields(copy, tokens, 5u);
 
     if (count < 3u || count > 4u || strcmp(tokens[0], "CQ") != 0 ||
         !valid_modifier(tokens[1]) || !valid_callsign(tokens[2]))
