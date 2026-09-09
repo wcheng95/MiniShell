@@ -30,7 +30,7 @@ Current applications:
 
 ```text
 ft8      MiniFT8 FT8 application
-hello    minimal API example
+hello    minimal foreground Display/Input lifecycle example
 cat      text-file display
 cp       binary-safe file copy
 date     show/set MiniShell UTC
@@ -43,6 +43,8 @@ nano     interactive text editor
 rm       remove one regular file
 rmdir    remove one empty directory
 ```
+
+`hello` is intentionally a normal foreground application rather than a diagnostic print. It owns the application Display/Input surfaces while running, remains visible until the user presses `q`, Enter, or Escape, and then returns those surfaces to the resident shell. It does not use `System.write()` for user-facing output.
 
 Applications use MiniShell logical paths such as `/sd/notes.txt`; they do not know the host filesystem path behind that namespace.
 
