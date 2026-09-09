@@ -2,6 +2,7 @@
 #define FT8_UI_SHELL_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "ft8/app_types.h"
 #include "presentation_profile.h"
@@ -29,6 +30,7 @@ typedef struct {
     Screen screen;
     UiSubmenu submenu;
     int selected_line;
+    uint32_t page_index;
     ft8_presentation_profile_t presentation;
 } UiShell;
 
