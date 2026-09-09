@@ -15,3 +15,12 @@ CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 # CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
+
+# ESP-IDF v5.5.x defaults FATFS to 8.3-only filenames. MiniShell's Filesystem
+# contract allows names up to MINI_FS_NAME_MAX (255), so the ADV /sd backend
+# must enable long filenames explicitly. Heap-backed LFN avoids consuming the
+# resident/app task stack, and UTF-8 keeps the VFS filename representation
+# compatible with the byte-string MiniShell API.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+CONFIG_FATFS_API_ENCODING_UTF_8=y
