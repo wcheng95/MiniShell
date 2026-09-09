@@ -187,6 +187,35 @@ target_compile_options(linux_terminal_parser_unit PRIVATE
     -Wall -Wextra -Werror -Wpedantic
 )
 
+set(FT8_MONITOR_SOURCES
+    apps/ft8/src/ft8_engine/ft8_monitor.c
+    apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fft.c
+    apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fftr.c
+)
+
+add_library(ft8_monitor_core STATIC ${FT8_MONITOR_SOURCES})
+target_include_directories(ft8_monitor_core PUBLIC
+    apps/ft8/src/ft8_engine
+    apps/ft8/src/ft8_engine/vendor/kissfft
+)
+target_compile_options(ft8_monitor_core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ft8_monitor_core PUBLIC m)
+
+add_executable(ft8_monitor_rx1c_unit tests/ft8_monitor_rx1c_test.c)
+target_link_libraries(ft8_monitor_rx1c_unit PRIVATE ft8_monitor_core)
+target_compile_options(ft8_monitor_rx1c_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+set(FT8_RX1C_REFERENCE_WAV "" CACHE FILEPATH
+    "Optional pinned MiniFT8-V2 6 kHz RX-1A golden WAV")
+if(FT8_RX1C_REFERENCE_WAV)
+    if(NOT EXISTS "${FT8_RX1C_REFERENCE_WAV}")
+        message(FATAL_ERROR "FT8_RX1C_REFERENCE_WAV does not exist: ${FT8_RX1C_REFERENCE_WAV}")
+    endif()
+    add_executable(ft8_monitor_rx1c_reference tests/ft8_monitor_rx1c_reference.c)
+    target_link_libraries(ft8_monitor_rx1c_reference PRIVATE ft8_monitor_core)
+    target_compile_options(ft8_monitor_rx1c_reference PRIVATE -Wall -Wextra -Werror -Wpedantic)
+endif()
+
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -259,6 +288,14 @@ add_test(
 
 add_test(NAME ft8_ui_smoke COMMAND ft8_ui_smoke)
 add_test(NAME linux_terminal_parser_unit COMMAND linux_terminal_parser_unit)
+add_test(NAME ft8_monitor_rx1c_unit COMMAND ft8_monitor_rx1c_unit)
+
+if(FT8_RX1C_REFERENCE_WAV)
+    add_test(
+        NAME ft8_monitor_rx1c_reference
+        COMMAND ft8_monitor_rx1c_reference "${FT8_RX1C_REFERENCE_WAV}"
+    )
+endif()
 
 add_test(
     NAME linux_ft8
