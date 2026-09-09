@@ -28,4 +28,11 @@ docs/api/input-api.md
 docs/api/audio-api.md
 ```
 
+Application and exploratory notes:
+
+```text
+docs/MiniFT8/
+docs/js8/       # JS8 DSP research and future JS8Chat project
+```
+
 Linux Mint on `pc-1` is the reference/full production target. Historical Tab5/ESP-IDF work is retained on `archive/tab5-legacy`.
