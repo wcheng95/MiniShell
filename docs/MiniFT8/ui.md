@@ -18,11 +18,12 @@ This document is the canonical MiniFT8-V3 UI definition. New V3 decisions overri
 - Up/Down page navigation wraps around.
 - Keep the Back/ESC behavior already implemented in `MiniShell/MiniFT8-V3` unchanged.
 - UIScreen state and TX/RX operation are independent; TX/RX activity does not add special UIScreen or edit restrictions.
+- `V -> 1 Memory` is a production read-only runtime memory/RX diagnostic page using all six content lines.
 
 ### OPEN
 
 - The final role, content, or possible removal of the `S` UIScreen is undecided. `station.txt` can be edited from MiniShell before `ft8` starts, so some V2-style in-app settings may no longer need an `S` menu.
-- Detailed contents and shortcuts for each UIScreen remain to be reviewed against MiniFT8-V2.
+- Detailed contents and shortcuts for UIScreens/submenus not explicitly defined below remain to be reviewed against MiniFT8-V2.
 
 ### TODO
 
@@ -30,7 +31,7 @@ This document is the canonical MiniFT8-V3 UI definition. New V3 decisions overri
 - Review `T` against MiniFT8-V2 and define its V3 pages/actions.
 - Review `O` against MiniFT8-V2 and define its V3 pages/actions.
 - Decide the V3 role of `S`.
-- Review `V` against MiniFT8-V2 and define its V3 pages/actions.
+- Define the remaining `V` entries after `V -> 1 Memory`.
 - Define UIScreen-local shortcuts only where useful.
 
 ## Vocabulary
@@ -197,7 +198,46 @@ Keep `S` reserved until this is decided.
 
 ### V
 
-Use MiniFT8-V2 V-screen behavior as the baseline. Detailed V3 content is TODO.
+`V` is read-only. Its first entry is now defined as a production feature:
+
+```text
+1 Memory >
+2 GPS >
+3 QSO / Log >
+4 Performance >
+5 System Info >
+6 About >
+```
+
+The remaining entries are still subject to later V3 review.
+
+#### V -> 1 Memory
+
+`Memory` uses all six content lines and is intended for normal runtime observation on every MiniShell platform that provides the Memory API.
+
+```text
+Heap free: <value>
+Largest: <value>
+App alloc: <value>
+Alloc count: <value>
+Largest/free: <value>%
+RX: ON|OFF
+```
+
+Values use compact byte units (`B`, `K`, `M`, `G`), with one decimal place for `K` and larger units. A field that is not available from the MiniShell Memory API is shown as `--`.
+
+Field meanings:
+
+- `Heap free` is the free-memory value reported by MiniShell. When MiniShell enforces an application memory limit, this is remaining application quota; otherwise it may be the backend's actual free heap.
+- `Largest` is the largest contiguous free block reported by MiniShell when that measurement is available.
+- `App alloc` is the total current allocation size tracked through the MiniShell Memory API for the running application. It does **not** claim to include task stack, static/global storage, backend allocations, or other memory outside the MiniShell Memory allocator.
+- `Alloc count` is the number of current allocations tracked through the MiniShell Memory API for the application.
+- `Largest/free` is `largest contiguous free block / free memory`, expressed as an integer percentage. It is an objective ratio and must not be labeled as a fragmentation percentage. If either source value is unavailable, or free memory is zero, display `--`.
+- `RX` reports whether the MiniFT8 receive path is currently active. It is independent of which UIScreen is displayed.
+
+MiniFT8 obtains these values only through the platform-independent MiniShell Memory API. No Linux-, ESP32-, or ADV-specific memory calls belong in the MiniFT8 application.
+
+The memory snapshot is queried only while `V -> 1 Memory` is visible. Changes to the memory values or RX active state trigger a redraw of this page. Other UIScreens do not continuously poll memory diagnostics.
 
 ## Rendering boundary
 
