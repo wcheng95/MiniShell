@@ -1,19 +1,39 @@
 # MiniShell Progress Log
 
-Current baseline:
+## Current baseline
 
 - Linux Mint on `pc-1` is the reference/full production target.
-- Runtime app discovery/loading and `M$>` are established on Linux.
-- System, Memory, Filesystem, Time/Location, Display, Input, and Audio services have automated coverage.
-- MiniFT8 is integrated as runtime app `ft8` for UI/config/storage.
-- `ft8` is FT8-only; future FT4/CW/RTTY/JS8 support will use separate applications rather than an internal protocol-mode selector.
-- Audio V1 is implemented; MiniFT8 requests 12 kHz/S16/two-channel transport with channel meaning owned by MiniFT8.
-- Linux deterministic WAV RX replays `tests/kfs16b12k.wav` unchanged.
-- Control remains independent from Audio; device `set_time` is deferred.
-- Historical Tab5 work is preserved on `archive/tab5-legacy`.
+- Cardputer ADV is the second real MiniShell backend.
+- Runtime app discovery/loading and `M$>` are established on Linux; ADV V1 uses a compiled-in application registry.
+- System, Console, Memory, Filesystem, Time/Location, Display, Input, and Audio service contracts have automated coverage; ADV Audio is intentionally not implemented yet.
+- MiniFT8 is runtime app `ft8` and is FT8-only. Future FT4/CW/RTTY/JS8 support will use separate applications rather than an internal protocol-mode selector.
+- MiniFT8 uses independent RX Audio, TX Audio, and Control resources.
+- Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel; Linux deterministic WAV RX replays `tests/kfs16b12k.wav` unchanged.
 - The application-facing contract is the **MiniShell API**. Backward source/binary compatibility is not frozen during this early architecture phase; a formal ABI may be introduced later if independently built applications require it.
 
-## Housekeeping paydown completed
+## Current priority: MiniFT8 RX-1B
+
+The P1/P2/V1 platform/profile detour is complete. RX-1A remains the frozen decoder/golden baseline and RX-1B is now active again.
+
+Validated matrix:
+
+```text
+Linux backend + DESKTOP presentation   PASS
+Linux backend + ADV presentation       PASS
+ADV backend   + ADV presentation       PASS
+```
+
+Canonical V1 record:
+
+```text
+docs/MiniFT8/v1-validation.md
+```
+
+The checkpoint verified app lifecycle, shared MiniFT8 UI actions/state transitions, configuration persistence, ADV 20x7 behavior, repeated real-hardware `ft8` cycles, stable ADV memory headroom, and the absence of direct platform dependencies under `apps/ft8/`.
+
+RX-1B now resumes the top-down decoder/module design before any RX source migration.
+
+## Housekeeping paydown — complete
 
 The architecture-audit debt H1-H5 is paid:
 
@@ -25,205 +45,167 @@ H4 legacy Tab5 active tree removed and archived
 H5 terminal ANSI/CSI + UTF-8 parser made stateful across reads
 ```
 
-The full Linux integration suite and strict unit suite remain green.
+## A0 — portable resident shell/startup — complete
 
-## Current priority: A3 ADV Filesystem + Time/Location
-
-RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while the architecture is exercised across a second real backend and a second MiniFT8 profile.
-
-Current target matrix:
+Completed normalization and control-plane cleanup:
 
 ```text
-Linux backend + DESKTOP profile
-Linux backend + ADV profile
-ADV backend   + ADV profile
+ABI-facing terminology -> API terminology
+code/runtime names      -> lowercase
+apps/minift8/           -> apps/ft8/
+minift8 command         -> ft8
+/flash/minift8/...      -> /flash/ft8/...
+internal protocol Mode  -> removed from ft8
 ```
 
-Cardputer ADV V1 uses a compiled-in application registry. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable applications without blocking the initial ADV backend.
+Portable resident shell/startup now runs through `minishell_run()` and a private backend console boundary; applications never use that private console.
 
-ADV persistent-storage policy for A3:
+Reference commit:
 
 ```text
-/flash    2 MiB LittleFS initially, provisional
-/sd       optional FATFS
-NVS       not used
+1cb44be4  refactor: isolate resident console and startup boundary
 ```
 
-Compiled-in applications have priority. Future external discovery checks `/flash/apps` and then `/sd/apps` for application names not already provided internally.
+## A1 — ADV ESP-IDF skeleton — complete
 
-## A0 — complete
-
-One-time normalization completed:
+Validated on real Cardputer ADV:
 
 ```text
-MINISHELL_ABI_VERSION -> MINISHELL_API_VERSION
-mini_api_t.abi_version -> mini_api_t.api_version
-docs/abi/ -> docs/api/
-old append-only compatibility policy removed
-mixed-case code/runtime names -> lowercase
-apps/minift8/ -> apps/ft8/
-minift8 runtime command -> ft8
-/flash/minift8/station.txt -> /flash/ft8/station.txt
-internal protocol Mode state -> removed from ft8
+ESP-IDF / ESP32-S3 firmware
+portable minishell_run()
+platform : adv
+USB Serial/JTAG bring-up console
+compiled-in app registry
+hello app lifecycle
+8 MiB flash layout with 2 MiB /flash reservation
 ```
 
-The `ft8` configuration now persists protocol-local scalar values such as `profile`, `band`, `skip_tx1`, and `max_retry`; no protocol `mode=` value is stored.
-
-Resident shell/startup portability completed:
-
-```text
-core/minishell_runtime.c    portable lifecycle via minishell_run()
-platform/linux/main.c       Linux entry point only
-platform/linux/linux_console.c
-                            owns stdin/stdout + stdio buffering
-core/shell.c                no direct stdin/stdout dependency
-core/platform_backend.h     private resident console read/write boundary
-```
-
-The resident console boundary is private MiniShell infrastructure; applications do not use it and continue through the public Display/Input/System APIs.
-
-Commit `1cb44be4` (`refactor: isolate resident console and startup boundary`) passed the full Linux workflow, including all 11 integration tests and the platform-neutral unit suite.
-
-## A1 — complete
-
-The initial ADV backend skeleton is checked in under `platform/adv/`.
-
-Implemented A1 pieces:
-
-```text
-ESP-IDF firmware project targeting ESP32-S3
-app_main() -> portable minishell_run()
-platform name = adv
-private USB Serial/JTAG bring-up console
-System.write provider for the portable hello app
-compiled-in application registry
-portable hello app packaged statically behind a private entry rename
-host-side static-registry unit test
-GitHub ADV firmware build workflow using ESP-IDF v5.5.1
-8 MiB flash table with a reserved 2 MiB LittleFS /flash partition
-```
-
-ADV A1 sets the global MiniShell memory and storage quotas to `0`, meaning no extra global quota beyond physical/backend limits. The 2 MiB LittleFS partition size is therefore not incorrectly applied as a future `/sd` storage cap.
-
-Primary implementation commits:
+Reference commits:
 
 ```text
 b795842e  feat: add ADV A1 ESP-IDF build skeleton
 142dced2  fix: package ADV hello without CMake source mutation
 ```
 
-A1 validation passed:
+## A2 — ADV Display/Input/Memory — complete
+
+Real ADV providers:
 
 ```text
-Linux reference workflow                     PASS
-ADV static app-registry unit test             PASS
-ESP-IDF v5.5.1 / ESP32-S3 firmware build      PASS
-real Cardputer ADV boot                       PASS
-USB Serial/JTAG M$>                           PASS
-status -> platform : adv                      PASS
-apps -> hello                                 PASS
-hello -> clean return to M$>                  PASS
-```
-
-A1 is closed.
-
-## A2 — complete
-
-A2 added the real Cardputer-facing System/Memory/Display/Input providers and the Cardputer display/keyboard resident shell path.
-
-Implemented and validated on real Cardputer ADV:
-
-```text
-System          USB Serial/JTAG diagnostic sink
+System          USB/debug diagnostics
+Console         resident text console + USB mirror
 Memory          ESP-IDF heap-backed provider
 Display         20 columns x 7 rows on 240 x 135 panel
-Input           Cardputer ADV TCA8418 keyboard -> logical MiniShell events
-resident shell  ADV display/keyboard, with USB mirror/fallback
+Input           TCA8418 keyboard -> MiniShell key events
 ```
 
-The ADV hardware layer reuses the proven MiniFT8-V2 behavior where useful while keeping M5 dependencies below MiniShell. In particular, A2 does not call `M5.begin()` and does not claim microphone, speaker, codec, or I2S resources. M5 libraries are backend implementation dependencies, not application dependencies.
+The display backend uses `M5.Display.begin()` but not `M5.begin()`, preserving the MiniFT8-V2 audio-ownership lesson. M5/ESP-IDF details remain below MiniShell.
 
-The agreed ADV text surface is:
+The portable `probe` passed Memory, Display geometry, inverse text, Input, and foreground lifecycle on real ADV.
+
+Deferred private-console enhancement remains:
 
 ```text
-240 x 135 physical panel
-20 columns x 7 logical text rows
-12 x 16 target fixed-width font
-19-pixel row pitch with a 2-pixel physical gap after row 0
+resident shell history   about 50 lines
+ADV viewport             7 visible rows
+navigation               scroll up/down
 ```
 
-Pixel geometry remains backend-private. Applications use only the MiniShell Display API.
-
-The portable `hello` application now behaves as a normal foreground app: it owns Display/Input while active, stays visible until `q`, Enter, or Escape, and then returns control to the shell. It does not use `System.write()` for user-facing output.
-
-The portable/static A2 `probe` verified on real ADV:
-
-```text
-Memory accounting             PASS
-Display geometry 20x7         PASS
-inverse text                  PASS
-Cardputer Input               PASS
-foreground app return         PASS
-a2_probe: PASS diagnostic     PASS over USB
-```
-
-A2 shell behavior after a foreground app is intentionally simple: the app owns the full display; when it exits, the shell reacquires a clean 7-row display and places `M$>` at the top. Linux terminal scrollback behavior is not duplicated on ADV yet.
-
-Deferred console enhancement, explicitly retained for later:
-
-```text
-resident shell history buffer   about 50 lines
-ADV viewport                     7 visible rows
-navigation                       scroll up/down through shell history
-```
-
-This is useful because shell commands and utilities can produce more than six visible result lines. It is not part of the application Display API and was not required to close A2; USB terminal remains the current long-history/debug view.
-
-Primary A2 commits include:
-
-```text
-d1736367  feat: add ADV A2 display keyboard and memory providers
-e7d40b8b  test: add ADV A2 public API probe
-fea18d0f  docs: describe ADV A2 hardware providers
-e6dc0dcc  refactor: make hello a foreground display app
-5864a8e9  test: exercise hello as foreground app
-d3ba0106  docs: describe hello as foreground app
-```
-
-A2 exit criteria are fully satisfied. A2 is closed.
-
-## Current stage: A3
-
-A3 adds ADV Filesystem and Time/Location while preserving reliable SD-less operation.
+## A3 — ADV Filesystem + Time/Location — complete
 
 Storage policy:
 
 ```text
 /flash    LittleFS on internal flash, initially 2 MiB (provisional)
-/sd       FATFS on removable SD card, optional
+/sd       optional FATFS on removable SD
 NVS       not used
 ```
 
-A3 goals:
+Validated on real ADV:
 
 ```text
-MiniShell boots normally without an SD card
-/flash mounts and is available through the MiniShell Filesystem API
-/sd appears through FATFS when a card is present
-file/directory operations preserve portable service ownership/handle semantics
-UTC set/get/persistence works through MiniShell ownership
-configured default location persists under /flash
-Filesystem and Time/Location probes pass on real ADV
+SD-less boot
+/flash LittleFS
+optional /sd FATFS
+long FATFS filenames / UTF-8
+file/directory operations
+a3_probe: PASS
 ```
 
-MiniFT8-V2 remains reference material for proven Cardputer storage/hardware behavior only; V2 will not be modified or refactored for this work.
+ADV time policy is deliberately session-only until a real RTC/GPS source is introduced:
 
-Canonical plans/policy:
+```text
+boot UTC anchor     2026-09-01 06:00:00 UTC
+monotonic advance  while powered
+manual date set     current session only
+power cycle         returns to fixed anchor
+```
+
+Default geographic location may persist under `/flash`; UTC itself is not persisted to flash.
+
+## P1 — MiniFT8 presentations — complete
+
+MiniFT8 owns two presentation policies:
+
+```text
+DESKTOP   30 x 8, contextual footer
+ADV       20 x 7, six main rows, no footer
+```
+
+Linux can launch either explicitly:
+
+```text
+M$> ft8 --profile desktop
+M$> ft8 --profile adv
+```
+
+Presentation is application/composition policy, not backend identity and not station configuration.
+
+## P2 — MiniFT8 on ADV — complete
+
+The same MiniFT8 source modules are statically composed into ADV firmware. A tiny ADV wrapper supplies the default ADV presentation; MiniFT8 itself contains no Cardputer/ESP-IDF/M5 platform selection.
+
+Real ADV validation passed:
+
+```text
+apps discovers ft8
+ft8 launches as ADV 20x7
+configuration persists across launches
+q returns to M$>
+repeated launch/exit stable
+```
+
+P2 exposed stack ownership as a real application-lifecycle requirement. ADV foreground apps now execute on a MiniShell-managed 16 KiB application task rather than borrowing ESP-IDF's `app_main` stack.
+
+Useful pre-RX ADV memory baseline from `free`:
+
+```text
+heap free       about 282 KiB
+largest block   about 228 KiB
+```
+
+Repeated `ft8` cycles left that baseline effectively unchanged.
+
+## V1 — cross-backend/profile checkpoint — complete
+
+Automated coverage now includes:
+
+```text
+linux_ft8             DESKTOP + ADV launch/config/persistence
+ft8_ui_smoke          presentation geometry + shared logical actions
+ft8_platform_boundary no direct platform dependencies under apps/ft8/
+ADV registry/build    static composition regression
+```
+
+Combined with the real ADV P2 validation, V1 passes and the platform/profile detour is closed.
+
+## Canonical plans/policy
 
 ```text
 docs/project/adv-backend-plan.md
+docs/MiniFT8/v1-validation.md
+docs/MiniFT8/development.md
+docs/MiniFT8/rx.md
 docs/api/api-foundation.md
 platform/adv/README.md
 ```
-
-After the Linux+ADV-profile versus ADV+ADV-profile validation checkpoint passes, resume RX-1B.
