@@ -134,10 +134,18 @@ static void test_adv(void)
     assert(strstr(frame.rows[0], "RX") != NULL);
     assert(frame.rows[7][0] == '\0');
 
+    /* V1 parity: the same logical O -> TX -> Skip TX1 input sequence must
+     * produce the same application action under the ADV presentation. */
     assert(!ui_shell_handle_input(&ui, &model, key('o'), &action));
     ui_shell_render(&ui, &model, &frame);
     assert(strstr(frame.rows[1], "Protocol: FT8") != NULL);
     assert(strstr(frame.rows[6], "Message") != NULL);
+
+    assert(!ui_shell_handle_input(&ui, &model, key('5'), &action));
+    assert(ui.submenu == UI_SUBMENU_O_TX);
+    assert(ui_shell_handle_input(&ui, &model, key('3'), &action));
+    assert(action.type == APP_ACTION_SET_SKIP_TX1);
+    assert(action.value.bool_value == true);
 
     assert(!ui_shell_handle_input(&ui, &model, key('v'), &action));
     assert(!ui_shell_handle_input(&ui, &model, key('5'), &action));
