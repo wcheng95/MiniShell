@@ -1,0 +1,58 @@
+name: RX-3 Reference
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout MiniShell
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned MiniFT8-V2 reference
+        uses: actions/checkout@v4
+        with:
+          repository: wcheng95/Mini-FT8
+          ref: 5bd3ef98f72388a850bebad04bd7300b90edb63c
+          path: reference/Mini-FT8
+
+      - name: Configure engine dependencies
+        run: cmake -S . -B build-rx3
+
+      - name: Build engine core
+        run: cmake --build build-rx3 -j2 --target ft8_engine_core
+
+      - name: Build RX-3 frontend tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cc -std=c11 -Wall -Wextra -Werror -Wpedantic \
+            -Iapps/ft8/src/rx_frontend \
+            tests/rx_frontend_rx3_test.c \
+            apps/ft8/src/rx_frontend/rx_frontend.c \
+            -o build-rx3/rx_frontend_rx3_unit
+
+          cc -std=c11 -D_POSIX_C_SOURCE=200112L \
+            -Wall -Wextra -Werror -Wpedantic \
+            -Iapps/ft8/src/rx_frontend \
+            -Iapps/ft8/src/ft8_engine \
+            tests/rx_frontend_rx3_reference.c \
+            apps/ft8/src/rx_frontend/rx_frontend.c \
+            build-rx3/libft8_engine_core.a \
+            build-rx3/libft8_monitor_core.a \
+            build-rx3/libft8_decoder_core.a \
+            build-rx3/libft8_protocol_core.a \
+            build-rx3/libft8_hash_store_core.a \
+            -lm \
+            -o build-rx3/rx_frontend_rx3_reference
+
+      - name: Run RX-3 frontend unit tests
+        run: ./build-rx3/rx_frontend_rx3_unit
+
+      - name: Run RX-3 frontend engine golden
+        run: |
+          ./build-rx3/rx_frontend_rx3_reference \
+            "${{ github.workspace }}/reference/Mini-FT8/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav"
