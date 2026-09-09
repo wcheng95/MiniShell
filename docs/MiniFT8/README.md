@@ -57,17 +57,24 @@ They are coordinated through `app_controller`; they do not call one another behi
 
 ## Current priority
 
-RX-0 architecture/source review and RX-1A golden-boundary freeze are complete. RX-1B is **paused, not abandoned** while the architecture is exercised across two MiniShell backends and two MiniFT8 profiles.
+RX-0 architecture/source review and RX-1A golden-boundary freeze are complete. RX-1B is **paused, not abandoned** while the architecture is exercised across two MiniShell backends and two MiniFT8 presentations.
 
-Current validation matrix:
+Validation matrix:
 
 ```text
-Linux backend + DESKTOP profile
-Linux backend + ADV profile
-ADV backend   + ADV profile
+Linux backend + DESKTOP presentation   P1 PASS
+Linux backend + ADV presentation       P1 PASS
+ADV backend   + ADV presentation       P2/V1 next
 ```
 
-The key comparison is Linux + ADV profile versus real ADV + ADV profile: same MiniFT8 core/profile, different MiniShell backend.
+P1 proved that application presentation is independent of MiniShell backend identity. The same Linux-loaded `ft8.so`, controller, configuration, navigation, and UI shell run in both profiles:
+
+```text
+DESKTOP   30 x 8
+ADV       20 x 7
+```
+
+The key remaining comparison is Linux + ADV versus real ADV + ADV: same MiniFT8 core/presentation, different MiniShell backend.
 
 Canonical current plan:
 
@@ -75,7 +82,7 @@ Canonical current plan:
 ../project/adv-backend-plan.md
 ```
 
-After its V1 validation checkpoint passes, development resumes at RX-1B: top-down RX module/interface design.
+After P2 and the V1 validation checkpoint pass, development resumes at RX-1B: top-down RX module/interface design.
 
 ## Current integrated baseline
 
@@ -83,6 +90,7 @@ MiniShell-native MiniFT8 currently contains:
 
 ```text
 text UI
+DESKTOP and ADV presentation profiles
 configuration
 prototype scheduler settings
 station.txt persistence
@@ -147,7 +155,9 @@ Locked rule:
 Build MiniShell normally, then:
 
 ```text
-M$> ft8
+M$> ft8                    # DESKTOP default
+M$> ft8 --profile desktop
+M$> ft8 --profile adv
 ```
 
 `q` exits MiniFT8 and returns to:
@@ -155,6 +165,8 @@ M$> ft8
 ```text
 M$>
 ```
+
+Presentation selection is launch policy. It is not persisted and is not inferred from `platform=linux` or `platform=adv`.
 
 The current configuration file is:
 
@@ -181,7 +193,9 @@ skip_tx1=
 max_retry=
 ```
 
-There is no persisted protocol `mode=` field inside `ft8`.
+There is no persisted protocol `mode=` field and no `presentation=` field inside `station.txt`.
+
+The O-screen `Profile: Default` setting is a station/operating profile and is distinct from the ADV/DESKTOP presentation.
 
 ## Documentation
 
@@ -193,7 +207,7 @@ There is no persisted protocol `mode=` field inside `ft8`.
 - `rx-decode-review.md` — RX-0B review of `decode.h/c`, candidate search, likelihood/LDPC/CRC boundaries, status cleanup, and deep-search extension points.
 - `rx-message-review.md` — RX-0B review of `message.h/c`, typed protocol results, callsign-hash ownership, special-message handling, and codec gaps.
 - `rx-golden.md` — RX-1A pinned V2 golden boundaries: reference WAVs, exact Linux waterfall fingerprints, payload/codec vectors, and known V2 gaps that are not golden targets.
-- `ui.md` — current UI model and controls.
+- `ui.md` — P1 presentation geometry, UI model, and controls.
 - `development.md` — current development gate and next task.
 
 ## Source
@@ -205,6 +219,7 @@ apps/ft8/
 └── src/
     ├── app_controller/
     ├── config_service/
+    ├── presentation_profile/
     ├── qso_scheduler/
     ├── storage_service/
     └── ui_shell/
