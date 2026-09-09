@@ -107,7 +107,7 @@ Runtime `.elf` loading on ADV is deferred for later investigation, not rejected.
 
 The user model remains `apps`, `run <app>`, direct `<app>`, application return, then `M$>`.
 
-The resident shell itself uses a private platform console boundary. Linux implements that boundary with stdin/stdout. ADV A1 used USB Serial/JTAG for bring-up; A2 moves the normal ADV shell interaction to the Cardputer display/keyboard. Applications do **not** use the private console and continue through the public MiniShell APIs.
+The resident shell itself uses a private platform console boundary. Linux implements that boundary with stdin/stdout. ADV A1 used USB Serial/JTAG for bring-up; A2 moved normal ADV shell interaction to the Cardputer display/keyboard. Applications do **not** use the private console and continue through the public MiniShell APIs.
 
 ## Build on Linux Mint
 
@@ -254,8 +254,32 @@ docs/
 
 ## Current status
 
-Stages **A0** and **A1** are complete.
+Stages **A0, A1, and A2 are complete**.
 
-A1 proved the second real backend end-to-end: the ESP-IDF v5.5.1 ESP32-S3 firmware builds in CI, the compiled-in app registry unit test passes, Linux remains green, and the firmware was successfully validated on a real Cardputer ADV. The device booted MiniShell, exposed `M$>` over USB Serial/JTAG, reported `platform : adv`, listed the compiled-in `hello` app, ran it, and returned cleanly to the shell.
+A1 proved that the portable MiniShell runtime can boot and run on a real Cardputer ADV. A2 then made the device natively usable through its own 240x135 display and keyboard while preserving the public MiniShell boundary.
 
-The active stage is **A2 — System, Memory, Display, and Input**. A2 replaces the temporary serial-console interaction with the Cardputer display/keyboard implementation and adds the real ADV System/Memory/Display/Input providers. The agreed ADV display surface is 20 columns x 7 rows on the 240x135 panel using a target 12x16 fixed-width font.
+Validated A2 behavior includes:
+
+```text
+System diagnostic output       USB Serial/JTAG
+Memory provider                ready
+Display                        20 x 7 logical text surface
+Input                          Cardputer keyboard logical events
+resident shell                 ADV display/keyboard
+hello foreground lifecycle     PASS
+A2 Memory/Display/Input probe  PASS
+```
+
+M5 dependencies remain below the MiniShell backend. A2 deliberately preserves the proven display-only initialization approach and does not claim microphone, speaker, codec, or I2S resources.
+
+On ADV, returning from a foreground app currently gives the shell a clean 7-row display with `M$>` at the top. A future console enhancement will retain roughly 50 lines of shell history and allow scrolling the 7-row viewport; that is deferred and is not part of application Display semantics.
+
+The active stage is **A3 — Filesystem and Time/Location**:
+
+```text
+/flash    2 MiB LittleFS initially, provisional
+/sd       optional FATFS
+NVS       not used
+```
+
+A3 will make `/flash` persistent storage available, add optional removable-SD support, and implement the ADV Time/Location persistence needed by normal utilities and MiniFT8 configuration.
