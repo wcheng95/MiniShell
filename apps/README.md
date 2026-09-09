@@ -24,7 +24,7 @@ On Linux, the reference build produces runtime-loadable `.so` modules under:
 build-linux/runtime/apps/
 ```
 
-Cardputer ADV V1 will compile selected applications into the firmware through a static registry. Runtime `.elf` loading may be explored later without changing the application source-level API model.
+Cardputer ADV V1 compiles selected applications into the firmware through a static registry. Runtime `.elf` loading may be explored later without changing the application source-level API model.
 
 Current applications:
 
@@ -44,7 +44,17 @@ rm       remove one regular file
 rmdir    remove one empty directory
 ```
 
-`hello` is intentionally a normal foreground application rather than a diagnostic print. It owns the application Display/Input surfaces while running, remains visible until the user presses `q`, Enter, or Escape, and then returns those surfaces to the resident shell. It does not use `System.write()` for user-facing output.
+Application output is chosen by intent:
+
+```text
+Console.write()   command-style results, usage, and user-visible errors
+Display           interactive/full-screen application UI
+System.write()    diagnostics/debugging
+```
+
+Command-style utilities such as `date`, `ls`, `cat`, `cp`, `df`, `free`, `mkdir`, `mv`, `rm`, and `rmdir` use Console. This lets the same utility print naturally in the Linux terminal and in the Cardputer ADV resident text console without becoming a fake full-screen app.
+
+`hello` is intentionally a normal foreground application rather than a console utility. It owns the application Display/Input surfaces while running, remains visible until the user presses `q`, Enter, or Escape, and then returns those surfaces to the resident shell. It does not use `System.write()` or Console for its user-facing UI.
 
 Applications use MiniShell logical paths such as `/sd/notes.txt`; they do not know the host filesystem path behind that namespace.
 
