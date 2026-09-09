@@ -103,6 +103,7 @@ add_minishell_app(ft8
     apps/ft8/main/ft8_ui_adapter.c
     apps/ft8/src/app_controller/app_controller.c
     apps/ft8/src/config_service/config_service.c
+    apps/ft8/src/presentation_profile/presentation_profile.c
     apps/ft8/src/qso_scheduler/qso_scheduler.c
     apps/ft8/src/storage_service/storage_service.c
     apps/ft8/src/ui_shell/ui_shell.c
@@ -111,6 +112,7 @@ target_include_directories(ft8 PRIVATE
     apps/ft8/include
     apps/ft8/src/app_controller
     apps/ft8/src/config_service
+    apps/ft8/src/presentation_profile
     apps/ft8/src/qso_scheduler
     apps/ft8/src/storage_service
     apps/ft8/src/ui_shell
@@ -163,10 +165,12 @@ target_compile_options(audio_probe PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(ft8_ui_smoke
     tests/ft8_ui_smoke.c
+    apps/ft8/src/presentation_profile/presentation_profile.c
     apps/ft8/src/ui_shell/ui_shell.c
 )
 target_include_directories(ft8_ui_smoke PRIVATE
     apps/ft8/include
+    apps/ft8/src/presentation_profile
     apps/ft8/src/ui_shell
 )
 target_compile_options(ft8_ui_smoke PRIVATE -Wall -Wextra -Wpedantic)
