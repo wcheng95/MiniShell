@@ -13,6 +13,10 @@
 #define FT8_DATA_DIR "/flash/ft8"
 #define FT8_STATION_PATH "/flash/ft8/station.txt"
 
+#ifndef FT8_DEFAULT_PRESENTATION
+#define FT8_DEFAULT_PRESENTATION FT8_PRESENTATION_DESKTOP
+#endif
+
 static void say_system(const mini_api_t *api, const char *text)
 {
     if (api != NULL && api->system != NULL && api->system->write != NULL) {
@@ -33,7 +37,7 @@ static bool parse_presentation(int argc, char **argv,
                                ft8_presentation_profile_t *out_profile)
 {
     if (out_profile == NULL) return false;
-    *out_profile = FT8_PRESENTATION_DESKTOP;
+    *out_profile = FT8_DEFAULT_PRESENTATION;
 
     if (argc == 1) return true;
     if (argc == 3 && strcmp(argv[1], "--profile") == 0) {
