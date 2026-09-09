@@ -3,6 +3,7 @@ get_filename_component(MINISHELL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOL
 set(MINISHELL_SERVICE_SOURCES
     "${MINISHELL_ROOT}/core/minishell_services/services.c"
     "${MINISHELL_ROOT}/core/minishell_services/system_service.c"
+    "${MINISHELL_ROOT}/core/minishell_services/console_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/memory_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/filesystem_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/filesystem_paths.c"
