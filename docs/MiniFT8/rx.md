@@ -306,6 +306,8 @@ E  OSR/deep-search/SNR change     -> deliberate comparison
 
 Do not automatically rewrite golden values because a refactor fails a test. Investigate the difference first.
 
+RX-1C reinforced this rule: a mathematically equivalent reassociation in Hann-window float multiplication changed the compact waterfall fingerprint. Restoring V2's exact float operation order restored the hard golden. Structural DSP cleanup therefore preserves expression-level numerical behavior where the golden proves it matters.
+
 ## 9. Development stages
 
 ### RX-0 — architecture and V2 source review — complete
@@ -367,24 +369,60 @@ unit-test responsibility by boundary
 
 No V2 decoder source was migrated during RX-1B.
 
-#### RX-1C — clean monitor ownership/workspace/lifecycle — ACTIVE
+#### RX-1C — clean monitor ownership/workspace/lifecycle — complete
 
-RX-1C is the first implementation-migration stage. Preserve the V2 monitor mathematics byte-for-byte while replacing hidden singleton storage and ambiguous lifecycle with an explicit instance/workspace contract.
-
-Required proof:
+Canonical record:
 
 ```text
-same engine-native PCM
-    -> same active waterfall bytes
-    -> FNV-1a-64 18BE1E838FD9C6AF for the RX-1A FT8 golden
+rx-1c-monitor.md
 ```
 
-Also prove two-instance independence, explicit init failure, explicit full-waterfall status, and the distinction between new decode window and stream discontinuity.
+RX-1C implemented an explicit `Ft8Monitor` instance with a queryable caller-supplied workspace. The monitor owns no allocator and has no mutable DSP singleton.
 
-#### RX-1D+ — implementation after the monitor boundary
+Baseline host reference storage is approximately:
 
 ```text
-RX-1D  candidate search + likelihood/LDPC/CRC behind ft8_engine
+FFT plan               9888 bytes
+waterfall              80538 bytes
+window/history/scratch 15368 bytes
+alignment/padding         14 bytes
+---------------------------------
+total                 105808 bytes
+```
+
+The exact total is queried rather than hard-coded and may differ slightly on a 32-bit target.
+
+RX-1C unit/golden tests prove:
+
+```text
+exact V2-compatible dimensions
+two independent monitor instances
+explicit invalid/workspace/full status
+new-window history preservation
+stream-reset history clearing
+safe destruction
+byte-identical RX-1A active FT8 waterfall
+FNV-1a-64 = 18BE1E838FD9C6AF
+```
+
+No candidate-search/LDPC/message code was migrated in RX-1C.
+
+#### RX-1D — candidate + likelihood/LDPC/CRC boundary — NEXT
+
+Bring the pinned V2 candidate search and candidate decode mathematics behind `ft8_engine` while preserving:
+
+```text
+candidate capacity      50
+minimum sync score       5
+max LDPC iterations     25
+exact RX-1A valid payload behavior
+```
+
+Keep candidate score distinct from SNR. Do not introduce ranking/search/deep-search improvements.
+
+#### RX-1E+
+
+```text
 RX-1E  explicit per-engine Ft8HashStore
 RX-1F  typed protocol message codec + Ft8ProtocolSlot
 RX-1G  pure cleaned ft8_engine golden regression
