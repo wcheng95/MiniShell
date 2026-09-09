@@ -1,5 +1,20 @@
 get_filename_component(MINISHELL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 
+# The ADV Filesystem contract requires long filenames and UTF-8 on FATFS.
+# sdkconfig.defaults does not override an existing local sdkconfig, so fail
+# loudly instead of producing firmware that silently falls back to 8.3 names.
+if(NOT CONFIG_FATFS_LFN_HEAP)
+    message(FATAL_ERROR
+        "ADV requires CONFIG_FATFS_LFN_HEAP=y. Remove stale platform/adv/sdkconfig "
+        "and regenerate it from sdkconfig.defaults.")
+endif()
+if(CONFIG_FATFS_MAX_LFN LESS 255)
+    message(FATAL_ERROR "ADV requires CONFIG_FATFS_MAX_LFN=255.")
+endif()
+if(NOT CONFIG_FATFS_API_ENCODING_UTF_8)
+    message(FATAL_ERROR "ADV requires CONFIG_FATFS_API_ENCODING_UTF_8=y.")
+endif()
+
 set(MINISHELL_SERVICE_SOURCES
     "${MINISHELL_ROOT}/core/minishell_services/services.c"
     "${MINISHELL_ROOT}/core/minishell_services/system_service.c"
