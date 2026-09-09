@@ -13,6 +13,7 @@ uint64_t minishell_memory_limit_bytes(void);
 uint64_t minishell_storage_limit_bytes(void);
 
 const mini_system_api_t *minishell_system_service_api(void);
+const mini_console_api_t *minishell_console_service_api(void);
 const mini_memory_api_t *minishell_memory_service_api(void);
 const mini_fs_api_t *minishell_filesystem_service_api(void);
 const mini_time_location_api_t *minishell_time_location_service_api(void);
@@ -38,6 +39,7 @@ void minishell_audio_service_configure(void);
 void minishell_audio_service_app_begin(void);
 void minishell_audio_service_app_end(void);
 
+bool minishell_console_service_available(void);
 bool minishell_memory_service_available(void);
 bool minishell_filesystem_service_available(void);
 bool minishell_time_location_service_available(void);
