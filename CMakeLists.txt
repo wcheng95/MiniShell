@@ -231,6 +231,19 @@ target_include_directories(ft8_protocol_core PUBLIC
 target_compile_options(ft8_protocol_core PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(ft8_protocol_core PUBLIC ft8_hash_store_core)
 
+add_library(ft8_engine_core STATIC
+    apps/ft8/src/ft8_engine/ft8_engine.c
+)
+target_include_directories(ft8_engine_core PUBLIC
+    apps/ft8/src/ft8_engine
+)
+target_compile_options(ft8_engine_core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ft8_engine_core PUBLIC
+    ft8_monitor_core
+    ft8_decoder_core
+    ft8_protocol_core
+)
+
 add_executable(ft8_monitor_rx1c_unit tests/ft8_monitor_rx1c_test.c)
 target_link_libraries(ft8_monitor_rx1c_unit PRIVATE ft8_monitor_core)
 target_compile_options(ft8_monitor_rx1c_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
@@ -246,6 +259,10 @@ target_compile_options(ft8_hash_store_rx1e_unit PRIVATE -Wall -Wextra -Werror -W
 add_executable(ft8_message_codec_rx1f_unit tests/ft8_message_codec_rx1f_test.c)
 target_link_libraries(ft8_message_codec_rx1f_unit PRIVATE ft8_protocol_core)
 target_compile_options(ft8_message_codec_rx1f_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+add_executable(ft8_engine_rx1g_unit tests/ft8_engine_rx1g_test.c)
+target_link_libraries(ft8_engine_rx1g_unit PRIVATE ft8_engine_core)
+target_compile_options(ft8_engine_rx1g_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
 set(FT8_RX1C_REFERENCE_WAV "" CACHE FILEPATH
     "Optional pinned MiniFT8-V2 6 kHz RX-1A golden WAV")
@@ -269,6 +286,17 @@ if(FT8_RX1D_REFERENCE_WAV)
     target_compile_options(ft8_decoder_rx1d_reference PRIVATE -Wall -Wextra -Werror -Wpedantic)
 endif()
 
+set(FT8_RX1G_REFERENCE_WAV "" CACHE FILEPATH
+    "Optional pinned MiniFT8-V2 6 kHz RX-1A golden WAV for pure engine regression")
+if(FT8_RX1G_REFERENCE_WAV)
+    if(NOT EXISTS "${FT8_RX1G_REFERENCE_WAV}")
+        message(FATAL_ERROR "FT8_RX1G_REFERENCE_WAV does not exist: ${FT8_RX1G_REFERENCE_WAV}")
+    endif()
+    add_executable(ft8_engine_rx1g_reference tests/ft8_engine_rx1g_reference.c)
+    target_link_libraries(ft8_engine_rx1g_reference PRIVATE ft8_engine_core)
+    target_compile_options(ft8_engine_rx1g_reference PRIVATE -Wall -Wextra -Werror -Wpedantic)
+endif()
+
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -285,7 +313,6 @@ add_test(
     COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/linux_services.py
             $<TARGET_FILE:minishell>
-            $<TARGET_FILE_DIR:service_probe>
 )
 
 add_test(
@@ -345,6 +372,7 @@ add_test(NAME ft8_monitor_rx1c_unit COMMAND ft8_monitor_rx1c_unit)
 add_test(NAME ft8_decoder_rx1d_unit COMMAND ft8_decoder_rx1d_unit)
 add_test(NAME ft8_hash_store_rx1e_unit COMMAND ft8_hash_store_rx1e_unit)
 add_test(NAME ft8_message_codec_rx1f_unit COMMAND ft8_message_codec_rx1f_unit)
+add_test(NAME ft8_engine_rx1g_unit COMMAND ft8_engine_rx1g_unit)
 
 if(FT8_RX1C_REFERENCE_WAV)
     add_test(
@@ -357,6 +385,13 @@ if(FT8_RX1D_REFERENCE_WAV)
     add_test(
         NAME ft8_decoder_rx1d_reference
         COMMAND ft8_decoder_rx1d_reference "${FT8_RX1D_REFERENCE_WAV}"
+    )
+endif()
+
+if(FT8_RX1G_REFERENCE_WAV)
+    add_test(
+        NAME ft8_engine_rx1g_reference
+        COMMAND ft8_engine_rx1g_reference "${FT8_RX1G_REFERENCE_WAV}"
     )
 endif()
 
