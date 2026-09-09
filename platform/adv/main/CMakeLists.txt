@@ -1,11 +1,5 @@
 get_filename_component(MINISHELL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 
-set(MINISHELL_HELLO_SOURCE "${MINISHELL_ROOT}/apps/hello/hello.c")
-set_source_files_properties(
-    "${MINISHELL_HELLO_SOURCE}"
-    PROPERTIES COMPILE_DEFINITIONS "main=minishell_app_hello_main"
-)
-
 set(MINISHELL_SERVICE_SOURCES
     "${MINISHELL_ROOT}/core/minishell_services/services.c"
     "${MINISHELL_ROOT}/core/minishell_services/system_service.c"
@@ -23,6 +17,7 @@ set(MINISHELL_SERVICE_SOURCES
 idf_component_register(
     SRCS
         "app_main.c"
+        "hello_static.c"
         "${MINISHELL_ROOT}/core/minishell_runtime.c"
         "${MINISHELL_ROOT}/core/shell.c"
         "${MINISHELL_ROOT}/core/app_manager.c"
@@ -32,7 +27,6 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_apps.c"
         "${CMAKE_CURRENT_LIST_DIR}/../platform_info.c"
         "${CMAKE_CURRENT_LIST_DIR}/../resource_config.c"
-        "${MINISHELL_HELLO_SOURCE}"
     INCLUDE_DIRS
         "${MINISHELL_ROOT}/include"
         "${MINISHELL_ROOT}/core"
