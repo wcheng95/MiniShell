@@ -2,20 +2,18 @@
 
 ## 1. Milestone
 
-The current MiniFT8-V3 milestone is **decode RX**.
+The MiniFT8-V3 **decode RX** milestone is complete through RX-7.
 
 The remaining major radio-domain blocks are intentionally separate:
 
 ```text
-RX
 AutoSeq
 TX
 ADIF log
+live radio/provider integration
 ```
 
-RX is developed and understood first. AutoSeq, TX, and ADIF remain outside this milestone.
-
-MiniFT8-V2 is the behavioral/golden reference, not a structure to copy wholesale. Structural cleanup remains separate from deliberate DSP/algorithm changes.
+MiniFT8-V2 remains the behavioral/golden reference, not a structure to copy wholesale. Structural cleanup stays separate from deliberate DSP/algorithm changes.
 
 ## 2. Canonical RX pipeline
 
@@ -28,15 +26,12 @@ MiniShell Audio
         |
         v
 [2] RxFrontend
-        |
         | 6 kHz mono float
         v
 [3] RxSlotFramer
-        |
         | exact 960-sample Ft8Engine blocks
         v
 [4] Ft8Engine
-        |
         +--> monitor / waterfall
         +--> candidate finder
         +--> likelihood / LDPC / CRC
@@ -55,8 +50,11 @@ MiniShell Audio
         v
  app_controller
         |
-        +--> UI
-        `--> future AutoSeq
+        v
+      UiModel
+        |
+        v
+ ADV 20x7 presentation
 ```
 
 `app_controller` remains the only production application coordinator. There is no second RX manager/pipeline coordinator.
@@ -70,8 +68,9 @@ MiniShell Audio
 | `RxSlotFramer` | slot identity, exact 6 kHz sample accounting, one bounded partial 960-sample accumulator | whole-slot PCM, FFT, protocol decoding |
 | `Ft8Engine` | monitor/workspace, candidate array, decoder policy, persistent hash store, protocol decode, payload dedupe, current window identity | MiniShell, UI, wall-clock pacing, QSO policy, AutoSeq, TX |
 | `RxResultBuilder` | factual application normalization/classification and caller-owned `RxBatch` construction | FFT/LDPC/CRC, MiniShell calls, reply/TX/UI policy |
+| `app_controller` | production composition, initial timing reference, latest batch, application/UI coordination | provider internals, FT8 DSP internals |
 
-MiniShell owns the physical/provider Audio resource underneath the public stream handle. A module may consume another module's interface but must not reach through it and manipulate the underlying resource.
+MiniShell owns the physical/provider Audio resource underneath the public stream handle.
 
 ## 4. Factual classification versus QSO policy
 
@@ -92,7 +91,6 @@ selected_station
 next_tx_stage
 TX armed
 IgnoreList action
-UI priority/order
 logging policy
 ```
 
@@ -130,7 +128,7 @@ UTC/time establishes initial slot_id + sample_offset
 sample count owns progress after that
 ```
 
-`Ft8Engine` never reads a clock. `RxSlotFramer` never calls MiniShell Time directly. `rx_audio_adapter` owns Audio lifecycle, not UTC.
+`app_controller` obtains the initial MiniShell UTC reference. `Ft8Engine` never reads a clock. `RxSlotFramer` never calls MiniShell Time directly. `rx_audio_adapter` owns Audio lifecycle, not UTC.
 
 FT8 engine rate and slot size:
 
@@ -139,13 +137,8 @@ sample rate  6000 Hz
 slot         15 s
 slot samples 90000
 block        960 samples
-```
-
-Therefore:
-
-```text
-93 x 960 = 89280 complete engine samples
-remainder = 720 samples
+93 blocks    89280 samples
+remainder      720 samples
 ```
 
 The 720-sample slot-end remainder is discarded rather than carried into the next slot. The first partial slot after stream start or discontinuity is also discarded.
@@ -168,7 +161,7 @@ Current ordinary-audio baseline:
 
 `RxFrontend` owns decimation phase across arbitrary Audio reads so provider/read chunk boundaries cannot alter the engine sample stream.
 
-During structural cleanup the `Ft8Engine` input remains fixed at **6 kHz mono float**. Any future filter, resampler, engine-rate, FFT, OSR, candidate-search, LDPC, or SNR change is a separate measured algorithm experiment.
+During structural cleanup the `Ft8Engine` input remains fixed at **6 kHz mono float**. Future filter, resampler, engine-rate, FFT, OSR, candidate-search, LDPC, or SNR changes are separate measured algorithm experiments.
 
 ## 8. Decoder/protocol rules
 
@@ -187,8 +180,6 @@ max LDPC iterations          25
 
 Candidate sync score is not SNR. Exact 10-byte payload bytes are authoritative protocol-message identity.
 
-Protocol type is first-class. Typed protocol fields are authoritative; canonical rendered text is convenience.
-
 Supported cleaned RX families remain:
 
 ```text
@@ -200,24 +191,9 @@ ARRL_FD
 TELEMETRY
 ```
 
-### FREE_TEXT CQ exception
+Protocol type is first-class. Typed protocol fields are authoritative; canonical rendered text is convenience.
 
-Protocol type remains `FREE_TEXT`, but `RxResultBuilder` may additionally set `is_cq=true` only when canonical text matches:
-
-```text
-CQ <nnn|AAAA> <valid-callsign> [valid-grid]
-```
-
-This is factual classification and does not imply a reply.
-
-### Callsign hash ownership
-
-```text
-Ft8Engine
-    `-- Ft8HashStore
-```
-
-The hash store is explicit per-engine state, not MiniShell state and not a process-global table.
+`Ft8HashStore` is explicit per-engine state, not MiniShell state and not a process-global table.
 
 ## 9. Golden-reference policy
 
@@ -262,7 +238,7 @@ RX-3   COMPLETE  RxFrontend 12 kHz -> 6 kHz
 RX-4   COMPLETE  RxSlotFramer sample-count slot framing
 RX-5   COMPLETE  pure RX assembly -> RxBatch
 RX-6   COMPLETE  MiniShell Audio + Linux WAV integration
-RX-7   NEXT      real decoded RX screen
+RX-7   COMPLETE  production decoded RX UI + ADV cross-build
 ```
 
 Canonical records:
@@ -280,50 +256,38 @@ rx-3-frontend.md
 rx-4-slot-framer.md
 rx-5-pure-assembly.md
 rx-6-minishell-audio.md
+rx-7-decoded-ui.md
 ```
 
 ## 11. RX-6 proof
 
-RX-6 is the first proof through the actual MiniShell public Audio boundary:
-
-```text
-Linux WAV provider
-    -> MiniShell Audio
-    -> rx_audio_adapter
-    -> RxFrontend
-    -> RxSlotFramer
-    -> Ft8Engine
-    -> Ft8ProtocolSlot
-    -> RxResultBuilder
-    -> RxBatch
-```
-
-The Linux fixture is a real 15-second 12 kHz/S16/stereo WAV built from the pinned V2 CQ golden. The MiniShell test application reads it through the public Audio API in bounded 257-frame chunks.
-
-Result:
+RX-6 proved the actual MiniShell public Audio boundary:
 
 ```text
 M$> RX6 frames=180000 slot=12345 blocks=93 messages=1 text="CQ W1XYZ FN42"
 ft8_rx_probe: PASS
 ```
 
-No changes were required inside `RxFrontend`, `RxSlotFramer`, `Ft8Engine`, or `RxResultBuilder` to add MiniShell Audio.
+A future QMX or other MiniShell Audio provider must plug in below this boundary without requiring changes to the pure RX modules.
 
-Provider-substitution rule:
+## 12. RX-7 proof
 
-> A future QMX or other MiniShell Audio provider must plug in below this boundary without requiring changes to the pure RX modules.
+RX-7 moves the same receive composition into the normal production `ft8` application. The application cooperatively steps bounded Audio reads, builds the latest `RxBatch`, projects the canonical decoded text into `UiModel`, and renders it with the ADV presentation.
 
-## 12. RX-7 — NEXT: decoded RX screen
-
-RX-7 moves the validated receive composition into the normal `ft8` application and consumes real `RxBatch` results on the RX screen.
-
-Development target remains:
+Deterministic production replay:
 
 ```text
-backend       Linux
-presentation  ADV 20x7
+M$> ft8 --profile adv --rx /flash/rx7.wav --rx-slot 12345
+RX 20 HH:MM:SS 1/1 <0-E>
+1 CQ W1XYZ FN42
 ```
 
-RX-7 should establish the production timing reference at the coordinator edge and preserve the module ownership above. It must not pull in AutoSeq, TX, or ADIF.
+The RX-7 workflow verifies the real application path against the pinned V2 golden. The same RX-7 head also passes the Linux suite, RX reference workflows, and ESP-IDF v5.5.1 ESP32-S3 ADV firmware build.
 
-Stop the decode-RX milestone after the real decoded RX UI is validated. AutoSeq, TX, and ADIF remain separate major blocks.
+RX pages expose the current `RxBatch` six lines at a time and wrap with Up/Down. The locked 20-character top line is implemented for ADV presentation.
+
+RX-7 does not add AutoSeq, TX, ADIF, a QMX provider, or an ADV live Audio provider.
+
+## 13. Milestone boundary
+
+Stop the decode-RX milestone here. AutoSeq, TX, ADIF, and live radio/provider work remain separate major blocks. No next major block is selected by this RX document.
