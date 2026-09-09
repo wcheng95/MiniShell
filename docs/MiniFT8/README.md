@@ -32,14 +32,16 @@ backend       Linux
 presentation  ADV when UI is involved
 ```
 
-Stay on Linux until a genuine ADV-backend dependency needs to be exercised. Pure host decoder/reference programs have no presentation profile.
+Stay on Linux until a genuine ADV-backend dependency needs to be exercised.
 
-## Current RX status
+## Current RX path
 
-The pure RX domain is complete through application-level `RxBatch`:
+RX is now validated through the MiniShell public Audio boundary:
 
 ```text
+MiniShell Audio
 12 kHz / S16 / 2-channel
+    -> rx_audio_adapter
     -> RxFrontend
        6 kHz mono float
     -> RxSlotFramer
@@ -56,7 +58,7 @@ The pure RX domain is complete through application-level `RxBatch`:
     -> RxBatch
 ```
 
-`app_controller` remains MiniFT8's sole application coordinator. The RX modules do not call one another behind it in production and RX-5 does not introduce a second `rx_pipeline`/RX-manager abstraction.
+`app_controller` remains MiniFT8's sole production application coordinator. RX-6 did not introduce a second RX manager/pipeline abstraction.
 
 Current gate:
 
@@ -67,19 +69,20 @@ RX-2        IMPLEMENTED / manual pc-1 test pending
 RX-3        COMPLETE
 RX-4        COMPLETE
 RX-5        COMPLETE
-RX-6        NEXT — MiniShell Audio + rx_audio_adapter on Linux
+RX-6        COMPLETE
+RX-7        NEXT — decoded RX UI, Linux + ADV presentation
 ```
 
-RX-2's manual pc-1 validation does not block the structural sequence because its pinned Linux reference is already green.
+RX-2's manual pc-1 validation does not block the structural sequence because its pinned Linux reference is green.
 
 ## RX ownership
 
 ```text
 MiniShell
-    owns Audio provider/device/transport
+    owns Audio provider/device/backend resource
 
 rx_audio_adapter
-    owns MiniFT8's MiniShell Audio stream handle lifecycle
+    owns MiniFT8's public RX Audio stream handle lifecycle
 
 RxFrontend
     owns 12 kHz S16 two-channel -> 6 kHz mono-float adaptation
@@ -99,7 +102,7 @@ app_controller
 
 An application/module failure should remain local and must not destabilize MiniShell or unrelated applications.
 
-## Locked transport / engine contracts
+## Locked transport / timing contracts
 
 MiniShell Audio transport:
 
@@ -125,7 +128,7 @@ For one 15-second FT8 slot:
 720 slot-end samples discarded
 ```
 
-The first partial slot after stream start/discontinuity is also discarded. Time establishes only the initial slot reference; sample count owns progression afterward.
+The first partial slot after stream start/discontinuity is also discarded. Time establishes only the initial slot reference; sample count owns progression afterward. `rx_audio_adapter` owns Audio lifecycle, not UTC.
 
 ## Golden anchors
 
@@ -143,12 +146,14 @@ unique CQ payload            000000206016500A1988
 canonical CQ text            CQ W1XYZ FN42
 ```
 
-RX-5 full pure-chain proof:
+RX-6 full MiniShell proof:
 
 ```text
-RX5 slot=12345 blocks=93 messages=1 cq=1 to_me=0 text="CQ W1XYZ FN42"
-rx5_pure_assembly_reference: PASS
+M$> RX6 frames=180000 slot=12345 blocks=93 messages=1 text="CQ W1XYZ FN42"
+ft8_rx_probe: PASS
 ```
+
+The Linux WAV provider can later be replaced by QMX or another MiniShell Audio provider without changing the pure RX modules.
 
 ## Presentation
 
@@ -204,6 +209,7 @@ rx-2-host-decoder.md
 rx-3-frontend.md
 rx-4-slot-framer.md
 rx-5-pure-assembly.md
+rx-6-minishell-audio.md
 ```
 
 Other major documents:
@@ -230,27 +236,14 @@ apps/ft8/
     ├── storage_service/
     ├── ui_shell/
     ├── ft8_engine/
+    ├── rx_audio_adapter/
     ├── rx_frontend/
     ├── rx_slot_framer/
     └── rx_result_builder/
 ```
 
-`rx_audio_adapter/` is added in RX-6 when its implementation begins; do not create placeholder modules merely to mirror a design diagram.
+## Next: RX-7
 
-## Next: RX-6
+RX-7 moves the validated receive chain into the normal `ft8` application and renders real `RxBatch` results on the RX screen using the **Linux backend + ADV 20x7 presentation** first.
 
-RX-6 connects the existing pure chain to MiniShell Audio using the Linux backend first:
-
-```text
-MiniShell WAV Audio
-    -> rx_audio_adapter
-    -> RxFrontend
-    -> RxSlotFramer
-    -> Ft8Engine
-    -> RxResultBuilder
-    -> RxBatch
-```
-
-The provider-substitution requirement is central: a later QMX provider should plug in below MiniShell Audio without requiring changes to the pure RX modules.
-
-RX-7 will then connect real decoded results to the MiniFT8 RX screen using the ADV presentation on Linux first. AutoSeq, TX, and ADIF remain separate major blocks.
+AutoSeq, TX, and ADIF remain separate major blocks and are not pulled into RX merely to demonstrate decoding.
