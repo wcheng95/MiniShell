@@ -57,7 +57,7 @@ They are coordinated through `app_controller`; they do not call one another behi
 
 ## Current priority
 
-RX-0 architecture/source review, RX-1A golden-boundary freeze, RX-1B top-down ownership design, RX-1C monitor cleanup, and the P1/P2/V1 platform/presentation checkpoint are complete.
+RX-0 architecture/source review, RX-1A golden-boundary freeze, RX-1B top-down ownership design, RX-1C monitor cleanup, RX-1D candidate/LDPC/CRC cleanup, and the P1/P2/V1 platform/presentation checkpoint are complete.
 
 Validated matrix:
 
@@ -77,10 +77,10 @@ largest block   ~228 KiB
 The next stage is:
 
 ```text
-RX-1D  candidate search + likelihood/LDPC/CRC boundary
+RX-1E  explicit per-engine Ft8HashStore
 ```
 
-RX-1D remains a structural migration stage: preserve the pinned V2 search/decode behavior and move ownership behind `ft8_engine`; do not optimize ranking, deep search, SNR, or performance.
+RX-1E will make hashed-callsign knowledge explicit protocol state owned by one `ft8_engine` instance. Message unpacking/rendering remains RX-1F.
 
 Canonical current records/plans:
 
@@ -88,6 +88,7 @@ Canonical current records/plans:
 rx.md
 rx-1b-design.md
 rx-1c-monitor.md
+rx-1d-decoder.md
 development.md
 ```
 
@@ -104,6 +105,7 @@ station.txt persistence
 MiniShell Display/Input/Filesystem integration
 MiniShell Audio API + deterministic WAV RX provider
 clean explicit FT8 monitor core
+clean FT8 candidate + likelihood/LDPC/CRC core
 ```
 
 Application I/O is modeled as three independent resources:
@@ -167,15 +169,20 @@ app_controller
 
 `app_controller` remains the only coordinator. `ft8_engine` owns the logical use of monitor/waterfall/candidate/decode/hash state but has no MiniShell, UI, storage, AutoSeq, TX, or platform dependency.
 
-RX-1C has now implemented the first part of that engine boundary:
+RX-1C and RX-1D have implemented the current engine receive core:
 
 ```text
 6 kHz mono float
     -> Ft8Monitor
-    -> compact waterfall
+       compact waterfall
+    -> FT8 candidate search
+    -> likelihood extraction
+    -> BP-LDPC
+    -> CRC-14
+    -> validated 10-byte payload
 ```
 
-The monitor uses one caller-supplied/queryable workspace and no mutable DSP singleton.
+The monitor uses one caller-supplied/queryable workspace and no mutable DSP singleton. The decoder has no persistent mutable singleton and does not yet own callsign-hash state or message rendering.
 
 ## RX memory rule
 
@@ -202,9 +209,9 @@ RX-1C made the monitor workspace measurable. On the Ubuntu x86-64 reference buil
 
 including an 80538-byte waterfall, FFT plan, window/history, and FFT scratch. This is queried rather than hard-coded; the exact 32-bit embedded total may differ slightly due to pointer/alignment size.
 
-## RX-1C golden proof
+## RX golden proofs
 
-The cleaned monitor reproduces the pinned RX-1A boundary exactly:
+RX-1C reproduces the pinned RX-1A monitor boundary exactly:
 
 ```text
 blocks       85
@@ -212,9 +219,15 @@ active bytes 73610
 FNV-1a-64    18BE1E838FD9C6AF
 ```
 
-It also has unit coverage for two-instance independence, insufficient/misaligned workspace, safe lifecycle, explicit waterfall-full status, and new-window versus stream-reset history semantics.
+RX-1D runs that same waterfall through the migrated candidate/LDPC/CRC path using the frozen `50 / 5 / 25` policy and reproduces exactly one unique valid payload:
 
-A first refactor attempt changed the waterfall despite mathematically equivalent Hann-window multiplication. The hard golden caught it; restoring V2's exact float operation grouping restored byte identity. This is now a standing caution for later DSP cleanup.
+```text
+000000206016500A1988
+```
+
+Candidate score/order are diagnostics rather than permanent golden identity.
+
+A first RX-1C refactor attempt changed the waterfall despite mathematically equivalent Hann-window multiplication. The hard golden caught it; restoring V2's exact float operation grouping restored byte identity. This remains a standing caution for later DSP cleanup.
 
 ## Run
 
@@ -269,6 +282,7 @@ The O-screen `Profile: Default` setting is a station/operating profile and is di
 - `rx.md` — canonical decode-RX pipeline, RAM rules, V2 classification, golden-reference policy, and staged RX development plan.
 - `rx-1b-design.md` — locked RX-1B physical module boundaries, ownership, 6 kHz engine contract, lifecycle, workspace, error, and unit-test responsibilities.
 - `rx-1c-monitor.md` — completed RX-1C monitor implementation, explicit workspace/lifecycle, memory measurement, golden proof, and float-regression lesson.
+- `rx-1d-decoder.md` — completed RX-1D candidate search, likelihood/LDPC/CRC migration, cleaned payload boundary, and pinned payload proof.
 - `rx-decoder-contract.md` — RX-0B review of V2 `decode_helper.cpp` and the extracted decoder contract.
 - `rx-v2-production-review.md` — RX-0B review of production `decode_monitor_results()`, with mixed V2 responsibilities assigned to V3 owners.
 - `rx-monitor-review.md` — RX-0B review of `monitor.h/c`, DSP/workspace ownership, reset semantics, RAM requirements, and monitor-level golden strategy.
@@ -291,12 +305,16 @@ apps/ft8/
     ├── app_controller/
     ├── config_service/
     ├── ft8_engine/
+    │   ├── README.md
     │   ├── ft8_monitor.[ch]
-    │   `── vendor/kissfft/
+    │   ├── ft8_decoder.[ch]
+    │   ├── ft8_ldpc.[ch]
+    │   ├── ft8_crc.[ch]
+    │   `-- vendor/kissfft/
     ├── presentation_profile/
     ├── qso_scheduler/
     ├── storage_service/
-    └── ui_shell/
+    `-- ui_shell/
 ```
 
 RX-1B reserves the other ownership modules as implementation begins:
@@ -305,7 +323,7 @@ RX-1B reserves the other ownership modules as implementation begins:
     ├── rx_audio_adapter/
     ├── rx_frontend/
     ├── rx_slot_framer/
-    └── rx_result_builder/
+    `-- rx_result_builder/
 ```
 
 Do not create placeholder modules merely to mirror the design document. Add each source module when its implementation/test stage begins.
