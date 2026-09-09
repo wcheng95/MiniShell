@@ -1,0 +1,30 @@
+name: ADV
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  registry-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure static registry unit test
+        run: cmake -S tests/adv_registry -B build-adv-registry
+      - name: Build static registry unit test
+        run: cmake --build build-adv-registry -j2
+      - name: Run static registry unit test
+        run: ctest --test-dir build-adv-registry --output-on-failure
+
+  firmware-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Cardputer ADV firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.1
+          target: esp32s3
+          path: platform/adv
+          command: idf.py build

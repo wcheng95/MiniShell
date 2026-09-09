@@ -2,3 +2,9 @@ build/
 build-linux/
 build-unit/
 build-unit-asan/
+build-adv-registry/
+platform/adv/build/
+platform/adv/sdkconfig
+platform/adv/sdkconfig.old
+platform/adv/managed_components/
+platform/adv/dependencies.lock
