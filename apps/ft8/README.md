@@ -33,7 +33,7 @@ M$> ft8 --profile desktop
 M$> ft8 --profile adv
 ```
 
-Cardputer ADV P2 statically packages the same MiniFT8 source files and supplies `ADV` as the composition default:
+Cardputer ADV statically packages the same MiniFT8 source files and supplies `ADV` as the composition default:
 
 ```text
 M$> ft8                    # ADV default on the ADV firmware
@@ -43,19 +43,32 @@ There is no runtime platform check inside MiniFT8 to select this. The small ADV 
 
 The ADV/DESKTOP presentation is not persisted in `/flash/ft8/station.txt`. The O-screen `Profile: Default` item is a separate station/operating-profile concept.
 
-## P2 status
+## P1/P2/V1 status
 
-P2 is complete on real Cardputer ADV hardware.
-
-Validated behavior:
+The cross-backend/profile checkpoint is complete.
 
 ```text
-apps lists ft8
-ft8 launches with Presentation: ADV
-UI reports text 20x7
-configuration changes persist across ft8 launches
-q returns cleanly to M$>
-repeated ft8 cycles remain stable
+Linux + DESKTOP   PASS
+Linux + ADV       PASS
+ADV   + ADV       PASS
+```
+
+Validated behavior includes:
+
+```text
+app discovery and foreground lifecycle
+shared UI actions/state transitions
+ADV text 20x7 presentation
+configuration persistence through /flash/ft8/station.txt
+repeated ADV ft8 launch/exit cycles
+stable ADV memory baseline
+no direct platform dependencies under apps/ft8/
+```
+
+The canonical checkpoint record is:
+
+```text
+docs/MiniFT8/v1-validation.md
 ```
 
 During P2, MiniShell also moved ADV foreground applications onto a dedicated 16 KiB application task instead of borrowing ESP-IDF's `app_main` stack. The portable `free` utility provides a useful ADV baseline before RX/DSP work:
@@ -68,7 +81,7 @@ app allocations 0 after ft8 exits
 
 The baseline remained effectively unchanged across repeated `ft8` launch/exit cycles.
 
-The next gate is V1: compare Linux+ADV and ADV+ADV application-visible behavior, then resume RX-1B.
+The active MiniFT8 stage is now **RX-1B — top-down RX module/interface design**.
 
 Current application integration includes the text UI, configuration, scheduler settings, and persistent `/flash/ft8/station.txt` through MiniShell Display, Input, and Filesystem services.
 
