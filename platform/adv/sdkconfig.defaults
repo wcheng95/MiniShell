@@ -3,6 +3,15 @@ CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# The resident shell and statically linked applications currently execute on
+# ESP-IDF's main task.  The ESP-IDF default is only 3584 bytes, which is too
+# tight once filesystem/LittleFS calls are nested below the shell.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Fail clearly on future task-stack exhaustion instead of allowing silent
+# memory corruption to turn into an unrelated exception.
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
+
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 # CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
