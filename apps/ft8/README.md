@@ -43,6 +43,33 @@ There is no runtime platform check inside MiniFT8 to select this. The small ADV 
 
 The ADV/DESKTOP presentation is not persisted in `/flash/ft8/station.txt`. The O-screen `Profile: Default` item is a separate station/operating-profile concept.
 
+## P2 status
+
+P2 is complete on real Cardputer ADV hardware.
+
+Validated behavior:
+
+```text
+apps lists ft8
+ft8 launches with Presentation: ADV
+UI reports text 20x7
+configuration changes persist across ft8 launches
+q returns cleanly to M$>
+repeated ft8 cycles remain stable
+```
+
+During P2, MiniShell also moved ADV foreground applications onto a dedicated 16 KiB application task instead of borrowing ESP-IDF's `app_main` stack. The portable `free` utility provides a useful ADV baseline before RX/DSP work:
+
+```text
+heap free       about 282 KiB
+largest block   about 228 KiB
+app allocations 0 after ft8 exits
+```
+
+The baseline remained effectively unchanged across repeated `ft8` launch/exit cycles.
+
+The next gate is V1: compare Linux+ADV and ADV+ADV application-visible behavior, then resume RX-1B.
+
 Current application integration includes the text UI, configuration, scheduler settings, and persistent `/flash/ft8/station.txt` through MiniShell Display, Input, and Filesystem services.
 
 MiniShell Audio V1 and the deterministic Linux WAV RX provider are also implemented. RX Audio, TX Audio, and Control remain independent application resources. Control/Radio, FT8 decoding, TX realization, and logging are not yet integrated into the application.
