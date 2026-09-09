@@ -6,36 +6,33 @@ Current implemented receive path:
 
 ```text
 6 kHz mono float
-    -> ft8_monitor
-       compact waterfall
-    -> ft8_decoder
-       candidate search
-       likelihood extraction
-       BP-LDPC
-       CRC-14
-    -> validated 10-byte FT8 payload
-    -> ft8_message_codec
-       protocol type classification
-       typed structured unpacking
-       canonical protocol text
-       exact-payload slot dedupe
-    -> Ft8ProtocolMessage / Ft8ProtocolSlot
-
-persistent protocol knowledge
-    -> ft8_hash_store
-       22 / 12 / 10-bit callsign-hash resolution
-       explicit once-per-slot aging
-       V2-compatible trim/eviction behavior
+    -> Ft8Engine
+       -> ft8_monitor
+          compact waterfall
+       -> ft8_decoder
+          candidate search
+          likelihood extraction
+          BP-LDPC
+          CRC-14
+       -> validated 10-byte FT8 payload
+       -> ft8_message_codec
+          protocol type classification
+          typed structured unpacking
+          canonical protocol text
+          exact-payload slot dedupe
+          <-> engine-owned Ft8HashStore
+    -> Ft8ProtocolSlot
 ```
 
 Current files:
 
 ```text
+ft8_engine.[ch]         explicit pure engine lifecycle/owner
 ft8_monitor.[ch]        streaming FFT/waterfall owner and explicit workspace contract
 ft8_decoder.[ch]        FT8 candidate search and validated-payload boundary
 ft8_ldpc.[ch]           private belief-propagation LDPC implementation
 ft8_crc.[ch]            private FT8 CRC-14 implementation
-ft8_hash_store.[ch]     explicit caller-owned persistent callsign-hash knowledge
+ft8_hash_store.[ch]     explicit persistent callsign-hash knowledge
 ft8_message_codec.[ch]  typed RX protocol codec and Ft8ProtocolSlot boundary
 vendor/kissfft/         pinned FFT implementation used by the cleaned monitor
 ```
@@ -44,15 +41,33 @@ Ownership rules:
 
 - no MiniShell API calls inside the DSP/protocol core;
 - no Linux, ESP-IDF, NuttX, board, UI, storage, AutoSeq, or TX dependency;
-- monitor mutable DSP memory belongs to one explicit `Ft8Monitor` instance using caller-supplied workspace;
-- candidate/LDPC/CRC scratch is local to a decode operation; no mutable decoder singleton exists;
-- callsign-hash knowledge belongs to one explicit `Ft8HashStore` instance; no global/static hash table exists in the cleaned module;
-- `Ft8HashStore` persists across slots and is aged explicitly once per slot by its future engine/slot owner;
+- one caller-owned `Ft8Engine` owns monitor state, candidate storage, the persistent `Ft8HashStore`, and current window identity;
+- monitor mutable DSP memory uses caller-supplied/queryable workspace; the engine does not allocate;
+- candidate/LDPC/CRC scratch has no mutable decoder singleton;
+- callsign-hash knowledge is per engine; no global/static hash table exists in the cleaned module;
+- `Ft8HashStore` persists across windows and stream resets;
+- beginning a new window after a completed window ages the hash store exactly once;
 - message decoding consumes `Ft8HashStore` context directly; no process-global callback adapter is required;
 - typed protocol fields are authoritative; `canonical_text` is derived convenience data rather than a string to re-tokenize;
 - hash misses remain valid protocol parses rendered as `<...>` and are marked with `has_unresolved_hash`;
 - `Ft8ProtocolSlot` uses caller-supplied message storage and exact 10-byte payload comparison for dedupe;
 - station-aware CQ/to-me/DXpedition application classification remains outside `ft8_engine` in future `rx_result_builder`.
+
+The engine lifecycle is:
+
+```text
+query requirements
+    -> caller allocates workspace
+    -> init
+    -> begin_window(slot_id)
+    -> process 960-sample blocks
+    -> finalize_window -> Ft8ProtocolSlot
+    -> repeat
+    -> reset_stream on discontinuity when needed
+    -> destroy
+```
+
+`reset_stream()` clears monitor/DSP continuity and cancels the active window while deliberately preserving callsign-hash knowledge.
 
 The current hash-store baseline preserves the pinned V2 production policy:
 
@@ -68,7 +83,7 @@ count after next insertion   79 entries
 age                          uint8, saturating, refresh on hit/save
 ```
 
-RX-1F preserves the supported V2 receive families:
+Supported cleaned RX protocol families:
 
 ```text
 STANDARD
@@ -95,7 +110,18 @@ validated FT8 payload             000000206016500A1988
 canonical decoded text            CQ W1XYZ FN42
 ```
 
-The five fixed RX-1A codec vectors for STANDARD, ARRL Field Day, DXpedition, non-standard CQ, and FREE_TEXT also pass through the cleaned RX-1F codec.
+RX-1G now proves the complete cleaned core in one regression:
+
+```text
+pinned 6 kHz PCM
+    -> Ft8Engine
+    -> exactly one Ft8ProtocolMessage
+       payload = 000000206016500A1988
+       type    = STANDARD
+       text    = CQ W1XYZ FN42
+```
+
+The five fixed RX-1A codec vectors for STANDARD, ARRL Field Day, DXpedition, non-standard CQ, and FREE_TEXT also remain covered by the RX-1F codec tests.
 
 Candidate score/order remain diagnostics rather than permanent golden identity. Exact validated payload bytes are the protocol-message identity.
 
@@ -107,6 +133,7 @@ docs/MiniFT8/rx-1c-monitor.md
 docs/MiniFT8/rx-1d-decoder.md
 docs/MiniFT8/rx-1e-hash-store.md
 docs/MiniFT8/rx-1f-message-codec.md
+docs/MiniFT8/rx-1g-engine.md
 ```
 
-Next stage: **RX-1G — assemble these cleaned pieces behind the pure `ft8_engine` lifecycle and run the frozen end-to-end 6 kHz regression.**
+Next stage: **RX-2 — pure MiniShell-independent host decoder/use harness around the completed engine boundary.**
