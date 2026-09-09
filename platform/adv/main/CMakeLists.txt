@@ -15,6 +15,17 @@ set(MINISHELL_SERVICE_SOURCES
     "${MINISHELL_ROOT}/core/minishell_services/audio_service.c"
 )
 
+set(MINIFT8_SOURCES
+    "ft8_static.c"
+    "${MINISHELL_ROOT}/apps/ft8/main/ft8_ui_adapter.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/config_service/config_service.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/presentation_profile/presentation_profile.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/qso_scheduler/qso_scheduler.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/storage_service/storage_service.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/ui_shell/ui_shell.c"
+)
+
 idf_component_register(
     SRCS
         "app_main.c"
@@ -24,6 +35,7 @@ idf_component_register(
         "date_static.c"
         "ls_static.c"
         "cat_static.c"
+        ${MINIFT8_SOURCES}
         "${MINISHELL_ROOT}/core/minishell_runtime.c"
         "${MINISHELL_ROOT}/core/shell.c"
         "${MINISHELL_ROOT}/core/app_manager.c"
@@ -45,6 +57,14 @@ idf_component_register(
         "${MINISHELL_ROOT}/include"
         "${MINISHELL_ROOT}/core"
         "${MINISHELL_ROOT}/core/minishell_services"
+        "${MINISHELL_ROOT}/apps/ft8/include"
+        "${MINISHELL_ROOT}/apps/ft8/main"
+        "${MINISHELL_ROOT}/apps/ft8/src/app_controller"
+        "${MINISHELL_ROOT}/apps/ft8/src/config_service"
+        "${MINISHELL_ROOT}/apps/ft8/src/presentation_profile"
+        "${MINISHELL_ROOT}/apps/ft8/src/qso_scheduler"
+        "${MINISHELL_ROOT}/apps/ft8/src/storage_service"
+        "${MINISHELL_ROOT}/apps/ft8/src/ui_shell"
         "${CMAKE_CURRENT_LIST_DIR}/.."
     REQUIRES
         esp_driver_i2c
