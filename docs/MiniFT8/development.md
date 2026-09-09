@@ -6,19 +6,21 @@ Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves ch
 
 The MiniShell H1-H5 housekeeping audit and final boundary review are complete. No known MiniShell debt blocks MiniFT8 RX work.
 
-## Current priority: P2 then V1
+## Current priority: V1 cross-backend/profile validation
 
-RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while MiniShell and MiniFT8 are exercised across a second real backend and a second MiniFT8 presentation.
+RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while MiniShell and MiniFT8 complete the two-backend/two-presentation validation checkpoint.
 
 Current validation matrix:
 
 ```text
 Linux backend + DESKTOP presentation   P1 PASS
 Linux backend + ADV presentation       P1 PASS
-ADV backend   + ADV presentation       P2/V1 next
+ADV backend   + ADV presentation       P2 PASS
 ```
 
-P1 is complete. It introduced application-level presentation profiles without duplicating MiniFT8 logic:
+P1 and P2 are complete.
+
+P1 introduced application-level presentation profiles without duplicating MiniFT8 logic:
 
 ```text
 DESKTOP   30 x 8, contextual footer
@@ -34,7 +36,19 @@ M$> ft8 --profile adv
 
 Presentation is launch policy. It is not inferred from backend identity and is not persisted in `station.txt`. The O-screen `Profile` value remains a separate station/operating-profile concept.
 
-P2 packages the real `ft8` application into the Cardputer ADV static registry and launches it with the ADV presentation. V1 then compares Linux+ADV with ADV+ADV and closes the cross-backend/profile checkpoint.
+P2 packages the same `ft8` application sources into the Cardputer ADV static registry and selects the ADV presentation at the ADV composition edge. Real hardware validation passed for app discovery, launch/exit, ADV 20x7 presentation, configuration persistence across launches, and repeated `ft8` cycles.
+
+P2 also exposed a runtime-stack ownership problem: substantial foreground applications should not borrow ESP-IDF's `app_main` stack. ADV foreground applications now execute synchronously on a MiniShell-managed 16 KiB application task while the resident shell remains on its own task. The portable `free` utility is packaged on ADV to observe application memory headroom. The validated pre/post-`ft8` baseline was approximately:
+
+```text
+heap free       282 KiB
+largest block   228 KiB
+app allocations 0 after exit
+```
+
+Repeated `ft8` launch/exit cycles left the memory baseline effectively unchanged.
+
+V1 now compares Linux+ADV against ADV+ADV at the application-visible level and closes the cross-backend/profile checkpoint.
 
 Cardputer ADV V1 uses static application composition: MiniShell and MiniFT8 are compiled into one ESP-IDF firmware image. Runtime ELF/application loading is deferred for later exploration; it is not required for the first ADV backend.
 
@@ -46,7 +60,7 @@ Canonical plan:
 ../project/adv-backend-plan.md
 ```
 
-RX-1B resumes after P2 and V1 pass.
+RX-1B resumes after V1 passes.
 
 ## Deferred milestone: decode RX
 
