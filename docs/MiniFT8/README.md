@@ -57,7 +57,7 @@ They are coordinated through `app_controller`; they do not call one another behi
 
 ## Current priority
 
-RX-0 architecture/source review, RX-1A golden-boundary freeze, RX-1B top-down ownership design, and the P1/P2/V1 platform/presentation checkpoint are complete.
+RX-0 architecture/source review, RX-1A golden-boundary freeze, RX-1B top-down ownership design, RX-1C monitor cleanup, and the P1/P2/V1 platform/presentation checkpoint are complete.
 
 Validated matrix:
 
@@ -67,26 +67,27 @@ Linux backend + ADV presentation       PASS
 ADV backend   + ADV presentation       PASS
 ```
 
-Real ADV P2/V1 testing also established the current pre-RX memory baseline:
+Real ADV P2/V1 testing established the current pre-RX memory baseline:
 
 ```text
 heap free       ~282 KiB
 largest block   ~228 KiB
 ```
 
-The active stage is:
+The next stage is:
 
 ```text
-RX-1C  clean monitor ownership/workspace/lifecycle
+RX-1D  candidate search + likelihood/LDPC/CRC boundary
 ```
 
-RX-1C begins source migration only after RX-1B fixed the ownership contracts. It preserves the V2 6 kHz monitor mathematics and must reproduce the RX-1A waterfall exactly.
+RX-1D remains a structural migration stage: preserve the pinned V2 search/decode behavior and move ownership behind `ft8_engine`; do not optimize ranking, deep search, SNR, or performance.
 
-Canonical current plans:
+Canonical current records/plans:
 
 ```text
 rx.md
 rx-1b-design.md
+rx-1c-monitor.md
 development.md
 ```
 
@@ -102,6 +103,7 @@ prototype scheduler settings
 station.txt persistence
 MiniShell Display/Input/Filesystem integration
 MiniShell Audio API + deterministic WAV RX provider
+clean explicit FT8 monitor core
 ```
 
 Application I/O is modeled as three independent resources:
@@ -165,6 +167,16 @@ app_controller
 
 `app_controller` remains the only coordinator. `ft8_engine` owns the logical use of monitor/waterfall/candidate/decode/hash state but has no MiniShell, UI, storage, AutoSeq, TX, or platform dependency.
 
+RX-1C has now implemented the first part of that engine boundary:
+
+```text
+6 kHz mono float
+    -> Ft8Monitor
+    -> compact waterfall
+```
+
+The monitor uses one caller-supplied/queryable workspace and no mutable DSP singleton.
+
 ## RX memory rule
 
 Normal RX is streaming:
@@ -182,7 +194,27 @@ Locked rule:
 
 > Stream raw audio; retain the waterfall; retain raw PCM only by explicit exception.
 
-The V2-compatible 6 kHz/time_osr=2/freq_osr=1 monitor uses roughly 80.5 KiB for the magnitude waterfall plus FFT/history/scratch workspace. RX-1C will make the exact cleaned workspace requirement queryable rather than hiding it in mutable globals.
+RX-1C made the monitor workspace measurable. On the Ubuntu x86-64 reference build the V2-compatible 6 kHz/time_osr=2/freq_osr=1 monitor requests:
+
+```text
+105808 bytes total
+```
+
+including an 80538-byte waterfall, FFT plan, window/history, and FFT scratch. This is queried rather than hard-coded; the exact 32-bit embedded total may differ slightly due to pointer/alignment size.
+
+## RX-1C golden proof
+
+The cleaned monitor reproduces the pinned RX-1A boundary exactly:
+
+```text
+blocks       85
+active bytes 73610
+FNV-1a-64    18BE1E838FD9C6AF
+```
+
+It also has unit coverage for two-instance independence, insufficient/misaligned workspace, safe lifecycle, explicit waterfall-full status, and new-window versus stream-reset history semantics.
+
+A first refactor attempt changed the waterfall despite mathematically equivalent Hann-window multiplication. The hard golden caught it; restoring V2's exact float operation grouping restored byte identity. This is now a standing caution for later DSP cleanup.
 
 ## Run
 
@@ -236,6 +268,7 @@ The O-screen `Profile: Default` setting is a station/operating profile and is di
 - `architecture.md` — ownership, dependency direction, Audio and RX/TX/Control boundaries.
 - `rx.md` — canonical decode-RX pipeline, RAM rules, V2 classification, golden-reference policy, and staged RX development plan.
 - `rx-1b-design.md` — locked RX-1B physical module boundaries, ownership, 6 kHz engine contract, lifecycle, workspace, error, and unit-test responsibilities.
+- `rx-1c-monitor.md` — completed RX-1C monitor implementation, explicit workspace/lifecycle, memory measurement, golden proof, and float-regression lesson.
 - `rx-decoder-contract.md` — RX-0B review of V2 `decode_helper.cpp` and the extracted decoder contract.
 - `rx-v2-production-review.md` — RX-0B review of production `decode_monitor_results()`, with mixed V2 responsibilities assigned to V3 owners.
 - `rx-monitor-review.md` — RX-0B review of `monitor.h/c`, DSP/workspace ownership, reset semantics, RAM requirements, and monitor-level golden strategy.
@@ -248,7 +281,7 @@ The O-screen `Profile: Default` setting is a station/operating profile and is di
 
 ## Source
 
-Current implemented application source:
+Current implemented application source includes:
 
 ```text
 apps/ft8/
@@ -257,19 +290,21 @@ apps/ft8/
 └── src/
     ├── app_controller/
     ├── config_service/
+    ├── ft8_engine/
+    │   ├── ft8_monitor.[ch]
+    │   `── vendor/kissfft/
     ├── presentation_profile/
     ├── qso_scheduler/
     ├── storage_service/
     └── ui_shell/
 ```
 
-RX-1B reserves the next ownership modules as implementation begins:
+RX-1B reserves the other ownership modules as implementation begins:
 
 ```text
     ├── rx_audio_adapter/
     ├── rx_frontend/
     ├── rx_slot_framer/
-    ├── ft8_engine/
     └── rx_result_builder/
 ```
 
