@@ -36,6 +36,7 @@ bool app_controller_rx_active(const AppController *app);
 void app_controller_shutdown(AppController *app);
 
 void app_controller_build_ui_model(const AppController *app, UiModel *model);
+void app_controller_build_memory_model(const AppController *app, UiModel *model);
 bool app_controller_apply_action(AppController *app, const AppAction *action);
 
 #endif
