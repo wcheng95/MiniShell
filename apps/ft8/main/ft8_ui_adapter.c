@@ -6,13 +6,17 @@
 #define FIELD_END(type, field) \
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
 
-bool ft8_ui_adapter_init(ft8_ui_adapter_t *adapter, const mini_api_t *api)
+bool ft8_ui_adapter_init(ft8_ui_adapter_t *adapter, const mini_api_t *api,
+                         ft8_presentation_profile_t presentation)
 {
     if (adapter == NULL || api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, input) ||
         api->display == NULL || api->input == NULL) {
         return false;
     }
+
+    ft8_presentation_spec_t spec;
+    if (!ft8_presentation_get_spec(presentation, &spec)) return false;
 
     const mini_display_api_t *display = api->display;
     const mini_input_api_t *input = api->input;
@@ -32,13 +36,15 @@ bool ft8_ui_adapter_init(ft8_ui_adapter_t *adapter, const mini_api_t *api)
     }
 
     mini_text_display_info_t info = {.struct_size = sizeof(info)};
-    if (text->get_info(&info) != MINI_OK || info.columns < UI_COLS || info.rows < UI_ROWS) {
+    if (text->get_info(&info) != MINI_OK ||
+        info.columns < spec.columns || info.rows < spec.rows) {
         return false;
     }
 
     adapter->display = display;
     adapter->text = text;
     adapter->key = key;
+    adapter->presentation = presentation;
     return true;
 }
 
@@ -48,9 +54,16 @@ bool ft8_ui_adapter_render(const ft8_ui_adapter_t *adapter, const UiFrame *frame
         return false;
     }
 
+    ft8_presentation_spec_t spec;
+    if (!ft8_presentation_get_spec(adapter->presentation, &spec) ||
+        frame->column_count != spec.columns || frame->row_count != spec.rows ||
+        frame->column_count > UI_MAX_COLS || frame->row_count > UI_MAX_ROWS) {
+        return false;
+    }
+
     if (adapter->text->clear() != MINI_OK) return false;
-    for (uint32_t row = 0u; row < UI_ROWS; ++row) {
-        if (adapter->text->write_at(row, 0u, frame->rows[row], UI_COLS) != MINI_OK) {
+    for (uint32_t row = 0u; row < frame->row_count; ++row) {
+        if (adapter->text->write_at(row, 0u, frame->rows[row], frame->column_count) != MINI_OK) {
             return false;
         }
     }
