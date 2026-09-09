@@ -6,7 +6,7 @@ This is the current development priority.
 
 MiniFT8 RX-1B is **paused, not abandoned**. RX-1A remains the frozen decoder/golden baseline. RX-1B resumes after the cross-platform checkpoint defined below is complete.
 
-Stage **A0 is complete**. The next implementation stage is **A1 — ADV ESP-IDF build skeleton**.
+Stage **A0 is complete**. Stage **A1 — ADV ESP-IDF build skeleton** has passed software/build CI and is awaiting real Cardputer ADV boot validation.
 
 ## Goal
 
@@ -111,31 +111,57 @@ Reference commit:
 1cb44be4  refactor: isolate resident console and startup boundary
 ```
 
-## Stage A1 — ADV ESP-IDF build skeleton
+## Stage A1 — ADV ESP-IDF build skeleton — BUILD COMPLETE / HARDWARE CHECK PENDING
 
-Goal: create `platform/adv/` as the second real MiniShell backend.
+Goal: create `platform/adv/` as the second real MiniShell backend and prove the portable runtime/application lifecycle can be composed as ESP32-S3 firmware.
 
-Tasks:
+A1 deliberately uses the ESP32-S3 USB Serial/JTAG console as a **temporary private resident-console provider**. This is bring-up infrastructure only. Cardputer display and keyboard become the real resident/UI providers in A2; applications never use the private console directly.
 
-- add an ESP-IDF firmware composition for Cardputer ADV;
-- compile portable MiniShell core/services into the firmware;
-- provide ADV platform init/shutdown and platform identity;
-- provide the private resident console boundary for Cardputer display/keyboard shell I/O;
-- define explicit resource limits for the ADV MiniShell application domain;
-- add the compiled-in app-registry mechanism;
-- initially register a tiny probe/hello app before `ft8`.
+Implemented:
+
+- ESP-IDF firmware composition for Cardputer ADV / ESP32-S3;
+- portable MiniShell core/services compiled into the firmware;
+- `app_main()` calling the same portable `minishell_run()` used by the Linux composition;
+- ADV platform init/shutdown and platform identity (`adv`);
+- temporary private USB Serial/JTAG resident console;
+- explicit A1 resource policy with no additional global MiniShell memory/storage quota;
+- compiled-in app registry;
+- existing portable `hello` app packaged statically through an ADV-private entry wrapper;
+- host-side static-registry unit test;
+- GitHub ESP-IDF v5.5.1 firmware-build workflow;
+- initial 8 MiB flash partition table reserving 2 MiB LittleFS for future `/flash` mounting.
+
+A1 intentionally does **not** implement public Memory, Display, Input, Filesystem, Time/Location, or Audio providers merely to satisfy the build skeleton. `System.write` is provided because the portable `hello` probe requires it.
 
 Do not copy V2 structure. V2 may be consulted for proven board initialization and hardware behavior only.
 
-Exit criteria:
+Software/build validation — passed:
 
 ```text
-firmware builds
-Cardputer ADV boots MiniShell
-platform reports ADV
-apps lists statically registered app(s)
-run/return lifecycle works without dynamic loading
+Linux reference workflow remains green
+ADV static app-registry unit test passes
+ESP-IDF v5.5.1 esp32s3 firmware builds in GitHub CI
 ```
+
+Reference commits:
+
+```text
+b795842e  feat: add ADV A1 ESP-IDF build skeleton
+142dced2  fix: package ADV hello without CMake source mutation
+```
+
+Remaining A1 hardware validation:
+
+```text
+Cardputer ADV boots MiniShell
+USB Serial/JTAG shows M$>
+status reports platform : adv
+apps lists hello
+hello prints through System.write
+hello returns cleanly to M$>
+```
+
+A1 is complete only after this real-device check passes.
 
 ## Stage A2 — System, Memory, Display, and Input
 
@@ -143,7 +169,8 @@ Goal: make the shell and portable UI usable on real Cardputer hardware.
 
 Tasks:
 
-- System write/status primitives;
+- replace the temporary A1 USB Serial/JTAG resident-console path with the Cardputer-facing shell implementation;
+- System write/status primitives for normal ADV operation;
 - ESP-IDF heap-backed Memory provider and useful free/largest-block reporting;
 - Cardputer 240x135 text Display provider reporting a 20-column x 7-row logical text surface;
 - Cardputer keyboard Input provider using logical MiniShell key events;
@@ -191,8 +218,8 @@ That is `ft8` application/profile policy, **not** an ADV backend or MiniShell Di
 Exit criteria:
 
 ```text
-MiniShell prompt visible on ADV
-keyboard command entry works
+MiniShell prompt visible on ADV display
+Cardputer keyboard command entry works
 status works
 shared service/input probes pass on hardware
 ```
