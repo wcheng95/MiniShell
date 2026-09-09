@@ -59,7 +59,8 @@ def main() -> int:
         )
         tools_output = tools.stdout + tools.stderr
         required = [
-            "used 0B  free 8.0M  total 8.0M",
+            "app used 0B (0 allocs)",
+            "heap free 8.0M",
             "total 64.0K",
             "2040-01-02 03:04:05 UTC",
         ]
