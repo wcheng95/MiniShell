@@ -27,7 +27,7 @@ H5 terminal ANSI/CSI + UTF-8 parser made stateful across reads
 
 The full Linux integration suite and strict unit suite remain green.
 
-## Current priority: A2 ADV System/Memory/Display/Input
+## Current priority: A3 ADV Filesystem + Time/Location
 
 RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while the architecture is exercised across a second real backend and a second MiniFT8 profile.
 
@@ -41,7 +41,7 @@ ADV backend   + ADV profile
 
 Cardputer ADV V1 uses a compiled-in application registry. Runtime `.elf` loading is **deferred, not rejected**; it may be explored later for suitable applications without blocking the initial ADV backend.
 
-ADV persistent-storage policy is already decided for A3:
+ADV persistent-storage policy for A3:
 
 ```text
 /flash    2 MiB LittleFS initially, provisional
@@ -103,19 +103,6 @@ GitHub ADV firmware build workflow using ESP-IDF v5.5.1
 8 MiB flash table with a reserved 2 MiB LittleFS /flash partition
 ```
 
-The USB Serial/JTAG shell is deliberately temporary A1 infrastructure. Cardputer display and keyboard are brought in during A2, where they become the proper resident/public Display/Input implementations.
-
-A1 intentionally leaves these public services unavailable:
-
-```text
-Memory          A2
-Display         A2
-Input           A2
-Filesystem      A3
-Time/Location   A3
-Audio           later RX/TX vertical slice
-```
-
 ADV A1 sets the global MiniShell memory and storage quotas to `0`, meaning no extra global quota beyond physical/backend limits. The 2 MiB LittleFS partition size is therefore not incorrectly applied as a future `/sd` storage cap.
 
 Primary implementation commits:
@@ -140,9 +127,21 @@ hello -> clean return to M$>                  PASS
 
 A1 is closed.
 
-## Current stage: A2
+## A2 — complete
 
-A2 adds the real Cardputer-facing System/Memory/Display/Input providers and replaces the temporary A1 serial-console interaction with the Cardputer display/keyboard shell path.
+A2 added the real Cardputer-facing System/Memory/Display/Input providers and the Cardputer display/keyboard resident shell path.
+
+Implemented and validated on real Cardputer ADV:
+
+```text
+System          USB Serial/JTAG diagnostic sink
+Memory          ESP-IDF heap-backed provider
+Display         20 columns x 7 rows on 240 x 135 panel
+Input           Cardputer ADV TCA8418 keyboard -> logical MiniShell events
+resident shell  ADV display/keyboard, with USB mirror/fallback
+```
+
+The ADV hardware layer reuses the proven MiniFT8-V2 behavior where useful while keeping M5 dependencies below MiniShell. In particular, A2 does not call `M5.begin()` and does not claim microphone, speaker, codec, or I2S resources. M5 libraries are backend implementation dependencies, not application dependencies.
 
 The agreed ADV text surface is:
 
@@ -153,9 +152,71 @@ The agreed ADV text surface is:
 19-pixel row pitch with a 2-pixel physical gap after row 0
 ```
 
-Pixel geometry remains backend-private. The `ft8` ADV profile owns the application meaning of row 0 versus rows 1-6.
+Pixel geometry remains backend-private. Applications use only the MiniShell Display API.
 
-MiniFT8-V2 remains reference material for proven Cardputer hardware behavior only; V2 will not be modified or refactored for this work.
+The portable `hello` application now behaves as a normal foreground app: it owns Display/Input while active, stays visible until `q`, Enter, or Escape, and then returns control to the shell. It does not use `System.write()` for user-facing output.
+
+The portable/static A2 `probe` verified on real ADV:
+
+```text
+Memory accounting             PASS
+Display geometry 20x7         PASS
+inverse text                  PASS
+Cardputer Input               PASS
+foreground app return         PASS
+a2_probe: PASS diagnostic     PASS over USB
+```
+
+A2 shell behavior after a foreground app is intentionally simple: the app owns the full display; when it exits, the shell reacquires a clean 7-row display and places `M$>` at the top. Linux terminal scrollback behavior is not duplicated on ADV yet.
+
+Deferred console enhancement, explicitly retained for later:
+
+```text
+resident shell history buffer   about 50 lines
+ADV viewport                     7 visible rows
+navigation                       scroll up/down through shell history
+```
+
+This is useful because shell commands and utilities can produce more than six visible result lines. It is not part of the application Display API and was not required to close A2; USB terminal remains the current long-history/debug view.
+
+Primary A2 commits include:
+
+```text
+d1736367  feat: add ADV A2 display keyboard and memory providers
+e7d40b8b  test: add ADV A2 public API probe
+fea18d0f  docs: describe ADV A2 hardware providers
+e6dc0dcc  refactor: make hello a foreground display app
+5864a8e9  test: exercise hello as foreground app
+d3ba0106  docs: describe hello as foreground app
+```
+
+A2 exit criteria are fully satisfied. A2 is closed.
+
+## Current stage: A3
+
+A3 adds ADV Filesystem and Time/Location while preserving reliable SD-less operation.
+
+Storage policy:
+
+```text
+/flash    LittleFS on internal flash, initially 2 MiB (provisional)
+/sd       FATFS on removable SD card, optional
+NVS       not used
+```
+
+A3 goals:
+
+```text
+MiniShell boots normally without an SD card
+/flash mounts and is available through the MiniShell Filesystem API
+/sd appears through FATFS when a card is present
+file/directory operations preserve portable service ownership/handle semantics
+UTC set/get/persistence works through MiniShell ownership
+configured default location persists under /flash
+Filesystem and Time/Location probes pass on real ADV
+```
+
+MiniFT8-V2 remains reference material for proven Cardputer storage/hardware behavior only; V2 will not be modified or refactored for this work.
 
 Canonical plans/policy:
 
