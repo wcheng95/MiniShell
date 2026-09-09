@@ -27,7 +27,7 @@ H5 terminal ANSI/CSI + UTF-8 parser made stateful across reads
 
 The full Linux integration suite and strict unit suite remain green.
 
-## Current priority: A1 ADV build skeleton
+## Current priority: A1 ADV hardware validation
 
 RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while the architecture is exercised across a second real backend and a second MiniFT8 profile.
 
@@ -84,9 +84,9 @@ The resident console boundary is private MiniShell infrastructure; applications 
 
 Commit `1cb44be4` (`refactor: isolate resident console and startup boundary`) passed the full Linux workflow, including all 11 integration tests and the platform-neutral unit suite.
 
-## A1 — implementation in progress
+## A1 — software/build complete; hardware validation pending
 
-The initial ADV backend skeleton is now checked in under `platform/adv/`.
+The initial ADV backend skeleton is checked in under `platform/adv/`.
 
 Implemented A1 pieces:
 
@@ -130,9 +130,17 @@ The first CI configuration pass exposed an ESP-IDF CMake restriction on source-p
 142dced2  fix: package ADV hello without CMake source mutation
 ```
 
-The Linux workflow and ADV static-registry unit test remain green. Firmware CI and real Cardputer hardware validation determine completion of A1.
+Software/build validation now passes:
 
-A1 hardware exit check is deliberately small:
+```text
+Linux reference workflow                     PASS
+ADV static app-registry unit test             PASS
+ESP-IDF v5.5.1 / ESP32-S3 firmware build      PASS
+```
+
+The firmware-build success was verified on ADV workflow run `34302864766` after the packaging fix.
+
+A1 remains open only for the real-device check:
 
 ```text
 MiniShell boots on Cardputer ADV
