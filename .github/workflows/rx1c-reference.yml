@@ -27,5 +27,22 @@ jobs:
       - name: Build RX-1C monitor tests
         run: cmake --build build-rx1c -j2 --target ft8_monitor_rx1c_unit ft8_monitor_rx1c_reference
 
+      - name: Build cleaned monitor with exact pinned V2 KissFFT
+        run: |
+          cc -std=gnu11 -Wall -Wextra -Werror \
+            tests/ft8_monitor_rx1c_reference.c \
+            apps/ft8/src/ft8_engine/ft8_monitor.c \
+            reference/Mini-FT8/components/ft8_lib/fft/kiss_fft.c \
+            reference/Mini-FT8/components/ft8_lib/fft/kiss_fftr.c \
+            -Iapps/ft8/src/ft8_engine \
+            -Ireference/Mini-FT8/components/ft8_lib/fft \
+            -o build-rx1c/ft8_monitor_rx1c_v2fft \
+            -lm
+
+      - name: Run cleaned monitor with exact pinned V2 KissFFT
+        run: >-
+          build-rx1c/ft8_monitor_rx1c_v2fft
+          reference/Mini-FT8/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav
+
       - name: Run RX-1C monitor tests
         run: ctest --test-dir build-rx1c -R '^ft8_monitor_rx1c' --output-on-failure
