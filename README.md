@@ -107,7 +107,7 @@ Runtime `.elf` loading on ADV is deferred for later investigation, not rejected.
 
 The user model remains `apps`, `run <app>`, direct `<app>`, application return, then `M$>`.
 
-The resident shell itself uses a private platform console boundary. Linux implements that boundary with stdin/stdout. ADV A1 uses USB Serial/JTAG temporarily for bring-up; A2 moves the real ADV shell interaction to the Cardputer display/keyboard. Applications do **not** use the private console and continue through the public MiniShell APIs.
+The resident shell itself uses a private platform console boundary. Linux implements that boundary with stdin/stdout. ADV A1 used USB Serial/JTAG for bring-up; A2 moves the normal ADV shell interaction to the Cardputer display/keyboard. Applications do **not** use the private console and continue through the public MiniShell APIs.
 
 ## Build on Linux Mint
 
@@ -254,10 +254,8 @@ docs/
 
 ## Current status
 
-Stage **A0 is complete**.
+Stages **A0** and **A1** are complete.
 
-Stage **A1** has passed its software/build checks: the ESP-IDF v5.5.1 ESP32-S3 firmware builds in CI, the compiled-in app registry unit test passes, and the Linux reference workflow remains green. The ADV skeleton uses `app_main() -> minishell_run()`, reports platform `adv`, provides a temporary private USB Serial/JTAG shell console, and statically packages the portable `hello` app.
+A1 proved the second real backend end-to-end: the ESP-IDF v5.5.1 ESP32-S3 firmware builds in CI, the compiled-in app registry unit test passes, Linux remains green, and the firmware was successfully validated on a real Cardputer ADV. The device booted MiniShell, exposed `M$>` over USB Serial/JTAG, reported `platform : adv`, listed the compiled-in `hello` app, ran it, and returned cleanly to the shell.
 
-A1 is awaiting only the real Cardputer ADV boot check: obtain `M$>` over USB Serial/JTAG, verify `status`, verify `apps` lists `hello`, run `hello`, and confirm clean return to `M$>`.
-
-After that, **A2** replaces the temporary serial-console path with the Cardputer display/keyboard implementation and adds the real ADV System/Memory/Display/Input providers.
+The active stage is **A2 — System, Memory, Display, and Input**. A2 replaces the temporary serial-console interaction with the Cardputer display/keyboard implementation and adds the real ADV System/Memory/Display/Input providers. The agreed ADV display surface is 20 columns x 7 rows on the 240x135 panel using a target 12x16 fixed-width font.
