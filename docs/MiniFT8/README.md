@@ -57,7 +57,7 @@ They are coordinated through `app_controller`; they do not call one another behi
 
 ## Current priority
 
-RX-0 architecture/source review, RX-1A golden-boundary freeze, RX-1B top-down ownership design, RX-1C monitor cleanup, RX-1D candidate/LDPC/CRC cleanup, RX-1E explicit callsign-hash ownership, and the P1/P2/V1 platform/presentation checkpoint are complete.
+RX-0 architecture/source review, RX-1A golden-boundary freeze, RX-1B top-down ownership design, RX-1C monitor cleanup, RX-1D candidate/LDPC/CRC cleanup, RX-1E explicit callsign-hash ownership, RX-1F typed protocol codec, and the P1/P2/V1 platform/presentation checkpoint are complete.
 
 Validated matrix:
 
@@ -77,10 +77,10 @@ largest block   ~228 KiB
 The next stage is:
 
 ```text
-RX-1F  typed protocol message codec + Ft8ProtocolSlot
+RX-1G  pure cleaned ft8_engine golden regression
 ```
 
-RX-1F will migrate supported V2 RX message unpacking to MiniFT8-owned typed results and connect hashed callsign resolution/saving to the explicit `Ft8HashStore`.
+RX-1G will assemble the already-clean monitor, candidate/LDPC/CRC decoder, `Ft8HashStore`, typed message codec, and `Ft8ProtocolSlot` behind one pure engine lifecycle and reproduce the frozen 6 kHz result.
 
 Canonical current records/plans:
 
@@ -90,6 +90,7 @@ rx-1b-design.md
 rx-1c-monitor.md
 rx-1d-decoder.md
 rx-1e-hash-store.md
+rx-1f-message-codec.md
 development.md
 ```
 
@@ -108,6 +109,8 @@ MiniShell Audio API + deterministic WAV RX provider
 clean explicit FT8 monitor core
 clean FT8 candidate + likelihood/LDPC/CRC core
 explicit caller-owned Ft8HashStore
+typed RX protocol message codec
+caller-storage Ft8ProtocolSlot with exact-payload dedupe
 ```
 
 Application I/O is modeled as three independent resources:
@@ -169,9 +172,9 @@ app_controller
     `-- rx_result_builder
 ```
 
-`app_controller` remains the only coordinator. `ft8_engine` owns the logical use of monitor/waterfall/candidate/decode/hash state but has no MiniShell, UI, storage, AutoSeq, TX, or platform dependency.
+`app_controller` remains the only coordinator. `ft8_engine` owns the logical use of monitor/waterfall/candidate/decode/hash/protocol state but has no MiniShell, UI, storage, AutoSeq, TX, or platform dependency.
 
-RX-1C through RX-1E have implemented the current engine receive core and persistent protocol knowledge:
+RX-1C through RX-1F have implemented the current engine receive core and persistent protocol knowledge:
 
 ```text
 6 kHz mono float
@@ -182,6 +185,10 @@ RX-1C through RX-1E have implemented the current engine receive core and persist
     -> BP-LDPC
     -> CRC-14
     -> validated 10-byte payload
+    -> typed protocol codec
+    -> Ft8ProtocolMessage
+    -> exact-payload dedupe
+    -> Ft8ProtocolSlot
 
 Ft8HashStore
     -> persistent 22-bit callsign knowledge
@@ -189,7 +196,7 @@ Ft8HashStore
     -> explicit once-per-slot aging
 ```
 
-The monitor uses one caller-supplied/queryable workspace and no mutable DSP singleton. The decoder has no persistent mutable singleton. Callsign-hash state now belongs to one explicit `Ft8HashStore` instance rather than a global table. Protocol message unpacking/rendering remains RX-1F.
+The monitor uses one caller-supplied/queryable workspace and no mutable DSP singleton. The decoder has no persistent mutable singleton. Callsign-hash state belongs to one explicit `Ft8HashStore` instance rather than a global table. Protocol type and parse status are separate; typed fields are authoritative and canonical text is derived convenience.
 
 ## RX memory rule
 
@@ -224,6 +231,8 @@ RX-1E preserves the V2 compact callsign-table entry:
 
 plus the small explicit store count/alignment field.
 
+RX-1F deliberately does not hide a slot-sized allocation: `Ft8ProtocolSlot` uses caller-supplied `Ft8ProtocolMessage[]` storage with explicit capacity. RX-1G will measure the assembled engine's complete storage requirement before embedded integration.
+
 ## RX golden proofs
 
 RX-1C reproduces the pinned RX-1A monitor boundary exactly:
@@ -242,7 +251,19 @@ RX-1D runs that same waterfall through the migrated candidate/LDPC/CRC path usin
 
 Candidate score/order are diagnostics rather than permanent golden identity.
 
-RX-1E adds deterministic unit coverage for the V2 production hash-table behavior: independent instances, 22/12/10-bit lookup, age refresh, trim-hole probing, same-full-hash replacement, and the 128 -> 78 -> 79 full-table policy. The Linux full suite and RX-1C/RX-1D pinned regressions remain green.
+RX-1E adds deterministic unit coverage for the V2 production hash-table behavior: independent instances, 22/12/10-bit lookup, age refresh, trim-hole probing, same-full-hash replacement, and the 128 -> 78 -> 79 full-table policy.
+
+RX-1F reproduces the five frozen RX-1A codec vectors exactly, including:
+
+```text
+CQ W1XYZ FN42
+W6ABC AG6AQ R 1B SCV
+K1ABC RR73; W9XYZ <KH1/KH7Z> -08
+CQ PJ4/KA1ABC
+CQ POTA W1XYZ
+```
+
+It also proves real-store 22/12/10-bit resolution, `<...>` hash-miss behavior, safe 18-character telemetry rendering, typed structured fields, and exact-payload slot dedupe. The Linux full suite is 16/16 PASS and RX-1C/RX-1D pinned regressions remain green on the RX-1F code-bearing head.
 
 A first RX-1C refactor attempt changed the waterfall despite mathematically equivalent Hann-window multiplication. The hard golden caught it; restoring V2's exact float operation grouping restored byte identity. This remains a standing caution for later DSP cleanup.
 
@@ -301,6 +322,7 @@ The O-screen `Profile: Default` setting is a station/operating profile and is di
 - `rx-1c-monitor.md` — completed RX-1C monitor implementation, explicit workspace/lifecycle, memory measurement, golden proof, and float-regression lesson.
 - `rx-1d-decoder.md` — completed RX-1D candidate search, likelihood/LDPC/CRC migration, cleaned payload boundary, and pinned payload proof.
 - `rx-1e-hash-store.md` — completed RX-1E explicit callsign-hash ownership, V2 22/12/10-bit lookup semantics, aging, trim-hole behavior, compact storage, and unit proof.
+- `rx-1f-message-codec.md` — completed RX-1F typed protocol representation, supported message unpacking, explicit hash-store integration, canonical text, and `Ft8ProtocolSlot` dedupe/storage contract.
 - `rx-decoder-contract.md` — RX-0B review of V2 `decode_helper.cpp` and the extracted decoder contract.
 - `rx-v2-production-review.md` — RX-0B review of production `decode_monitor_results()`, with mixed V2 responsibilities assigned to V3 owners.
 - `rx-monitor-review.md` — RX-0B review of `monitor.h/c`, DSP/workspace ownership, reset semantics, RAM requirements, and monitor-level golden strategy.
@@ -329,6 +351,7 @@ apps/ft8/
     │   ├── ft8_ldpc.[ch]
     │   ├── ft8_crc.[ch]
     │   ├── ft8_hash_store.[ch]
+    │   ├── ft8_message_codec.[ch]
     │   `-- vendor/kissfft/
     ├── presentation_profile/
     ├── qso_scheduler/
