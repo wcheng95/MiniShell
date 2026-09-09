@@ -15,6 +15,12 @@ static void system_write(void *ctx, const char *text)
     minishell_platform_console_write(text);
 }
 
+static void console_write(void *ctx, const char *text)
+{
+    (void)ctx;
+    minishell_platform_console_write(text);
+}
+
 static void *memory_alloc(void *ctx, uint32_t size)
 {
     (void)ctx;
@@ -50,6 +56,7 @@ static void configure_services_port(void)
     memset(&s_services_port, 0, sizeof(s_services_port));
 
     s_services_port.system_write = system_write;
+    s_services_port.console_write = console_write;
     s_services_port.memory_alloc = memory_alloc;
     s_services_port.memory_realloc = memory_realloc;
     s_services_port.memory_free = memory_free;
