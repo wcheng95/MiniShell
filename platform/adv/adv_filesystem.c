@@ -17,6 +17,9 @@
 #define ADV_FLASH_PATH "/flash"
 #define ADV_FLASH_LABEL "flash"
 #define ADV_DIR_MAGIC 0x41445644u
+/* Backend-native scratch/path storage. The portable Filesystem service performs
+ * logical-path normalization before paths reach this provider. */
+#define ADV_FS_PATH_CAPACITY 512u
 
 typedef enum {
     ADV_DIR_ROOT = 1,
@@ -28,7 +31,7 @@ typedef struct {
     adv_dir_kind_t kind;
     uint32_t root_index;
     DIR *native;
-    char path[MINI_FS_NORMALIZED_PATH_MAX];
+    char path[ADV_FS_PATH_CAPACITY];
 } adv_dir_handle_t;
 
 static bool s_flash_mounted;
@@ -328,7 +331,7 @@ static mini_result_t fs_dir_read(void *ctx, minishell_backend_dir_t dir,
         size_t name_length = strlen(entry->d_name);
         if (name_length + 1u > name_size) return MINI_ERR_NAME_TOO_LONG;
 
-        char child[MINI_FS_NORMALIZED_PATH_MAX];
+        char child[ADV_FS_PATH_CAPACITY];
         int written = snprintf(child, sizeof(child), "%s/%s", handle->path, entry->d_name);
         if (written < 0 || (size_t)written >= sizeof(child)) return MINI_ERR_NAME_TOO_LONG;
 
