@@ -6,17 +6,35 @@ Audio V1 transport for MiniFT8 is 12 kHz/S16/two-channel. MiniShell preserves ch
 
 The MiniShell H1-H5 housekeeping audit and final boundary review are complete. No known MiniShell debt blocks MiniFT8 RX work.
 
-## Current priority: two backends + two profiles
+## Current priority: P2 then V1
 
-RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while MiniShell and MiniFT8 are exercised across a second real backend and a second MiniFT8 profile.
+RX-1A is complete and remains the frozen decoder/golden baseline. RX-1B is intentionally **paused** while MiniShell and MiniFT8 are exercised across a second real backend and a second MiniFT8 presentation.
 
 Current validation matrix:
 
 ```text
-Linux backend + DESKTOP profile
-Linux backend + ADV profile
-ADV backend   + ADV profile
+Linux backend + DESKTOP presentation   P1 PASS
+Linux backend + ADV presentation       P1 PASS
+ADV backend   + ADV presentation       P2/V1 next
 ```
+
+P1 is complete. It introduced application-level presentation profiles without duplicating MiniFT8 logic:
+
+```text
+DESKTOP   30 x 8, contextual footer
+ADV       20 x 7, six main lines, no footer
+```
+
+Linux launches both explicitly:
+
+```text
+M$> ft8 --profile desktop
+M$> ft8 --profile adv
+```
+
+Presentation is launch policy. It is not inferred from backend identity and is not persisted in `station.txt`. The O-screen `Profile` value remains a separate station/operating-profile concept.
+
+P2 packages the real `ft8` application into the Cardputer ADV static registry and launches it with the ADV presentation. V1 then compares Linux+ADV with ADV+ADV and closes the cross-backend/profile checkpoint.
 
 Cardputer ADV V1 uses static application composition: MiniShell and MiniFT8 are compiled into one ESP-IDF firmware image. Runtime ELF/application loading is deferred for later exploration; it is not required for the first ADV backend.
 
@@ -28,7 +46,7 @@ Canonical plan:
 ../project/adv-backend-plan.md
 ```
 
-RX-1B resumes after the cross-backend/profile validation checkpoint defined there passes.
+RX-1B resumes after P2 and V1 pass.
 
 ## Deferred milestone: decode RX
 
