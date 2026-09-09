@@ -45,16 +45,26 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    uint64_t total = info.app_allocated_bytes + info.free_bytes;
-    char used_text[24];
+    char app_text[24];
     char free_text[24];
-    char total_text[24];
+    char largest_text[24];
     char line[96];
-    format_bytes(info.app_allocated_bytes, used_text, sizeof(used_text));
+
+    format_bytes(info.app_allocated_bytes, app_text, sizeof(app_text));
     format_bytes(info.free_bytes, free_text, sizeof(free_text));
-    format_bytes(total, total_text, sizeof(total_text));
-    (void)snprintf(line, sizeof(line), "used %s  free %s  total %s\n",
-                   used_text, free_text, total_text);
+
+    (void)snprintf(line, sizeof(line), "app used %s (%u allocs)\n",
+                   app_text, (unsigned)info.app_allocation_count);
     api->console->write(line);
+
+    (void)snprintf(line, sizeof(line), "heap free %s\n", free_text);
+    api->console->write(line);
+
+    if ((info.valid_fields & MINI_MEM_INFO_LARGEST_BLOCK) != 0u) {
+        format_bytes(info.largest_free_block, largest_text, sizeof(largest_text));
+        (void)snprintf(line, sizeof(line), "largest block %s\n", largest_text);
+        api->console->write(line);
+    }
+
     return 0;
 }
