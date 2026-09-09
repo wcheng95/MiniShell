@@ -12,9 +12,16 @@ static bool s_filesystem_ready;
 static void system_write(void *ctx, const char *text)
 {
     (void)ctx;
-    /* System.write is a diagnostic sink, not the application Display surface.
-     * Keep it on USB/debug so app diagnostics cannot overwrite an app UI. */
+    /* System.write is a diagnostic sink, not user-facing application output. */
     adv_console_debug_write(text);
+}
+
+static void console_write(void *ctx, const char *text)
+{
+    (void)ctx;
+    /* Console.write joins the resident shell's line-oriented output stream.
+     * On ADV that means Cardputer display plus the USB mirror. */
+    minishell_platform_console_write(text);
 }
 
 static void configure_services_port(void)
@@ -22,6 +29,7 @@ static void configure_services_port(void)
     memset(&s_services_port, 0, sizeof(s_services_port));
 
     s_services_port.system_write = system_write;
+    s_services_port.console_write = console_write;
 
     s_services_port.memory_alloc = adv_memory_alloc;
     s_services_port.memory_realloc = adv_memory_realloc;
