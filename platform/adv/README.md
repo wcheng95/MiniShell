@@ -2,9 +2,9 @@
 
 This directory is the ESP-IDF firmware composition for the Cardputer ADV backend.
 
-## Current stage: A2
+## Current stage: A3
 
-A1 proved that the portable MiniShell runtime and compiled-in application lifecycle run on real Cardputer ADV hardware. A2 replaces terminal-only interaction with Cardputer display/keyboard providers while preserving USB Serial/JTAG as a recovery/debug path during bring-up.
+A1 proved the portable MiniShell runtime on real Cardputer ADV hardware. A2 added the real Cardputer display/keyboard plus System and Memory providers. A3 adds persistent Filesystem and Time/Location services while keeping the device fully usable without an SD card.
 
 ```text
 ESP-IDF app_main()
@@ -13,30 +13,30 @@ ESP-IDF app_main()
 minishell_run()
       |
       +-- private resident shell
-      |      display + Cardputer keyboard
+      |      Cardputer display + keyboard
       |      USB Serial/JTAG mirror/fallback
       |
       +-- public MiniShell services
-             System   -> USB/debug diagnostic sink
-             Memory   -> ESP-IDF heap
-             Display  -> 20 x 7 logical text surface
-             Input    -> normalized TCA8418 key events
+             System        USB/debug diagnostic sink
+             Memory        ESP-IDF heap
+             Display       20 x 7 logical text surface
+             Input         normalized TCA8418 key events
+             Filesystem    /flash LittleFS + optional /sd FATFS
+             Time/Location monotonic + session UTC + persistent default location
 ```
 
-Applications never include M5, ESP-IDF, TCA8418, GPIO, I2C, or display-driver headers.
+Applications never include M5, ESP-IDF, TCA8418, GPIO, I2C, SPI, FATFS, LittleFS, or display-driver headers.
 
 ## M5 library policy
 
-A2 deliberately reuses the proven MiniFT8-V2 display behavior rather than redesigning Cardputer hardware support. The build pins the V2-era library versions:
+The ADV backend deliberately reuses proven MiniFT8-V2 Cardputer behavior where useful. The build pins:
 
 ```text
 M5GFX      0.2.17
 M5Unified  0.2.11
 ```
 
-M5 libraries are ADV-backend implementation dependencies, not MiniShell application dependencies. Replacing or further decoupling them is not an A2 goal unless a real problem requires it.
-
-The critical V2 audio-ownership rule is preserved: A2 initializes the display through `M5.Display.begin()` and **does not call `M5.begin()`**. A2 does not initialize, configure, or claim microphone, speaker, codec, or I2S resources. Those resources remain available for the later Audio backend.
+M5 libraries are backend implementation dependencies, not application dependencies. The critical V2 audio-ownership rule remains: ADV initializes the display through `M5.Display.begin()` and does **not** call `M5.begin()`. Display/keyboard/storage bring-up does not claim microphone, speaker, codec, or I2S resources.
 
 ## Hardware ownership
 
@@ -45,23 +45,13 @@ ADV display hardware     adv_display
 ADV keyboard/TCA8418     adv_keyboard
 shared ADV I2C bus       adv_i2c
 application allocations  portable Memory service + adv_memory provider
+internal flash storage   adv_filesystem -> LittleFS
+MicroSD SPI/FATFS        adv_filesystem -> ESP-IDF SDSPI/FATFS
 ```
 
-The private resident shell and public Display/Input services share these backend owners; they do not initialize the hardware independently.
+The private resident shell and public Display/Input services share the same backend owners; they do not initialize hardware independently.
 
-The ADV keyboard uses the proven V2 wiring and matrix mapping:
-
-```text
-I2C0
-SDA       GPIO8
-SCL       GPIO9
-TCA8418   0x34 @ 400 kHz
-matrix    7 x 8
-```
-
-## Display
-
-The public Display provider reports:
+## Display and Input
 
 ```text
 physical panel       240 x 135
@@ -73,79 +63,124 @@ capability            text only
 inverse attribute    supported
 ```
 
-Pixel coordinates and the physical gap remain backend-private.
+Pixel coordinates remain backend-private. `System.write()` is a diagnostic sink on USB/debug; user-facing application output belongs on Display.
 
-The resident shell uses the same display owner as a scrolling 20 x 7 console. When an application uses the public Display API, the application owns the logical screen until it returns; the next resident-shell output restores shell-console presentation.
-
-## System is not Display
-
-`System.write()` remains a diagnostic sink. On ADV A2 it writes to USB/debug output only.
+The Cardputer ADV keyboard uses the proven V2 wiring:
 
 ```text
-System.write()                 USB/debug diagnostic sink
-private resident shell output  Cardputer screen + USB mirror
-Display API                    Cardputer application UI surface
+I2C0
+SDA       GPIO8
+SCL       GPIO9
+TCA8418   0x34 @ 400 kHz
+matrix    7 x 8
 ```
 
-This separation prevents application diagnostics from overwriting an application UI.
+## A3 storage
 
-## Input
-
-The Cardputer keyboard is normalized into the public logical Input API. Current ADV conventions include:
+Canonical ADV storage policy:
 
 ```text
-Fn + ;          Up
-Fn + ,          Left
-Fn + .          Down
-Fn + /          Right
-Fn + `          Escape
-Fn + Backspace  Delete
+/flash    LittleFS on internal flash, initially 2 MiB (provisional)
+/sd       FATFS on removable MicroSD, optional
+NVS       not used
 ```
 
-Shift, Ctrl, Alt, Fn, and Opt state is represented in the modifier mask. Because Cardputer applications may use those keys as actions by themselves, standalone modifier presses also have logical SPECIAL-key values.
+`/flash` must work whether or not an SD card exists. The initial 2 MiB LittleFS allocation is provisional and is not part of the public API.
 
-The Input service still owns the portable logical event queue; the ADV keyboard provider only produces normalized events.
-
-## Memory
-
-The ADV Memory provider uses the ESP-IDF 8-bit-capable heap. The portable Memory service remains responsible for application allocation accounting, lifecycle cleanup, and any MiniShell resource limit.
-
-`get_info()` can report both free heap and largest free block from the real device.
-
-## A2 probe
-
-The development firmware contains a compiled-in portable app named `probe`. Its source is `tests/apps/a2_probe.c`; it uses only `mini_api_get()`.
-
-It checks:
+The optional SD card uses the proven Cardputer/V2 wiring:
 
 ```text
-Memory alloc/realloc/accounting/free
-Display geometry/text/inverse/present
-Input delivery through the public Input API
+SCK   GPIO40
+MISO  GPIO39
+MOSI  GPIO14
+CS    GPIO12
+SPI   SPI2_HOST
 ```
 
-Run it from the Cardputer shell:
+The display uses a different SPI host, so the SD bus remains owned independently by `adv_filesystem`.
+
+At the MiniShell Filesystem root:
 
 ```text
-M$> probe
+/flash    always present after a successful A3 mount
+/sd       present only when the card mounted successfully
 ```
 
-The screen asks for `x`. After `x`, it shows `Input PASS`; press Enter to return to `M$>`.
+An absent or invalid SD card is not a boot failure. Cross-filesystem rename is unsupported; portable copy logic can move data between volumes when needed.
+
+## A3 time policy
+
+Cardputer ADV has no time source enabled in A3. To avoid pretending that flash persistence is an RTC, every boot starts from this deterministic UTC anchor:
+
+```text
+2026-09-01 06:00:00 UTC
+```
+
+MiniShell advances that anchor using monotonic time while powered on. The user may correct UTC for the current session with:
+
+```text
+M$> date YYYY-MM-DD HH:MM:SS
+```
+
+That manual correction is **session-only**. A power cycle returns to the fixed default. RTC and GPS providers are intentionally deferred; they can replace the bootstrap source later through the existing Time/Location ownership model without changing applications.
+
+Default geographic location remains persistent as an ordinary file under `/flash/minishell/`. No NVS is used.
+
+## A3 probe
+
+The compiled-in `a3probe` uses only the public MiniShell API. It tests:
+
+```text
+/flash LittleFS create/write/read/sync/rename/directory/delete
+optional /sd FATFS using the same operations when mounted
+monotonic time and sleep
+session UTC availability
+persistent default-location set/get/restore
+Display/Input foreground lifecycle
+```
+
+With no SD card it should show:
+
+```text
+MiniShell A3 probe
+LittleFS PASS
+File/Dir PASS
+TimeLoc PASS
+UTC session PASS
+SD absent OK
+q/Enter exits
+```
+
+With a working SD card, line 6 becomes:
+
+```text
+SD FATFS PASS
+```
+
+After exit the USB diagnostic sink prints:
+
+```text
+a3_probe: PASS
+```
+
+A3 also packages the portable `date`, `ls`, and `cat` utilities on ADV for direct service-level checks.
 
 ## Flash layout
 
-The initial 8 MiB flash layout remains:
+The current 8 MiB flash layout is:
 
 ```text
 0x010000 .. 0x5FFFFF   factory application   0x5F0000 bytes
 0x600000 .. 0x7FFFFF   /flash LittleFS       2 MiB
 ```
 
-The 2 MiB LittleFS size is provisional. A2 still does not mount it. NVS is not used for MiniShell persistence. Removable SD storage is A3.
+## Runtime stack
+
+ADV currently executes compiled-in applications on ESP-IDF's main task. A3 filesystem depth exposed the default stack as too small, so the ADV configuration explicitly uses an 8 KiB main-task stack and enables the FreeRTOS stack-overflow canary. This is an implementation choice, not an application API promise. A later application-lifecycle design may give foreground apps their own managed execution task/stack.
 
 ## Build and flash
 
-ESP-IDF v5.5.1 is the current reference.
+ESP-IDF v5.5.x is the current reference family.
 
 ```bash
 cd ~/projects/MiniShell/platform/adv
@@ -156,29 +191,23 @@ idf.py -p /dev/ttyACM0 flash monitor
 
 Use the actual `/dev/ttyACM*` device on the host.
 
-## A2 hardware check
+## Current A3 validation status
 
-Using the **Cardputer screen and keyboard**, verify:
+Passed on real ADV:
 
 ```text
-M$> status
-platform : adv
-system   : ready
-memory   : ready
-display  : ready
-input    : ready
-
-M$> apps
-hello
-probe
-
-M$> probe
+SD-less boot
+/flash LittleFS
+file/directory API probe
+monotonic Time/Location baseline
+Display/Input foreground probe
+a3_probe: PASS
 ```
 
-`time` may also report ready because A2 provides the monotonic clock and sleep primitive needed by Input timeouts. UTC/location capabilities and persistence remain A3 work.
+Remaining A3 hardware check:
 
-USB Serial/JTAG remains available as a mirrored shell/debug path during A2 bring-up.
-
-## Next
-
-After the display/keyboard and public `probe` checks pass on real hardware, close A2 and proceed to A3: LittleFS `/flash`, optional FATFS `/sd`, and Time/Location persistence.
+```text
+optional MicroSD mounts as /sd
+A3 probe reports SD FATFS PASS
+ls / shows /flash and /sd when SD is present
+```
