@@ -30,19 +30,19 @@ static void format_bytes(uint64_t bytes, char *out, size_t out_size)
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
-    if (api == NULL || api->system == NULL || api->system->write == NULL ||
+    if (api == NULL || api->console == NULL || api->console->write == NULL ||
         api->fs == NULL || api->fs->space == NULL) {
         return 2;
     }
     if (argc > 2) {
-        api->system->write("usage: df [path]\n");
+        api->console->write("usage: df [path]\n");
         return 2;
     }
 
     const char *path = argc == 2 ? argv[1] : "/";
     mini_fs_space_t space = {.struct_size = sizeof(space)};
     if (api->fs->space(path, &space) != MINI_OK) {
-        api->system->write("df: unavailable\n");
+        api->console->write("df: unavailable\n");
         return 1;
     }
 
@@ -55,6 +55,6 @@ int main(int argc, char **argv)
     format_bytes(space.total_bytes, total_text, sizeof(total_text));
     (void)snprintf(line, sizeof(line), "used %s  free %s  total %s\n",
                    used_text, free_text, total_text);
-    api->system->write(line);
+    api->console->write(line);
     return 0;
 }
