@@ -15,7 +15,6 @@ static int s_seen_mv;
 static int s_seen_rm;
 static int s_seen_mkdir;
 static int s_seen_rmdir;
-static int s_seen_df;
 static int s_seen_nano;
 static int s_seen_ft8;
 
@@ -35,7 +34,6 @@ static void capture_app(const char *name, void *ctx)
     else if (strcmp(name, "rm") == 0) ++s_seen_rm;
     else if (strcmp(name, "mkdir") == 0) ++s_seen_mkdir;
     else if (strcmp(name, "rmdir") == 0) ++s_seen_rmdir;
-    else if (strcmp(name, "df") == 0) ++s_seen_df;
     else if (strcmp(name, "nano") == 0) ++s_seen_nano;
     else if (strcmp(name, "ft8") == 0) ++s_seen_ft8;
 }
@@ -127,13 +125,6 @@ int minishell_app_rmdir_main(int argc, char **argv)
     return 0;
 }
 
-int minishell_app_df_main(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-    return 0;
-}
-
 int minishell_app_nano_main(int argc, char **argv)
 {
     (void)argc;
@@ -165,7 +156,6 @@ int main(void)
     s_seen_rm = 0;
     s_seen_mkdir = 0;
     s_seen_rmdir = 0;
-    s_seen_df = 0;
     s_seen_nano = 0;
     s_seen_ft8 = 0;
     assert(minishell_platform_apps_list(capture_app, NULL) == MINISHELL_PLATFORM_OK);
@@ -181,7 +171,6 @@ int main(void)
     assert(s_seen_rm == 1);
     assert(s_seen_mkdir == 1);
     assert(s_seen_rmdir == 1);
-    assert(s_seen_df == 1);
     assert(s_seen_nano == 1);
     assert(s_seen_ft8 == 1);
 
