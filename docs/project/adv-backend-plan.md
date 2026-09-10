@@ -14,17 +14,26 @@ docs/MiniFT8/v1-validation.md
 
 ### Post-V1 direction
 
-The V1 decision to use static ADV application composition was intentionally temporary. Current architecture cleanup C3 supersedes the old "ELF later" wording as the active direction:
+The V1 decision to use static ADV application composition was intentionally temporary. Current architecture cleanup C3 makes runtime ELF the active next direction while preserving the application-resolution priority established during V1:
 
 ```text
-Cardputer ADV V1    compiled-in registry       COMPLETE baseline
-Cardputer ADV next  runtime /sd/<app>.elf      ACTIVE target
-first field app     /sd/keyer.elf
+1. compiled-in application
+2. /flash/<app>.elf
+3. /sd/<app>.elf
 ```
 
-The static registry may remain during transition/testing. The external loader remains a private MiniShell/backend mechanism; portable applications still use only the public MiniShell API. A long-term cross-release binary ABI is not frozen yet.
+The exact external pathname evolved from the earlier tentative `/flash/apps` and `/sd/apps` wording to root-level application files, but the **flash-before-SD search order remains the same**.
 
-The V1 item that mentioned future `/flash/apps`/`/sd/apps` discovery is therefore **historical, not the current path convention**. The initial active external-app convention is `/sd/<app>.elf`. Collision/precedence between static and external apps will be decided during loader implementation.
+Current external examples:
+
+```text
+/flash/keyer.elf
+/sd/keyer.elf
+```
+
+The same `keyer.elf` binary may be copied between those locations. If both external copies exist, `/flash/keyer.elf` wins. If a compiled-in app of the same name exists, the compiled-in app keeps priority under the established rule.
+
+The static registry therefore remains both the validated baseline and the first resolution tier during transition/testing. The external loader remains a private MiniShell/backend mechanism; portable applications still use only the public MiniShell API. A long-term cross-release binary ABI is not frozen yet.
 
 ## Goal
 
@@ -62,17 +71,17 @@ The MiniFT8 core and ADV presentation are the same. Only the MiniShell backend c
 
 ## Locked decisions for the V1 checkpoint
 
-The following were locked for **V1**. Items 5-6 describe the historical V1 packaging choice; see the post-V1 direction above for current ELF work.
+The following were locked for **V1**. Items 5-6 are also the basis for the current runtime-loader resolution order.
 
 1. **MiniShell public API is the platform boundary.** MiniFT8 never includes ESP-IDF, M5/Cardputer, board-driver, POSIX, Linux, or backend-private headers.
 2. **Presentation is MiniFT8 application policy, not backend identity.** Backend and presentation are independent concepts.
 3. **Protocol selection is application selection.** Runtime app `ft8` is FT8-only; future `ft4`, `cw`, `rtty`, `js8`, etc. are separate applications.
 4. **Linux remains the reference/full production target.** Portable-core changes must preserve Linux behavior and tests.
 5. **Cardputer ADV V1 uses static application composition.** Runtime ELF loading was deferred for V1, not rejected.
-6. **Compiled-in ADV applications took priority in V1.** The then-proposed `/flash/apps` then `/sd/apps` external search was never frozen as the later loader convention.
+6. **Compiled-in ADV applications take priority.** For names not supplied internally, external discovery checks `/flash` before `/sd`. The later loader uses root-level `/flash/<app>.elf` then `/sd/<app>.elf` rather than the earlier tentative `/flash/apps` and `/sd/apps` directory spelling.
 7. **MiniShell API compatibility is not frozen yet.** Breaking API changes remain acceptable when they materially improve clarity, ownership, portability, or real application fit.
 8. **ADV internal persistence uses files, not NVS.** `/flash` and optional `/sd` are MiniShell filesystem namespaces.
-9. **ADV must operate without an SD card.** `/flash`, the shell, and compiled-in baseline apps remain usable without `/sd`; an external app stored on `/sd` naturally requires the card containing it.
+9. **ADV must operate without an SD card.** `/flash`, the shell, and compiled-in baseline apps remain usable without `/sd`; an external app stored only on `/sd` naturally requires the card containing it.
 10. **Initial `/flash` allocation is 2 MiB and provisional.** It is an implementation choice, not a public API property.
 11. **ADV Audio was deliberately later in V1.** It is added when application requirements justify it.
 12. **MiniFT8-V2 is hardware/behavior reference material only.** Do not refactor V2 as part of V3/MiniShell work.
@@ -254,7 +263,7 @@ Linux DESKTOP UI         30 x 8 with footer
 ADV UI                    20 x 7 without footer
 ```
 
-Current post-V1 work deliberately changes only the ADV packaging row by adding a runtime ELF path while preserving the application-facing boundary.
+Current post-V1 work adds runtime ELF as the lower-priority external packaging path while preserving the application-facing boundary and the established resolution order.
 
 ## Historical resume point
 
