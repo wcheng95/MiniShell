@@ -1,6 +1,6 @@
 # MiniShell Architecture Cleanup Gate
 
-Status: **Draft for review**  
+Status: **Draft for review — C0/C1 complete**  
 Date: 2026-09-10
 
 ## Purpose
@@ -91,45 +91,48 @@ In particular:
 - MiniShell public/private service boundaries are separated.
 - application lifecycle cleanup is centralized through the app manager/service layer;
 - MiniFT8 has no direct platform implementation dependency;
-- `app_controller` currently performs configuration/storage/AutoSeq/RX/TX coordination;
+- `app_controller` performs configuration/storage/AutoSeq/RX/TX coordination;
 - `config_service` and `storage_service` do not call each other directly;
 - RX leaf modules such as `rx_frontend`, `rx_slot_framer`, and `rx_result_builder` are application-domain modules;
 - `rx_slot_framer` emits events rather than directly invoking `ft8_engine`;
 - `ui_shell`, `auto_seq`, `tx_lifecycle`, and `ft8_engine` remain independent of platform APIs;
 - `rx_audio_adapter` is an intentional MiniShell edge adapter;
-- `tests/ft8_platform_boundary.py` already prevents major platform leakage.
+- `tests/ft8_platform_boundary.py` prevents major platform leakage;
+- `tests/app_dependency_boundary.py` now enforces application-local module dependencies and private-header ownership;
+- `AppController` state is now opaque outside the controller ownership domain.
 
-The remaining work is mainly enforcement and tightening rather than architectural redesign.
+The remaining work is mainly tightening `ft8_main` and finalizing runtime/configuration documentation before Keyer starts.
 
 ## 3. Cleanup tasks
 
-### C0 — Add application dependency/no-side-talk enforcement
+### C0 — COMPLETE — Application dependency/no-side-talk enforcement
 
-Add a CI/test checker for MiniFT8 logical-module dependencies, separate from the existing platform-boundary checker.
+Implemented a small reusable checker at:
 
-The checker should reject forbidden sibling-module includes/calls while allowing:
+```text
+tests/app_dependency_boundary.py
+```
 
-- `app_controller` to coordinate application modules;
-- lifecycle/wiring code to call the controller and edge adapters;
-- a logical module to use its explicitly owned private implementation submodules;
-- MiniShell edge adapters to consume the public MiniShell API.
+The FT8 rule set explicitly declares logical module ownership and allowed dependencies. The checker rejects:
 
-The goal is to turn the no-side-talk rule from prose into an executable architecture test.
+- forbidden sibling-module includes;
+- source/header files under enforced application roots that have no declared module owner;
+- access to declared private headers from outside their owning module.
 
-The checker should be simple and explicit rather than a general dependency framework.
+Linux CI runs both the checker self-test and the real MiniFT8 rule set before compiling.
 
-### C1 — Hide `AppController` implementation state
+C0 immediately found and removed one unnecessary coupling: `config_service.h` had included `ft8/app_types.h` only to obtain `uint8_t`; it now includes `<stdint.h>` directly.
 
-Current `app_controller.h` exposes internal state such as ConfigService, AutoSeq, StorageService, RX state, and TX state.
+The checker is intentionally reusable: future applications such as Keyer can add their own small rule map without creating another dependency framework.
 
-That makes accidental bypasses possible even though current code does not abuse them.
+### C1 — COMPLETE — Hide `AppController` implementation state
 
-Target:
+`AppController` is now an opaque public C type:
 
 ```text
 outside app_controller/
         |
-        `--> app_controller_*() public application interface only
+        `--> AppController * + app_controller_*() only
 
 inside app_controller/
         |-- configuration state
@@ -139,7 +142,33 @@ inside app_controller/
         `-- TX state
 ```
 
-Preferred direction: make controller implementation state private/opaque. The exact C storage mechanism should be chosen during implementation with embedded memory cost and simplicity in mind; do not introduce a complex object framework merely to hide a struct.
+The concrete structure lives in:
+
+```text
+apps/ft8/src/app_controller/app_controller_internal.h
+```
+
+Public lifetime is through:
+
+```text
+app_controller_create()
+app_controller_destroy()
+```
+
+The controller object is allocated/freed through MiniShell Memory, so the implementation remains platform-independent and participates in normal per-application resource accounting.
+
+Production `ft8_main` holds only `AppController *`; it cannot access `config`, `auto_seq`, `storage`, RX, or TX state directly. The C0 checker marks `app_controller_internal.h` private to the controller module and rejects access from other production modules.
+
+The AS-7 TX lifecycle test remains an intentional white-box test and explicitly includes the private header. Tests may inspect implementation state when that is the purpose of the test; production module boundaries remain strict.
+
+Verification completed:
+
+- application dependency checker passes;
+- Linux build/CTest/AS-8/strict unit suite passes;
+- the full FT8 reference suite RX-1C through RX-7 passes, including the RX-7 production decoded-UI golden test;
+- Cardputer ADV ESP-IDF v5.5.1 firmware build passes.
+
+During C1 the ADV gate caught an ESP-IDF build-system difference: component CMake files are also evaluated in script mode, where `set_source_files_properties()` is unavailable. The per-source private-controller compile definition is now guarded so it is applied only during the real configure/build phase.
 
 ### C2 — Keep `ft8_main` lifecycle-only
 
@@ -250,13 +279,15 @@ Do not create MiniShell configuration entries named for Keyer or another domain 
 Before Keyer implementation starts, the cleanup is complete when:
 
 1. MiniFT8 platform-boundary test passes;
-2. new MiniFT8 dependency/no-side-talk test passes;
+2. MiniFT8 dependency/no-side-talk test passes;
 3. controller internals cannot be casually accessed outside the controller implementation;
 4. `ft8_main` is lifecycle/wiring code and no longer interprets V/Memory or similar screen-specific policy;
 5. documentation reflects active ADV runtime ELF direction and configuration ownership/naming;
 6. Linux build/unit/integration tests pass;
 7. ADV build/tests pass;
 8. the existing RX7 golden WAV integration test still passes unchanged in behavior.
+
+Items 1-3 and 6-8 are satisfied after C0/C1. Items 4-5 remain for C2-C4.
 
 ## 5. Non-goals
 
@@ -274,11 +305,14 @@ Those are separate tasks.
 
 ## 6. Review questions
 
-Before marking this document final, decide:
+Resolved:
 
-1. Is an opaque `AppController` worth the small C lifecycle/storage change, or is a narrower enforcement mechanism preferable?
-2. What is the simplest way for `ft8_main` to request/render a complete model without knowing submenu semantics?
-3. Should the dependency checker initially cover MiniFT8 only, then become a template for Keyer, or should we create a small reusable checker immediately?
-4. Is `/flash/ft8/setting.txt` the desired eventual rename from the current `station.txt`, or should that migration remain a later application-specific decision?
+1. **Opaque `AppController`: yes.** C1 uses a small ordinary-C opaque-pointer pattern with MiniShell Memory ownership; no object framework was introduced.
+2. **Dependency checker scope: reusable immediately.** C0 keeps one generic checker with a small per-application rule map; Keyer will add another map later.
 
-Until those are reviewed, this remains a planning document rather than an implementation specification.
+Still open:
+
+1. What is the simplest way for `ft8_main` to request/render a complete model without knowing submenu semantics? This is C2.
+2. Is `/flash/ft8/setting.txt` the desired eventual rename from the current `station.txt`, or should that migration remain a later application-specific decision? This does not block the ownership rule itself.
+
+Until C2-C4 are reviewed/completed, this remains a cleanup plan rather than the final architecture-cleanup record.
