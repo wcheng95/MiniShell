@@ -252,14 +252,15 @@ Cardputer ADV next  runtime external .elf
 Tab5/NuttX          native loadable mechanism where practical
 ```
 
-ADV external application discovery uses the established order:
+The established ADV application resolution order is:
 
 ```text
-1. /flash/<app>.elf
-2. /sd/<app>.elf
+1. compiled-in application
+2. /flash/<app>.elf
+3. /sd/<app>.elf
 ```
 
-The same external application binary may be installed in either location. If both copies exist, the `/flash` copy wins.
+For external applications specifically, `/flash` is searched before `/sd`. The same external application binary may be installed in either location. If both external copies exist, the `/flash` copy wins.
 
 For the first field-usable ADV external application, both of these placements are valid:
 
@@ -275,14 +276,13 @@ C3 updated the canonical application/runtime documentation so that:
 - application source remains independent of loader/container format and installation location;
 - Linux continues to use runtime `.so` modules;
 - ADV runtime ELF is active work rather than a speculative future possibility;
-- ADV external discovery is `/flash/<app>.elf` first, then `/sd/<app>.elf`;
-- the same `keyer.elf` binary is valid from either location;
+- ADV application resolution is compiled-in first, then `/flash/<app>.elf`, then `/sd/<app>.elf`;
+- the same `keyer.elf` binary is valid from either external location;
 - `keyer.elf` remains a portable MiniShell application and must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or ELF-loader interfaces;
 - discovery, ELF parsing, relocation, symbol resolution, execution setup, unloading, and cleanup stay resident/private to MiniShell and the ADV backend;
-- static ADV applications remain valid during transition/testing;
-- external-location precedence is fixed as `/flash` then `/sd`;
-- collision/precedence between a static and external app with the same name is deliberately left for loader implementation;
 - a formal stable cross-release binary ABI is still not frozen.
+
+The K1 loader proof uses a non-colliding application name such as `elfhello.elf`, because the existing compiled-in `hello` intentionally has higher resolution priority and would otherwise mask the external loader path.
 
 Updated documents include:
 
@@ -297,7 +297,7 @@ platform/adv/README.md
 docs/keyer/README.md
 ```
 
-The completed V1 ADV plan remains historical evidence. Its original static-composition choice is preserved as history; current C3 policy supersedes any earlier tentative external-app path wording.
+The completed V1 ADV plan remains historical evidence. Its original static-composition choice and compiled-in-first rule are preserved; current C3 policy adds root-level `/flash/<app>.elf` then `/sd/<app>.elf` below that first tier.
 
 C3 is documentation/architecture only. It does not implement an ELF loader.
 
@@ -396,11 +396,10 @@ Resolved:
 1. **Opaque `AppController`: yes.** C1 uses a small ordinary-C opaque-pointer pattern with MiniShell Memory ownership; no object framework was introduced.
 2. **Dependency checker scope: reusable immediately.** C0 keeps one generic checker with a small per-application rule map; Keyer will add another map later.
 3. **Complete-model rendering: build one complete `UiModel`, then compare final `UiFrame`s.** C2 keeps screen-specific visibility in `ui_shell` and prevents `ft8_main` from learning submenu semantics.
-4. **ADV external app locations and order: `/flash/<app>.elf` first, then `/sd/<app>.elf`.** The same binary works in either location; `/flash` wins if both exist.
+4. **ADV application resolution: compiled-in, then `/flash/<app>.elf`, then `/sd/<app>.elf`.** The same external binary works in either filesystem location; `/flash` wins between external copies.
 
 Still open:
 
-1. Precedence between a compiled-in application and an external application with the same name. This is separate from the already-decided `/flash` versus `/sd` order.
-2. Is `/flash/ft8/setting.txt` the desired eventual rename from the current `station.txt`, or should that migration remain a later application-specific decision? This does not block the ownership rule itself.
+1. Is `/flash/ft8/setting.txt` the desired eventual rename from the current `station.txt`, or should that migration remain a later application-specific decision? This does not block the ownership rule itself.
 
 Until C4 is reviewed/completed, this remains a cleanup plan rather than the final architecture-cleanup record.
