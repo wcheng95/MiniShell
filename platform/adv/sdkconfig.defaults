@@ -26,6 +26,13 @@ CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
 CONFIG_FATFS_API_ENCODING_UTF_8=y
 
+# ESP-IDF defaults to a separate sector cache in every FATFS FIL object. With
+# eight file slots per mounted volume this consumes tens of KiB of resident RAM
+# even when no files are open. MiniShell normally has only a few active files
+# and ADV-WAV streams a single file, so use FatFs tiny mode/shared sector cache
+# instead. This trades some multi-file I/O performance for much lower idle RAM.
+# CONFIG_FATFS_PER_FILE_CACHE is not set
+
 # usbmsc temporarily hands the ESP32-S3 USB device peripheral and raw FAT media
 # to TinyUSB. Keep the MSC transfer buffer at 4096 bytes so it is large enough
 # for the existing /flash wear-levelling sector without changing the validated
