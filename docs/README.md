@@ -28,6 +28,24 @@ docs/api/input-api.md
 docs/api/audio-api.md
 ```
 
+Canonical architecture rules:
+
+```text
+docs/architecture/architecture.md
+docs/architecture/design-principles.md
+docs/architecture/resident-vs-app.md
+docs/architecture/configuration.md
+```
+
+Configuration ownership is:
+
+```text
+/flash/config.txt          MiniShell-owned resident/platform configuration
+/flash/<app>/setting.txt   application-owned configuration/deployment settings
+```
+
+Hardware-specific application settings are allowed. An application such as Keyer may own GPIO-number settings and request generic MiniShell Digital I/O operations; MiniShell must not interpret Keyer-domain meaning.
+
 Application and exploratory notes:
 
 ```text
@@ -36,10 +54,10 @@ docs/keyer/      # Keyer porting + ADV external-ELF field-application plan
 docs/js8/       # JS8 DSP research and future JS8Chat project
 ```
 
-Current architecture/project planning:
+Completed architecture cleanup record:
 
 ```text
-docs/project/architecture-cleanup.md   # pre-Keyer modularity/no-side-talk gate
+docs/project/architecture-cleanup.md   # C0-C4 complete
 ```
 
 ADV application resolution is compiled-in first, then `/flash/<app>.elf`, then `/sd/<app>.elf`.
