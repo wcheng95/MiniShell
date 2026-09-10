@@ -2,11 +2,11 @@
 
 This directory is the ESP-IDF firmware composition for the Cardputer ADV backend.
 
-## Current stage: P2 baseline + ADV USB MSC validation
+## Current stage: P2 baseline + ADV USB MSC complete
 
 A1 proved the portable MiniShell runtime on real Cardputer ADV hardware. A2 added the real Cardputer display/keyboard plus System and Memory providers. A3 added Filesystem and Time/Location. P2 packages the real MiniFT8 `ft8` application into the ADV static registry using the same MiniFT8 sources as Linux.
 
-The current ADV storage baseline uses FATFS for both internal `/flash` and optional `/sd`. The `usbmsc` increment adds an ADV-only USB Mass Storage application so either or both FAT media can be handed temporarily to a host PC without violating filesystem ownership. This is primarily useful for moving test data such as MiniFT8 WAV files onto the Cardputer before live Audio providers exist.
+The current ADV storage baseline uses FATFS for both internal `/flash` and optional `/sd`. The `usbmsc` utility adds ADV-only USB Mass Storage handoff so either or both FAT media can be exposed temporarily to a host PC without violating filesystem ownership. This is primarily useful for moving test data such as MiniFT8 WAV files onto the Cardputer before live Audio providers exist.
 
 ```text
 ESP-IDF app_main()
@@ -203,7 +203,16 @@ An absent or invalid SD card is not a boot failure. Same-filesystem `mv` can use
 
 ESP-IDF v5.5.x defaults FATFS to 8.3-only filenames. ADV explicitly enables heap-backed long filenames, a 255-character LFN limit, and UTF-8 API encoding for both volumes so they satisfy the MiniShell Filesystem filename contract.
 
-The FATFS `/flash` and `/sd` paths plus the portable utility set have been validated on real Cardputer ADV hardware. `usbmsc` is the next physical ownership test.
+ADV deliberately disables `CONFIG_FATFS_PER_FILE_CACHE`. ESP-IDF's default per-file cache allocates a sector cache inside every FATFS file slot; with eight slots on each mounted volume this consumed roughly 75 KiB of avoidable idle heap. Shared-cache/tiny mode preserves the eight-file limit while using substantially less resident RAM. `adv_config_guard.c` rejects builds that accidentally re-enable per-file caching.
+
+Hardware RAM audit with both `/flash` and `/sd` mounted after this change:
+
+```text
+shell-ready heap free    336288 B (328.4 KiB)
+largest free block       286720 B (280.0 KiB)
+```
+
+The filesystem initialization step now consumes about 21.6 KiB total with both volumes mounted, instead of about 85.6 KiB before the shared-cache change.
 
 ## `usbmsc` utility
 
@@ -246,6 +255,17 @@ MiniShell and the USB host must never have writable filesystem ownership of the 
 
 The build pins `espressif/esp_tinyusb` and enables MSC with a 4096-byte transfer buffer. The 4096-byte size is chosen to satisfy the existing internal-flash wear-levelling sector requirement without changing the FATFS/WL format already validated on hardware.
 
+Hardware validation on real Cardputer ADV is complete:
+
+```text
+usbmsc sd                         PASS
+usbmsc flash                      PASS
+usbmsc all (two LUNs)             PASS
+return to MiniShell               PASS
+/flash remount after usbmsc       PASS
+/sd remount after usbmsc          PASS
+```
+
 ## Time policy — A3 complete
 
 Cardputer ADV has no RTC/GPS source enabled yet. Every boot starts from the deterministic UTC anchor:
@@ -271,13 +291,17 @@ The current 8 MiB flash layout is:
 0x600000 .. 0x7FFFFF   /flash FATFS          2 MiB
 ```
 
-## Runtime stack
+## Runtime stack and RAM guardrails
 
 The resident MiniShell runtime/shell uses an 8 KiB ESP-IDF main-task stack with the FreeRTOS stack-overflow canary enabled. Foreground applications execute on a separate ADV-managed FreeRTOS task with a 16 KiB stack. The task size is an ADV implementation choice, not part of the portable MiniShell application API.
 
+ADV CI reports the ESP-IDF size summary and allocated ELF sections on every firmware build so static `.data`/`.bss` growth remains visible. Hardware free-heap measurements remain the authority for boot-time allocations made by mounted filesystems, drivers, and tasks.
+
+The ADV config guard also enforces the ESP32-S3 target and the RAM-efficient FATFS shared-cache configuration.
+
 ## Build and flash
 
-ESP-IDF v5.5.x is the current reference family.
+ESP-IDF v5.5.x is the current reference family. The project defaults to the ESP32-S3 target in `sdkconfig.defaults` so regenerating `sdkconfig` cannot silently fall back to classic ESP32.
 
 ```bash
 cd ~/projects/MiniShell/platform/adv
@@ -298,47 +322,19 @@ ESP-IDF firmware build                    PASS required
 FT8 Reference                             gated by FT8-sensitive changes
 ```
 
-Existing real ADV baseline already validated:
+Real ADV baseline validated:
 
 ```text
 /flash FATFS                 PASS
 /sd FATFS                    PASS
+shared-cache FATFS           PASS
 nano / ls / rm               PASS
 MiniFT8 launch/navigation    PASS
 MiniFT8 clean exit/memory    PASS
+usbmsc sd                    PASS
+usbmsc flash                 PASS
+usbmsc all                   PASS
+filesystem remount           PASS
 ```
 
-`usbmsc` hardware validation should start with SD only because it is the safest and most useful path for moving WAV fixtures:
-
-```text
-M$> usbmsc sd
-```
-
-Expected Cardputer display:
-
-```text
-USB MSC
-Export: sd
-USB connected
-Copy files on PC
-Eject drive first
-then press Q
-Q = return
-```
-
-On the host:
-
-1. Confirm one removable FAT drive appears.
-2. Copy a small test file, then a WAV fixture, to that drive.
-3. Read the copied files back or compare checksums if desired.
-4. Eject/unmount the removable drive cleanly.
-5. Press `Q` on the Cardputer.
-
-Back in MiniShell:
-
-```text
-M$> ls /sd
-    -> copied files are visible
-```
-
-Then validate `usbmsc flash`, and finally `usbmsc all` with both media present. The PR should not be merged until runtime USB handoff, filesystem remount, and at least the `sd` transfer path pass on real Cardputer ADV hardware.
+The next ADV milestone is deterministic WAV-backed MiniFT8 RX through the public MiniShell Audio contract, reusing the existing RX-7 core unchanged.
