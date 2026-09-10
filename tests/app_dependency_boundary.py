@@ -14,6 +14,7 @@ INCLUDE_RE = re.compile(r'^\s*#\s*include\s*"([^"]+)"')
 # needs the same architectural enforcement; keep the checker itself generic.
 APP_RULES = {
     "ft8": {
+        "enforced_roots": {"main", "include", "src"},
         "module_paths": {
             "main": ("main",),
             "shared": ("include",),
@@ -109,8 +110,14 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
     for path in sorted(app_root.rglob("*")):
         if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
             continue
+
+        rel = path.relative_to(app_root)
         src_module = module_for_path(app_root, path, rule)
         if src_module is None:
+            if rel.parts and rel.parts[0] in rule["enforced_roots"]:
+                violations.append(
+                    f"{path.relative_to(root)}: source/header has no module owner"
+                )
             continue
         checked_files += 1
 
@@ -156,7 +163,8 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
 
 
 def self_test() -> int:
-    # Exercise parsing/resolution plus both an allowed and a forbidden edge.
+    # Exercise parsing/resolution, an allowed edge, a forbidden edge, and an
+    # unowned source directory under an enforced application root.
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
         app = root / "apps" / "ft8"
@@ -192,6 +200,14 @@ def self_test() -> int:
             print("app_dependency_boundary self-test: FAIL")
             for violation in violations:
                 print(f"  {violation}")
+            return 1
+
+        rogue = app / "src" / "rogue"
+        rogue.mkdir()
+        (rogue / "rogue.c").write_text("int rogue(void) { return 0; }\n", encoding="utf-8")
+        violations = check_app(root, "ft8")
+        if not any("source/header has no module owner" in item for item in violations):
+            print("app_dependency_boundary self-test: FAIL (unowned module not detected)")
             return 1
 
     print("app_dependency_boundary self-test: PASS")
