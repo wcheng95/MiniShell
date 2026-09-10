@@ -107,12 +107,11 @@ int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
     Ft8Options options;
-    AppController app;
+    AppController *app = NULL;
     ft8_ui_adapter_t adapter;
     UiShell ui;
     UiModel model;
     UiModel rendered_model;
-    bool app_initialized = false;
     bool adapter_initialized = false;
     bool have_rendered_model = false;
     bool redraw = true;
@@ -121,8 +120,9 @@ int main(int argc, char **argv)
 
     if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
         api->struct_size < FIELD_END(mini_api_t, input) ||
-        api->system == NULL || api->fs == NULL ||
-        api->system->write == NULL) {
+        api->system == NULL || api->fs == NULL || api->memory == NULL ||
+        api->system->write == NULL || api->memory->alloc == NULL ||
+        api->memory->free == NULL) {
         return 2;
     }
 
@@ -132,17 +132,16 @@ int main(int argc, char **argv)
     }
 
     if (options.rx_endpoint != NULL &&
-        (api->struct_size < FIELD_END(mini_api_t, audio) || api->memory == NULL ||
-         api->audio == NULL)) {
-        say_system(api, "ft8: RX requires MiniShell Memory and Audio services\n");
+        (api->struct_size < FIELD_END(mini_api_t, audio) || api->audio == NULL)) {
+        say_system(api, "ft8: RX requires MiniShell Audio service\n");
         return 2;
     }
 
-    if (!app_controller_init(&app, api, FT8_DATA_DIR, FT8_STATION_PATH)) {
+    app = app_controller_create(api, FT8_DATA_DIR, FT8_STATION_PATH);
+    if (app == NULL) {
         say_system(api, "ft8: failed to initialize storage/configuration\n");
         return 3;
     }
-    app_initialized = true;
 
     if (!ft8_ui_adapter_init(&adapter, api, options.presentation)) {
         say_system(api, "ft8: presentation does not fit MiniShell Display/Input\n");
@@ -158,7 +157,7 @@ int main(int argc, char **argv)
             .slot_id = options.rx_slot_id,
             .sample_offset = 0u,
         };
-        if (!app_controller_start_rx(&app, &rx_config)) {
+        if (!app_controller_start_rx(app, &rx_config)) {
             say_system(api, "ft8: failed to start RX audio\n");
             result = 8;
             goto cleanup;
@@ -178,7 +177,7 @@ int main(int argc, char **argv)
         UiFrame frame;
         AppAction action;
 
-        if (!app_controller_step_rx(&app, &rx_changed)) {
+        if (!app_controller_step_rx(app, &rx_changed)) {
             result = 9;
             break;
         }
@@ -190,17 +189,17 @@ int main(int argc, char **argv)
          * Live operation (including --rx without --rx-slot) uses MiniShell UTC.
          */
         if (!options.has_rx_slot) {
-            if (!app_controller_step_tx(&app, &tx_changed)) {
+            if (!app_controller_step_tx(app, &tx_changed)) {
                 result = 10;
                 break;
             }
             if (tx_changed) redraw = true;
         }
 
-        app_controller_build_ui_model(&app, &model);
+        app_controller_build_ui_model(app, &model);
         memory_visible = ui.screen == SCREEN_V && ui.submenu == UI_SUBMENU_V_MEMORY;
         if (memory_visible) {
-            app_controller_build_memory_model(&app, &model);
+            app_controller_build_memory_model(app, &model);
         }
         if (!have_rendered_model || model_clock_changed(&model, &rendered_model) ||
             (memory_visible && model_memory_changed(&model, &rendered_model))) {
@@ -218,7 +217,7 @@ int main(int argc, char **argv)
             redraw = false;
         }
 
-        rx_active = app_controller_rx_active(&app);
+        rx_active = app_controller_rx_active(app);
         if (!ft8_ui_adapter_read_input_timeout(&adapter,
                                                rx_active ? MINI_WAIT_NONE : 100u,
                                                &input, &has_input)) {
@@ -234,7 +233,7 @@ int main(int argc, char **argv)
 
         redraw = true;
         if (ui_shell_handle_input(&ui, &model, input, &action)) {
-            if (!app_controller_apply_action(&app, &action)) {
+            if (!app_controller_apply_action(app, &action)) {
                 result = 7;
                 break;
             }
@@ -243,7 +242,7 @@ int main(int argc, char **argv)
 
 cleanup:
     if (adapter_initialized) ft8_ui_adapter_shutdown(&adapter);
-    if (app_initialized) app_controller_shutdown(&app);
+    app_controller_destroy(app);
     if (result != 0) say_system(api, "ft8: application error\n");
     return result;
 }
