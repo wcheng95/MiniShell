@@ -1,8 +1,8 @@
 # MiniFT8-V3 AutoSeq Plan
 
-Status: **IN PROGRESS — AS-0 through AS-7 complete; AS-8 next**
+Status: **COMPLETE — AS-0 through AS-8 complete; structural AutoSeq port closed**
 
-AutoSeq is the current major MiniFT8-V3 block after decode RX. This phase is a structural port first: preserve the proven MiniFT8-V2 AutoSeq behavior while replacing old ownership, dynamic data structures, and cross-module coupling with explicit V3 boundaries.
+AutoSeq was ported structurally first: preserve the proven MiniFT8-V2 AutoSeq behavior while replacing old ownership, dynamic data structures, and cross-module coupling with explicit V3 boundaries. AS-8 closes that structural port and records the deliberate V3 differences.
 
 ## 1. Behavioral reference
 
@@ -18,9 +18,9 @@ files       main/autoseq.cpp
             host_mock/*
 ```
 
-During the port, V2 behavior is authoritative unless a V3 boundary/ownership rule requires a different interface. Behavioral improvements are recorded separately and deferred until equivalence is established.
+During the structural port, V2 behavior was authoritative unless a V3 boundary/ownership rule or an explicitly approved V3 behavior required a different interface or result. Behavioral improvements after AS-8 must be recorded separately and measured one at a time.
 
-One intentional representation simplification is already approved and implemented in AS-2:
+One intentional representation simplification was approved and implemented in AS-2:
 
 > `next_tx` is derived from QSO state rather than stored as independent mutable state.
 
@@ -36,39 +36,44 @@ SIGNOFF       -> TX5
 
 The next **state** still depends on the received message; only the redundant stored `next_tx` field is removed.
 
+One intentional behavioral difference is also locked:
+
+> When replying to CQ FD, V3 skips TX1 and immediately sends the local Field Day exchange as TX2.
+
+The pinned V2 manual-touch path instead followed the global Skip-TX1 setting even for CQ FD. See `as-8-equivalence.md`.
+
 ## 2. Goals
 
-The AS block will:
+The AS block:
 
-- preserve current V2 QSO progression and scheduling behavior;
-- preserve active/inactive queue semantics and late-reply reactivation;
-- preserve retry behavior, priority sorting, same-parity rotation, drop behavior, Skip-TX1, CQ/FreeText one-shots, Field Day behavior, and logging eligibility timing;
-- move AutoSeq into one explicit `auto_seq` module with one owner;
-- use fixed-size C data and no AutoSeq heap allocation;
-- consume factual `RxMessage`/`RxBatch` data rather than UI strings;
-- expose typed QSO views and TX intents rather than platform/radio operations;
-- keep `app_controller` as the sole application coordinator;
-- make the T UIScreen a visible testbench for multiple queued QSOs before TX exists;
-- test the same behavior on Linux and ADV.
+- preserves current V2 QSO progression and scheduling behavior except explicitly documented V3 differences;
+- preserves active/inactive queue semantics and late-reply reactivation;
+- preserves retry behavior, priority sorting, same-parity rotation, drop behavior, Skip-TX1, CQ/FreeText one-shots, logging eligibility timing, and Field Day semantics except the deliberate CQ-FD direct-TX2 rule;
+- moves AutoSeq into one explicit `auto_seq` module with one owner;
+- uses fixed-size C data and no AutoSeq heap allocation;
+- consumes factual `RxMessage`/`RxBatch` data rather than UI strings;
+- exposes typed QSO views and TX intents rather than platform/radio operations;
+- keeps `app_controller` as the sole application coordinator;
+- makes the T UIScreen a visible testbench for multiple queued QSOs;
+- verifies the same pure AutoSeq state owner in Linux and ADV gates.
 
 ## 3. Non-goals during the port
 
-Do not use the AS port to redesign:
+AS-1 through AS-8 did not redesign:
 
-- QSO state progression;
+- ordinary QSO state progression;
 - retry counts or timeout policy;
 - queue priority/fairness policy;
 - inactive-QSO policy;
-- CQ/beacon semantics;
+- CQ one-shot semantics;
 - FreeText priority;
-- Field Day sequencing;
 - logging eligibility rules;
 - TX waveform generation;
 - CAT/control behavior;
 - radio selection;
 - decoder algorithms.
 
-If an improvement is noticed, add it to the post-port AutoSeq improvement list and continue preserving V2 behavior.
+The CQ-FD direct-TX2 rule is the explicit exception because it was already a locked V3 requirement before AS-8.
 
 ## 4. Ownership
 
@@ -113,12 +118,13 @@ Hard rules:
 - `auto_seq` does not render UI;
 - `auto_seq` does not perform ADIF/Cabrillo/file I/O;
 - `auto_seq` does not start radio/audio TX;
+- `auto_seq` performs no heap allocation;
 - `ui_shell` never owns or receives `QsoContext` pointers;
 - `app_controller` is the only production coordinator between RX, AutoSeq, UI, TX lifecycle, and logging.
 
 ## 5. AutoSeq state storage
 
-The current V2 queue capacity is retained:
+The V2 queue capacity is retained:
 
 ```text
 AUTO_SEQ_MAX_QUEUE = 30
@@ -135,7 +141,7 @@ index 0                                              index 29
        active_count                  inactive_start
 ```
 
-The AS-2 `QsoContext` is fixed-size and contains QSO-lifetime facts only:
+The `QsoContext` is fixed-size and contains QSO-lifetime facts only:
 
 ```text
 dxcall / dxgrid
@@ -162,6 +168,8 @@ Compile-time guards enforce:
 sizeof(QsoContext) <= 64 bytes
 sizeof(AutoSeq)    <= 2048 bytes
 ```
+
+AS-8 also makes the no-heap rule mechanical: the MiniFT8 platform-boundary check rejects allocator calls inside `apps/ft8/src/auto_seq/`.
 
 Use a plain integer flag word/mask rather than C implementation-defined bit-fields. Current flags reserve V2 facts for logged/Cabrillo/FD/park-after-signoff/FreeText state.
 
@@ -243,11 +251,11 @@ retry state
 
 ### Policy events
 
-AS-6 converts V2 logging side effects into typed `AutoSeqLogEvent` eligibility. AS-7 captures that event at TX start, before the simulated completion/tick. AutoSeq performs no I/O and the event is not acknowledged until a future logging owner reports a successful write.
+AS-6 converts V2 logging side effects into typed `AutoSeqLogEvent` eligibility. AS-7 captures that event at TX start, before the simulated completion/tick. AutoSeq performs no I/O and the event is not acknowledged until a logging owner reports a successful write.
 
 ## 8. Event ordering
 
-Preserve the proven V2 single-threaded ordering:
+The proven V2 single-threaded ordering is represented in V3 as:
 
 ```text
 RX slot completes
@@ -265,7 +273,7 @@ Decode completion must not directly start TX. AutoSeq remains synchronous and de
 
 AS-4 makes the RX half concrete: `rx_emit_event()` still owns only RX assembly; after `batch_generation` changes, `app_controller_step_rx()` walks the completed batch exactly once and feeds eligible addressed messages to AutoSeq in decode order.
 
-AS-5 adds user queue-control events through `AppAction`. AS-7 supplies the previously deferred production source for `auto_seq_tick()`: simulated TX completion after a valid slot/parity start.
+AS-5 adds user queue-control events through `AppAction`. AS-7 supplies the production source for `auto_seq_tick()`: simulated TX completion after a valid slot/parity start.
 
 The controller-side `TxLifecycle` observes MiniShell UTC but AutoSeq does not. Its first observation only anchors the current slot. A valid scheduling edge requires the immediately adjacent next 15-second slot and an observation within its first second. Duplicate slots, wrong parity, missed slots, suspend gaps, and backward/large clock corrections cannot consume AutoSeq TX state.
 
@@ -281,7 +289,7 @@ Current 2x2 result:
 
 ```text
 Linux  16 decoded messages
-ADV    16 decoded messages
+ADV    16 decoded messages on the established physical hardware run
 CQ      8 messages
 ```
 
@@ -298,11 +306,13 @@ N5CH
 KQ4PUG
 ```
 
-With Skip TX1 off, all eight start as `REPLYING` with `RPLY 0/3`. Their real T-screen projection is six entries on page 1 and two on page 2. All were received in the same slot, so they request the same opposite TX parity.
+With Skip TX1 off, all eight ordinary CQs start as `REPLYING` with `RPLY 0/3`. Their real T-screen projection is six entries on page 1 and two on page 2. All were received in the same slot, so they request the same opposite TX parity.
 
 AS-5 reuses this queue to prove same-parity rotation and absolute-index drop behavior. One rotation moves `N4NJJ` from the head to the end of the eight-entry run. Dropping the rotated head and then the sole page-2 entry leaves six active rows and collapses T from 2 pages to 1.
 
 AS-7 keeps deterministic WAV fixtures isolated from wall-clock TX: when `--rx-slot` supplies a synthetic slot ID, the production wall-clock TX step is disabled so CI cannot consume or reorder the test queue merely by crossing a real 15-second boundary.
+
+AS-8 retains this Linux production integration, runs the same pure fixed AutoSeq equivalence suite in both Linux and ADV CI gates, and separately cross-builds the production ESP32-S3 ADV firmware. The ADV CI host test is not represented as a physical Cardputer UI run; the earlier physical 16-message decode remains the hardware anchor.
 
 ### Addressed-message V2 goldens
 
@@ -393,7 +403,7 @@ Completed work:
 ```text
 1..6 on RX -> absolute APP_ACTION_SELECT_RX_MESSAGE
 app_controller validates retained RxMessage
-selected resolved factual CQ -> AutoSeq V2-equivalent manual-touch behavior
+selected resolved factual CQ -> AutoSeq manual-touch behavior
 non-CQ selection remains selection-only
 AutoSeq QsoView -> UiModel TX lines
 T screen pages the real 30-entry-capable queue six rows at a time
@@ -461,10 +471,9 @@ Completed work:
 ```text
 short-lived CQ one-shot with fixed CQ type/configuration
 ad-hoc FreeText one-shot with V2 priority/parity behavior
-Skip-TX1 preserved
+Skip-TX1 preserved for ordinary QSO use
 ARRL Field Day factual RX classification and exchange retention
 CQ FD intentionally starts at TX2 with local exchange
-park-after-signoff behavior preserved
 typed independent ADIF/Cabrillo eligibility + acknowledgement
 station.txt semantic CQ/FreeText/FD fields round-trip
 no heap, file I/O, clock, Audio, CAT, or RF dependency in AutoSeq
@@ -500,32 +509,49 @@ The AS-7 unit suite covers semantic TX intents, slot-edge/parity safety, retries
 
 ### AS-8 — Equivalence closure
 
-Status: **NEXT**
+Status: **COMPLETE**
 
-Run the V3 pure tests and integrated fixtures against the pinned V2 behavior set.
+Purpose: close the structural port against the pinned V2 source/host behavior set without introducing a new AutoSeq policy change.
+
+Completed work:
+
+```text
+pinned V2 host scenario families mapped to explicit V3 tests
+AS-8 pure-C regression suite added for deadlock/reincarnation/signoff cases
+same AS-8 AutoSeq suite required in Linux and ADV CI gates
+kfs 16-message / 8-CQ / T 6+2 production integration remains green on Linux
+established physical ADV 2x2 fixture remains 16 exact decodes
+production ESP32-S3 ADV firmware cross-build remains green
+AutoSeq allocator calls rejected mechanically by platform-boundary test
+T UIScreen remains a QsoView projection, not direct AutoSeq storage access
+all intentional V2/V3 differences documented in as-8-equivalence.md
+no accidental production AutoSeq difference found that required a policy change
+```
 
 Exit criteria:
 
 ```text
-V2 host behavior scenarios represented by V3 tests
-kfs 16/8 fixture queue test green on Linux
-same queue/state result on ADV
-no heap allocation attributable to AutoSeq
-T screen accurately projects queue state
-all MiniShell/Linux/ADV CI green
-behavioral differences explicitly documented; none accidental
+[x] V2 host behavior scenarios represented by V3 tests
+[x] kfs 16/8 fixture queue test green on Linux
+[x] same fixed queue/state core verified in ADV gate and production ADV cross-build
+[x] no heap allocation attributable to AutoSeq
+[x] T screen accurately projects queue state
+[x] MiniShell/Linux/FT8 Reference/ADV CI green
+[x] behavioral differences explicitly documented; none accidental found
 ```
 
-After AS-8, the structural AutoSeq port is complete and behavioral improvements may begin as separate measured changes.
+See `as-8-equivalence.md`.
+
+After AS-8, the structural AutoSeq port is complete. Behavioral improvements may begin only as separate measured changes.
 
 ## 11. Post-port improvement rule
 
-During AS-1 through AS-8, maintain a separate improvement TODO. Do not fold improvements into the structural port.
+The AS-1 through AS-8 structural port is closed. Do not silently fold later behavioral changes into the old equivalence baseline.
 
-After equivalence is established, change one behavior at a time with:
+For each post-port AutoSeq behavior change, record:
 
 ```text
-old V2 behavior
+old V2/V3 baseline behavior
 reason for change
 new invariant
 unit/scenario test
@@ -534,4 +560,4 @@ ADV result where relevant
 RAM/timing effect where relevant
 ```
 
-This preserves a known-good starting point while still allowing the many AutoSeq improvements already anticipated for V3.
+This preserves a known-good starting point while allowing deliberate AutoSeq improvements to proceed independently.
