@@ -102,6 +102,7 @@ add_minishell_app(ft8
     apps/ft8/main/ft8_main.c
     apps/ft8/main/ft8_ui_adapter.c
     apps/ft8/src/app_controller/app_controller.c
+    apps/ft8/src/app_controller/app_controller_instance.c
     apps/ft8/src/app_controller/app_controller_tx.c
     apps/ft8/src/auto_seq/auto_seq.c
     apps/ft8/src/auto_seq/auto_seq_tx_intent.c
@@ -123,6 +124,11 @@ add_minishell_app(ft8
     apps/ft8/src/ft8_engine/ft8_message_codec.c
     apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fft.c
     apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fftr.c
+)
+set_source_files_properties(
+    apps/ft8/src/app_controller/app_controller.c
+    apps/ft8/src/app_controller/app_controller_tx.c
+    PROPERTIES COMPILE_DEFINITIONS FT8_APP_CONTROLLER_INTERNAL
 )
 target_include_directories(ft8 PRIVATE
     apps/ft8/include
