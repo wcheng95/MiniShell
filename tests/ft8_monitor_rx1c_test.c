@@ -42,19 +42,29 @@ static void test_requirements(void)
     Ft8MonitorConfig cfg = ft8_monitor_baseline_config();
     Ft8MonitorRequirements req;
 
+    /* Production default: time_osr=2, freq_osr=2. */
+    CHECK(cfg.time_osr == 2u);
+    CHECK(cfg.freq_osr == 2u);
     CHECK(ft8_monitor_query_requirements(&cfg, &req) == FT8_MONITOR_OK);
     CHECK(req.block_size == 960u);
     CHECK(req.subblock_size == 480u);
-    CHECK(req.nfft == 960u);
+    CHECK(req.nfft == 1920u);
     CHECK(req.min_bin == 32u);
     CHECK(req.max_bin == 465u);
     CHECK(req.num_bins == 433u);
     CHECK(req.max_blocks == 93u);
-    CHECK(req.block_stride == 866u);
-    CHECK(req.waterfall_bytes == 80538u);
+    CHECK(req.block_stride == 1732u);
+    CHECK(req.waterfall_bytes == 161076u);
     CHECK(req.total_bytes > req.waterfall_bytes);
     CHECK(req.fft_plan_bytes > 0u);
     CHECK(req.alignment >= _Alignof(void *));
+
+    /* Explicit low-memory/V2-compatible fallback remains valid. */
+    cfg.freq_osr = 1u;
+    CHECK(ft8_monitor_query_requirements(&cfg, &req) == FT8_MONITOR_OK);
+    CHECK(req.nfft == 960u);
+    CHECK(req.block_stride == 866u);
+    CHECK(req.waterfall_bytes == 80538u);
 
     cfg.sample_rate_hz = 12000u;
     CHECK(ft8_monitor_query_requirements(&cfg, &req) == FT8_MONITOR_ERR_INVALID);

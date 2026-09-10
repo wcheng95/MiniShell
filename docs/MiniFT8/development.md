@@ -15,6 +15,8 @@ Stay on Linux until a genuine embedded-backend dependency must be exercised. Min
 
 The **decode-RX milestone is complete through RX-7**. The next major block is intentionally left open for a separate design decision.
 
+Production RX tuning has intentionally advanced beyond the original RX-1C/V2-compatible monitor baseline. The current default is `time_osr=2, freq_osr=2`; `2x1` remains the low-memory/reference fallback. See `rx-tuning.md` for measurements and RAM policy.
+
 Validated production RX path:
 
 ```text
@@ -160,6 +162,7 @@ The RX-7 golden workflow passes through the real MiniShell runtime and productio
 8. FREE_TEXT may additionally be logical CQ only for `CQ <nnn|AAAA> <valid-callsign> [grid]`; protocol type remains FREE_TEXT.
 9. App/module failure should remain local and must not destabilize MiniShell or unrelated applications.
 10. `app_controller` remains the sole production coordinator.
+11. Repeated bounded state such as AutoSeq flags, active-QSO metadata, hash metadata, and candidate flags should use narrow fields, masks, or bitsets when the RAM saving is material; compactness must not obscure correctness or timing-sensitive behavior.
 
 ## Canonical RX records
 
@@ -178,6 +181,7 @@ rx-4-slot-framer.md
 rx-5-pure-assembly.md
 rx-6-minishell-audio.md
 rx-7-decoded-ui.md
+rx-tuning.md
 ```
 
 ## After RX-7
