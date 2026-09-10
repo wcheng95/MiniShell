@@ -40,6 +40,11 @@ jobs:
 
           while IFS= read -r path; do
             case "$path" in
+              apps/ft8/main/*|\
+              apps/ft8/include/ft8/app_types.h|\
+              apps/ft8/src/ui_shell/*|\
+              apps/ft8/src/app_controller/app_controller.h|\
+              apps/ft8/src/app_controller/app_controller_instance.c|\
               apps/ft8/src/ft8_engine/*|\
               apps/ft8/src/rx_audio_adapter/*|\
               apps/ft8/src/rx_frontend/*|\
@@ -53,9 +58,7 @@ jobs:
               CMakeLists.txt)
                 run_reference=true
                 ;;
-              apps/ft8/src/app_controller/app_controller.c|\
-              apps/ft8/src/app_controller/app_controller.h|\
-              apps/ft8/main/ft8_main.c)
+              apps/ft8/src/app_controller/app_controller.c)
                 if git diff -U0 "$range" -- "$path" | \
                    grep -Eq '^[+-].*(AppRxState|app_controller_start_rx|app_controller_step_rx|rx_emit_event|ft8_engine_|rx_audio_adapter_|rx_frontend_|rx_slot_framer_|rx_result_builder_|--rx)'; then
                   run_reference=true
