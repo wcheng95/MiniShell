@@ -68,7 +68,7 @@ static bool looks_like_grid4(const char *text)
 }
 
 /*
- * AS-3 boundary: turn one retained factual CQ into the normalized event
+ * AS-3/AS-6 boundary: turn one retained factual CQ into the normalized event
  * consumed by pure AutoSeq. No policy is inferred from display text.
  */
 static bool selected_cq_to_event(const RxBatch *batch, const RxMessage *message,
@@ -89,6 +89,7 @@ static bool selected_cq_to_event(const RxBatch *batch, const RxMessage *message,
     out_event->report_db = AUTO_SEQ_SNR_UNKNOWN;
     out_event->kind = AUTO_SEQ_MSG_TX1;
     out_event->flags = AUTO_SEQ_RX_FLAG_CQ;
+    if (message->is_fd) out_event->flags |= AUTO_SEQ_RX_FLAG_FD;
 
     written = snprintf(out_event->dxcall, sizeof(out_event->dxcall), "%s",
                        message->call_de);
@@ -115,9 +116,9 @@ static AutoSeqMessageKind auto_seq_kind_from_rx(RxQsoMessageKind kind)
 }
 
 /*
- * AS-4 boundary: map factual addressed RX metadata into AutoSeq's normalized
- * event. Field Day/DXpedition stages remain unclassified until their own AS
- * stages rather than being inferred from display/canonical text here.
+ * AS-4/AS-6 boundary: map factual addressed RX metadata into AutoSeq's
+ * normalized event. Structured Field Day facts are copied directly from the
+ * RxMessage; DXpedition remains deferred to its own later work.
  */
 static bool addressed_rx_to_event(const RxBatch *batch, const RxMessage *message,
                                   AutoSeqRxEvent *out_event)
@@ -141,6 +142,7 @@ static bool addressed_rx_to_event(const RxBatch *batch, const RxMessage *message
     out_event->report_db = message->report_db;
     out_event->kind = kind;
     out_event->flags = AUTO_SEQ_RX_FLAG_TO_ME;
+    if (message->is_fd) out_event->flags |= AUTO_SEQ_RX_FLAG_FD;
 
     written = snprintf(out_event->dxcall, sizeof(out_event->dxcall), "%s",
                        message->call_de);
@@ -150,6 +152,11 @@ static bool addressed_rx_to_event(const RxBatch *batch, const RxMessage *message
         written = snprintf(out_event->dxgrid, sizeof(out_event->dxgrid), "%s",
                            message->extra);
         if (written < 0 || (size_t)written >= sizeof(out_event->dxgrid)) return false;
+    }
+    if (message->is_fd && message->fd_exchange[0] != '\0') {
+        written = snprintf(out_event->fd_exchange, sizeof(out_event->fd_exchange), "%s",
+                           message->fd_exchange);
+        if (written < 0 || (size_t)written >= sizeof(out_event->fd_exchange)) return false;
     }
     return true;
 }
@@ -567,7 +574,7 @@ void app_controller_build_memory_model(const AppController *app, UiModel *model)
     }
     if ((info.valid_fields & MINI_MEM_INFO_LARGEST_BLOCK) != 0u) {
         model->memory_largest_valid = true;
-        model->memory_largest_free_block = info.largest_free_block;
+        model->memory_largest_free_bytes = info.largest_free_block;
     }
 }
 
