@@ -1,6 +1,6 @@
 # MiniShell Architecture Cleanup Gate
 
-Status: **Draft for review — C0/C1 complete**  
+Status: **Draft for review — C0/C1/C2 complete**  
 Date: 2026-09-10
 
 ## Purpose
@@ -98,10 +98,12 @@ In particular:
 - `ui_shell`, `auto_seq`, `tx_lifecycle`, and `ft8_engine` remain independent of platform APIs;
 - `rx_audio_adapter` is an intentional MiniShell edge adapter;
 - `tests/ft8_platform_boundary.py` prevents major platform leakage;
-- `tests/app_dependency_boundary.py` now enforces application-local module dependencies and private-header ownership;
-- `AppController` state is now opaque outside the controller ownership domain.
+- `tests/app_dependency_boundary.py` enforces application-local module dependencies, private-header ownership, and the C2 lifecycle/UI boundary;
+- `AppController` state is opaque outside the controller ownership domain;
+- `app_controller` now produces one complete `UiModel` snapshot while `ui_shell` alone decides which fields are visible;
+- `ft8_main` performs lifecycle/wiring only and compares final `UiFrame` output rather than interpreting UIScreen/submenu/model fields.
 
-The remaining work is mainly tightening `ft8_main` and finalizing runtime/configuration documentation before Keyer starts.
+The remaining cleanup work is documentation/architecture direction for runtime external applications and configuration ownership before Keyer starts.
 
 ## 3. Cleanup tasks
 
@@ -170,13 +172,11 @@ Verification completed:
 
 During C1 the ADV gate caught an ESP-IDF build-system difference: component CMake files are also evaluated in script mode, where `set_source_files_properties()` is unavailable. The per-source private-controller compile definition is now guarded so it is applied only during the real configure/build phase.
 
-### C2 — Keep `ft8_main` lifecycle-only
+### C2 — COMPLETE — Keep `ft8_main` lifecycle-only
 
-`ft8_main` should own foreground lifecycle and top-level wiring, not interpret internal UI state.
+`ft8_main` now owns foreground lifecycle and top-level wiring without interpreting UIScreen/submenu policy or individual `UiModel` fields.
 
-Current code knows that the V/Memory submenu requires a memory-model refresh and contains model-specific redraw comparisons.
-
-Target shape:
+The implemented flow is:
 
 ```text
 MiniShell input
@@ -188,13 +188,57 @@ UI adapter -> ui_shell -> AppAction
                   app_controller
                          |
                          v
-                      UiModel
+                 complete UiModel
                          |
                          v
 ui_shell -> UiFrame -> UI adapter -> MiniShell Display
 ```
 
-Remove the need for `ft8_main` to understand a particular UIScreen/submenu meaning. Keep the replacement small and explicit; do not create a generic event bus.
+The public controller now exposes one model facade:
+
+```text
+app_controller_build_model()
+```
+
+It builds a complete application snapshot, including diagnostics such as memory state. The former component builders remain private to `app_controller`. `ui_shell` decides which model fields belong on the current screen.
+
+The main loop does not compare model internals. It builds the complete model, renders a candidate `UiFrame` in memory, and sends the frame to the display adapter only when the final rendered frame differs from the previously displayed frame.
+
+This keeps redraw policy generic:
+
+```text
+state changes
+    |
+    v
+complete UiModel
+    |
+    v
+ui_shell renders candidate UiFrame
+    |
+    +-- same frame ----> no display write
+    |
+    `-- changed frame -> display write
+```
+
+As a consequence, a no-op input no longer produces a redundant repaint. Visible UI semantics are unchanged; only duplicate terminal/display output is removed. The Linux integration test was corrected so it no longer requires a second identical frame after the O-screen `Protocol: FT8` no-op selection.
+
+The C0 architecture checker now also rejects C2 regressions in `ft8_main.c`, including:
+
+- inspection of `ui.screen` or `ui.submenu`;
+- hard-coded `SCREEN_*` or `UI_SUBMENU_*` policy;
+- inspection of individual `model.*` fields.
+
+The FT8 reference workflow gate was also strengthened: changes to the FT8 main/UI/model boundary now automatically run the reference suite rather than depending on RX-specific symbol matching.
+
+Verification completed:
+
+- application dependency/lifecycle checker passes;
+- Linux build and all CTests pass;
+- AS-8 equivalence and strict unit tests pass;
+- full FT8 reference suite RX-1C through RX-7 passes, including RX-7 production decoded UI;
+- Cardputer ADV ESP-IDF v5.5.1 firmware build passes.
+
+No generic event bus or object framework was introduced.
 
 ### C3 — Make external application loading an active architecture target
 
@@ -285,9 +329,9 @@ Before Keyer implementation starts, the cleanup is complete when:
 5. documentation reflects active ADV runtime ELF direction and configuration ownership/naming;
 6. Linux build/unit/integration tests pass;
 7. ADV build/tests pass;
-8. the existing RX7 golden WAV integration test still passes unchanged in behavior.
+8. the existing RX7 golden WAV integration test still passes unchanged in visible behavior.
 
-Items 1-3 and 6-8 are satisfied after C0/C1. Items 4-5 remain for C2-C4.
+Items 1-4 and 6-8 are satisfied after C0-C2. Item 5 remains for C3-C4.
 
 ## 5. Non-goals
 
@@ -309,10 +353,10 @@ Resolved:
 
 1. **Opaque `AppController`: yes.** C1 uses a small ordinary-C opaque-pointer pattern with MiniShell Memory ownership; no object framework was introduced.
 2. **Dependency checker scope: reusable immediately.** C0 keeps one generic checker with a small per-application rule map; Keyer will add another map later.
+3. **Complete-model rendering: build one complete `UiModel`, then compare final `UiFrame`s.** C2 keeps screen-specific visibility in `ui_shell` and prevents `ft8_main` from learning submenu semantics.
 
 Still open:
 
-1. What is the simplest way for `ft8_main` to request/render a complete model without knowing submenu semantics? This is C2.
-2. Is `/flash/ft8/setting.txt` the desired eventual rename from the current `station.txt`, or should that migration remain a later application-specific decision? This does not block the ownership rule itself.
+1. Is `/flash/ft8/setting.txt` the desired eventual rename from the current `station.txt`, or should that migration remain a later application-specific decision? This does not block the ownership rule itself.
 
-Until C2-C4 are reviewed/completed, this remains a cleanup plan rather than the final architecture-cleanup record.
+Until C3-C4 are reviewed/completed, this remains a cleanup plan rather than the final architecture-cleanup record.
