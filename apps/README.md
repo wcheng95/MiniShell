@@ -26,14 +26,15 @@ build-linux/runtime/apps/
 
 Cardputer ADV V1 proved the application model with selected applications compiled into the firmware through a static registry. That remains a valid transition/testing mechanism, but runtime ELF loading is now an **active MiniShell target**, not a future experiment.
 
-ADV external application discovery uses the established search order:
+The established ADV application resolution order is:
 
 ```text
-1. /flash/<app>.elf
-2. /sd/<app>.elf
+1. compiled-in application
+2. /flash/<app>.elf
+3. /sd/<app>.elf
 ```
 
-The same application binary may therefore be installed in either location. If both copies exist, `/flash/<app>.elf` wins. For Keyer, both of these are valid:
+For external applications specifically, `/flash` is searched before `/sd`. The same application binary may therefore be installed in either external location. If both external copies exist, `/flash/<app>.elf` wins. For Keyer, both of these are valid:
 
 ```text
 /flash/keyer.elf
@@ -42,7 +43,7 @@ The same application binary may therefore be installed in either location. If bo
 
 `/sd/keyer.elf` remains convenient for development and removable distribution; copying the same binary to `/flash/keyer.elf` makes it available without the SD copy and gives it external-app search priority.
 
-Application discovery/loading remains a private backend/runtime responsibility. The Keyer source must use only the same MiniShell public API boundary as any other portable application; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, or loader-specific interfaces. Static and external applications may coexist while the loader is brought up. External-location precedence is fixed as `/flash` then `/sd`; collision/precedence behavior between a compiled-in app and an external app of the same name is intentionally not frozen yet.
+Application discovery/loading remains a private backend/runtime responsibility. The Keyer source must use only the same MiniShell public API boundary as any other portable application; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, or loader-specific interfaces. Static and external applications may coexist while the loader is brought up.
 
 Current applications:
 
