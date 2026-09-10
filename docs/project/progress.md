@@ -11,28 +11,32 @@
 - System, Console, Memory, Filesystem, Time/Location, Display, Input, and Audio public contracts have automated coverage. Digital I/O is not yet public and will be driven by the Keyer requirement.
 - MiniFT8 is runtime app `ft8` and is FT8-only. Future Keyer/FT4/RTTY/JS8 functionality remains separate applications rather than an FT8-internal protocol selector.
 - MiniFT8 RX integration has advanced through RX-7 on Linux, including the production decoded-UI golden test.
-- MiniFT8 architecture cleanup C0-C3 is complete: dependency/no-side-talk enforcement, opaque `AppController`, lifecycle-only `ft8_main`, and active ADV runtime-ELF architecture direction.
+- The pre-Keyer architecture cleanup C0-C4 is complete.
 - The application-facing contract is the **MiniShell API**. Backward source/binary compatibility is not frozen during this early architecture phase; external apps may need rebuilding for the matching API generation.
 
 ## Current priority
 
-Finish the architecture-cleanup gate, then begin the external Keyer path:
+Review/finalize the Keyer plan, then begin the external application path:
 
 ```text
-C4  configuration ownership/file naming
+Keyer plan review
     |
     v
-ADV runtime ELF loader bring-up
+ADV runtime ELF loader proof
+    |
+    v
+MiniShell Digital I/O
+    |
+    v
+portable Keyer implementation
     |
     v
 keyer.elf
     |-- /flash/keyer.elf
     `-- /sd/keyer.elf
-
-resolution: compiled-in -> /flash -> /sd
 ```
 
-C4 records the ownership split already agreed in design:
+Canonical configuration ownership is now fixed:
 
 ```text
 /flash/config.txt
@@ -42,29 +46,59 @@ C4 records the ownership split already agreed in design:
     application-owned configuration/deployment settings
 ```
 
-After C4, Keyer becomes the first practical application to drive the remaining MiniShell facilities such as Digital I/O and real ADV audio output while also validating runtime ELF lifecycle in field use.
+Full rule:
 
-## Architecture cleanup
+```text
+docs/architecture/configuration.md
+```
 
-Current status:
+Application settings may be hardware-specific. Keyer may own GPIO-number settings; MiniShell receives only generic Digital I/O operations and must not know `dit`, `dah`, paddle, or KeyOut semantics.
+
+## Architecture cleanup — complete
 
 ```text
 C0  application dependency/no-side-talk enforcement   COMPLETE
 C1  opaque AppController                              COMPLETE
 C2  ft8_main lifecycle/wiring only                    COMPLETE
 C3  ADV ELF + compiled-in -> /flash -> /sd order     COMPLETE
-C4  configuration ownership/naming                    NEXT
+C4  configuration ownership/naming                    COMPLETE
 ```
 
-Canonical plan:
+Canonical record:
 
 ```text
 docs/project/architecture-cleanup.md
 ```
 
+The code-bearing C0-C2 cleanup passed Linux build/CTest, strict units, AS-8, RX-1C through RX-7 including production RX7, and the Cardputer ADV ESP-IDF build. C3-C4 are architecture/documentation changes only.
+
+## MiniFT8 configuration transition
+
+The canonical application-settings namespace is `/flash/<app>/setting.txt`.
+
+MiniFT8 currently still uses:
+
+```text
+/flash/ft8/station.txt
+```
+
+A later MiniFT8 migration may move this to:
+
+```text
+/flash/ft8/setting.txt
+```
+
+That rename is not part of C4 and must not be mixed into the Keyer/ELF work. MiniFT8 continues to own the current `station.txt` contents until such a migration is deliberately implemented.
+
+Keyer starts directly with:
+
+```text
+/flash/keyer/setting.txt
+```
+
 ## MiniFT8 RX integration
 
-The Linux RX reference path now reaches the production application boundary. RX-7 has passed with the golden WAV and expected decoded UI output.
+The Linux RX reference path reaches the production application boundary. RX-7 has passed with the golden WAV and expected decoded UI output.
 
 The reference workflow covers RX-sensitive changes through:
 
@@ -97,24 +131,9 @@ docs/project/adv-backend-plan.md
 docs/MiniFT8/v1-validation.md
 ```
 
-The checkpoint proved:
-
-```text
-portable minishell_run()
-private backend boundary
-ADV display/keyboard services
-ADV filesystem/time services
-MiniFT8 shared source across Linux and ADV
-ADV 20x7 presentation
-foreground app lifecycle/return to M$>
-platform-dependency boundary
-```
-
-ADV V1 used static application composition deliberately. C3 now adds runtime external `.elf` loading while preserving compiled-in applications as the first resolution tier. For external applications, `/flash` is searched before `/sd`.
+ADV V1 used static application composition deliberately. C3 adds runtime external `.elf` loading while preserving compiled-in applications as the first resolution tier. For external applications, `/flash` is searched before `/sd`.
 
 ## ADV current storage/runtime baseline
-
-Current ADV storage namespace:
 
 ```text
 /flash    FATFS on internal flash through wear levelling
@@ -144,6 +163,7 @@ docs/project/architecture-cleanup.md
 docs/keyer/README.md
 docs/architecture/architecture.md
 docs/architecture/design-principles.md
+docs/architecture/configuration.md
 docs/architecture/resident-vs-app.md
 docs/project/adv-backend-plan.md
 docs/MiniFT8/v1-validation.md
