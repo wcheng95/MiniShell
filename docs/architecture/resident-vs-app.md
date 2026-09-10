@@ -4,6 +4,8 @@
 
 New functionality needs an explicit placement decision. MiniShell should remain a small runtime/control plane; ordinary tools and domain behavior should remain applications.
 
+The maintained targets are Linux Mint and Cardputer ADV.
+
 ## Primary rule
 
 Keep functionality resident when MiniShell itself needs it to:
@@ -22,7 +24,7 @@ A useful question is:
 
 > If this feature disappeared, would MiniShell still be able to host, diagnose, and recover applications on this platform?
 
-## Current Linux resident shell
+## Current resident shell
 
 ```text
 help
@@ -54,7 +56,7 @@ rmdir
 ft8
 ```
 
-These use only the public MiniShell API and can be rebuilt for another MiniShell platform with the required capabilities.
+These use only the public MiniShell API and can be built for Linux or ADV when the required capabilities are available.
 
 Large domain applications such as MiniFT8, Keyer/MiniCW, and MiniRTTY belong on this side of the boundary as well.
 
@@ -71,7 +73,7 @@ poweroff
 board-specific recovery/bootstrap commands
 ```
 
-Linux Mint does not need MiniShell `put/get` because normal host file access already exists. A small embedded target may need a serial/USB/BLE transfer command to provision or recover its storage.
+Linux Mint does not need MiniShell `put/get` because normal host file access already exists. A small embedded target such as ADV may need a serial/USB/BLE transfer command to provision or recover its storage.
 
 Likewise, a desktop MiniShell does not need a fake `poweroff` command merely because an embedded target may have one.
 
@@ -94,18 +96,17 @@ Keeping them as apps tests the same API that real applications use instead of cr
 
 ## Loader/container independence
 
-Do not define an application conceptually by its container format. "ELF app" and ".so app" describe packaging on a particular backend, not the application's domain architecture.
+Do not define an application conceptually by its container format. `.so` and `.elf` describe packaging on a backend, not the application's domain architecture.
 
 ```text
 Linux/Mint          .so
 Cardputer ADV V1    compiled-in registry
 Cardputer ADV next  runtime external .elf
-NuttX               native loadable mechanism where practical
 ```
 
 The ADV static registry remains available during transition/testing, but runtime loading is now an active MiniShell architecture target.
 
-The established ADV application resolution order is:
+ADV application resolution is:
 
 ```text
 1. compiled-in application
@@ -113,7 +114,7 @@ The established ADV application resolution order is:
 3. /sd/<app>.elf
 ```
 
-Thus external discovery searches `/flash` before `/sd`. The same ELF may live in either external location; when both copies exist, `/flash` wins. Both of these are valid Keyer installations:
+The same external ELF may live in either location; when both copies exist, `/flash` wins. Therefore both of these are valid Keyer installations:
 
 ```text
 /flash/keyer.elf
@@ -123,8 +124,6 @@ Thus external discovery searches `/flash` before `/sd`. The same ELF may live in
 The source-level application contract remains MiniShell public API plus the application's own modules. Loader details such as path discovery, ELF parsing, relocation, symbol resolution, execution context, and unloading stay resident/private to MiniShell and the ADV backend.
 
 External loading does not make Keyer platform-aware. The same Keyer source must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or ELF-loader interfaces.
-
-The resolution order is a MiniShell runtime policy and does not leak into application source.
 
 A formal cross-release binary ABI is still intentionally deferred. During this early phase an external application may need to be rebuilt for the matching MiniShell API generation.
 
