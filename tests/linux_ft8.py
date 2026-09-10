@@ -4,6 +4,7 @@ import errno
 import os
 import pty
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,6 +42,8 @@ def main() -> int:
 
     minishell = os.path.abspath(sys.argv[1])
     app_dir = os.path.abspath(sys.argv[2])
+    kfs_fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "kfs16b12k.wav")
     master_fd, slave_fd = pty.openpty()
 
     try:
@@ -57,6 +60,7 @@ def main() -> int:
                     "skip_tx1=0\n"
                     "max_retry=3\n"
                 )
+            shutil.copyfile(kfs_fixture, os.path.join(root, "flash", "kfs.wav"))
 
             env = os.environ.copy()
             env["MINISHELL_APP_DIR"] = app_dir
@@ -133,6 +137,51 @@ def main() -> int:
                 if b"Presentation: ADV" not in adv_system:
                     raise RuntimeError(f"ADV system view missing presentation label: {adv_system!r}")
                 transcript.extend(adv_system)
+                os.write(master_fd, b"q")
+                transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
+                # AS-3 golden: use a clean non-Skip-TX1 station configuration.
+                with open(station, "r", encoding="utf-8") as handle:
+                    as3_station = handle.read()
+                as3_station = as3_station.replace("skip_tx1=1\n", "skip_tx1=0\n")
+                with open(station, "w", encoding="utf-8") as handle:
+                    handle.write(as3_station)
+
+                # Decode the real 2x2 kfs fixture. 16 messages => 3 RX pages.
+                os.write(master_fd,
+                         b"ft8 --profile adv --rx /flash/kfs.wav --rx-slot 12345\n")
+                transcript.extend(read_until(master_fd, b" 1/3 ", 15.0))
+
+                # Select every decoded line. AS-3 queues only factual CQs.
+                os.write(master_fd, b"123456")
+                os.write(master_fd, b"\x1b[B")
+                transcript.extend(read_until(master_fd, b" 2/3 ", 3.0))
+                os.write(master_fd, b"123456")
+                os.write(master_fd, b"\x1b[B")
+                transcript.extend(read_until(master_fd, b" 3/3 ", 3.0))
+                os.write(master_fd, b"1234")
+
+                # The eight CQs become eight RPLY contexts: T pages are 6 + 2.
+                os.write(master_fd, b"t")
+                transcript.extend(read_until(master_fd, b" 1/2 ", 3.0))
+                os.write(master_fd, b"\x1b[B")
+                page1_tail = read_until(master_fd, b" 2/2 ", 3.0)
+                if page1_tail.count(b"RPLY 0/3") != 6:
+                    raise RuntimeError(
+                        f"AS-3 T page 1 did not contain six QSO rows: {page1_tail!r}"
+                    )
+                transcript.extend(page1_tail)
+
+                # Switching to T resets it to page 1; bytes before that new top
+                # are the remainder of page 2, which must contain exactly 2 rows.
+                os.write(master_fd, b"t")
+                page2_tail = read_until(master_fd, b" 1/2 ", 3.0)
+                if page2_tail.count(b"RPLY 0/3") != 2:
+                    raise RuntimeError(
+                        f"AS-3 T page 2 did not contain two QSO rows: {page2_tail!r}"
+                    )
+                transcript.extend(page2_tail)
+
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
