@@ -102,6 +102,58 @@ static bool selected_cq_to_event(const RxBatch *batch, const RxMessage *message,
     return true;
 }
 
+static AutoSeqMessageKind auto_seq_kind_from_rx(RxQsoMessageKind kind)
+{
+    switch (kind) {
+        case RX_QSO_MSG_TX1: return AUTO_SEQ_MSG_TX1;
+        case RX_QSO_MSG_TX2: return AUTO_SEQ_MSG_TX2;
+        case RX_QSO_MSG_TX3: return AUTO_SEQ_MSG_TX3;
+        case RX_QSO_MSG_TX4: return AUTO_SEQ_MSG_TX4;
+        case RX_QSO_MSG_TX5: return AUTO_SEQ_MSG_TX5;
+        default: return AUTO_SEQ_MSG_NONE;
+    }
+}
+
+/*
+ * AS-4 boundary: map factual addressed RX metadata into AutoSeq's normalized
+ * event. Field Day/DXpedition stages remain unclassified until their own AS
+ * stages rather than being inferred from display/canonical text here.
+ */
+static bool addressed_rx_to_event(const RxBatch *batch, const RxMessage *message,
+                                  AutoSeqRxEvent *out_event)
+{
+    AutoSeqMessageKind kind;
+    int written;
+
+    if (batch == NULL || message == NULL || out_event == NULL ||
+        !message->is_to_me || message->parse_status != FT8_PROTOCOL_PARSE_OK ||
+        message->has_unresolved_hash || message->call_de[0] == '\0') {
+        return false;
+    }
+
+    kind = auto_seq_kind_from_rx(message->qso_kind);
+    if (kind == AUTO_SEQ_MSG_NONE) return false;
+
+    memset(out_event, 0, sizeof(*out_event));
+    out_event->rx_slot_id = batch->slot_id;
+    out_event->offset_hz = message->offset_hz;
+    out_event->snr_db = message->snr_db;
+    out_event->report_db = message->report_db;
+    out_event->kind = kind;
+    out_event->flags = AUTO_SEQ_RX_FLAG_TO_ME;
+
+    written = snprintf(out_event->dxcall, sizeof(out_event->dxcall), "%s",
+                       message->call_de);
+    if (written < 0 || (size_t)written >= sizeof(out_event->dxcall)) return false;
+
+    if (kind == AUTO_SEQ_MSG_TX1 && looks_like_grid4(message->extra)) {
+        written = snprintf(out_event->dxgrid, sizeof(out_event->dxgrid), "%s",
+                           message->extra);
+        if (written < 0 || (size_t)written >= sizeof(out_event->dxgrid)) return false;
+    }
+    return true;
+}
+
 static const char *qso_state_label(AutoSeqState state)
 {
     switch (state) {
@@ -212,6 +264,26 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
     }
 
     return -1;
+}
+
+static bool app_process_addressed_batch(AppController *app)
+{
+    size_t i;
+
+    if (app == NULL || app->rx == NULL || !app->rx->have_batch) return true;
+
+    for (i = 0u; i < app->rx->batch.message_count; ++i) {
+        const RxMessage *message = &app->rx->batch.messages[i];
+        AutoSeqRxEvent event;
+        AutoSeqResult result;
+
+        if (!addressed_rx_to_event(&app->rx->batch, message, &event)) continue;
+
+        result = auto_seq_on_addressed_rx(&app->auto_seq, &event);
+        if (result == AUTO_SEQ_ERR_INVALID) return false;
+        /* V2 silently drops a new decode when all 30 entries are active. */
+    }
+    return true;
 }
 
 bool app_controller_init(AppController *app, const mini_api_t *api,
@@ -371,7 +443,10 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
         return false;
     }
 
-    if (rx->batch_generation != generation_before) *out_model_changed = true;
+    if (rx->batch_generation != generation_before) {
+        if (!app_process_addressed_batch(app)) return false;
+        *out_model_changed = true;
+    }
     return true;
 }
 
