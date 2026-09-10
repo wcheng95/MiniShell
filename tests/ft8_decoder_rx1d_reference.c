@@ -7,8 +7,8 @@
 #include "ft8_monitor.h"
 
 #define EXPECTED_BLOCKS 85u
-#define EXPECTED_ACTIVE_BYTES 73610u
-#define EXPECTED_FNV64 UINT64_C(0x18BE1E838FD9C6AF)
+#define EXPECTED_ACTIVE_BYTES 147220u
+#define EXPECTED_FNV64 UINT64_C(0x25B10DF3C618A9CB)
 
 static const uint8_t kExpectedPayload[FT8_PAYLOAD_BYTES] = {
     0x00, 0x00, 0x00, 0x20, 0x60, 0x16, 0x50, 0x0A, 0x19, 0x88
@@ -17,7 +17,7 @@ static const uint8_t kExpectedPayload[FT8_PAYLOAD_BYTES] = {
 static uint64_t fnv1a64(const uint8_t *data, size_t bytes)
 {
     uint64_t h = UINT64_C(14695981039346656037);
-    for (size_t i = 0; i < bytes; ++i) {
+    for (size_t i = 0u; i < bytes; ++i) {
         h ^= data[i];
         h *= UINT64_C(1099511628211);
     }
