@@ -1,5 +1,6 @@
 #include "app_controller.h"
 
+#include <ctype.h>
 #include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -13,6 +14,9 @@
 
 #define RX_TRANSPORT_FRAMES 257u
 #define RX_FRONTEND_OUT_CAPACITY ((RX_TRANSPORT_FRAMES + 1u) / 2u)
+
+_Static_assert(APP_MAX_TX_LINES >= AUTO_SEQ_MAX_QUEUE,
+               "UiModel must hold the complete active AutoSeq queue");
 
 struct AppRxState {
     RxAudioAdapter audio;
@@ -52,6 +56,63 @@ static void copy_ui_text(char out[UI_TEXT_CAP], const char *text)
     if (length >= UI_TEXT_CAP) length = UI_TEXT_CAP - 1u;
     memcpy(out, text, length);
     out[length] = '\0';
+}
+
+static bool looks_like_grid4(const char *text)
+{
+    return text != NULL && strlen(text) == 4u &&
+           isalpha((unsigned char)text[0]) &&
+           isalpha((unsigned char)text[1]) &&
+           isdigit((unsigned char)text[2]) &&
+           isdigit((unsigned char)text[3]);
+}
+
+/*
+ * AS-3 boundary: turn one retained factual CQ into the normalized event
+ * consumed by pure AutoSeq. No policy is inferred from display text.
+ */
+static bool selected_cq_to_event(const RxBatch *batch, const RxMessage *message,
+                                 AutoSeqRxEvent *out_event)
+{
+    int written;
+
+    if (batch == NULL || message == NULL || out_event == NULL ||
+        !message->is_cq || message->has_unresolved_hash ||
+        message->call_de[0] == '\0') {
+        return false;
+    }
+
+    memset(out_event, 0, sizeof(*out_event));
+    out_event->rx_slot_id = batch->slot_id;
+    out_event->offset_hz = message->offset_hz;
+    out_event->snr_db = message->snr_db;
+    out_event->report_db = AUTO_SEQ_SNR_UNKNOWN;
+    out_event->kind = AUTO_SEQ_MSG_TX1;
+    out_event->flags = AUTO_SEQ_RX_FLAG_CQ;
+
+    written = snprintf(out_event->dxcall, sizeof(out_event->dxcall), "%s",
+                       message->call_de);
+    if (written < 0 || (size_t)written >= sizeof(out_event->dxcall)) return false;
+
+    if (looks_like_grid4(message->extra)) {
+        written = snprintf(out_event->dxgrid, sizeof(out_event->dxgrid), "%s",
+                           message->extra);
+        if (written < 0 || (size_t)written >= sizeof(out_event->dxgrid)) return false;
+    }
+    return true;
+}
+
+static const char *qso_state_label(AutoSeqState state)
+{
+    switch (state) {
+        case AUTO_SEQ_STATE_CALLING: return "CALL";
+        case AUTO_SEQ_STATE_REPLYING: return "RPLY";
+        case AUTO_SEQ_STATE_REPORT: return "RPRT";
+        case AUTO_SEQ_STATE_ROGER_REPORT: return "RRPT";
+        case AUTO_SEQ_STATE_ROGERS: return "RGRS";
+        case AUTO_SEQ_STATE_SIGNOFF: return "SOFF";
+        default: return "----";
+    }
 }
 
 static bool app_save_config(AppController *app)
@@ -342,7 +403,10 @@ static void build_utc_model(const AppController *app, UiModel *model)
 
 void app_controller_build_ui_model(const AppController *app, UiModel *model)
 {
+    AutoSeqQsoView qso_views[AUTO_SEQ_MAX_QUEUE];
     size_t i;
+    size_t qso_count;
+
     memset(model, 0, sizeof(*model));
 
     model->profile_index = app->config.profile_index;
@@ -369,8 +433,17 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
         }
     }
 
-    model->tx_count = 1u;
-    snprintf(model->tx_lines[0], UI_TEXT_CAP, "%s", "TX queue empty (prototype)");
+    qso_count = auto_seq_snapshot_active(&app->auto_seq, qso_views,
+                                         AUTO_SEQ_MAX_QUEUE);
+    if (qso_count > APP_MAX_TX_LINES) qso_count = APP_MAX_TX_LINES;
+    model->tx_count = qso_count;
+    for (i = 0u; i < qso_count; ++i) {
+        (void)snprintf(model->tx_lines[i], UI_TEXT_CAP, "%-8.8s %.4s %u/%u",
+                       qso_views[i].dxcall,
+                       qso_state_label(qso_views[i].state),
+                       (unsigned)qso_views[i].retry_counter,
+                       (unsigned)qso_views[i].retry_limit);
+    }
 }
 
 void app_controller_build_memory_model(const AppController *app, UiModel *model)
@@ -415,7 +488,11 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
     if (app == NULL || action == NULL) return false;
 
     switch (action->type) {
-        case APP_ACTION_SELECT_RX_MESSAGE:
+        case APP_ACTION_SELECT_RX_MESSAGE: {
+            const RxMessage *message;
+            AutoSeqRxEvent event;
+            AutoSeqResult auto_seq_result;
+
             if (app->rx == NULL || !app->rx->have_batch || action->value.index < 0 ||
                 (size_t)action->value.index >= app->rx->batch.message_count) {
                 return false;
@@ -423,7 +500,15 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
             app->rx->selected_rx_index = (size_t)action->value.index;
             app->rx->selected_rx_generation = app->rx->batch_generation;
             app->rx->selected_rx_valid = true;
-            return true;
+
+            message = &app->rx->batch.messages[app->rx->selected_rx_index];
+            if (!selected_cq_to_event(&app->rx->batch, message, &event)) {
+                return true;
+            }
+
+            auto_seq_result = auto_seq_on_manual_rx(&app->auto_seq, &event);
+            return auto_seq_result == AUTO_SEQ_OK || auto_seq_result == AUTO_SEQ_IGNORED;
+        }
 
         case APP_ACTION_SET_PROFILE:
             config_service_set_profile(&app->config, action->value.index);
