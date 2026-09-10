@@ -51,7 +51,6 @@ mv
 rm
 mkdir
 rmdir
-df
 nano
 ft8
 ```
@@ -59,6 +58,8 @@ ft8
 The filesystem utilities and `nano` are the existing portable MiniShell applications; ADV only supplies composition wrappers and the platform services they consume. This keeps the same application code usable on Linux and future MiniShell backends.
 
 MiniFT8 remains deliberately compiled into the firmware. Future small/medium utilities may instead be distributed as ELF applications once the ADV ELF loader is implemented.
+
+`df` remains out of the ADV registry for now because the current public `Filesystem.space()` implementation is quota-based and ADV intentionally has no global storage quota across `/flash` and `/sd`. Proper per-volume capacity reporting should be defined separately rather than reporting misleading numbers.
 
 ## MiniFT8 P2 composition
 
@@ -134,7 +135,7 @@ Display           application-owned/full-screen UI
 System.write()    USB/debug diagnostics
 ```
 
-On ADV, Console output joins the resident text-console stream and is mirrored to USB. Utilities such as `date`, `ls`, `cat`, `cp`, `mv`, `rm`, `mkdir`, `rmdir`, and `df` therefore use the normal MiniShell utility interface. `nano` uses the MiniShell Display, Input, Filesystem, and Memory APIs and remains platform-independent. System diagnostics remain USB-only so they cannot overwrite a foreground application's Display UI.
+On ADV, Console output joins the resident text-console stream and is mirrored to USB. Utilities such as `date`, `ls`, `cat`, `cp`, `mv`, `rm`, `mkdir`, and `rmdir` therefore use the normal MiniShell utility interface. `nano` uses the MiniShell Display, Input, Filesystem, and Memory APIs and remains platform-independent. System diagnostics remain USB-only so they cannot overwrite a foreground application's Display UI.
 
 The Cardputer ADV keyboard uses the proven wiring:
 
@@ -183,7 +184,7 @@ At the MiniShell Filesystem root:
 /sd       present only when the card mounted successfully
 ```
 
-An absent or invalid SD card is not a boot failure. Same-filesystem `mv` can use the Filesystem rename operation. Cross-filesystem rename remains unsupported at the backend boundary; portable copy/delete logic is the correct way to move between `/flash` and `/sd` when that behavior is desired.
+An absent or invalid SD card is not a boot failure. Same-filesystem `mv` can use the Filesystem rename operation. Cross-filesystem rename remains unsupported at the backend boundary; use `cp` followed by `rm` to move a file between `/flash` and `/sd` today.
 
 ESP-IDF v5.5.x defaults FATFS to 8.3-only filenames. ADV explicitly enables heap-backed long filenames, a 255-character LFN limit, and UTF-8 API encoding for both volumes so they satisfy the MiniShell Filesystem filename contract.
 
@@ -279,9 +280,8 @@ Real ADV storage/utility check for this increment:
 
 ```text
 M$> apps
-    -> includes cp mv rm mkdir rmdir df nano ft8
+    -> includes cp mv rm mkdir rmdir nano ft8
 
-M$> df /flash
 M$> mkdir /flash/test
 M$> nano /flash/test/note.txt
 M$> cp /flash/test/note.txt /flash/test/copy.txt
