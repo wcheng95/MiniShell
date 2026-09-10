@@ -1,6 +1,6 @@
 # MiniFT8-V3 AutoSeq Plan
 
-Status: **IN PROGRESS — AS-0 through AS-3 complete; AS-4 next**
+Status: **IN PROGRESS — AS-0 through AS-4 complete; AS-5 next**
 
 AutoSeq is the current major MiniFT8-V3 block after decode RX. This phase is a structural port first: preserve the proven MiniFT8-V2 AutoSeq behavior while replacing old ownership, dynamic data structures, and cross-module coupling with explicit V3 boundaries.
 
@@ -171,13 +171,14 @@ Do not store canonical display text as authoritative QSO state. Do not store `ne
 
 AutoSeq consumes factual MiniFT8 data only.
 
-For a selected RX message it needs, as applicable:
+For a selected or automatically processed RX message it needs, as applicable:
 
 ```text
 slot_id
 protocol type
 is_cq
 is_to_me
+qso_kind
 call_to
 call_de
 extra/grid/report fields
@@ -186,7 +187,7 @@ RX SNR
 resolved/unresolved hash status
 ```
 
-AS-2 represents the subset needed by the pure state owner as a normalized `AutoSeqRxEvent`. AS-3 now maps selected resolved CQs from real `RxMessage` data into that event; AS-4 will add automatic addressed-to-me mapping.
+AS-2 represents the subset needed by the pure state owner as a normalized `AutoSeqRxEvent`. AS-3 maps selected resolved CQs from real `RxMessage` data into that event. AS-4 adds factual ordinary-QSO `qso_kind/report_db` metadata and maps completed `is_to_me` messages automatically in decode order.
 
 AutoSeq copies only QSO-lifetime facts into its own context. It must never retain a pointer into `RxBatch`, because the RX batch belongs to the RX state and can be replaced by a later decode window.
 
@@ -217,7 +218,7 @@ retry state
 active/inactive marker where relevant
 ```
 
-The T UIScreen renders this view. It does not inspect internal queue storage. AS-3 now projects caller-owned active snapshots into `UiModel.tx_lines[]`, with the model sized for the full 30-entry active queue and six visible entries per ADV page.
+The T UIScreen renders this view. It does not inspect internal queue storage. AS-3 projects caller-owned active snapshots into `UiModel.tx_lines[]`, with the model sized for the full 30-entry active queue and six visible entries per ADV page.
 
 ### TX intent
 
@@ -254,9 +255,11 @@ RX slot completes
 
 Decode completion must not directly start TX. AutoSeq remains synchronous and deterministic unless concurrency is later proven necessary.
 
-## 9. Real fixture anchor
+AS-4 makes the first two steps concrete: `rx_emit_event()` still owns only RX assembly; after `batch_generation` changes, `app_controller_step_rx()` walks the completed batch exactly once and feeds eligible addressed messages to AutoSeq in decode order.
 
-Use the existing production fixture:
+## 9. Real fixture anchors
+
+### Multi-CQ fixture
 
 ```text
 tests/kfs16b12k.wav
@@ -285,7 +288,27 @@ KQ4PUG
 
 With Skip TX1 off, all eight start as `REPLYING` with `RPLY 0/3`. Their real T-screen projection is six entries on page 1 and two on page 2. All were received in the same slot, so they request the same opposite TX parity.
 
-No physical TX occurs during this test.
+### Addressed-message V2 goldens
+
+AS-4 reuses the pinned MiniFT8-V2 WAVs:
+
+```text
+W1ABC K9XYZ FN42
+W1ABC K9XYZ -12
+W1ABC K9XYZ RR73
+```
+
+With W1ABC configured as the local station and no manual RX selection:
+
+```text
+fresh TX1/grid       -> K9XYZ RPRT 0/3
+fresh TX2/report     -> K9XYZ RRPT 0/3
+unknown late RR73    -> ignored, no QSO context
+```
+
+A two-slot WAV containing `FN42` followed by `-12` proves active-context matching: the second completed batch advances the existing K9XYZ context to `RRPT 0/3`, and the T screen contains exactly one K9XYZ entry.
+
+No physical TX occurs during these tests.
 
 ## 10. Staged implementation
 
@@ -368,21 +391,28 @@ See `as-3-cq-t-screen.md`.
 
 ### AS-4 — Automatic addressed-to-me progression
 
-Status: **NEXT**
+Status: **COMPLETE**
 
 Purpose: feed completed RX batches into AutoSeq exactly where V2 automatically processes messages addressed to us.
 
-Rules:
+Completed work:
 
 ```text
-ordinary CQ: no automatic reply
-selected CQ: manual queue insertion
-is_to_me: automatic AutoSeq processing
+RxResultBuilder classifies factual ordinary QSO stages TX1..TX5
+RxMessage carries compact qso_kind + report_db
+app_controller processes each completed batch once, in decode order
+ordinary CQ remains manual-only
+resolved parse-OK is_to_me messages feed auto_seq_on_addressed_rx()
+active context matching and inactive reactivation remain AutoSeq-owned
+unknown TX3/TX4/TX5 reincarnation guards remain AutoSeq-owned
+full all-active queue drops an unqueueable new decode non-fatally as V2 does
 ```
 
-Preserve V2 duplicate/matching/reply state behavior.
+Production proof uses pinned V2 WAVs with no RX-line selection. Fresh TX1 and TX2 create the expected V2 states; a two-slot same-DX sequence advances one existing context; an unknown RR73 creates no context. `auto_seq.c` required no AS-4 change. See `as-4-addressed-progression.md`.
 
 ### AS-5 — Retry, priority, inactive, reactivation, queue controls
+
+Status: **NEXT**
 
 Port and test current V2 behavior for:
 
