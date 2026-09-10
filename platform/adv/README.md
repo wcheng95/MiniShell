@@ -203,16 +203,21 @@ An absent or invalid SD card is not a boot failure. Same-filesystem `mv` can use
 
 ESP-IDF v5.5.x defaults FATFS to 8.3-only filenames. ADV explicitly enables heap-backed long filenames, a 255-character LFN limit, and UTF-8 API encoding for both volumes so they satisfy the MiniShell Filesystem filename contract.
 
-ADV deliberately disables `CONFIG_FATFS_PER_FILE_CACHE`. ESP-IDF's default per-file cache allocates a sector cache inside every FATFS file slot; with eight slots on each mounted volume this consumed roughly 75 KiB of avoidable idle heap. Shared-cache/tiny mode preserves the eight-file limit while using substantially less resident RAM. `adv_config_guard.c` rejects builds that accidentally re-enable per-file caching.
+ADV deliberately disables `CONFIG_FATFS_PER_FILE_CACHE`. ESP-IDF's default per-file cache allocates a sector cache inside every FATFS file slot; with eight slots on each mounted volume this consumed exactly 64 KiB of avoidable idle heap in the measured two-volume configuration. Shared-cache/tiny mode preserves the eight-file limit while using substantially less resident RAM. `adv_config_guard.c` rejects builds that accidentally re-enable per-file caching.
 
-Hardware RAM audit with both `/flash` and `/sd` mounted after this change:
+Hardware RAM audit after this change:
 
 ```text
-shell-ready heap free    336288 B (328.4 KiB)
-largest free block       286720 B (280.0 KiB)
+/flash only:
+  shell-ready heap free    336288 B (328.4 KiB)
+  largest free block       286720 B (280.0 KiB)
+
+/flash + /sd mounted:
+  shell-ready heap free    324700 B (317.1 KiB)
+  largest free block       278528 B (272.0 KiB)
 ```
 
-The filesystem initialization step now consumes about 21.6 KiB total with both volumes mounted, instead of about 85.6 KiB before the shared-cache change.
+With both volumes mounted, filesystem initialization now consumes 22076 B (21.6 KiB), down from 87612 B (85.6 KiB) before the shared-cache change. The recovered heap is exactly 65536 B (64.0 KiB).
 
 ## `usbmsc` utility
 
