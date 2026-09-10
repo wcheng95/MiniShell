@@ -97,7 +97,7 @@ static void test_adv_locked_top_and_rx_paging(void)
     {
         static const char *messages[] = {
             "RX message 1", "RX message 2", "RX message 3", "RX message 4",
-            "RX message 5", "RX message 6", "RX message 7"
+            "RX message 5", "RX message 6", "RX message 7", "RX message 8"
         };
         model.rx_count = sizeof(messages) / sizeof(messages[0]);
         for (i = 0u; i < model.rx_count; ++i) {
@@ -114,10 +114,22 @@ static void test_adv_locked_top_and_rx_paging(void)
     assert(strstr(frame.rows[1], "1 RX message 1") != NULL);
     assert(strstr(frame.rows[6], "6 RX message 6") != NULL);
 
+    /* RX line keys emit absolute decoded-message indices, not page-local indices. */
+    assert(ui_shell_handle_input(&ui, &model, key('6'), &action));
+    assert(action.type == APP_ACTION_SELECT_RX_MESSAGE);
+    assert(action.value.index == 5);
+
     assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_DOWN), &action));
     ui_shell_render(&ui, &model, &frame);
     assert(strcmp(frame.rows[0], "RX 20 14:32:08 2/2 8") == 0);
     assert(strstr(frame.rows[1], "1 RX message 7") != NULL);
+    assert(strstr(frame.rows[2], "2 RX message 8") != NULL);
+
+    assert(ui_shell_handle_input(&ui, &model, key('2'), &action));
+    assert(action.type == APP_ACTION_SELECT_RX_MESSAGE);
+    assert(action.value.index == 7);
+    assert(!ui_shell_handle_input(&ui, &model, key('3'), &action));
+    assert(action.type == APP_ACTION_NONE);
 
     /* Page Down wraps 2/2 -> 1/2; Page Up wraps 1/2 -> 2/2. */
     assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_PAGE_NEXT), &action));
