@@ -3,8 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-
-#include "ft8/app_types.h"
+#include <stdint.h>
 
 #define FT8_CONFIG_CALLSIGN_CAP 14u
 #define FT8_CONFIG_GRID_CAP 7u
