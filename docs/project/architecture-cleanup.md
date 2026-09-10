@@ -1,140 +1,87 @@
 # MiniShell Architecture Cleanup Gate
 
-Status: **Draft for review — C0/C1/C2/C3 complete**  
+Status: **COMPLETE — C0/C1/C2/C3/C4**  
 Date: 2026-09-10
 
 ## Purpose
 
-Before adding the first field-usable external application, review and tighten the MiniShell/MiniFT8-V3 boundaries so the architecture is not only documented but also mechanically difficult to violate.
+This gate tightened the MiniShell/MiniFT8-V3 architecture before beginning the first field-usable external application, Keyer.
 
-The immediate successor to this cleanup is the Keyer application described in `../keyer/README.md`.
-
-This task is architectural cleanup only. It should not change FT8 behavior.
-
-## 1. Invariants to enforce
-
-### 1.1 Application/platform boundary
-
-Portable application source depends on the MiniShell public API and application-owned modules only.
+The completed work preserves these rules:
 
 ```text
-application
-    |
-    v
+portable application
+        |
+        v
 MiniShell public API
-    |
-    v
-resident MiniShell services
-    |
-    v
-private backend/provider boundary
-    |
-    v
-Linux / NuttX / ESP-IDF / hardware / mocks
+        |
+        v
+MiniShell services/runtime
+        |
+        v
+private platform backend
 ```
 
-Application source must not include or depend directly on Linux/POSIX, NuttX, ESP-IDF, FreeRTOS, M5, board-driver, USB, UART, GPIO, I2S, ALSA, or other platform implementation interfaces.
-
-### 1.2 No-side-talk rule
-
-For an application with several logical modules, `app_controller` is the cross-module coordinator.
-
-Sibling logical modules do not call one another opportunistically behind the controller.
+and, inside a structured application:
 
 ```text
-config_service ----X----> keyout
-ui_shell       ----X----> config_service
-rx_frontend    ----X----> ft8_engine
+sibling module ----X----> sibling module
 
-config_service
-      |
-      v
+module
+   |
+   v
 app_controller
-      |
-      v
-other application module
+   |
+   v
+other module
 ```
 
-A module may call its own private implementation submodules. For example, `ft8_engine` may own and call decoder/monitor/codec implementation pieces. That is vertical decomposition inside one ownership domain, not side talk between independent application domains.
+The Keyer follow-on plan is `../keyer/README.md`.
 
-### 1.3 One owner per mutable state/resource domain
+## 1. Architecture invariants
 
-Examples:
+### Application/platform boundary
 
-```text
-MiniShell App manager       foreground app lifecycle
-MiniShell Filesystem        app-visible files/handles/quota
-MiniShell Audio             app-visible audio stream lifecycle
-MiniShell Digital I/O       future app-visible digital-line lifecycle
-MiniShell Control           future generic radio/device control lifecycle
+Application source depends on the MiniShell public API and application-owned modules only. Platform implementation interfaces such as POSIX, NuttX, ESP-IDF, FreeRTOS, M5, board drivers, GPIO drivers, FATFS, and loader internals stay below MiniShell.
 
-MiniFT8 app_controller      FT8 cross-module sequencing
-MiniFT8 config_service      FT8 parsed configuration state
-MiniFT8 auto_seq            QSO/autoseq policy state
-MiniFT8 ui_shell            UI-local navigation state
-```
+### No side talk
 
-No second module should silently become a competing owner.
+`app_controller` is the cross-module coordinator. A module may call private implementation helpers inside its own ownership domain, but independent sibling domains do not coordinate behind the controller.
 
-### 1.4 Edge adapters may use MiniShell; pure domain modules should not
+### One owner per mutable state/resource domain
 
-MiniShell is the platform abstraction and should not be hidden behind a duplicate generic HAL.
+Each application-visible MiniShell resource has one MiniShell owner. Each application state/policy domain likewise has one application owner.
 
-Application edge modules may consume the appropriate MiniShell service directly when that is their responsibility. Pure domain/state-machine modules should operate on application-owned types and data.
+### Edge modules may consume MiniShell services
 
-## 2. Current audit result
+MiniShell is the platform abstraction. Application edge modules may use the relevant MiniShell service directly when that is their responsibility. Pure domain/state-machine modules remain independent of platform/resource APIs.
 
-The current MiniShell and MiniFT8-V3 structure is substantially clean.
+## 2. C0 — COMPLETE — dependency/no-side-talk enforcement
 
-In particular:
-
-- MiniShell public/private service boundaries are separated.
-- application lifecycle cleanup is centralized through the app manager/service layer;
-- MiniFT8 has no direct platform implementation dependency;
-- `app_controller` performs configuration/storage/AutoSeq/RX/TX coordination;
-- `config_service` and `storage_service` do not call each other directly;
-- RX leaf modules such as `rx_frontend`, `rx_slot_framer`, and `rx_result_builder` are application-domain modules;
-- `rx_slot_framer` emits events rather than directly invoking `ft8_engine`;
-- `ui_shell`, `auto_seq`, `tx_lifecycle`, and `ft8_engine` remain independent of platform APIs;
-- `rx_audio_adapter` is an intentional MiniShell edge adapter;
-- `tests/ft8_platform_boundary.py` prevents major platform leakage;
-- `tests/app_dependency_boundary.py` enforces application-local module dependencies, private-header ownership, and the C2 lifecycle/UI boundary;
-- `AppController` state is opaque outside the controller ownership domain;
-- `app_controller` produces one complete `UiModel` snapshot while `ui_shell` alone decides which fields are visible;
-- `ft8_main` performs lifecycle/wiring only and compares final `UiFrame` output rather than interpreting UIScreen/submenu/model fields;
-- runtime ADV ELF loading is now an active architecture target rather than a deferred experiment.
-
-The remaining cleanup work is configuration ownership/file naming before Keyer starts.
-
-## 3. Cleanup tasks
-
-### C0 — COMPLETE — Application dependency/no-side-talk enforcement
-
-Implemented a small reusable checker at:
+Added:
 
 ```text
 tests/app_dependency_boundary.py
 ```
 
-The FT8 rule set explicitly declares logical module ownership and allowed dependencies. The checker rejects:
+The checker uses a small per-application rule map and rejects:
 
 - forbidden sibling-module includes;
-- source/header files under enforced application roots that have no declared module owner;
+- unowned source/header directories under enforced application roots;
 - access to declared private headers from outside their owning module.
 
-Linux CI runs both the checker self-test and the real MiniFT8 rule set before compiling.
+Linux CI runs both its self-test and the MiniFT8 dependency graph check.
 
-C0 immediately found and removed one unnecessary coupling: `config_service.h` had included `ft8/app_types.h` only to obtain `uint8_t`; it now includes `<stdint.h>` directly.
+C0 immediately removed one accidental coupling: `config_service.h` had depended on `ft8/app_types.h` only to obtain `uint8_t`; it now includes `<stdint.h>` directly.
 
-The checker is intentionally reusable: future applications such as Keyer can add their own small rule map without creating another dependency framework.
+The mechanism is reusable for Keyer and future applications.
 
-### C1 — COMPLETE — Hide `AppController` implementation state
+## 3. C1 — COMPLETE — opaque `AppController`
 
-`AppController` is now an opaque public C type:
+`AppController` is now opaque outside its ownership domain.
 
 ```text
 outside app_controller/
-        |
         `--> AppController * + app_controller_*() only
 
 inside app_controller/
@@ -151,108 +98,44 @@ The concrete structure lives in:
 apps/ft8/src/app_controller/app_controller_internal.h
 ```
 
-Public lifetime is through:
+Lifetime is through `app_controller_create()` / `app_controller_destroy()` using MiniShell Memory. The dependency checker protects the private header.
 
-```text
-app_controller_create()
-app_controller_destroy()
-```
+White-box tests may explicitly inspect private state when that is the test's purpose; production modules may not.
 
-The controller object is allocated/freed through MiniShell Memory, so the implementation remains platform-independent and participates in normal per-application resource accounting.
+## 4. C2 — COMPLETE — lifecycle-only `ft8_main`
 
-Production `ft8_main` holds only `AppController *`; it cannot access `config`, `auto_seq`, `storage`, RX, or TX state directly. The C0 checker marks `app_controller_internal.h` private to the controller module and rejects access from other production modules.
+`ft8_main` no longer knows V/Memory screen policy, `SCREEN_*`, `UI_SUBMENU_*`, or individual `UiModel` fields.
 
-The AS-7 TX lifecycle test remains an intentional white-box test and explicitly includes the private header. Tests may inspect implementation state when that is the purpose of the test; production module boundaries remain strict.
-
-Verification completed:
-
-- application dependency checker passes;
-- Linux build/CTest/AS-8/strict unit suite passes;
-- the full FT8 reference suite RX-1C through RX-7 passes, including the RX-7 production decoded-UI golden test;
-- Cardputer ADV ESP-IDF v5.5.1 firmware build passes.
-
-During C1 the ADV gate caught an ESP-IDF build-system difference: component CMake files are also evaluated in script mode, where `set_source_files_properties()` is unavailable. The per-source private-controller compile definition is now guarded so it is applied only during the real configure/build phase.
-
-### C2 — COMPLETE — Keep `ft8_main` lifecycle-only
-
-`ft8_main` now owns foreground lifecycle and top-level wiring without interpreting UIScreen/submenu policy or individual `UiModel` fields.
-
-The implemented flow is:
+The current flow is:
 
 ```text
 MiniShell input
       |
       v
-UI adapter -> ui_shell -> AppAction
-                         |
-                         v
-                  app_controller
-                         |
-                         v
-                 complete UiModel
-                         |
-                         v
-ui_shell -> UiFrame -> UI adapter -> MiniShell Display
+ui_shell -> AppAction
+              |
+              v
+        app_controller
+              |
+              v
+        complete UiModel
+              |
+              v
+ui_shell -> UiFrame
+              |
+              v
+MiniShell Display
 ```
 
-The public controller now exposes one model facade:
+`ft8_main` compares final rendered `UiFrame`s and writes the display only when the frame changes. A no-op input therefore no longer causes a redundant repaint.
 
-```text
-app_controller_build_model()
-```
+The dependency checker includes guards against reintroducing screen/model policy into `ft8_main`.
 
-It builds a complete application snapshot, including diagnostics such as memory state. The former component builders remain private to `app_controller`. `ui_shell` decides which model fields belong on the current screen.
+## 5. C3 — COMPLETE — ADV runtime external applications
 
-The main loop does not compare model internals. It builds the complete model, renders a candidate `UiFrame` in memory, and sends the frame to the display adapter only when the final rendered frame differs from the previously displayed frame.
+Runtime external ELF loading is an active architecture target, not a future experiment.
 
-This keeps redraw policy generic:
-
-```text
-state changes
-    |
-    v
-complete UiModel
-    |
-    v
-ui_shell renders candidate UiFrame
-    |
-    +-- same frame ----> no display write
-    |
-    `-- changed frame -> display write
-```
-
-As a consequence, a no-op input no longer produces a redundant repaint. Visible UI semantics are unchanged; only duplicate terminal/display output is removed. The Linux integration test was corrected so it no longer requires a second identical frame after the O-screen `Protocol: FT8` no-op selection.
-
-The C0 architecture checker now also rejects C2 regressions in `ft8_main.c`, including:
-
-- inspection of `ui.screen` or `ui.submenu`;
-- hard-coded `SCREEN_*` or `UI_SUBMENU_*` policy;
-- inspection of individual `model.*` fields.
-
-The FT8 reference workflow gate was also strengthened: changes to the FT8 main/UI/model boundary now automatically run the reference suite rather than depending on RX-specific symbol matching.
-
-Verification completed:
-
-- application dependency/lifecycle checker passes;
-- Linux build and all CTests pass;
-- AS-8 equivalence and strict unit tests pass;
-- full FT8 reference suite RX-1C through RX-7 passes, including RX-7 production decoded UI;
-- Cardputer ADV ESP-IDF v5.5.1 firmware build passes.
-
-No generic event bus or object framework was introduced.
-
-### C3 — COMPLETE — External application loading is an active architecture target
-
-The current packaging model is now documented as:
-
-```text
-Linux/Mint          runtime .so
-Cardputer ADV V1    compiled-in registry baseline
-Cardputer ADV next  runtime external .elf
-Tab5/NuttX          native loadable mechanism where practical
-```
-
-The established ADV application resolution order is:
+ADV application resolution is fixed as:
 
 ```text
 1. compiled-in application
@@ -260,146 +143,135 @@ The established ADV application resolution order is:
 3. /sd/<app>.elf
 ```
 
-For external applications specifically, `/flash` is searched before `/sd`. The same external application binary may be installed in either location. If both external copies exist, the `/flash` copy wins.
+The same external ELF must work unchanged from `/flash` or `/sd`. If both external copies exist, `/flash` wins.
 
-For the first field-usable ADV external application, both of these placements are valid:
+For Keyer:
 
 ```text
 /flash/keyer.elf
 /sd/keyer.elf
 ```
 
-`/sd/keyer.elf` is convenient for development and removable distribution. Copying the exact same binary to `/flash/keyer.elf` must work without rebuilding or changing Keyer.
+are both valid installations.
 
-C3 updated the canonical application/runtime documentation so that:
+`/sd/keyer.elf` is convenient for development/removable distribution; copying that exact binary to `/flash/keyer.elf` must work without rebuilding it.
 
-- application source remains independent of loader/container format and installation location;
-- Linux continues to use runtime `.so` modules;
-- ADV runtime ELF is active work rather than a speculative future possibility;
-- ADV application resolution is compiled-in first, then `/flash/<app>.elf`, then `/sd/<app>.elf`;
-- the same `keyer.elf` binary is valid from either external location;
-- `keyer.elf` remains a portable MiniShell application and must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or ELF-loader interfaces;
-- discovery, ELF parsing, relocation, symbol resolution, execution setup, unloading, and cleanup stay resident/private to MiniShell and the ADV backend;
-- a formal stable cross-release binary ABI is still not frozen.
+Loader details remain resident/private to MiniShell and the ADV backend. External ELF work does not freeze a long-term cross-release binary ABI yet.
 
-The K1 loader proof uses a non-colliding application name such as `elfhello.elf`, because the existing compiled-in `hello` intentionally has higher resolution priority and would otherwise mask the external loader path.
+The loader proof uses a non-colliding name such as `elfhello.elf` because compiled-in `hello` intentionally has higher resolution priority.
 
-Updated documents include:
+## 6. C4 — COMPLETE — configuration ownership and namespace
 
-```text
-apps/README.md
-docs/architecture/architecture.md
-docs/architecture/design-principles.md
-docs/architecture/resident-vs-app.md
-docs/project/adv-backend-plan.md
-docs/project/progress.md
-platform/adv/README.md
-docs/keyer/README.md
-```
-
-The completed V1 ADV plan remains historical evidence. Its original static-composition choice and compiled-in-first rule are preserved; current C3 policy adds root-level `/flash/<app>.elf` then `/sd/<app>.elf` below that first tier.
-
-C3 is documentation/architecture only. It does not implement an ELF loader.
-
-### C4 — Record configuration ownership and file naming
-
-Reserve these names:
+Canonical rule:
 
 ```text
 /flash/config.txt
     MiniShell-owned resident/platform configuration
 
 /flash/<app>/setting.txt
-    application-owned configuration
+    application-owned configuration and deployment settings
 ```
 
-Examples:
+The full rule is recorded in:
 
 ```text
-/flash/keyer/setting.txt
-/flash/ft8/setting.txt
+docs/architecture/configuration.md
 ```
 
-#### MiniShell configuration
+### MiniShell configuration
 
-`/flash/config.txt` contains only configuration for resources MiniShell itself owns or requires to operate the platform, for example:
+`/flash/config.txt` is only for things MiniShell itself needs to operate/adapt the platform, for example:
 
-- debug UART GPIO assignment, especially when USB-C OTG is occupied by a radio;
-- RTC/GPS GPIO assignment;
-- GPS baud-rate policy/autodetection;
-- platform resource sharing/detection needed by MiniShell.
+```text
+debug UART GPIO assignment
+RTC/GPS physical assignment
+GPS baud/detection policy
+resident resource sharing/detection/arbitration
+```
 
-If RTC and GPS share a physical connection, detection/arbitration belongs to MiniShell because MiniShell owns those resident resources.
+MiniShell configuration must not contain Keyer/FT8/domain meaning.
 
-#### Application configuration
+### Application configuration
 
-`/flash/<app>/setting.txt` contains application-specific behavior and deployment configuration.
+Applications own the meaning and policy of `/flash/<app>/setting.txt`.
 
-A hardware-specific app setting is allowed. Portability applies to the application code/API boundary, not to one universal configuration file for every board.
+Application settings may be hardware/deployment-specific. This does not violate application portability.
 
-For example, a Keyer deployment may define dit/dah input GPIOs and KeyOut GPIOs. Keyer interprets those values and asks generic MiniShell Digital I/O to configure/use the requested lines. MiniShell does **not** know that a line is `dit`, `dah`, `paddle`, or `KeyOut`.
+For example Keyer may store:
+
+```text
+Dit GPIO
+Dah GPIO
+KeyOut GPIO(s)
+KeyIn/KeyOut mode
+WPM
+tone
+volume
+```
+
+Keyer interprets those values and requests generic MiniShell Digital I/O operations. MiniShell may configure/read/write GPIO 13, for example, but it must not know that GPIO 13 is a `dit` input.
 
 ```text
 Keyer setting
-    dit_gpio = <deployment-specific line>
-        |
-        v
-Keyer app_controller
-        |
-        v
-KeyIn module
-        |
-        v
-MiniShell Digital I/O: open/read/close generic line
+      |
+      v
+config_service
+      |
+      v
+app_controller
+      |
+      v
+keyin/keyout edge module
+      |
+      v
+MiniShell Digital I/O
+      |
+      v
+generic platform GPIO
 ```
 
-This distinction is deliberate:
+This is the intended distinction:
 
-> Portable application binary; deployment-specific application settings.
+> Application code/API boundary is portable; deployment settings may be hardware-specific.
 
-Do not create MiniShell configuration entries named for Keyer or another domain application.
+C4 does not add a generic public MiniShell Config service. MiniShell may read its own `/flash/config.txt` internally; applications may use MiniShell Filesystem plus their own configuration modules.
 
-## 4. Verification gate
+### MiniFT8 transition
 
-Before Keyer implementation starts, the cleanup is complete when:
+The canonical application settings namespace is now `/flash/ft8/setting.txt`, but MiniFT8 currently uses `/flash/ft8/station.txt`.
 
-1. MiniFT8 platform-boundary test passes;
-2. MiniFT8 dependency/no-side-talk test passes;
-3. controller internals cannot be casually accessed outside the controller implementation;
-4. `ft8_main` is lifecycle/wiring code and no longer interprets V/Memory or similar screen-specific policy;
-5. documentation reflects active ADV runtime ELF direction and configuration ownership/naming;
-6. Linux build/unit/integration tests pass;
-7. ADV build/tests pass;
-8. the existing RX7 golden WAV integration test still passes unchanged in visible behavior.
+C4 does not rename that file or change FT8 behavior. The `station.txt` -> `setting.txt` migration is a separate MiniFT8 task. Until then, `station.txt` remains the current implementation path and MiniFT8 still owns its contents.
 
-Items 1-4 and 6-8 are satisfied after C0-C2. The runtime-ELF half of item 5 is satisfied by C3; the configuration half remains for C4.
+Keyer will use `/flash/keyer/setting.txt` from its first MiniShell implementation.
 
-## 5. Non-goals
+## 7. Verification gate — SATISFIED
 
-Do not use this cleanup to:
+The code-bearing cleanup C0-C2 passed:
 
-- redesign FT8 DSP;
-- change AutoSeq policy;
-- add Control/CAT implementation;
-- add Digital I/O implementation;
-- implement the Keyer;
-- implement the ELF loader during C3 documentation cleanup;
-- freeze a long-term binary ABI;
-- create a generalized dependency injection/event framework.
+```text
+MiniFT8 platform-boundary test          PASS
+MiniFT8 dependency/no-side-talk test    PASS
+opaque AppController boundary           PASS
+ft8_main lifecycle/UI boundary          PASS
+Linux build + CTest                     PASS
+AS-8 + strict unit tests                PASS
+RX-1C through RX-7 reference suite      PASS
+RX-7 production decoded UI              PASS
+Cardputer ADV ESP-IDF build             PASS
+```
 
-Those are separate tasks.
+C3-C4 are architecture/documentation changes and do not alter runtime behavior.
 
-## 6. Review questions
+## 8. Result
 
-Resolved:
+The pre-Keyer cleanup gate is closed.
 
-1. **Opaque `AppController`: yes.** C1 uses a small ordinary-C opaque-pointer pattern with MiniShell Memory ownership; no object framework was introduced.
-2. **Dependency checker scope: reusable immediately.** C0 keeps one generic checker with a small per-application rule map; Keyer will add another map later.
-3. **Complete-model rendering: build one complete `UiModel`, then compare final `UiFrame`s.** C2 keeps screen-specific visibility in `ui_shell` and prevents `ft8_main` from learning submenu semantics.
-4. **ADV application resolution: compiled-in, then `/flash/<app>.elf`, then `/sd/<app>.elf`.** The same external binary works in either filesystem location; `/flash` wins between external copies.
+```text
+C0 dependency enforcement      COMPLETE
+C1 opaque controller           COMPLETE
+C2 lifecycle-only main         COMPLETE
+C3 runtime ELF direction       COMPLETE
+C4 configuration ownership     COMPLETE
+```
 
-Still open:
-
-1. Is `/flash/ft8/setting.txt` the desired eventual rename from the current `station.txt`, or should that migration remain a later application-specific decision? This does not block the ownership rule itself.
-
-Until C4 is reviewed/completed, this remains a cleanup plan rather than the final architecture-cleanup record.
+Next work may proceed into the Keyer plan, beginning with review/finalization of its remaining design questions and then the external-ELF/Digital-I/O implementation stages.
