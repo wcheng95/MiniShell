@@ -1,3 +1,9 @@
+# Cardputer ADV is ESP32-S3. Keep the project default explicit so deleting
+# sdkconfig for a clean configuration cannot silently fall back to classic
+# ESP32, which would also make S3-only dependencies such as esp_tinyusb fail
+# dependency solving.
+CONFIG_IDF_TARGET="esp32s3"
+
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 
 CONFIG_PARTITION_TABLE_CUSTOM=y
