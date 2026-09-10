@@ -16,9 +16,16 @@ CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
 # ESP32-S3 defaults to a 32 KiB data cache. The special 16 KiB mode keeps the
 # hardware cache configured at 32 KiB but makes another 16 KiB of internal SRAM
 # available to the heap. Keep the default 16 KiB instruction cache unchanged.
-# This is intentionally isolated as a RAM/performance experiment: validate FT8
-# decode timing before making it part of the permanent ADV configuration.
+# This recovered about 15.6 KiB in the Cardputer ADV hardware test.
 CONFIG_ESP32S3_DATA_CACHE_16KB=y
+
+# Phase-B RAM squeeze: move only non-ISR hot-path infrastructure from IRAM to
+# flash. ESP-IDF documents these as RAM/IRAM-saving options; MiniShell does not
+# call heap/ring-buffer APIs from IRAM ISRs. Keep ISR variants in IRAM for now.
+# Measure FT8 decode timing before making deeper IRAM reductions.
+CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
+CONFIG_RINGBUF_PLACE_FUNCTIONS_INTO_FLASH=y
+CONFIG_HEAP_PLACE_FUNCTION_INTO_FLASH=y
 
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
