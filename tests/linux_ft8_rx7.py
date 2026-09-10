@@ -80,7 +80,7 @@ def write_station(root: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(
-            "# MiniFT8-V3 AS-4 reference station\n"
+            "# MiniFT8-V3 AS reference station\n"
             "callsign=W1ABC\n"
             "grid=FN42\n"
             "profile=0\n"
@@ -118,6 +118,8 @@ def main() -> int:
             create_fixture(rr73_golden, os.path.join(root, "flash", "as4-rr73.wav"))
             create_sequence([grid_golden, report_golden],
                             os.path.join(root, "flash", "as4-sequence.wav"))
+            create_sequence([report_golden, rr73_golden],
+                            os.path.join(root, "flash", "as5-reactivate.wav"))
             write_station(root)
 
             env = os.environ.copy()
@@ -150,7 +152,6 @@ def main() -> int:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
                 # AS-4: TX1/grid addressed to W1ABC creates a QSO automatically.
-                # No RX line selection is sent before switching to T.
                 os.write(master_fd,
                          b"ft8 --profile adv --rx /flash/as4-grid.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b"W1ABC K9XYZ FN42", 12.0))
@@ -160,8 +161,7 @@ def main() -> int:
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
-                # AS-4: a fresh TX2/report also starts automatically. V2 semantics
-                # advance the new context to ROGER_REPORT (derived next TX3).
+                # AS-4: a fresh TX2/report also starts automatically.
                 os.write(master_fd,
                          b"ft8 --profile adv --rx /flash/as4-report.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b"W1ABC K9XYZ -12", 12.0))
@@ -172,8 +172,7 @@ def main() -> int:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
                 # Stronger AS-4 progression proof: two consecutive RX slots for
-                # the same DX are consumed in order. The second message must
-                # advance the existing context, not append a duplicate K9XYZ.
+                # the same DX update one context rather than creating a duplicate.
                 os.write(master_fd,
                          b"ft8 --profile adv --rx /flash/as4-sequence.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b"W1ABC K9XYZ -12", 18.0))
@@ -188,8 +187,7 @@ def main() -> int:
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
-                # V2 reincarnation guard: an unknown late RR73 must not create a
-                # fresh QSO. Again, no manual selection is sent.
+                # V2 reincarnation guard: an unknown late RR73 must not create a fresh QSO.
                 os.write(master_fd,
                          b"ft8 --profile adv --rx /flash/as4-rr73.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b"W1ABC K9XYZ RR73", 12.0))
@@ -200,6 +198,34 @@ def main() -> int:
                         b"RPRT" in tx_screen or b"RRPT" in tx_screen):
                     raise RuntimeError(f"late RR73 incorrectly created a QSO: {tx_screen!r}")
                 transcript.extend(empty_view)
+                os.write(master_fd, b"q")
+                transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
+                # AS-5: first slot creates an RRPT QSO. Drop it from the T screen,
+                # which parks it inactive. The second-slot RR73 must find and
+                # reactivate that metadata, advancing the same context to SOFF.
+                os.write(master_fd,
+                         b"ft8 --profile adv --rx /flash/as5-reactivate.wav --rx-slot 12345\n")
+                transcript.extend(read_until(master_fd, b"W1ABC K9XYZ -12", 12.0))
+                os.write(master_fd, b"t")
+                first_qso = read_until(master_fd, b"K9XYZ    RRPT 0/3", 3.0)
+                transcript.extend(first_qso)
+                os.write(master_fd, b"1")
+                parked_view = read_until(master_fd, b"\x1b[7;1H                    ", 3.0)
+                parked_screen = current_screen(parked_view)
+                if b"K9XYZ" in parked_screen:
+                    raise RuntimeError(f"AS-5 dropped QSO remained active: {parked_screen!r}")
+                transcript.extend(parked_view)
+                os.write(master_fd, b"r")
+                transcript.extend(read_until(master_fd, b"W1ABC K9XYZ RR73", 12.0))
+                os.write(master_fd, b"t")
+                reactivated_view = read_until(master_fd, b"K9XYZ    SOFF", 3.0)
+                reactivated_screen = current_screen(reactivated_view)
+                if reactivated_screen.count(b"K9XYZ") != 1:
+                    raise RuntimeError(
+                        f"AS-5 inactive reactivation duplicated/lost context: {reactivated_screen!r}"
+                    )
+                transcript.extend(reactivated_view)
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
