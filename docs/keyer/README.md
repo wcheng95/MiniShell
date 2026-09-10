@@ -10,8 +10,17 @@ Port the useful Keyer portion of Mini-CW into MiniShell as a small, field-usable
 Target runtime artifact:
 
 ```text
+keyer.elf
+```
+
+Valid ADV installations are:
+
+```text
+/flash/keyer.elf
 /sd/keyer.elf
 ```
+
+External application discovery uses `/flash` first, then `/sd`. Therefore the same `keyer.elf` binary may be copied from SD to flash and must run unchanged; if both copies exist, `/flash/keyer.elf` wins.
 
 The Keyer application should be portable at the source/API level. Board-specific deployment details may live in its application settings.
 
@@ -89,6 +98,8 @@ future Control
 - Linux/POSIX APIs.
 
 The application sees MiniShell public interfaces only.
+
+Its installation path is also not application logic. The same ELF must work from `/flash/keyer.elf` or `/sd/keyer.elf`.
 
 ### 2.3 No side talk
 
@@ -347,11 +358,14 @@ keyer
 MiniShell> run keyer
 ```
 
-with the application stored as:
+External discovery order is fixed:
 
 ```text
-/sd/keyer.elf
+1. /flash/keyer.elf
+2. /sd/keyer.elf
 ```
+
+Either location may contain the same runtime artifact. If only `/sd/keyer.elf` exists, it runs from SD. If that file is copied to `/flash/keyer.elf`, the flash copy runs instead. No Keyer source or binary change should be required.
 
 This is intended to be a real runtime-loaded application, not a statically linked app renamed `.elf`.
 
@@ -375,18 +389,21 @@ Exit criteria:
 
 Prove the runtime-loading mechanism with a minimal external ELF before depending on Keyer complexity.
 
-Target:
+Required proof:
 
 ```text
 /sd/hello.elf
-    discover
-    load
-    call MiniShell public API
-    return
-    unload
+    discover -> load -> call MiniShell API -> return -> unload
+
+copy same binary to:
+/flash/hello.elf
+    discover -> load -> call MiniShell API -> return -> unload
+
+when both exist:
+    /flash/hello.elf wins
 ```
 
-This is loader validation only.
+This is loader validation only. Precedence between a compiled-in `hello` and an external `hello` remains a separate loader-design question; K1 must at least prove the external `/flash` then `/sd` ordering.
 
 ### K2 — MiniShell Digital I/O V1
 
@@ -457,15 +474,19 @@ Hold-Backspace and other input gestures that require press/release semantics may
 
 ### K7 — `keyer.elf` field milestone
 
-Build and run the actual application from SD:
+Build one `keyer.elf` and validate it from both supported external locations:
 
 ```text
 /sd/keyer.elf
+/flash/keyer.elf
 ```
+
+The binary must not be rebuilt or changed between those tests. When both copies exist, the flash copy must take external-location precedence.
 
 Field validation should include at least:
 
 - repeated load/run/exit/unload;
+- `/flash` then `/sd` discovery behavior;
 - paddle at representative slow/normal/fast WPM;
 - Iambic A and B;
 - straight key;
@@ -534,6 +555,7 @@ Use mocks/providers to test:
 
 ADV hardware confirms:
 
+- runtime discovery from `/flash` and `/sd`, with `/flash` first;
 - actual paddle input;
 - actual radio keying;
 - active-low/open-drain behavior where configured;
@@ -552,5 +574,6 @@ Before implementation, finalize:
 5. Whether CAT KeyOut waits until after the first GPIO field milestone; current recommendation is yes.
 6. Whether the existing Mini-CW decoded-text/FIFO behavior is part of K3/K7 or deferred to a later Keyer increment.
 7. ELF loader constraints for ADV: relocation types, symbol resolution, memory ownership, failure cleanup, and API-version matching.
+8. Precedence between a compiled-in application and an external application with the same name. External-location precedence itself is already fixed as `/flash` then `/sd`.
 
 Until those are reviewed, this document is the porting plan rather than the final implementation specification.
