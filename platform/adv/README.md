@@ -304,6 +304,44 @@ ADV CI reports the ESP-IDF size summary and allocated ELF sections on every firm
 
 The ADV config guard also enforces the ESP32-S3 target and the RAM-efficient FATFS shared-cache configuration.
 
+### ADV RAM squeeze phases
+
+The RAM-squeeze work is deliberately staged so future memory pressure can be traded against cache size and IRAM performance in known increments rather than by making unrelated changes at once. Measurements below use the `free` utility on real Cardputer ADV hardware; because `free` itself runs as a foreground application, its 16 KiB application-task stack is already included in the reported free-heap value.
+
+```text
+Baseline after FATFS shared-cache fix
+  heap free       300.6 KiB
+  largest block   256.0 KiB
+
+Phase A — smaller ESP32-S3 data-cache reservation
+  setting         CONFIG_ESP32S3_DATA_CACHE_16KB=y
+  heap free       316.2 KiB
+  gain            +15.6 KiB
+  largest block   256.0 KiB
+  status          hardware PASS
+
+Phase B — conservative non-ISR IRAM -> flash placement
+  settings        CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
+                  CONFIG_RINGBUF_PLACE_FUNCTIONS_INTO_FLASH=y
+                  CONFIG_HEAP_PLACE_FUNCTION_INTO_FLASH=y
+  heap free       342.0 KiB
+  gain vs A       +25.8 KiB
+  total gain      +41.4 KiB
+  largest block   280.0 KiB
+  status          hardware PASS
+
+Phase C — deferred / reserve only
+  purpose         recover additional RAM only if a future feature requires it
+  candidates      deeper IRAM-to-flash reduction, SPI-flash auto-suspend,
+                  selected ISR/system placement changes, and measured stack trim
+  policy          do not enable pre-emptively; benchmark FT8 DSP/timing and
+                  validate interrupt/cache-sensitive paths for every change
+```
+
+Phase B is the preferred current operating point. Phase C is intentionally left available as a future reserve. Conversely, if later FT8 DSP, Wi-Fi, USB, or interrupt testing shows that either Phase A or Phase B causes a meaningful performance or reliability regression, those settings are explicit trade-back points: give back some of the 41.4 KiB rather than hiding the cost in unrelated code changes.
+
+The purpose of the recovered RAM is functional headroom, especially for more demanding FT8 decoding such as `time_osr=2` / `freq_osr=2`, and for temporary runtime services such as Wi-Fi/PSKReporter upload. RAM savings are not an end in themselves; decode performance and runtime reliability remain higher priorities.
+
 ## Build and flash
 
 ESP-IDF v5.5.x is the current reference family. The project defaults to the ESP32-S3 target in `sdkconfig.defaults` so regenerating `sdkconfig` cannot silently fall back to classic ESP32.
