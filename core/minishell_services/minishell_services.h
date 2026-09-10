@@ -30,7 +30,7 @@ typedef struct {
     /* System diagnostics. */
     void (*system_write)(void *ctx, const char *text);
 
-    /* User-facing, line-oriented application output. */
+    /* User-facing line-oriented console output. */
     void (*console_write)(void *ctx, const char *text);
 
     /* Memory */
