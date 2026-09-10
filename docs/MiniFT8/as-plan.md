@@ -1,6 +1,6 @@
 # MiniFT8-V3 AutoSeq Plan
 
-Status: **IN PROGRESS — AS-0 through AS-4 complete; AS-5 next**
+Status: **IN PROGRESS — AS-0 through AS-5 complete; AS-6 next**
 
 AutoSeq is the current major MiniFT8-V3 block after decode RX. This phase is a structural port first: preserve the proven MiniFT8-V2 AutoSeq behavior while replacing old ownership, dynamic data structures, and cross-module coupling with explicit V3 boundaries.
 
@@ -257,6 +257,8 @@ Decode completion must not directly start TX. AutoSeq remains synchronous and de
 
 AS-4 makes the first two steps concrete: `rx_emit_event()` still owns only RX assembly; after `batch_generation` changes, `app_controller_step_rx()` walks the completed batch exactly once and feeds eligible addressed messages to AutoSeq in decode order.
 
+AS-5 adds user queue-control events through `AppAction`, but deliberately does not create a production source for `auto_seq_tick()`. Tick remains semantically post-TX-completion and is wired only when the TX lifecycle exists in AS-7.
+
 ## 9. Real fixture anchors
 
 ### Multi-CQ fixture
@@ -288,9 +290,11 @@ KQ4PUG
 
 With Skip TX1 off, all eight start as `REPLYING` with `RPLY 0/3`. Their real T-screen projection is six entries on page 1 and two on page 2. All were received in the same slot, so they request the same opposite TX parity.
 
+AS-5 reuses this queue to prove same-parity rotation and absolute-index drop behavior. One rotation moves `N4NJJ` from the head to the end of the eight-entry run. Dropping the rotated head and then the sole page-2 entry leaves six active rows and collapses T from 2 pages to 1.
+
 ### Addressed-message V2 goldens
 
-AS-4 reuses the pinned MiniFT8-V2 WAVs:
+AS-4 and AS-5 reuse the pinned MiniFT8-V2 WAVs:
 
 ```text
 W1ABC K9XYZ FN42
@@ -307,6 +311,8 @@ unknown late RR73    -> ignored, no QSO context
 ```
 
 A two-slot WAV containing `FN42` followed by `-12` proves active-context matching: the second completed batch advances the existing K9XYZ context to `RRPT 0/3`, and the T screen contains exactly one K9XYZ entry.
+
+AS-5 adds a second two-slot sequence, `-12` followed by `RR73`. After the first slot creates `K9XYZ RRPT`, dropping it from T parks the context in the inactive zone. The next addressed RR73 reactivates that same context and advances it to `SOFF`, again with exactly one K9XYZ entry.
 
 No physical TX occurs during these tests.
 
@@ -412,24 +418,29 @@ Production proof uses pinned V2 WAVs with no RX-line selection. Fresh TX1 and TX
 
 ### AS-5 — Retry, priority, inactive, reactivation, queue controls
 
-Status: **NEXT**
+Status: **COMPLETE**
 
-Port and test current V2 behavior for:
+Purpose: expose and verify the existing V2 queue lifecycle without introducing TX execution.
+
+Completed work:
 
 ```text
-state-priority ordering
-same-parity rotation
-retry counting/exhaustion
-active -> inactive movement
-late reply reactivation
-inactive eviction/expiry
-drop behavior
-unknown mid-QSO guards
+T 1..6 -> absolute APP_ACTION_DROP_TX_QSO
+T Enter -> APP_ACTION_ROTATE_TX_QUEUE
+app_controller supplies monotonic time for inactive parking
+normal QSO drop preserves metadata in inactive zone
+same-parity head rotation preserves V2 queue semantics
+later addressed RX reactivates a parked QSO through the AS-4 boundary
+kfs eight-CQ queue proves rotate + page-1/page-2 absolute drop behavior
+AS-2 pure tests remain authoritative for retry/exhaustion, state priority,
+capacity, oldest-inactive eviction and unknown-message guards
 ```
 
-Use V2 scenarios/traces as the oracle. No policy improvements yet.
+`auto_seq_tick()` remains unwired in production until AS-7 because it represents a completed-TX lifecycle event. No AutoSeq policy changes were made. See `as-5-queue-lifecycle.md`.
 
 ### AS-6 — CQ/Beacon, FreeText, Field Day and logging eligibility
+
+Status: **NEXT**
 
 Port current V2 special behavior:
 

@@ -192,7 +192,7 @@ static void render_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
             frame_set(frame, i + 1, "%d %s", i + 1, model->tx_lines[index]);
         }
     }
-    frame_footer(frame, "R T O S V  arrows/Ent q quit");
+    frame_footer(frame, "1-6 drop  Enter rotate  Up/Dn");
 }
 
 static void render_o_root(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -505,16 +505,24 @@ static bool emit_set_band(const UiModel *model, int delta, AppAction *action)
 
 static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction *action)
 {
-    size_t rx_index;
+    size_t item_index;
 
     if (line < 0 || line >= UI_MAIN_LINES) return false;
     ui->selected_line = line;
 
     if (ui->screen == SCREEN_RX && ui->submenu == UI_SUBMENU_NONE) {
-        rx_index = (size_t)visible_page(ui, model) * UI_MAIN_LINES + (size_t)line;
-        if (rx_index >= model->rx_count) return false;
+        item_index = (size_t)visible_page(ui, model) * UI_MAIN_LINES + (size_t)line;
+        if (item_index >= model->rx_count) return false;
         action->type = APP_ACTION_SELECT_RX_MESSAGE;
-        action->value.index = (int)rx_index;
+        action->value.index = (int)item_index;
+        return true;
+    }
+
+    if (ui->screen == SCREEN_TX && ui->submenu == UI_SUBMENU_NONE) {
+        item_index = (size_t)visible_page(ui, model) * UI_MAIN_LINES + (size_t)line;
+        if (item_index >= model->tx_count) return false;
+        action->type = APP_ACTION_DROP_TX_QSO;
+        action->value.index = (int)item_index;
         return true;
     }
 
@@ -644,6 +652,10 @@ bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
         case UI_INPUT_RIGHT:
             return adjust_selected(ui, model, +1, action_out);
         case UI_INPUT_ENTER:
+            if (ui->screen == SCREEN_TX && ui->submenu == UI_SUBMENU_NONE) {
+                action_out->type = APP_ACTION_ROTATE_TX_QUEUE;
+                return true;
+            }
             return activate_line(ui, model, ui->selected_line, action_out);
         case UI_INPUT_BACK:
             if (ui->submenu != UI_SUBMENU_NONE) {

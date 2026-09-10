@@ -35,6 +35,12 @@ def read_until(fd: int, needle: bytes, timeout: float) -> bytes:
     return bytes(data)
 
 
+def current_screen(data: bytes) -> bytes:
+    marker = b"\x1b[2J\x1b[H"
+    pos = data.rfind(marker)
+    return data[pos:] if pos >= 0 else data
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: linux_ft8.py <minishell> <app-dir>", file=sys.stderr)
@@ -140,7 +146,7 @@ def main() -> int:
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
-                # AS-3 golden: use a clean non-Skip-TX1 station configuration.
+                # AS-3/AS-5 golden: use a clean non-Skip-TX1 station configuration.
                 with open(station, "r", encoding="utf-8") as handle:
                     as3_station = handle.read()
                 as3_station = as3_station.replace("skip_tx1=1\n", "skip_tx1=0\n")
@@ -162,8 +168,6 @@ def main() -> int:
                 os.write(master_fd, b"1234")
 
                 # The eight factual CQs become eight RPLY contexts: T pages are 6 + 2.
-                # Wait for the last known row on each page so the returned chunk contains
-                # the complete rendered page before making fixture-specific assertions.
                 os.write(master_fd, b"t")
                 page1 = read_until(master_fd, b"WN0KS    RPLY 0/3", 3.0)
                 expected_page1 = (b"N4NJJ", b"AG6X", b"AE7KJ", b"W7RPS",
@@ -183,6 +187,55 @@ def main() -> int:
                         f"AS-3 T page 2 did not contain the two expected CQ contexts: {page2!r}"
                     )
                 transcript.extend(page2)
+
+                # AS-5: all eight CQs have the same TX parity. Return to page 1
+                # and press Enter; V2 rotation moves the head to the end of the
+                # contiguous same-parity run.
+                os.write(master_fd, b"\x1b[B")
+                transcript.extend(read_until(master_fd, b" 1/2 ", 3.0))
+                os.write(master_fd, b"\r")
+                rotated = read_until(master_fd, b"N5CH     RPLY 0/3", 3.0)
+                rotated_screen = current_screen(rotated)
+                expected_rotated_page1 = (b"AG6X", b"AE7KJ", b"W7RPS",
+                                          b"N7REB", b"WN0KS", b"N5CH")
+                if b" 1/2 " not in rotated_screen or \
+                        any(call not in rotated_screen for call in expected_rotated_page1) or \
+                        b"N4NJJ" in rotated_screen:
+                    raise RuntimeError(
+                        f"AS-5 same-parity rotation produced wrong page 1: {rotated_screen!r}"
+                    )
+                transcript.extend(rotated)
+
+                # Drop visible line 1 (absolute queue index 0 => AG6X). A QSO
+                # drop parks metadata inactive; only active rows remain visible.
+                os.write(master_fd, b"1")
+                dropped = read_until(master_fd, b"KQ4PUG   RPLY 0/3", 3.0)
+                dropped_screen = current_screen(dropped)
+                if b"AG6X" in dropped_screen or b"AE7KJ" not in dropped_screen or \
+                        b"KQ4PUG" not in dropped_screen or b" 1/2 " not in dropped_screen:
+                    raise RuntimeError(
+                        f"AS-5 T drop did not remove the rotated head: {dropped_screen!r}"
+                    )
+                transcript.extend(dropped)
+
+                # Page 2 now contains only N4NJJ. Drop it through page-local key 1;
+                # the UI action must carry absolute index 6. Six active rows remain,
+                # so paging collapses back to 1/1.
+                os.write(master_fd, b"\x1b[B")
+                page2_after_drop = read_until(master_fd, b"N4NJJ    RPLY 0/3", 3.0)
+                if b" 2/2 " not in page2_after_drop:
+                    raise RuntimeError(f"AS-5 expected one row on page 2: {page2_after_drop!r}")
+                transcript.extend(page2_after_drop)
+                os.write(master_fd, b"1")
+                collapsed = read_until(master_fd, b" 1/1 ", 3.0)
+                collapsed_screen = current_screen(collapsed)
+                remaining = (b"AE7KJ", b"W7RPS", b"N7REB", b"WN0KS", b"N5CH", b"KQ4PUG")
+                if b"N4NJJ" in collapsed_screen or b"AG6X" in collapsed_screen or \
+                        any(call not in collapsed_screen for call in remaining):
+                    raise RuntimeError(
+                        f"AS-5 page-2 absolute drop/collapse failed: {collapsed_screen!r}"
+                    )
+                transcript.extend(collapsed)
 
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))

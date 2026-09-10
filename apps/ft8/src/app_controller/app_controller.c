@@ -167,6 +167,21 @@ static const char *qso_state_label(AutoSeqState state)
     }
 }
 
+static int64_t app_monotonic_ms(const AppController *app)
+{
+    uint64_t us;
+    uint64_t ms;
+
+    if (app == NULL || app->api == NULL || app->api->time_location == NULL ||
+        app->api->time_location->monotonic_us == NULL) {
+        return 0;
+    }
+
+    us = app->api->time_location->monotonic_us();
+    ms = us / 1000u;
+    return ms > (uint64_t)INT64_MAX ? INT64_MAX : (int64_t)ms;
+}
+
 static bool app_save_config(AppController *app)
 {
     char text[2048];
@@ -584,6 +599,19 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
             auto_seq_result = auto_seq_on_manual_rx(&app->auto_seq, &event);
             return auto_seq_result == AUTO_SEQ_OK || auto_seq_result == AUTO_SEQ_IGNORED;
         }
+
+        case APP_ACTION_DROP_TX_QSO:
+            if (action->value.index >= 0 &&
+                (size_t)action->value.index < auto_seq_active_count(&app->auto_seq)) {
+                (void)auto_seq_drop_index(&app->auto_seq,
+                                          (size_t)action->value.index,
+                                          app_monotonic_ms(app));
+            }
+            return true;
+
+        case APP_ACTION_ROTATE_TX_QUEUE:
+            (void)auto_seq_rotate_same_parity(&app->auto_seq);
+            return true;
 
         case APP_ACTION_SET_PROFILE:
             config_service_set_profile(&app->config, action->value.index);
