@@ -35,4 +35,8 @@ bool app_controller_init(AppController *app, const mini_api_t *api,
                          const char *data_directory, const char *station_path);
 void app_controller_shutdown(AppController *app);
 
+/* Component model builders stay private; the public facade returns a complete snapshot. */
+void app_controller_build_ui_model(const AppController *app, UiModel *model);
+void app_controller_build_memory_model(const AppController *app, UiModel *model);
+
 #endif
