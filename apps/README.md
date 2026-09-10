@@ -24,7 +24,21 @@ On Linux, the reference build produces runtime-loadable `.so` modules under:
 build-linux/runtime/apps/
 ```
 
-Cardputer ADV V1 compiles selected applications into the firmware through a static registry. Runtime `.elf` loading may be explored later without changing the application source-level API model.
+Cardputer ADV V1 proved the application model with selected applications compiled into the firmware through a static registry. That remains a valid transition/testing mechanism, but runtime ELF loading is now an **active MiniShell target**, not a future experiment.
+
+The initial ADV external-application convention is:
+
+```text
+/sd/<app>.elf
+```
+
+The first field-usable target is:
+
+```text
+/sd/keyer.elf
+```
+
+Application discovery/loading remains a private backend/runtime responsibility. The Keyer source must use only the same MiniShell public API boundary as any other portable application; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, or loader-specific interfaces. Static and external applications may coexist while the loader is brought up. Collision/precedence behavior between a compiled-in app and an external app of the same name is intentionally not frozen yet.
 
 Current applications:
 
@@ -44,6 +58,8 @@ rm       remove one regular file
 rmdir    remove one empty directory
 ```
 
+`keyer` is planned next as the first field-usable ADV external application. It is not listed as a current application until implementation begins.
+
 Application output is chosen by intent:
 
 ```text
@@ -60,4 +76,4 @@ Applications use MiniShell logical paths such as `/sd/notes.txt`; they do not kn
 
 A portable application must not depend on POSIX, NuttX, ESP-IDF, FreeRTOS, or board-specific types.
 
-The public API is still under active development. In-tree applications are rebuilt when the API changes; backward source or binary compatibility is not yet promised.
+The public API is still under active development. External `.elf` work does **not** freeze a long-term binary ABI yet. During this phase an external application may need to be rebuilt for the matching MiniShell API generation; backward source or binary compatibility is not yet promised.
