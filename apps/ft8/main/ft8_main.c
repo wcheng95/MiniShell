@@ -81,28 +81,6 @@ static bool parse_options(int argc, char **argv, Ft8Options *out)
     return !out->has_rx_slot || out->rx_endpoint != NULL;
 }
 
-static bool model_clock_changed(const UiModel *a, const UiModel *b)
-{
-    if (a->utc_valid != b->utc_valid) return true;
-    if (!a->utc_valid) return false;
-    return a->utc_hour != b->utc_hour ||
-           a->utc_minute != b->utc_minute ||
-           a->utc_second != b->utc_second ||
-           a->slot_counter != b->slot_counter;
-}
-
-static bool model_memory_changed(const UiModel *a, const UiModel *b)
-{
-    return a->memory_app_valid != b->memory_app_valid ||
-           a->memory_app_allocated_bytes != b->memory_app_allocated_bytes ||
-           a->memory_app_allocation_count != b->memory_app_allocation_count ||
-           a->memory_free_valid != b->memory_free_valid ||
-           a->memory_free_bytes != b->memory_free_bytes ||
-           a->memory_largest_valid != b->memory_largest_valid ||
-           a->memory_largest_free_block != b->memory_largest_free_block ||
-           a->rx_active != b->rx_active;
-}
-
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
@@ -111,10 +89,9 @@ int main(int argc, char **argv)
     ft8_ui_adapter_t adapter;
     UiShell ui;
     UiModel model;
-    UiModel rendered_model;
+    UiFrame rendered_frame;
     bool adapter_initialized = false;
-    bool have_rendered_model = false;
-    bool redraw = true;
+    bool have_rendered_frame = false;
     bool running = true;
     int result = 0;
 
@@ -165,23 +142,20 @@ int main(int argc, char **argv)
     }
 
     ui_shell_init(&ui, options.presentation);
-    memset(&rendered_model, 0, sizeof(rendered_model));
+    memset(&rendered_frame, 0, sizeof(rendered_frame));
 
     while (running) {
-        bool rx_changed = false;
-        bool tx_changed = false;
+        bool step_changed = false;
         bool rx_active;
-        bool memory_visible;
         bool has_input = false;
         UiInput input;
         UiFrame frame;
         AppAction action;
 
-        if (!app_controller_step_rx(app, &rx_changed)) {
+        if (!app_controller_step_rx(app, &step_changed)) {
             result = 9;
             break;
         }
-        if (rx_changed) redraw = true;
 
         /*
          * --rx-slot is the deterministic decode-fixture mode. Do not mix its
@@ -189,32 +163,27 @@ int main(int argc, char **argv)
          * Live operation (including --rx without --rx-slot) uses MiniShell UTC.
          */
         if (!options.has_rx_slot) {
-            if (!app_controller_step_tx(app, &tx_changed)) {
+            if (!app_controller_step_tx(app, &step_changed)) {
                 result = 10;
                 break;
             }
-            if (tx_changed) redraw = true;
         }
 
-        app_controller_build_ui_model(app, &model);
-        memory_visible = ui.screen == SCREEN_V && ui.submenu == UI_SUBMENU_V_MEMORY;
-        if (memory_visible) {
-            app_controller_build_memory_model(app, &model);
-        }
-        if (!have_rendered_model || model_clock_changed(&model, &rendered_model) ||
-            (memory_visible && model_memory_changed(&model, &rendered_model))) {
-            redraw = true;
-        }
-
-        if (redraw) {
-            ui_shell_render(&ui, &model, &frame);
+        /*
+         * C2 boundary: app_controller produces one complete model and ui_shell
+         * alone decides which state is visible. Lifecycle code compares only
+         * rendered frames, never UIScreen/submenu or individual model fields.
+         */
+        app_controller_build_model(app, &model);
+        ui_shell_render(&ui, &model, &frame);
+        if (!have_rendered_frame ||
+            memcmp(&frame, &rendered_frame, sizeof(frame)) != 0) {
             if (!ft8_ui_adapter_render(&adapter, &frame)) {
                 result = 5;
                 break;
             }
-            rendered_model = model;
-            have_rendered_model = true;
-            redraw = false;
+            rendered_frame = frame;
+            have_rendered_frame = true;
         }
 
         rx_active = app_controller_rx_active(app);
@@ -231,7 +200,6 @@ int main(int argc, char **argv)
             continue;
         }
 
-        redraw = true;
         if (ui_shell_handle_input(&ui, &model, input, &action)) {
             if (!app_controller_apply_action(app, &action)) {
                 result = 7;
