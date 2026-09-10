@@ -12,7 +12,8 @@
 
 /* One Ft8Engine window can return at most 50 decoded candidates. */
 #define APP_MAX_RX_LINES 50
-#define APP_MAX_TX_LINES UI_MAIN_LINES
+/* T UIScreen must project the complete bounded AutoSeq active queue. */
+#define APP_MAX_TX_LINES 30
 
 typedef enum {
     SCREEN_RX = 0,
