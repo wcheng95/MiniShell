@@ -11,6 +11,8 @@ extern "C" {
 #endif
 
 int adv_console_prepare(void);
+int adv_console_suspend_for_usb(void);
+int adv_console_resume_after_usb(void);
 void adv_console_debug_write(const char *text);
 
 int adv_display_prepare(void);
