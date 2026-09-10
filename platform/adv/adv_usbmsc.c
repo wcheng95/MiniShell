@@ -1,45 +1,22 @@
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
-#include "driver/sdspi_host.h"
-#include "driver/spi_master.h"
 #include "esp_err.h"
-#include "esp_partition.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "sdmmc_cmd.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "tinyusb_msc.h"
-#include "wear_levelling.h"
 
+#include "adv_filesystem_handoff.h"
 #include "adv_internal.h"
-
-#define ADV_USBMSC_FLASH_LABEL "flash"
-#define ADV_USBMSC_SD_SPI_HOST SPI2_HOST
-#define ADV_USBMSC_SD_SCK_GPIO 40
-#define ADV_USBMSC_SD_MISO_GPIO 39
-#define ADV_USBMSC_SD_MOSI_GPIO 14
-#define ADV_USBMSC_SD_CS_GPIO 12
-#define ADV_USBMSC_SD_FREQ_KHZ 20000u
 
 typedef enum {
     ADV_USBMSC_ALL = 0,
     ADV_USBMSC_FLASH,
     ADV_USBMSC_SD,
 } adv_usbmsc_target_t;
-
-typedef struct {
-    bool flash_ready;
-    wl_handle_t flash_wl;
-
-    bool sd_bus_ready;
-    bool sd_device_ready;
-    sdspi_dev_handle_t sd_device;
-    sdmmc_card_t *sd_card;
-} adv_usbmsc_media_t;
 
 typedef struct {
     bool msc_driver_ready;
@@ -102,84 +79,6 @@ static bool parse_target(int argc, char **argv, adv_usbmsc_target_t *out_target)
     return true;
 }
 
-static esp_err_t prepare_flash(adv_usbmsc_media_t *media)
-{
-    const esp_partition_t *partition = esp_partition_find_first(
-        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, ADV_USBMSC_FLASH_LABEL);
-    if (partition == NULL) return ESP_ERR_NOT_FOUND;
-
-    media->flash_wl = WL_INVALID_HANDLE;
-    esp_err_t err = wl_mount(partition, &media->flash_wl);
-    if (err == ESP_OK) media->flash_ready = true;
-    return err;
-}
-
-static void release_flash(adv_usbmsc_media_t *media)
-{
-    if (!media->flash_ready) return;
-    (void)wl_unmount(media->flash_wl);
-    media->flash_wl = WL_INVALID_HANDLE;
-    media->flash_ready = false;
-}
-
-static esp_err_t prepare_sd(adv_usbmsc_media_t *media)
-{
-    spi_bus_config_t bus_config = {
-        .mosi_io_num = ADV_USBMSC_SD_MOSI_GPIO,
-        .miso_io_num = ADV_USBMSC_SD_MISO_GPIO,
-        .sclk_io_num = ADV_USBMSC_SD_SCK_GPIO,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 16 * 1024,
-    };
-
-    esp_err_t err = spi_bus_initialize(ADV_USBMSC_SD_SPI_HOST, &bus_config, SPI_DMA_CH_AUTO);
-    if (err != ESP_OK) return err;
-    media->sd_bus_ready = true;
-
-    err = sdspi_host_init();
-    if (err != ESP_OK) return err;
-
-    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.host_id = ADV_USBMSC_SD_SPI_HOST;
-    slot_config.gpio_cs = ADV_USBMSC_SD_CS_GPIO;
-
-    err = sdspi_host_init_device(&slot_config, &media->sd_device);
-    if (err != ESP_OK) return err;
-    media->sd_device_ready = true;
-
-    media->sd_card = (sdmmc_card_t *)calloc(1u, sizeof(*media->sd_card));
-    if (media->sd_card == NULL) return ESP_ERR_NO_MEM;
-
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.slot = media->sd_device;
-    host.max_freq_khz = ADV_USBMSC_SD_FREQ_KHZ;
-    err = sdmmc_card_init(&host, media->sd_card);
-    if (err != ESP_OK) return err;
-
-    return ESP_OK;
-}
-
-static void release_sd(adv_usbmsc_media_t *media)
-{
-    if (media->sd_device_ready) {
-        (void)sdspi_host_remove_device(media->sd_device);
-        media->sd_device_ready = false;
-    }
-    free(media->sd_card);
-    media->sd_card = NULL;
-    if (media->sd_bus_ready) {
-        (void)spi_bus_free(ADV_USBMSC_SD_SPI_HOST);
-        media->sd_bus_ready = false;
-    }
-}
-
-static void release_media(adv_usbmsc_media_t *media)
-{
-    release_sd(media);
-    release_flash(media);
-}
-
 static void msc_event(tinyusb_msc_storage_handle_t handle,
                       tinyusb_msc_event_t *event,
                       void *arg)
@@ -228,9 +127,7 @@ static esp_err_t add_sd_storage(adv_usbmsc_usb_t *usb, sdmmc_card_t *card)
 }
 
 static esp_err_t start_usb(adv_usbmsc_usb_t *usb,
-                           const adv_usbmsc_media_t *media,
-                           bool use_flash,
-                           bool use_sd)
+                           const adv_filesystem_handoff_t *media)
 {
     tinyusb_msc_driver_config_t msc_config = {0};
     msc_config.user_flags.auto_mount_off = 1u;
@@ -240,11 +137,11 @@ static esp_err_t start_usb(adv_usbmsc_usb_t *usb,
     if (err != ESP_OK) return err;
     usb->msc_driver_ready = true;
 
-    if (use_flash) {
+    if (media->has_flash) {
         err = add_flash_storage(usb, media->flash_wl);
         if (err != ESP_OK) return err;
     }
-    if (use_sd) {
+    if (media->has_sd) {
         err = add_sd_storage(usb, media->sd_card);
         if (err != ESP_OK) return err;
     }
@@ -266,8 +163,7 @@ static void stop_usb(adv_usbmsc_usb_t *usb)
 
     if (usb->sd_storage != NULL) {
         for (int retry = 0; retry < 50; ++retry) {
-            esp_err_t err = tinyusb_msc_delete_storage(usb->sd_storage);
-            if (err == ESP_OK) {
+            if (tinyusb_msc_delete_storage(usb->sd_storage) == ESP_OK) {
                 usb->sd_storage = NULL;
                 break;
             }
@@ -276,8 +172,7 @@ static void stop_usb(adv_usbmsc_usb_t *usb)
     }
     if (usb->flash_storage != NULL) {
         for (int retry = 0; retry < 50; ++retry) {
-            esp_err_t err = tinyusb_msc_delete_storage(usb->flash_storage);
-            if (err == ESP_OK) {
+            if (tinyusb_msc_delete_storage(usb->flash_storage) == ESP_OK) {
                 usb->flash_storage = NULL;
                 break;
             }
@@ -312,13 +207,12 @@ static void wait_for_exit(void)
 int minishell_app_usbmsc_main(int argc, char **argv)
 {
     adv_usbmsc_target_t target;
-    adv_usbmsc_media_t media = {
+    adv_filesystem_handoff_t media = {
         .flash_wl = WL_INVALID_HANDLE,
-        .sd_device = -1,
     };
     adv_usbmsc_usb_t usb = {0};
+    bool handoff_active = false;
     bool console_suspended = false;
-    bool filesystems_released = false;
     bool use_flash = false;
     bool use_sd = false;
     int result = 1;
@@ -359,20 +253,11 @@ int minishell_app_usbmsc_main(int argc, char **argv)
 
     show_screen(target_label(use_flash, use_sd), "Preparing...");
 
-    /* The foreground app is the ownership boundary. Stop all local VFS access
-     * before exposing any raw medium to the USB host. The normal filesystem
-     * owner is restored before returning to MiniShell. */
-    adv_filesystem_shutdown();
-    filesystems_released = true;
-
-    if (use_flash && prepare_flash(&media) != ESP_OK) {
-        show_error("flash handoff failed");
-        goto cleanup;
+    if (adv_filesystem_handoff_begin(use_flash, use_sd, &media) != 0) {
+        show_error("storage handoff fail");
+        return 3;
     }
-    if (use_sd && prepare_sd(&media) != ESP_OK) {
-        show_error("sd handoff failed");
-        goto cleanup;
-    }
+    handoff_active = true;
 
     if (adv_console_suspend_for_usb() != 0) {
         show_error("USB console busy");
@@ -380,7 +265,7 @@ int minishell_app_usbmsc_main(int argc, char **argv)
     }
     console_suspended = true;
 
-    if (start_usb(&usb, &media, use_flash, use_sd) != ESP_OK) {
+    if (start_usb(&usb, &media) != ESP_OK) {
         show_error("TinyUSB start failed");
         goto cleanup;
     }
@@ -397,11 +282,9 @@ cleanup:
         console_suspended = false;
     }
 
-    release_media(&media);
-
-    if (filesystems_released && adv_filesystem_prepare() != 0) {
-        adv_console_debug_write("usbmsc: failed to remount MiniShell storage\n");
-        return 3;
+    if (handoff_active && adv_filesystem_handoff_end() != 0) {
+        adv_console_debug_write("usbmsc: failed to restore MiniShell storage\n");
+        return 4;
     }
 
     if (result == 0) {
