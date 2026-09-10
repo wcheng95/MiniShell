@@ -278,6 +278,11 @@ static int test_capacity_and_oldest_inactive_eviction(void)
     auto_seq_set_skip_tx1(&seq, true);
     auto_seq_set_max_retry(&seq, 0);
 
+    /*
+     * Preserve V2's exact full-boundary behavior: when the 30th active
+     * context is parked, move_to_inactive() first evicts the oldest inactive
+     * context, so the all-inactive population remains 29 rather than 30.
+     */
     for (i = 0u; i < AUTO_SEQ_MAX_QUEUE; ++i) {
         snprintf(call, sizeof(call), "W%02uAAA", (unsigned)i);
         event = event_for(call, AUTO_SEQ_MSG_TX1, 600 + (int64_t)i * 2);
@@ -285,17 +290,25 @@ static int test_capacity_and_oldest_inactive_eviction(void)
         CHECK(auto_seq_tick(&seq, 10000 + (int64_t)i));
     }
     CHECK(auto_seq_active_count(&seq) == 0u);
-    CHECK(auto_seq_inactive_count(&seq) == AUTO_SEQ_MAX_QUEUE);
+    CHECK(auto_seq_inactive_count(&seq) == AUTO_SEQ_MAX_QUEUE - 1u);
+    CHECK(auto_seq_total_count(&seq) == AUTO_SEQ_MAX_QUEUE - 1u);
 
+    /* First active consumes the free slot. Second active forces eviction. */
     event = event_for("NEW1", AUTO_SEQ_MSG_TX1, 700);
     CHECK(auto_seq_on_manual_rx(&seq, &event) == AUTO_SEQ_OK);
     CHECK(auto_seq_active_count(&seq) == 1u);
     CHECK(auto_seq_inactive_count(&seq) == AUTO_SEQ_MAX_QUEUE - 1u);
     CHECK(auto_seq_total_count(&seq) == AUTO_SEQ_MAX_QUEUE);
 
+    event = event_for("NEW2", AUTO_SEQ_MSG_TX1, 702);
+    CHECK(auto_seq_on_manual_rx(&seq, &event) == AUTO_SEQ_OK);
+    CHECK(auto_seq_active_count(&seq) == 2u);
+    CHECK(auto_seq_inactive_count(&seq) == AUTO_SEQ_MAX_QUEUE - 2u);
+    CHECK(auto_seq_total_count(&seq) == AUTO_SEQ_MAX_QUEUE);
+
     for (i = 0u; i < auto_seq_inactive_count(&seq); ++i) {
         CHECK(auto_seq_get_inactive_context(&seq, i, &ctx));
-        if (strcmp(ctx.dxcall, "W00AAA") == 0) found_oldest = true;
+        if (strcmp(ctx.dxcall, "W01AAA") == 0) found_oldest = true;
     }
     CHECK(!found_oldest);
     return 0;
