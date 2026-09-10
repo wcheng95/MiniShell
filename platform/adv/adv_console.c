@@ -27,6 +27,21 @@ int adv_console_prepare(void)
     return 0;
 }
 
+int adv_console_suspend_for_usb(void)
+{
+    if (!usb_serial_jtag_is_driver_installed()) return 0;
+
+    (void)fflush(stdout);
+    (void)usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(100));
+    usb_serial_jtag_vfs_use_nonblocking();
+    return usb_serial_jtag_driver_uninstall() == ESP_OK ? 0 : -1;
+}
+
+int adv_console_resume_after_usb(void)
+{
+    return adv_console_prepare();
+}
+
 void adv_console_debug_write(const char *text)
 {
     if (text == NULL) return;
