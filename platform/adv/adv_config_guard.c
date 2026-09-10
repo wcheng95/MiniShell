@@ -16,7 +16,7 @@
 #error "ADV requires CONFIG_FATFS_API_ENCODING_UTF_8=y"
 #endif
 
-#ifdef CONFIG_FATFS_PER_FILE_CACHE
+#if CONFIG_FATFS_PER_FILE_CACHE
 #error "ADV requires shared FATFS sector cache; CONFIG_FATFS_PER_FILE_CACHE must be disabled"
 #endif
 
