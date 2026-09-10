@@ -53,7 +53,6 @@ set(ADV_PORTABLE_UTILITY_SOURCES
     "rm_static.c"
     "mkdir_static.c"
     "rmdir_static.c"
-    "df_static.c"
     "nano_static.c"
     "${MINISHELL_ROOT}/apps/nano/main/nano_buffer.c"
     "${MINISHELL_ROOT}/apps/nano/main/nano_file.c"
