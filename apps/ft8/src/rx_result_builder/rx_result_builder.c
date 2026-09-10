@@ -112,6 +112,41 @@ static int valid_grid4(const char *text)
            isdigit((unsigned char)text[3]);
 }
 
+/* V2-compatible normal FT8 report parser: optional R, optional sign, 0..30. */
+static int parse_report(const char *text, int *out_has_r, int8_t *out_report)
+{
+    size_t i = 0u;
+    int negative = 0;
+    int value = 0;
+
+    if (text == NULL || out_has_r == NULL || out_report == NULL || text[0] == '\0')
+        return 0;
+
+    *out_has_r = 0;
+    if (text[i] == 'R') {
+        *out_has_r = 1;
+        ++i;
+    }
+    if (text[i] == '+') {
+        ++i;
+    } else if (text[i] == '-') {
+        negative = 1;
+        ++i;
+    }
+    if (text[i] == '\0' || !isdigit((unsigned char)text[i]))
+        return 0;
+
+    while (text[i] != '\0' && isdigit((unsigned char)text[i])) {
+        value = value * 10 + (text[i] - '0');
+        ++i;
+    }
+    if (text[i] != '\0' || value > 30)
+        return 0;
+
+    *out_report = (int8_t)(negative ? -value : value);
+    return 1;
+}
+
 static size_t split_fields(char *buffer, char **tokens, size_t capacity)
 {
     size_t count = 0u;
@@ -167,6 +202,7 @@ static void copy_common(RxMessage *out, const Ft8ProtocolMessage *in)
     out->protocol_type = in->type;
     out->parse_status = in->parse_status;
     out->has_unresolved_hash = in->has_unresolved_hash;
+    out->report_db = RX_RESULT_REPORT_UNKNOWN;
     copy_text(out->canonical_text, sizeof(out->canonical_text), in->canonical_text);
     out->offset_hz = in->offset_hz;
     out->snr_db = in->snr_db;
@@ -174,6 +210,40 @@ static void copy_common(RxMessage *out, const Ft8ProtocolMessage *in)
     out->ldpc_errors = in->ldpc_errors;
     out->crc_extracted = in->crc_extracted;
     out->crc_calculated = in->crc_calculated;
+}
+
+static void classify_standard_qso(const Ft8ProtocolStandard *standard,
+                                  RxMessage *out)
+{
+    int has_r;
+    int8_t report;
+
+    switch (standard->extra_kind) {
+    case FT8_PROTOCOL_FIELD_GRID:
+        /* Preserve V2: "R FN42" is not treated as an ordinary TX1 grid. */
+        if (valid_grid4(standard->extra))
+            out->qso_kind = RX_QSO_MSG_TX1;
+        break;
+
+    case FT8_PROTOCOL_FIELD_REPORT:
+        if (parse_report(standard->extra, &has_r, &report)) {
+            out->qso_kind = has_r ? RX_QSO_MSG_TX3 : RX_QSO_MSG_TX2;
+            out->report_db = report;
+        }
+        break;
+
+    case FT8_PROTOCOL_FIELD_TOKEN:
+        if (strcmp(standard->extra, "RRR") == 0 ||
+            strcmp(standard->extra, "RR73") == 0) {
+            out->qso_kind = RX_QSO_MSG_TX4;
+        } else if (strcmp(standard->extra, "73") == 0) {
+            out->qso_kind = RX_QSO_MSG_TX5;
+        }
+        break;
+
+    default:
+        break;
+    }
 }
 
 static void classify_message(const RxResultBuilder *builder,
@@ -190,6 +260,7 @@ static void classify_message(const RxResultBuilder *builder,
         out->is_cq = starts_cq_token(in->data.standard.call_to) != 0;
         if (!out->is_cq)
             out->is_to_me = call_equals(in->data.standard.call_to, local) != 0;
+        classify_standard_qso(&in->data.standard, out);
         break;
 
     case FT8_PROTOCOL_NONSTD_CALL:
@@ -198,6 +269,12 @@ static void classify_message(const RxResultBuilder *builder,
         out->is_cq = in->data.nonstandard.is_cq;
         if (!out->is_cq)
             out->is_to_me = call_equals(in->data.nonstandard.call_to, local) != 0;
+        if (in->data.nonstandard.terminal == FT8_PROTOCOL_TERMINAL_RRR ||
+            in->data.nonstandard.terminal == FT8_PROTOCOL_TERMINAL_RR73) {
+            out->qso_kind = RX_QSO_MSG_TX4;
+        } else if (in->data.nonstandard.terminal == FT8_PROTOCOL_TERMINAL_73) {
+            out->qso_kind = RX_QSO_MSG_TX5;
+        }
         break;
 
     case FT8_PROTOCOL_ARRL_FD:
@@ -205,11 +282,13 @@ static void classify_message(const RxResultBuilder *builder,
         copy_text(out->call_de, sizeof(out->call_de), in->data.arrl_fd.call_de);
         copy_text(out->extra, sizeof(out->extra), in->data.arrl_fd.section);
         out->is_to_me = call_equals(in->data.arrl_fd.call_to, local) != 0;
+        /* Field Day stage/exchange classification is intentionally AS-6. */
         break;
 
     case FT8_PROTOCOL_DXPEDITION:
         out->is_to_me = call_equals(in->data.dxpedition.rr73_call, local) != 0 ||
                         call_equals(in->data.dxpedition.report_call, local) != 0;
+        /* DXpedition has different two-message semantics; do not flatten here. */
         break;
 
     case FT8_PROTOCOL_FREE_TEXT:
