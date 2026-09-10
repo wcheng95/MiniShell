@@ -62,4 +62,4 @@ docs/project/architecture-cleanup.md   # C0-C4 complete
 
 ADV application resolution is compiled-in first, then `/flash/<app>.elf`, then `/sd/<app>.elf`.
 
-Linux Mint on `pc-1` is the reference/full production target. Historical Tab5/ESP-IDF work is retained on `archive/tab5-legacy`.
+The maintained MiniShell targets are Linux Mint on `pc-1` and Cardputer ADV.
