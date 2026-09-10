@@ -162,14 +162,15 @@ Tab5/NuttX          loadable-app mechanism where practical
 
 The ADV static registry remains a valid baseline and transition mechanism, but runtime ELF loading is now an **active architecture target**.
 
-ADV external application discovery uses this fixed order:
+The established ADV application resolution order is:
 
 ```text
-1. /flash/<app>.elf
-2. /sd/<app>.elf
+1. compiled-in application
+2. /flash/<app>.elf
+3. /sd/<app>.elf
 ```
 
-The same ELF may be installed in either location. If both copies exist, the `/flash` copy wins. The first field-usable external application is Keyer, so both of these are valid placements:
+For external applications specifically, `/flash` is searched before `/sd`. The same ELF may be installed in either location. If both external copies exist, the `/flash` copy wins. The first field-usable external application is Keyer, so both of these are valid placements:
 
 ```text
 /flash/keyer.elf
@@ -180,7 +181,7 @@ The same ELF may be installed in either location. If both copies exist, the `/fl
 
 Application source does not contain loader-specific logic. `keyer.elf` must depend only on the MiniShell public API and Keyer-owned modules; it must not know about ESP-IDF, FreeRTOS, M5/Cardputer, FATFS implementation details, or the ELF loader itself.
 
-Discovery, relocation, symbol resolution, execution setup, unloading, and cleanup remain private runtime/backend concerns. External-location precedence is fixed as `/flash` then `/sd`. Any precedence between a compiled-in application and an external application of the same name remains a separate loader-design decision.
+Discovery, relocation, symbol resolution, execution setup, unloading, and cleanup remain private runtime/backend concerns. The resolution precedence above is a MiniShell runtime rule, not application logic.
 
 Starting ELF work does **not** freeze a long-term binary ABI. Until compatibility is deliberately frozen, an external application may need to be rebuilt against the matching MiniShell API generation.
 
@@ -262,7 +263,15 @@ ADV V1 baseline      statically composed probe/app
 ADV ELF milestone    runtime-loaded /flash/<app>.elf or /sd/<app>.elf
 ```
 
-The ELF loader itself also requires focused tests for discovery order, load/start/return/unload/cleanup and failure handling. Tests must prove `/flash` before `/sd`, including the case where both locations contain the same app name.
+The ELF loader itself also requires focused tests for resolution order, load/start/return/unload/cleanup, and failure handling. Tests must prove:
+
+```text
+compiled-in wins over same-name external app
+/flash external wins over /sd external
+same ELF binary runs from /flash or /sd
+```
+
+A non-colliding external test application should be used when testing the ELF path itself so the compiled-in tier does not mask loader execution.
 
 Those loader tests are additional to, not a substitute for, service/API tests.
 
