@@ -1,6 +1,6 @@
 # MiniFT8-V3 AS-7 — Slot and simulated TX lifecycle
 
-Status: **IMPLEMENTED — awaiting final branch CI before merge**
+Status: **COMPLETE**
 
 AS-7 introduces the application TX lifecycle boundary without adding Audio TX, CAT/Control, waveform generation, or RF transmission.
 
@@ -191,7 +191,7 @@ QSO preemption of beacon
 beacon mode change removes stale CQ
 ```
 
-The existing Linux integration suite also remains green with deterministic `--rx-slot` isolation.
+The existing Linux integration suite also remains green with deterministic `--rx-slot` isolation. The branch is required to pass the Linux, FT8 Reference, and Cardputer ADV CI gates on the exact final head before merge.
 
 ## 9. Deliberately deferred
 
@@ -209,3 +209,20 @@ O-screen beacon/CQ editing UI
 ```
 
 Those are downstream consumers of the lifecycle boundary, not reasons to move time/platform ownership back into AutoSeq.
+
+## 10. Completion boundary
+
+AS-7 is complete when the following are true:
+
+```text
+semantic TxIntent projection is typed and platform-independent
+UTC slot/parity execution is controller-owned
+first/missed/duplicate/wrong-parity slot edges cannot consume TX state
+simulated completion is the sole production source of auto_seq_tick()
+beacon CQ is regenerated only when idle and on configured parity
+logging eligibility is captured at TX start without fake acknowledgement
+--rx-slot deterministic tests cannot be mutated by wall-clock TX
+Linux + FT8 Reference + ADV CI pass on the exact final branch head
+```
+
+Actual transmitter and persistent logging implementations remain downstream work; they do not block AS-7 closure.
