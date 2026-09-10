@@ -99,19 +99,31 @@ Do not define an application conceptually by its container format. "ELF app" and
 ```text
 Linux/Mint          .so
 Cardputer ADV V1    compiled-in registry
-Cardputer ADV next  runtime /sd/<app>.elf
+Cardputer ADV next  runtime external .elf
 NuttX               native loadable mechanism where practical
 ```
 
-The ADV static registry remains available during transition/testing, but runtime loading is now an active MiniShell architecture target. The first planned field-usable external application is:
+The ADV static registry remains available during transition/testing, but runtime loading is now an active MiniShell architecture target.
+
+External application search order on ADV is:
 
 ```text
+1. /flash/<app>.elf
+2. /sd/<app>.elf
+```
+
+The same ELF may live in either location; when both copies exist, `/flash` wins. Therefore both of these are valid Keyer installations:
+
+```text
+/flash/keyer.elf
 /sd/keyer.elf
 ```
 
-The source-level application contract remains MiniShell public API plus the application's own modules. Loader details such as ELF parsing, relocation, symbol resolution, execution context, and unloading stay resident/private to MiniShell and the ADV backend.
+The source-level application contract remains MiniShell public API plus the application's own modules. Loader details such as path discovery, ELF parsing, relocation, symbol resolution, execution context, and unloading stay resident/private to MiniShell and the ADV backend.
 
 External loading does not make Keyer platform-aware. The same Keyer source must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or ELF-loader interfaces.
+
+External-location precedence is fixed as `/flash` then `/sd`. Any precedence between a compiled-in application and an external application of the same name remains a separate loader-design decision.
 
 A formal cross-release binary ABI is still intentionally deferred. During this early phase an external application may need to be rebuilt for the matching MiniShell API generation.
 
