@@ -37,6 +37,8 @@ int main(void)
 
     protocol[0].type = FT8_PROTOCOL_STANDARD;
     protocol[0].parse_status = FT8_PROTOCOL_PARSE_OK;
+    protocol[0].snr_db = -17;
+    protocol[0].offset_hz = 1425;
     strcpy(protocol[0].canonical_text, "CQ W1XYZ FN42");
     strcpy(protocol[0].data.standard.call_to, "CQ");
     protocol[0].data.standard.call_to_kind = FT8_PROTOCOL_FIELD_TOKEN;
@@ -45,6 +47,8 @@ int main(void)
 
     protocol[1].type = FT8_PROTOCOL_STANDARD;
     protocol[1].parse_status = FT8_PROTOCOL_PARSE_OK;
+    protocol[1].snr_db = -9;
+    protocol[1].offset_hz = 975;
     strcpy(protocol[1].canonical_text, "<AG6AQ> W6ABC -10");
     strcpy(protocol[1].data.standard.call_to, "<AG6AQ>");
     protocol[1].data.standard.call_to_kind = FT8_PROTOCOL_FIELD_CALL;
@@ -64,10 +68,14 @@ int main(void)
     CHECK(!output[0].is_to_me);
     CHECK(strcmp(output[0].call_de, "W1XYZ") == 0);
     CHECK(strcmp(output[0].extra, "FN42") == 0);
+    CHECK(output[0].snr_db == -17);
+    CHECK(output[0].offset_hz == 1425);
 
     CHECK(!output[1].is_cq);
     CHECK(output[1].is_to_me);
     CHECK(strcmp(output[1].call_to, "<AG6AQ>") == 0);
+    CHECK(output[1].snr_db == -9);
+    CHECK(output[1].offset_hz == 975);
 
     CHECK(output[2].protocol_type == FT8_PROTOCOL_FREE_TEXT);
     CHECK(output[2].is_cq);
