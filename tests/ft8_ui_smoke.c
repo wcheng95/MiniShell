@@ -149,6 +149,39 @@ static void test_adv_locked_top_and_rx_paging(void)
     assert(strstr(frame.rows[1], "Memory") != NULL);
 }
 
+static void test_adv_tx_paging(void)
+{
+    UiShell ui;
+    UiModel model;
+    UiFrame frame;
+    AppAction action;
+    size_t i;
+
+    set_default_model(&model);
+    model.tx_count = 8u;
+    for (i = 0u; i < model.tx_count; ++i) {
+        snprintf(model.tx_lines[i], sizeof(model.tx_lines[i]),
+                 "W%uXYZ    RPLY 0/3", (unsigned)(i + 1u));
+    }
+
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    assert(!ui_shell_handle_input(&ui, &model, key('t'), &action));
+    ui_shell_render(&ui, &model, &frame);
+    assert(strcmp(frame.rows[0], "TX 20 14:32:08 1/2 8") == 0);
+    assert(strstr(frame.rows[1], "1 W1XYZ") != NULL);
+    assert(strstr(frame.rows[6], "6 W6XYZ") != NULL);
+
+    assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_DOWN), &action));
+    ui_shell_render(&ui, &model, &frame);
+    assert(strcmp(frame.rows[0], "TX 20 14:32:08 2/2 8") == 0);
+    assert(strstr(frame.rows[1], "1 W7XYZ") != NULL);
+    assert(strstr(frame.rows[2], "2 W8XYZ") != NULL);
+
+    assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_PAGE_NEXT), &action));
+    ui_shell_render(&ui, &model, &frame);
+    assert(strcmp(frame.rows[0], "TX 20 14:32:08 1/2 8") == 0);
+}
+
 static void test_adv_memory_view(void)
 {
     UiShell ui;
@@ -214,6 +247,7 @@ int main(void)
     test_profile_contract();
     test_desktop_existing_navigation();
     test_adv_locked_top_and_rx_paging();
+    test_adv_tx_paging();
     test_adv_memory_view();
     test_adv_no_utc();
     puts("ft8_ui_smoke: PASS");
