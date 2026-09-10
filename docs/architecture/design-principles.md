@@ -156,19 +156,31 @@ The physical form differs by target:
 ```text
 Linux/Mint          .so + dlopen/dlsym/dlclose
 Cardputer ADV V1    compiled-in registry
-Cardputer ADV next  runtime /sd/<app>.elf
+Cardputer ADV next  runtime external .elf
 Tab5/NuttX          loadable-app mechanism where practical
 ```
 
-The ADV static registry remains a valid baseline and transition mechanism, but runtime ELF loading is now an **active architecture target**. The first field-usable external application is planned as:
+The ADV static registry remains a valid baseline and transition mechanism, but runtime ELF loading is now an **active architecture target**.
+
+ADV external application discovery uses this fixed order:
 
 ```text
+1. /flash/<app>.elf
+2. /sd/<app>.elf
+```
+
+The same ELF may be installed in either location. If both copies exist, the `/flash` copy wins. The first field-usable external application is Keyer, so both of these are valid placements:
+
+```text
+/flash/keyer.elf
 /sd/keyer.elf
 ```
 
-Application source does not contain loader-specific logic. `keyer.elf` must depend only on the MiniShell public API and Keyer-owned modules; it must not know about ESP-IDF, FreeRTOS, M5/Cardputer, SD/FATFS implementation details, or the ELF loader itself.
+`/sd/keyer.elf` is convenient for development/removable distribution; copying that binary to `/flash/keyer.elf` must work without rebuilding it.
 
-The initial ADV external-app naming convention is `/sd/<app>.elf`. Discovery, relocation, symbol resolution, execution setup, unloading, and any compiled-in-versus-external precedence policy remain private runtime/backend concerns and may evolve during implementation.
+Application source does not contain loader-specific logic. `keyer.elf` must depend only on the MiniShell public API and Keyer-owned modules; it must not know about ESP-IDF, FreeRTOS, M5/Cardputer, FATFS implementation details, or the ELF loader itself.
+
+Discovery, relocation, symbol resolution, execution setup, unloading, and cleanup remain private runtime/backend concerns. External-location precedence is fixed as `/flash` then `/sd`. Any precedence between a compiled-in application and an external application of the same name remains a separate loader-design decision.
 
 Starting ELF work does **not** freeze a long-term binary ABI. Until compatibility is deliberately frozen, an external application may need to be rebuilt against the matching MiniShell API generation.
 
@@ -247,10 +259,12 @@ Packaging may differ while the observable API behavior stays the same:
 ```text
 Linux                runtime-loaded .so
 ADV V1 baseline      statically composed probe/app
-ADV ELF milestone    runtime-loaded /sd/<app>.elf
+ADV ELF milestone    runtime-loaded /flash/<app>.elf or /sd/<app>.elf
 ```
 
-The ELF loader itself also requires focused tests for discovery, load/start/return/unload/cleanup and failure handling. Those loader tests are additional to, not a substitute for, service/API tests.
+The ELF loader itself also requires focused tests for discovery order, load/start/return/unload/cleanup and failure handling. Tests must prove `/flash` before `/sd`, including the case where both locations contain the same app name.
+
+Those loader tests are additional to, not a substitute for, service/API tests.
 
 Linux CI is the reference regression gate. Embedded ports should validate the same observable contract against their hardware/backend.
 
