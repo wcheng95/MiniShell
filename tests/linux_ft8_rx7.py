@@ -40,7 +40,7 @@ def read_until(fd: int, needle: bytes, timeout: float) -> bytes:
 def create_fixture(src: str, dst: str) -> None:
     with wave.open(src, "rb") as wav:
         if (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) != (6000, 1, 2):
-            raise RuntimeError("unexpected RX-7 golden WAV format")
+            raise RuntimeError(f"unexpected FT8 golden WAV format: {src}")
         raw = wav.readframes(wav.getnframes())
     samples = list(struct.unpack("<" + "h" * (len(raw) // 2), raw))
     slot_samples = 90000
@@ -61,6 +61,21 @@ def create_fixture(src: str, dst: str) -> None:
         wav.writeframes(out)
 
 
+def write_station(root: str) -> None:
+    path = os.path.join(root, "flash", "ft8", "station.txt")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(
+            "# MiniFT8-V3 AS-4 reference station\n"
+            "callsign=W1ABC\n"
+            "grid=FN42\n"
+            "profile=0\n"
+            "band=3\n"
+            "skip_tx1=0\n"
+            "max_retry=3\n"
+        )
+
+
 def main() -> int:
     if len(sys.argv) != 4:
         print("usage: linux_ft8_rx7.py <minishell> <app-dir> <v2-golden-wav>", file=sys.stderr)
@@ -69,11 +84,20 @@ def main() -> int:
     minishell = os.path.abspath(sys.argv[1])
     app_dir = os.path.abspath(sys.argv[2])
     golden = os.path.abspath(sys.argv[3])
+    golden_dir = os.path.dirname(golden)
     master_fd, slave_fd = pty.openpty()
 
     try:
         with tempfile.TemporaryDirectory(prefix="minishell-rx7-") as root:
             create_fixture(golden, os.path.join(root, "flash", "rx7.wav"))
+            create_fixture(os.path.join(golden_dir, "ft8_w1abc_k9xyz_fn42.wav"),
+                           os.path.join(root, "flash", "as4-grid.wav"))
+            create_fixture(os.path.join(golden_dir, "ft8_w1abc_k9xyz_neg12.wav"),
+                           os.path.join(root, "flash", "as4-report.wav"))
+            create_fixture(os.path.join(golden_dir, "ft8_w1abc_k9xyz_rr73.wav"),
+                           os.path.join(root, "flash", "as4-rr73.wav"))
+            write_station(root)
+
             env = os.environ.copy()
             env["MINISHELL_APP_DIR"] = app_dir
             env["MINISHELL_ROOT"] = root
@@ -86,6 +110,8 @@ def main() -> int:
             transcript = bytearray()
             try:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
+                # RX-7 / AS-3 regression: manual CQ selection still works.
                 os.write(master_fd,
                          b"ft8 --profile adv --rx /flash/rx7.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b"CQ W1XYZ FN42", 12.0))
@@ -96,13 +122,47 @@ def main() -> int:
                 if re.search(rb"RX 20 [0-9]{2}:[0-9]{2}:[0-9]{2} 1/1 [0-9A-E]", plain) is None:
                     raise RuntimeError("locked ADV RX top line was not rendered")
 
-                # AS-1: line 1 resolves to absolute RX index 0 in app_controller.
-                # A rejected/stale action would terminate ft8 with application error.
                 os.write(master_fd, b"1")
                 transcript.extend(read_until(master_fd, b"CQ W1XYZ FN42", 3.0))
-
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
+                # AS-4: TX1/grid addressed to W1ABC creates a QSO automatically.
+                # No RX line selection is sent before switching to T.
+                os.write(master_fd,
+                         b"ft8 --profile adv --rx /flash/as4-grid.wav --rx-slot 12345\n")
+                transcript.extend(read_until(master_fd, b"W1ABC K9XYZ FN42", 12.0))
+                os.write(master_fd, b"t")
+                grid_view = read_until(master_fd, b"K9XYZ    RPRT 0/3", 3.0)
+                transcript.extend(grid_view)
+                os.write(master_fd, b"q")
+                transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
+                # AS-4: a fresh TX2/report also starts automatically. V2 semantics
+                # advance the new context to ROGER_REPORT (derived next TX3).
+                os.write(master_fd,
+                         b"ft8 --profile adv --rx /flash/as4-report.wav --rx-slot 12345\n")
+                transcript.extend(read_until(master_fd, b"W1ABC K9XYZ -12", 12.0))
+                os.write(master_fd, b"t")
+                report_view = read_until(master_fd, b"K9XYZ    RRPT 0/3", 3.0)
+                transcript.extend(report_view)
+                os.write(master_fd, b"q")
+                transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
+                # V2 reincarnation guard: an unknown late RR73 must not create a
+                # fresh QSO. Again, no manual selection is sent.
+                os.write(master_fd,
+                         b"ft8 --profile adv --rx /flash/as4-rr73.wav --rx-slot 12345\n")
+                transcript.extend(read_until(master_fd, b"W1ABC K9XYZ RR73", 12.0))
+                os.write(master_fd, b"t")
+                empty_view = read_until(master_fd, b"\x1b[7;1H                    ", 3.0)
+                tx_screen = empty_view[empty_view.rfind(b"\x1b[2J\x1b[H"):]
+                if b"K9XYZ" in tx_screen or b"RPLY" in tx_screen or b"RPRT" in tx_screen or b"RRPT" in tx_screen:
+                    raise RuntimeError(f"late RR73 incorrectly created a QSO: {tx_screen!r}")
+                transcript.extend(empty_view)
+                os.write(master_fd, b"q")
+                transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+
                 os.write(master_fd, b"exit\n")
                 if process.wait(timeout=3.0) != 0:
                     raise RuntimeError("MiniShell exited non-zero")
