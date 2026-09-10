@@ -17,6 +17,7 @@ static int s_seen_mkdir;
 static int s_seen_rmdir;
 static int s_seen_nano;
 static int s_seen_ft8;
+static int s_seen_usbmsc;
 
 static void capture_app(const char *name, void *ctx)
 {
@@ -36,6 +37,7 @@ static void capture_app(const char *name, void *ctx)
     else if (strcmp(name, "rmdir") == 0) ++s_seen_rmdir;
     else if (strcmp(name, "nano") == 0) ++s_seen_nano;
     else if (strcmp(name, "ft8") == 0) ++s_seen_ft8;
+    else if (strcmp(name, "usbmsc") == 0) ++s_seen_usbmsc;
 }
 
 int minishell_app_hello_main(int argc, char **argv)
@@ -140,6 +142,14 @@ int minishell_app_ft8_main(int argc, char **argv)
     return 31;
 }
 
+int minishell_app_usbmsc_main(int argc, char **argv)
+{
+    assert(argc == 1);
+    assert(argv != NULL);
+    assert(strcmp(argv[0], "usbmsc") == 0);
+    return 37;
+}
+
 int main(void)
 {
     assert(minishell_platform_apps_list(NULL, NULL) == MINISHELL_PLATFORM_ERR_INVALID);
@@ -158,6 +168,7 @@ int main(void)
     s_seen_rmdir = 0;
     s_seen_nano = 0;
     s_seen_ft8 = 0;
+    s_seen_usbmsc = 0;
     assert(minishell_platform_apps_list(capture_app, NULL) == MINISHELL_PLATFORM_OK);
     assert(s_seen_hello == 1);
     assert(s_seen_probe == 1);
@@ -173,6 +184,7 @@ int main(void)
     assert(s_seen_rmdir == 1);
     assert(s_seen_nano == 1);
     assert(s_seen_ft8 == 1);
+    assert(s_seen_usbmsc == 1);
 
     char *hello_argv[] = {(char *)"hello", (char *)"probe"};
     int app_result = 0;
@@ -189,6 +201,11 @@ int main(void)
     assert(minishell_platform_app_run("ft8", 1, ft8_argv, &app_result) ==
            MINISHELL_PLATFORM_OK);
     assert(app_result == 31);
+
+    char *usbmsc_argv[] = {(char *)"usbmsc"};
+    assert(minishell_platform_app_run("usbmsc", 1, usbmsc_argv, &app_result) ==
+           MINISHELL_PLATFORM_OK);
+    assert(app_result == 37);
 
     assert(minishell_platform_app_run("missing", 0, NULL, &app_result) ==
            MINISHELL_PLATFORM_ERR_NOT_FOUND);

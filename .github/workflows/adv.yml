@@ -21,10 +21,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Cardputer ADV firmware
+      - name: Build Cardputer ADV firmware and report RAM
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.1
           target: esp32s3
           path: platform/adv
-          command: idf.py build
+          command: |
+            idf.py build
+            echo "=== ESP-IDF size summary ==="
+            idf.py size
+            echo "=== ELF allocated sections ==="
+            xtensa-esp32s3-elf-size -A build/minishell_adv.elf

@@ -78,7 +78,7 @@ int minishell_platform_init(void)
 
     s_filesystem_ready = adv_filesystem_prepare() == 0;
     if (!s_filesystem_ready) {
-        adv_console_debug_write("ADV: /flash LittleFS unavailable; continuing without persistence\n");
+        adv_console_debug_write("ADV: /flash filesystem unavailable; continuing without persistence\n");
     }
 
     configure_services_port();

@@ -2,11 +2,11 @@
 
 This directory is the ESP-IDF firmware composition for the Cardputer ADV backend.
 
-## Current stage: P2 baseline + ADV storage/utilities increment
+## Current stage: P2 baseline + ADV USB MSC complete
 
 A1 proved the portable MiniShell runtime on real Cardputer ADV hardware. A2 added the real Cardputer display/keyboard plus System and Memory providers. A3 added Filesystem and Time/Location. P2 packages the real MiniFT8 `ft8` application into the ADV static registry using the same MiniFT8 sources as Linux.
 
-The current ADV increment keeps MiniFT8 compiled in, expands the portable shell utility set, and changes internal `/flash` storage from LittleFS to FATFS over ESP-IDF wear levelling. This prepares the storage model for a later `usbmsc` USB Mass Storage utility and for future small/medium ELF-loaded applications.
+The current ADV storage baseline uses FATFS for both internal `/flash` and optional `/sd`. The `usbmsc` utility adds ADV-only USB Mass Storage handoff so either or both FAT media can be exposed temporarily to a host PC without violating filesystem ownership. This is primarily useful for moving test data such as MiniFT8 WAV files onto the Cardputer before live Audio providers exist.
 
 ```text
 ESP-IDF app_main()
@@ -28,11 +28,11 @@ minishell_run()
       |      Time/Location monotonic + session UTC + persistent default location
       |
       `-- compiled-in apps
-             shell utilities + nano
+             shell utilities + nano + usbmsc
              ft8 -> same MiniFT8 sources, ADV presentation default
 ```
 
-Applications never include M5, ESP-IDF, TCA8418, GPIO, I2C, SPI, FATFS, wear-levelling, or display-driver headers. Those details remain backend-owned.
+Applications never include M5, ESP-IDF, TCA8418, GPIO, I2C, SPI, FATFS, wear-levelling, or display-driver headers. Those details remain backend-owned. `usbmsc` is deliberately an ADV platform utility because raw-media and USB-device ownership are backend concerns rather than portable application services.
 
 ## Compiled-in applications
 
@@ -53,9 +53,10 @@ mkdir
 rmdir
 nano
 ft8
+usbmsc
 ```
 
-The filesystem utilities and `nano` are the existing portable MiniShell applications; ADV only supplies composition wrappers and the platform services they consume. This keeps the same application code usable on Linux and future MiniShell backends.
+The filesystem utilities and `nano` are the existing portable MiniShell applications; ADV only supplies composition wrappers and the platform services they consume. `usbmsc` is different: it is intentionally platform-specific because it temporarily transfers raw storage ownership and the ESP32-S3 USB device peripheral.
 
 MiniFT8 remains deliberately compiled into the firmware. Future small/medium utilities may instead be distributed as ELF applications once the ADV ELF loader is implemented.
 
@@ -102,6 +103,8 @@ M5 libraries are backend implementation dependencies, not application dependenci
 
 ## Hardware ownership
 
+Normal operation:
+
 ```text
 ADV display hardware     adv_display
 ADV keyboard/TCA8418     adv_keyboard
@@ -109,6 +112,16 @@ shared ADV I2C bus       adv_i2c
 application allocations  portable Memory service + adv_memory provider
 internal flash storage   adv_filesystem -> FATFS + wear levelling
 MicroSD SPI/FATFS        adv_filesystem -> ESP-IDF SDSPI/FATFS
+USB Serial/JTAG          adv_console
+```
+
+During `usbmsc`, ownership changes temporarily:
+
+```text
+Cardputer display/keys   remain local control path
+MiniShell FATFS          unmounted/quiesced
+selected raw media       usbmsc -> TinyUSB MSC LUN(s)
+ESP32-S3 USB device      usbmsc -> TinyUSB while MSC is active
 ```
 
 The private resident shell and public Display/Input services share the same backend owners; they do not initialize hardware independently.
@@ -137,6 +150,8 @@ System.write()    USB/debug diagnostics
 
 On ADV, Console output joins the resident text-console stream and is mirrored to USB. Utilities such as `date`, `ls`, `cat`, `cp`, `mv`, `rm`, `mkdir`, and `rmdir` therefore use the normal MiniShell utility interface. `nano` uses the MiniShell Display, Input, Filesystem, and Memory APIs and remains platform-independent. System diagnostics remain USB-only so they cannot overwrite a foreground application's Display UI.
 
+`usbmsc` is an exception to normal console availability: the ESP32-S3 USB path is temporarily reassigned to TinyUSB MSC, so the USB Serial/JTAG monitor may disappear while the utility is running. The Cardputer display and keyboard remain active and are the authoritative local control path. After the host ejects the exported drive(s), press `Q` or Esc on the Cardputer to stop MSC, restore normal storage ownership, and return to MiniShell.
+
 The Cardputer ADV keyboard uses the proven wiring:
 
 ```text
@@ -157,13 +172,13 @@ Canonical ADV storage policy:
 NVS       not used
 ```
 
-The internal FATFS volume uses the existing `flash` data partition and mounts at `/flash`. The MiniShell-visible path and 2 MiB partition size are unchanged; only the on-flash filesystem format changes.
+The internal FATFS volume uses the existing `flash` data partition and mounts at `/flash`. The MiniShell-visible path and 2 MiB partition size are unchanged.
 
 ### LittleFS -> FATFS migration
 
-This change is intentionally format-incompatible with the earlier ADV LittleFS `/flash` volume. Existing `/flash` files must be copied off before installing this firmware if they need to be preserved.
+The FATFS storage baseline is format-incompatible with the earlier ADV LittleFS `/flash` volume. Existing `/flash` files must be copied off before installing that earlier migration if they need to be preserved.
 
-On first boot after the change, the FATFS mount is allowed to format the `flash` partition when the previous LittleFS contents cannot be mounted. During this development stage there is no automatic LittleFS-to-FATFS data migration.
+On first boot with the FATFS baseline, the FATFS mount is allowed to format the `flash` partition when previous LittleFS contents cannot be mounted. During this development stage there is no automatic LittleFS-to-FATFS data migration.
 
 The optional SD card uses:
 
@@ -175,7 +190,7 @@ CS    GPIO12
 SPI   SPI2_HOST
 ```
 
-The display uses a different SPI host, so the SD bus remains owned independently by `adv_filesystem`.
+The display uses a different SPI host, so the SD bus remains owned independently by `adv_filesystem` during normal operation.
 
 At the MiniShell Filesystem root:
 
@@ -188,13 +203,20 @@ An absent or invalid SD card is not a boot failure. Same-filesystem `mv` can use
 
 ESP-IDF v5.5.x defaults FATFS to 8.3-only filenames. ADV explicitly enables heap-backed long filenames, a 255-character LFN limit, and UTF-8 API encoding for both volumes so they satisfy the MiniShell Filesystem filename contract.
 
-The previous A3 hardware validation proved the MiniShell Filesystem behavior using LittleFS `/flash` plus FATFS `/sd`. The new internal FATFS path requires a fresh physical ADV storage validation after flashing.
+ADV deliberately disables `CONFIG_FATFS_PER_FILE_CACHE`. ESP-IDF's default per-file cache allocates a sector cache inside every FATFS file slot; with eight slots on each mounted volume this consumed roughly 75 KiB of avoidable idle heap. Shared-cache/tiny mode preserves the eight-file limit while using substantially less resident RAM. `adv_config_guard.c` rejects builds that accidentally re-enable per-file caching.
 
-## Planned `usbmsc` utility
+Hardware RAM audit with both `/flash` and `/sd` mounted after this change:
 
-The USB Mass Storage utility is named `usbmsc`.
+```text
+shell-ready heap free    336288 B (328.4 KiB)
+largest free block       286720 B (280.0 KiB)
+```
 
-Planned command interface:
+The filesystem initialization step now consumes about 21.6 KiB total with both volumes mounted, instead of about 85.6 KiB before the shared-cache change.
+
+## `usbmsc` utility
+
+Command interface:
 
 ```text
 usbmsc             # same as: usbmsc all
@@ -203,7 +225,7 @@ usbmsc flash       # export /flash only
 usbmsc sd          # export /sd only
 ```
 
-`all` is the default. If `/sd` is absent, `usbmsc` exports only the available `/flash` volume.
+`all` is the default. If `/sd` is absent, `usbmsc all` exports only `/flash`. When both are available, `all` presents two MSC LUNs.
 
 The ownership rule is strict:
 
@@ -212,17 +234,37 @@ normal operation
     MiniShell owns mounted /flash and /sd
 
 usbmsc starts
-    selected volume(s) are closed/unmounted locally
-    USB MSC becomes the exclusive owner
+    local FAT filesystems are unmounted/quiesced
+    raw media for selected target(s) are initialized for MSC
+    USB MSC becomes the exclusive owner of selected media
 
-usbmsc exits / host releases storage
-    USB MSC ownership ends
-    MiniShell remounts the selected volume(s)
+host work
+    copy/delete files through the PC
+    eject/unmount the USB drive(s) on the host
+
+user presses Q or Esc on Cardputer
+    TinyUSB MSC stops
+    raw-media ownership ends
+    MiniShell remounts normal FAT filesystems
+    application returns to M$>
 ```
 
-MiniShell and the USB host must never have writable filesystem ownership of the same volume at the same time.
+The first implementation conservatively quiesces both MiniShell FAT volumes for the whole foreground `usbmsc` session even when only one target is exported. Only the selected medium is exposed to the host. This keeps the ownership rule simple; no other foreground application can run concurrently anyway.
 
-`usbmsc` is intentionally **not implemented in this storage/utility increment**. First validate FATFS `/flash` and the expanded portable utility set on real ADV hardware; then add USB MSC as a separate platform-resource milestone with explicit mount/unmount and ownership tests.
+MiniShell and the USB host must never have writable filesystem ownership of the same volume at the same time. Always eject/unmount the host drive before pressing `Q` to return storage to MiniShell.
+
+The build pins `espressif/esp_tinyusb` and enables MSC with a 4096-byte transfer buffer. The 4096-byte size is chosen to satisfy the existing internal-flash wear-levelling sector requirement without changing the FATFS/WL format already validated on hardware.
+
+Hardware validation on real Cardputer ADV is complete:
+
+```text
+usbmsc sd                         PASS
+usbmsc flash                      PASS
+usbmsc all (two LUNs)             PASS
+return to MiniShell               PASS
+/flash remount after usbmsc       PASS
+/sd remount after usbmsc          PASS
+```
 
 ## Time policy — A3 complete
 
@@ -249,13 +291,17 @@ The current 8 MiB flash layout is:
 0x600000 .. 0x7FFFFF   /flash FATFS          2 MiB
 ```
 
-## Runtime stack
+## Runtime stack and RAM guardrails
 
 The resident MiniShell runtime/shell uses an 8 KiB ESP-IDF main-task stack with the FreeRTOS stack-overflow canary enabled. Foreground applications execute on a separate ADV-managed FreeRTOS task with a 16 KiB stack. The task size is an ADV implementation choice, not part of the portable MiniShell application API.
 
+ADV CI reports the ESP-IDF size summary and allocated ELF sections on every firmware build so static `.data`/`.bss` growth remains visible. Hardware free-heap measurements remain the authority for boot-time allocations made by mounted filesystems, drivers, and tasks.
+
+The ADV config guard also enforces the ESP32-S3 target and the RAM-efficient FATFS shared-cache configuration.
+
 ## Build and flash
 
-ESP-IDF v5.5.x is the current reference family.
+ESP-IDF v5.5.x is the current reference family. The project defaults to the ESP32-S3 target in `sdkconfig.defaults` so regenerating `sdkconfig` cannot silently fall back to classic ESP32.
 
 ```bash
 cd ~/projects/MiniShell/platform/adv
@@ -271,29 +317,24 @@ Software checks:
 
 ```text
 Linux build/tests                         PASS required
-ADV static registry includes utilities   PASS required
+ADV static registry includes usbmsc      PASS required
 ESP-IDF firmware build                    PASS required
 FT8 Reference                             gated by FT8-sensitive changes
 ```
 
-Real ADV storage/utility check for this increment:
+Real ADV baseline validated:
 
 ```text
-M$> apps
-    -> includes cp mv rm mkdir rmdir nano ft8
-
-M$> mkdir /flash/test
-M$> nano /flash/test/note.txt
-M$> cp /flash/test/note.txt /flash/test/copy.txt
-M$> mv /flash/test/copy.txt /flash/test/moved.txt
-M$> rm /flash/test/moved.txt
-M$> rm /flash/test/note.txt
-M$> rmdir /flash/test
-
-M$> ft8
-    -> launches the 20 x 7 ADV presentation
-q
-    -> returns cleanly to M$>
+/flash FATFS                 PASS
+/sd FATFS                    PASS
+shared-cache FATFS           PASS
+nano / ls / rm               PASS
+MiniFT8 launch/navigation    PASS
+MiniFT8 clean exit/memory    PASS
+usbmsc sd                    PASS
+usbmsc flash                 PASS
+usbmsc all                   PASS
+filesystem remount           PASS
 ```
 
-After this passes on hardware, `usbmsc` can be implemented against the proven FATFS storage ownership model.
+The next ADV milestone is deterministic WAV-backed MiniFT8 RX through the public MiniShell Audio contract, reusing the existing RX-7 core unchanged.
