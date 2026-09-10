@@ -2,9 +2,9 @@
 
 ## Purpose
 
-MiniShell is a platform-adaptive application runtime. Its purpose is to keep application cores independent of Linux, NuttX, ESP-IDF, board drivers, and mocks while providing coherent services and an application lifecycle.
+MiniShell is a platform-adaptive application runtime. Its purpose is to keep application cores independent of Linux/POSIX, ADV/ESP-IDF, board drivers, and mocks while providing coherent services and an application lifecycle.
 
-Linux Mint on `pc-1` is the reference implementation and a full production target. Portability shapes the interfaces; it does not require every platform implementation to be identical.
+The maintained targets are Linux Mint on `pc-1` and Cardputer ADV. Linux is the reference implementation and full production target. Portability shapes the interfaces; it does not require both implementations to be identical.
 
 ## 1. Top-down design
 
@@ -19,7 +19,7 @@ portable service/runtime semantics
     |
 private platform backend
     |
-OS / RTOS / SDK / drivers
+OS / SDK / drivers
     |
 hardware
 ```
@@ -37,7 +37,6 @@ POSIX fd / DIR *
 errno
 ESP-IDF types
 FreeRTOS handles
-NuttX driver objects
 board-driver objects
 ```
 
@@ -73,7 +72,7 @@ App manager          foreground app lifecycle
 
 On Linux the kernel/OS physically owns many resources. The one-owner rule means applications still have exactly one MiniShell gateway and one MiniShell module owns the application-visible semantics.
 
-On a thick embedded backend MiniShell may also directly own the driver/hardware.
+On ADV MiniShell may also directly own the driver/hardware through its backend.
 
 ## 4. Clean public and private boundaries
 
@@ -82,7 +81,7 @@ There are two important contracts:
 - **Public API:** application-facing source/application contract.
 - **Private backend boundary:** MiniShell-internal and free to evolve as implementations are cleaned up.
 
-Backends may freely use POSIX, NuttX, ESP-IDF, or simulation code below the private boundary. Applications may not.
+Backends may freely use POSIX or ESP-IDF below the private boundary. Applications may not.
 
 The public API is also still under active architectural development. Backward source and binary compatibility are not currently promised. A formal binary ABI may be introduced later if independently built applications need cross-release compatibility.
 
@@ -151,13 +150,12 @@ app returns
 shell resumes
 ```
 
-The physical form differs by target:
+The physical form differs by maintained target:
 
 ```text
 Linux/Mint          .so + dlopen/dlsym/dlclose
 Cardputer ADV V1    compiled-in registry
 Cardputer ADV next  runtime external .elf
-Tab5/NuttX          loadable-app mechanism where practical
 ```
 
 The ADV static registry remains a valid baseline and transition mechanism, but runtime ELF loading is now an **active architecture target**.
@@ -191,7 +189,7 @@ Keep functionality resident when MiniShell itself needs it to manage the runtime
 
 Make ordinary user/domain functionality an application.
 
-Current Linux resident shell is intentionally small:
+Current resident shell is intentionally small:
 
 ```text
 help
@@ -275,13 +273,13 @@ A non-colliding external test application should be used when testing the ELF pa
 
 Those loader tests are additional to, not a substitute for, service/API tests.
 
-Linux CI is the reference regression gate. Embedded ports should validate the same observable contract against their hardware/backend.
+Linux CI is the reference regression gate. ADV validates the same observable contract against its hardware/backend.
 
 ## 14. Linux first, embedded constraints always visible
 
 New portable behavior is normally developed on Linux first because it gives fast builds, sanitizers/debugging, deterministic tests, CI, and easy mocks.
 
-That does not mean designing like a desktop application. Keep embedded suitability visible:
+That does not mean designing like a desktop application. Keep ADV constraints visible:
 
 ```text
 bounded resources
