@@ -61,9 +61,26 @@ MiniShell Audio
     -> ADV 20x7 presentation
 ```
 
-`app_controller` remains MiniFT8's sole production application coordinator. RX-7 does not introduce an `rx_pipeline`, `rx_manager`, or second coordinator.
+`app_controller` remains MiniFT8's sole production application coordinator.
 
-Current gate:
+Current RX default:
+
+```text
+time_osr = 2
+freq_osr = 2
+```
+
+The low-memory/V2-compatible reference remains `2x1`.
+
+Real production fixture result using `tests/kfs16b12k.wav`:
+
+```text
+Linux  16 decoded messages
+ADV    16 decoded messages
+CQ      8 messages
+```
+
+## Current gate
 
 ```text
 RX-0        COMPLETE
@@ -73,10 +90,21 @@ RX-3        COMPLETE
 RX-4        COMPLETE
 RX-5        COMPLETE
 RX-6        COMPLETE
-RX-7        COMPLETE — real decoded RX UI, Linux reference + ADV build
+RX-7        COMPLETE
+
+AS-0        COMPLETE — plan/reference freeze/boundary audit
+AS-1        NEXT — station identity + factual SNR + RX-selection boundary
+AS-2..AS-8 PLANNED — V2-equivalent compact AutoSeq port and closure
 ```
 
-RX-2's manual pc-1 validation does not block the structural sequence because its pinned Linux reference is green.
+AutoSeq is now the selected next major block. The port changes boundary, ownership, and data representation first while preserving current MiniFT8-V2 AutoSeq behavior pinned at:
+
+```text
+wcheng95/Mini-FT8
+491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
+```
+
+See `as-plan.md` and `as-boundary-audit.md`.
 
 ## RX ownership
 
@@ -102,6 +130,30 @@ RxResultBuilder
 app_controller
     owns production application coordination/policy
 ```
+
+## AutoSeq ownership
+
+Planned V3 boundary:
+
+```text
+RxBatch / RxMessage
+        |
+        v
+app_controller
+        |
+        v
+     auto_seq
+     /      \
+QsoView    TxIntent / policy events
+   |              |
+   v              v
+UiModel/T     app_controller
+screen        future TX/logging
+```
+
+`auto_seq` will own the fixed QSO queue, state progression, retry/priority policy, active/inactive behavior, and V2-equivalent scheduling policy. It will not call MiniShell, DSP/hash code, UI code, file/logging I/O, Audio, Control, or platform APIs.
+
+The current `qso_scheduler` is only a prototype settings holder and will be removed when `auto_seq` becomes the real owner.
 
 ## Locked transport / timing contracts
 
@@ -133,7 +185,7 @@ The first partial slot after stream start/discontinuity is also discarded. Time 
 
 ## Golden anchors
 
-Pinned MiniFT8-V2 baseline:
+Pinned original RX structural baseline:
 
 ```text
 5bd3ef98f72388a850bebad04bd7300b90edb63c
@@ -142,10 +194,12 @@ Pinned MiniFT8-V2 baseline:
 Hard FT8 structural anchors:
 
 ```text
-active-waterfall FNV-1a-64  18BE1E838FD9C6AF
-unique CQ payload            000000206016500A1988
-canonical CQ text            CQ W1XYZ FN42
+2x1 active-waterfall FNV-1a-64  18BE1E838FD9C6AF
+unique CQ payload                 000000206016500A1988
+canonical CQ text                 CQ W1XYZ FN42
 ```
+
+Production 2x2 tuning is intentionally newer than that original structural boundary; both the production 2x2 and low-memory/reference 2x1 paths remain tested.
 
 RX-6 public-Audio proof:
 
@@ -161,8 +215,6 @@ M$> ft8 --profile adv --rx /flash/rx7.wav --rx-slot 12345
 RX 20 HH:MM:SS 1/1 <0-E>
 1 CQ W1XYZ FN42
 ```
-
-The RX-7 reference launches the real `ft8` application through MiniShell, streams the pinned golden through the complete RX chain, and verifies the decoded message on the ADV RX screen. The ADV ESP32-S3 firmware build is also green.
 
 ## Presentation
 
@@ -180,33 +232,41 @@ M$> ft8 --profile desktop
 M$> ft8 --profile adv
 ```
 
-The ADV status line follows the locked 20-character UI definition and RX messages page six at a time with wraparound.
+The ADV status line follows the locked 20-character UI definition and RX/TX entries page six at a time with wraparound.
 
-## ADV baseline
+## ADV memory reference
 
-P1/P2/V1 are complete and real ADV hardware has validated application discovery, launch/exit, ADV 20x7 presentation, configuration persistence, and repeated `ft8` lifecycle behavior.
-
-Pre-RX ADV baseline:
+After the production 2x2 `kfs.wav` decode on ADV:
 
 ```text
-heap free       ~282 KiB
-largest block   ~228 KiB
+heap free       111.3 KiB
+largest block    53.0 KiB
+app allocation  228.5 KiB
+allocation count 2
+RX               OFF
 ```
 
-RX-7 CI proves the integrated RX code cross-compiles for ESP32-S3. Live ADV Audio/provider behavior remains a later hardware integration concern.
+The corresponding shell baseline after the ADV RAM-squeeze work is about 342 KiB free. This makes compact fixed AutoSeq storage important, but AutoSeq should remain much smaller than the DSP workspace.
 
 ## Canonical documentation
 
 Current plan and development gate:
 
 ```text
-rx.md
 development.md
 ```
 
-RX stage records:
+AutoSeq:
 
 ```text
+as-plan.md
+as-boundary-audit.md
+```
+
+RX:
+
+```text
+rx.md
 rx-golden.md
 rx-1b-design.md
 rx-1c-monitor.md
@@ -220,6 +280,7 @@ rx-4-slot-framer.md
 rx-5-pure-assembly.md
 rx-6-minishell-audio.md
 rx-7-decoded-ui.md
+rx-tuning.md
 ```
 
 Other major documents:
@@ -240,7 +301,7 @@ apps/ft8/
     ├── app_controller/
     ├── config_service/
     ├── presentation_profile/
-    ├── qso_scheduler/
+    ├── qso_scheduler/        # prototype; replaced by auto_seq in AS-2
     ├── storage_service/
     ├── ui_shell/
     ├── ft8_engine/
@@ -250,6 +311,14 @@ apps/ft8/
     └── rx_result_builder/
 ```
 
-## After RX-7
+## Next
 
-The decode-RX milestone stops here. AutoSeq, TX, ADIF, live QMX integration, and the remaining detailed UIScreen work stay separate major blocks. The next major development block is intentionally not selected in this document.
+Start AS-1 with three explicit boundary-completion tasks before QSO state-machine code:
+
+```text
+AS-1a  station callsign/grid ownership and RxResultBuilder injection
+AS-1b  factual RX SNR carried into RxMessage
+AS-1c  absolute RX-message selection AppAction resolved by app_controller
+```
+
+Then AS-2 can port the V2 AutoSeq core into a fixed-size C `auto_seq` module without violating existing ownership boundaries.
