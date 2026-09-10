@@ -17,6 +17,12 @@
 
 _Static_assert(APP_MAX_TX_LINES >= AUTO_SEQ_MAX_QUEUE,
                "UiModel must hold the complete active AutoSeq queue");
+_Static_assert(FT8_CONFIG_CQ == AUTO_SEQ_CQ, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_SOTA == AUTO_SEQ_CQ_SOTA, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_POTA == AUTO_SEQ_CQ_POTA, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_QRP == AUTO_SEQ_CQ_QRP, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_FD == AUTO_SEQ_CQ_FD, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_FREETEXT == AUTO_SEQ_CQ_FREETEXT, "CQ type mapping drifted");
 
 struct AppRxState {
     RxAudioAdapter audio;
@@ -196,6 +202,23 @@ static bool app_save_config(AppController *app)
     return storage_service_write_text_atomic(&app->storage, app->station_path, text);
 }
 
+static bool app_sync_auto_seq_config(AppController *app)
+{
+    if (app == NULL) return false;
+    if (!auto_seq_set_station(&app->auto_seq, app->config.callsign, app->config.grid))
+        return false;
+
+    auto_seq_set_skip_tx1(&app->auto_seq, app->config.skip_tx1);
+    auto_seq_set_max_retry(&app->auto_seq, app->config.max_retry);
+
+    if (!auto_seq_set_cq(&app->auto_seq,
+                         (AutoSeqCqType)app->config.cq_type,
+                         app->config.cq_freetext)) {
+        return false;
+    }
+    return auto_seq_set_fd_exchange(&app->auto_seq, app->config.fd_exchange);
+}
+
 static void app_rx_destroy(AppController *app)
 {
     AppRxState *rx;
@@ -331,12 +354,8 @@ bool app_controller_init(AppController *app, const mini_api_t *api,
                                             text, sizeof(text));
     if (loaded && !config_service_parse(&app->config, text)) return false;
 
-    if (!auto_seq_init(&app->auto_seq, NULL) ||
-        !auto_seq_set_station(&app->auto_seq, app->config.callsign, app->config.grid)) {
+    if (!auto_seq_init(&app->auto_seq, NULL) || !app_sync_auto_seq_config(app))
         return false;
-    }
-    auto_seq_set_skip_tx1(&app->auto_seq, app->config.skip_tx1);
-    auto_seq_set_max_retry(&app->auto_seq, app->config.max_retry);
 
     if (!loaded && !app_save_config(app)) return false;
     return true;
