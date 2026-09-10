@@ -1,12 +1,19 @@
 # MiniShell
 
-MiniShell is a platform-adaptive application runtime. It keeps application cores independent of Linux, NuttX, ESP-IDF, board drivers, and mocks while providing a small shell, application lifecycle, resource policy, and public service API.
+MiniShell is a platform-adaptive application runtime focused on two maintained targets:
+
+```text
+Linux Mint
+Cardputer ADV / ESP32-S3
+```
+
+Its purpose is to keep application cores independent of platform implementation details while providing a small shell, application lifecycle, resource policy, and public service API.
 
 ## Core model
 
 ```text
 Applications
-  FT8 / FT4 / CW / RTTY / JS8 / tools
+  FT8 / CW / future protocol apps / tools
                     |
               MiniShell API
                     |
@@ -14,26 +21,25 @@ Applications
   shell / lifecycle / services / policy
                     |
        private backend interface
-        +-----------+-----------+
-        |           |           |
-      Linux       NuttX      embedded
-      POSIX        Tab5      ESP32-S3
+             /             \
+            v               v
+         Linux             ADV
+         POSIX          ESP-IDF/HW
 ```
 
 Applications use MiniShell services only. Mocks and simulated providers also live below MiniShell.
 
 ## Naming rule
 
-Project/product names remain **MiniShell** and **MiniFT8** in normal prose. Code-facing names use lowercase/snake_case. Runtime protocol applications use short lowercase names:
+Project/product names remain **MiniShell** and **MiniFT8** in prose. Code-facing names use lowercase/snake_case. Runtime applications use short lowercase names:
 
 ```text
 minishell
 ft8
 apps/ft8/
-/flash/ft8/station.txt
 ```
 
-Normal C conventions still apply, so preprocessor macros remain uppercase, for example `MINISHELL_API_VERSION` and `FT8_DATA_DIR`.
+Normal C conventions still apply, so preprocessor macros remain uppercase.
 
 ## Shell baseline
 
@@ -79,7 +85,7 @@ q
 M$>
 ```
 
-Future protocol applications will use similarly short names such as `ft4`, `cw`, `rtty`, and `js8`. They are separate applications rather than modes inside `ft8`.
+Future protocol functionality is added as separate applications rather than hidden as modes inside `ft8`.
 
 ## Application model
 
@@ -98,18 +104,29 @@ const mini_api_t *api = mini_api_get();
 Physical packaging/loading is backend-private:
 
 ```text
-Linux/Mint      .so + dlopen/dlsym/dlclose
-Cardputer ADV   V1 compiled-in application registry
-Tab5/NuttX      loadable-app mechanism where practical
+Linux/Mint          runtime .so + dlopen/dlsym/dlclose
+Cardputer ADV V1    compiled-in registry baseline
+Cardputer ADV next  runtime external .elf
 ```
 
-Runtime `.elf` loading on ADV is deferred for later investigation, not rejected.
+ADV application resolution is:
+
+```text
+1. compiled-in application
+2. /flash/<app>.elf
+3. /sd/<app>.elf
+```
+
+The same external ELF must work unchanged from `/flash` or `/sd`; `/flash` wins when both external copies exist.
+
+The first planned field-usable external ADV application is Keyer:
+
+```text
+/flash/keyer.elf
+/sd/keyer.elf
+```
 
 The user model remains `apps`, `run <app>`, direct `<app>`, application return, then `M$>`.
-
-The resident shell itself uses a private platform console boundary. Linux implements that boundary with stdin/stdout. ADV A1 used USB Serial/JTAG for bring-up; A2 moved normal ADV shell interaction to the Cardputer display/keyboard.
-
-Applications do not call that private boundary directly. Command-style applications use the public Console service; full-screen applications use Display/Input; diagnostics use System.
 
 ## Application output domains
 
@@ -119,22 +136,7 @@ Display           interactive/full-screen application UI
 System.write()    diagnostics/debugging
 ```
 
-On Linux, Console and System both ultimately appear in the host terminal. On Cardputer ADV, Console joins the resident 20x7 text console and USB mirror, while System remains USB/debug-only. This prevents diagnostics from overwriting a foreground application's Display UI.
-
-Examples:
-
-```text
-date / ls / cat / cp / df / free / mkdir / mv / rm / rmdir
-    -> Console
-
-hello / ft8 / nano-style interactive UI
-    -> Display + Input
-
-service probes and debug diagnostics
-    -> System
-```
-
-See `docs/api/console-api.md`.
+On Linux, Console and System ultimately appear in the host terminal. On Cardputer ADV, Console joins the resident text console while System remains diagnostic/debug output. Applications do not call backend-private console or display interfaces directly.
 
 ## Build on Linux Mint
 
@@ -151,9 +153,20 @@ Runtime Linux modules are built under:
 build-linux/runtime/apps/
 ```
 
+## Build Cardputer ADV
+
+ESP-IDF v5.5.x is the current reference family.
+
+```bash
+cd platform/adv
+idf.py build
+```
+
+See `platform/adv/README.md` for hardware-specific build, flash, storage, and validation details.
+
 ## Resource policy
 
-Linux deliberately constrains the MiniShell application environment instead of reporting the host PC's unconstrained resources.
+Linux deliberately constrains the MiniShell application environment instead of exposing the host PC's unconstrained resources.
 
 Defaults:
 
@@ -172,6 +185,29 @@ MINISHELL_STORAGE_LIMIT=128M \
 
 The Memory and Filesystem services enforce these budgets. `free` and `df` report the same resource domains applications can actually use.
 
+## Filesystem and configuration
+
+Applications see one logical storage namespace:
+
+```text
+/flash
+/sd
+```
+
+Configuration ownership is:
+
+```text
+/flash/config.txt
+    MiniShell-owned resident/platform configuration
+
+/flash/<app>/setting.txt
+    application-owned behavior and deployment configuration
+```
+
+Hardware-specific application settings are allowed. For example, Keyer may own dit/dah and KeyOut GPIO numbers, then request generic MiniShell Digital I/O operations. MiniShell must not interpret Keyer-domain meaning.
+
+See `docs/architecture/configuration.md`.
+
 ## Time model
 
 On Linux, MiniShell reads system UTC at startup and anchors it to monotonic time.
@@ -180,15 +216,9 @@ On Linux, MiniShell reads system UTC at startup and anchors it to monotonic time
 MiniShell UTC = startup UTC anchor + monotonic elapsed
 ```
 
-`date YYYY-MM-DD HH:MM:SS` re-anchors MiniShell UTC for the current session only. It does not change Linux system time and does not persist an offset. A backend owning a writable RTC may persist the equivalent `utc_set()` operation.
+`date YYYY-MM-DD HH:MM:SS` re-anchors MiniShell UTC for the current session without changing Linux system time.
 
-Cardputer ADV A3 deliberately does not pretend flash persistence is an RTC. Until a real RTC/GPS provider is added, each ADV boot starts from:
-
-```text
-2026-09-01 06:00:00 UTC
-```
-
-The user may correct the time for that running session with `date`.
+Cardputer ADV currently uses its backend time policy until RTC/GPS support is introduced through MiniShell-owned platform services.
 
 ## Public API
 
@@ -201,6 +231,7 @@ include/minishell/api.h
 The current API exposes:
 
 ```text
+App
 System
 Console
 Memory
@@ -211,110 +242,85 @@ Input
 Audio
 ```
 
-`MINISHELL_API_VERSION` identifies the API generation used by the current build. MiniShell is still in active architectural development, so backward source and binary compatibility are not yet promised. In-tree applications are rebuilt when the API changes. A formal binary ABI may be introduced later if separately built `.so` or `.elf` applications need compatibility across MiniShell releases.
+Digital I/O is the next planned public service, driven by the Keyer requirement.
 
-Notable application-driven behavior includes:
-
-```text
-Console        line-oriented user-facing output
-Filesystem     dir_open / dir_read / dir_close
-Filesystem     space(path)
-Filesystem     rename replaces an existing regular-file destination
-Display text   optional write_at_attr(..., MINI_TEXT_ATTR_INVERSE)
-Audio          independent format-described RX/TX streams
-```
-
-Audio transports ordered frames. MiniShell does not assign application semantics such as stereo versus I/Q to channel 0/1.
+MiniShell is still in active architectural development, so backward source and binary compatibility are not yet promised. External applications may need rebuilding for the matching MiniShell API generation. A formal stable ABI can be introduced later when distribution requirements justify it.
 
 ## Ownership model
 
 ```text
 app lifecycle       app_manager
-user text output    Console service + backend resident console provider
+user text output    Console service
 app allocations     Memory service
 files/dirs/quota    Filesystem service
 UTC/location        Time/Location service
 logical display     Display service
 logical key queue   Input service
 audio streams       Audio service
+app loading         private platform runtime mechanism
 ```
 
-Backends/providers provide primitives; portable services own application-visible semantics and lifecycle.
+Backends/providers supply platform primitives; portable services own application-visible semantics and lifecycle.
 
 ## MiniFT8 / `ft8`
 
-MiniFT8-V3 is the project/application design; its MiniShell runtime application is `ft8`. The runtime app is FT8-only. FT4, CW, RTTY, JS8, and other protocols will become separate applications when implemented.
+MiniFT8-V3 is the current FT8 application. Its MiniShell runtime name is `ft8`.
 
-MiniFT8 profiles remain application policy and independent of the MiniShell backend.
-
-Current validation direction:
+Current cross-target validation uses:
 
 ```text
-Linux backend + DESKTOP profile
-Linux backend + ADV profile
-ADV backend   + ADV profile
+Linux backend + DESKTOP presentation
+Linux backend + ADV presentation
+ADV backend   + ADV presentation
 ```
 
-The Linux + ADV-profile versus ADV + ADV-profile comparison is the main cross-platform architectural check. MiniFT8 RX-1B is paused until this checkpoint is complete.
+MiniFT8 RX integration has reached RX-7 on Linux while preserving the platform boundary. The architecture cleanup gate C0-C4 is complete.
 
-See `docs/MiniFT8/README.md` and `docs/project/adv-backend-plan.md`.
+See `docs/MiniFT8/README.md` and `docs/project/architecture-cleanup.md`.
 
-## Linux tests
+## Keyer direction
 
-The root Linux CTest suite currently has 11 tests covering:
+Keyer is the next application and the first practical ADV runtime-ELF milestone. Its plan covers:
 
-1. shell/application loading;
-2. service semantics/lifecycle;
-3. terminal Input through a PTY;
-4. portable utilities, including replacement `mv`;
-5. nano PTY edit/save/exit and inverse cursor;
-6. directory iteration/root `ls` behavior;
-7. resource quota plus `free`/`df`/`date` and rename accounting;
-8. Audio/WAV RX transport;
-9. pure FT8 UI state/action smoke testing;
-10. stateful Linux terminal parser split-boundary behavior;
-11. `ft8` PTY launch/navigation/persistence/relaunch/exit integration.
+```text
+runtime ELF loading
+Digital I/O
+paddle / straight-key input
+GPIO KeyOut
+Audio sidetone
+application-owned settings
+```
 
-CI also runs the platform-neutral service/unit suite. Each public service, including Console, has direct unit coverage.
+See `docs/keyer/README.md`.
+
+## Testing
+
+Linux CI/CTest covers shell/application loading, service semantics and lifecycle, filesystem/resource policy, terminal input, utilities, audio transport, MiniFT8 UI/runtime behavior, and focused FT8 tests.
+
+Architecture checks also enforce application/platform boundaries and MiniFT8's no-side-talk dependency rules. Cardputer ADV has a separate ESP-IDF firmware build gate.
 
 ## Documentation
 
-Start with `docs/README.md`:
+Start with:
 
 ```text
-docs/
-├── architecture/   MiniShell system model, ownership, design rules
-├── api/            MiniShell public application contracts
-├── apps/           small/medium application docs
-├── MiniFT8/        MiniFT8 application architecture/UI/development
-└── project/        roadmap, audit/debt, progress log
+docs/README.md
 ```
 
-## Current status
-
-Stages **A0, A1, and A2 are complete**.
-
-A1 proved that the portable MiniShell runtime can boot and run on a real Cardputer ADV. A2 made the device natively usable through its own 240x135 display and keyboard while preserving the public MiniShell boundary.
-
-A3 is active. The A3a internal-storage/time checkpoint is complete on real hardware:
+Important architecture documents:
 
 ```text
-/flash LittleFS             PASS
-file/directory public API   PASS
-monotonic time              PASS
-session UTC                 PASS
-default location storage    PASS
-a3_probe                    PASS
+docs/architecture/architecture.md
+docs/architecture/design-principles.md
+docs/architecture/resident-vs-app.md
+docs/architecture/configuration.md
 ```
 
-ADV storage policy:
+Project/application plans:
 
 ```text
-/flash    2 MiB LittleFS initially, provisional
-/sd       optional FATFS
-NVS       not used
+docs/project/architecture-cleanup.md
+docs/project/progress.md
+docs/MiniFT8/
+docs/keyer/
 ```
-
-A3b adds the optional MicroSD/FATFS path. Absence of an SD card remains a normal successful boot condition. RTC and GPS integration are intentionally deferred so they do not distract from the current backend/profile checkpoint.
-
-On ADV, returning from a full-screen foreground app currently gives the shell a clean 7-row display with `M$>` at the top. Command-style Console output remains on the resident console and the following `M$>` continues below it. A future console enhancement will retain roughly 50 lines of shell history and allow scrolling the 7-row viewport; that is private console behavior and not part of application Display semantics.
