@@ -68,6 +68,7 @@ int main(void)
     CHECK(batch.message_count == 3u);
     CHECK(output[0].is_cq);
     CHECK(!output[0].is_to_me);
+    CHECK(!output[0].is_fd);
     CHECK(strcmp(output[0].call_de, "W1XYZ") == 0);
     CHECK(strcmp(output[0].extra, "FN42") == 0);
     CHECK(output[0].qso_kind == RX_QSO_MSG_TX1);
@@ -77,6 +78,7 @@ int main(void)
 
     CHECK(!output[1].is_cq);
     CHECK(output[1].is_to_me);
+    CHECK(!output[1].is_fd);
     CHECK(strcmp(output[1].call_to, "<AG6AQ>") == 0);
     CHECK(output[1].qso_kind == RX_QSO_MSG_TX2);
     CHECK(output[1].report_db == -10);
@@ -85,6 +87,7 @@ int main(void)
 
     CHECK(output[2].protocol_type == FT8_PROTOCOL_FREE_TEXT);
     CHECK(output[2].is_cq);
+    CHECK(!output[2].is_fd);
     CHECK(output[2].qso_kind == RX_QSO_MSG_NONE);
     CHECK(strcmp(output[2].call_de, "K7XYZ") == 0);
 
@@ -126,6 +129,60 @@ int main(void)
     CHECK(rx_result_builder_build(&builder, &slot,
                                   output, 3u, &batch) == RX_RESULT_OK);
     CHECK(!output[2].is_cq);
+
+    /* AS-6: CQ FD must be factual before AutoSeq applies its no-TX1 rule. */
+    strcpy(protocol[0].canonical_text, "CQ FD W1XYZ FN42");
+    strcpy(protocol[0].data.standard.call_to, "CQ FD");
+    CHECK(rx_result_builder_build(&builder, &slot,
+                                  output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[0].is_cq);
+    CHECK(output[0].is_fd);
+    CHECK(strcmp(output[0].call_de, "W1XYZ") == 0);
+    CHECK(strcmp(output[0].extra, "FN42") == 0);
+
+    /* The FreeText CQ-modifier compatibility path must tag FD the same way. */
+    memset(&protocol[2], 0, sizeof(protocol[2]));
+    protocol[2].type = FT8_PROTOCOL_FREE_TEXT;
+    protocol[2].parse_status = FT8_PROTOCOL_PARSE_OK;
+    strcpy(protocol[2].canonical_text, "CQ FD K7XYZ CM97");
+    strcpy(protocol[2].data.free_text.text, "CQ FD K7XYZ CM97");
+    CHECK(rx_result_builder_build(&builder, &slot,
+                                  output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[2].is_cq);
+    CHECK(output[2].is_fd);
+    CHECK(strcmp(output[2].call_de, "K7XYZ") == 0);
+    CHECK(strcmp(output[2].extra, "CM97") == 0);
+
+    /* Structured ARRL-FD packets carry normalized exchange facts and stage. */
+    memset(&protocol[2], 0, sizeof(protocol[2]));
+    protocol[2].type = FT8_PROTOCOL_ARRL_FD;
+    protocol[2].parse_status = FT8_PROTOCOL_PARSE_OK;
+    protocol[2].snr_db = -6;
+    protocol[2].offset_hz = 1200;
+    strcpy(protocol[2].canonical_text, "AG6AQ W6ABC 1B SCV");
+    strcpy(protocol[2].data.arrl_fd.call_to, "AG6AQ");
+    strcpy(protocol[2].data.arrl_fd.call_de, "W6ABC");
+    protocol[2].data.arrl_fd.has_r = false;
+    protocol[2].data.arrl_fd.transmitter_count = 1u;
+    protocol[2].data.arrl_fd.class_letter = 'B';
+    strcpy(protocol[2].data.arrl_fd.section, "SCV");
+    CHECK(rx_result_builder_build(&builder, &slot,
+                                  output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[2].is_to_me);
+    CHECK(output[2].is_fd);
+    CHECK(output[2].qso_kind == RX_QSO_MSG_TX2);
+    CHECK(strcmp(output[2].fd_exchange, "1B SCV") == 0);
+    CHECK(strcmp(output[2].call_de, "W6ABC") == 0);
+    CHECK(output[2].snr_db == -6);
+    CHECK(output[2].offset_hz == 1200);
+
+    protocol[2].data.arrl_fd.has_r = true;
+    strcpy(protocol[2].canonical_text, "AG6AQ W6ABC R 1B SCV");
+    CHECK(rx_result_builder_build(&builder, &slot,
+                                  output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[2].is_fd);
+    CHECK(output[2].qso_kind == RX_QSO_MSG_TX3);
+    CHECK(strcmp(output[2].fd_exchange, "1B SCV") == 0);
 
     CHECK(rx_result_builder_build(&builder, &slot,
                                   output, 2u, &batch) == RX_RESULT_ERR_OUTPUT_FULL);
