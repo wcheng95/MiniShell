@@ -49,9 +49,9 @@ Use lowercase/snake_case for code-facing project and application names:
 
 ```text
 minishell
-minift8
-apps/minift8/
-/flash/minift8/station.txt
+ft8
+apps/ft8/
+/flash/ft8/station.txt
 ```
 
 Use **MiniShell** and **MiniFT8** as normal project/product names in prose. Standard C conventions take precedence where appropriate, so macros remain uppercase (`MINISHELL_*`, `MINIFT8_*`). Do not reintroduce mixed-case filesystem paths, executable names, targets, or runtime application names.
@@ -154,13 +154,23 @@ shell resumes
 The physical form differs by target:
 
 ```text
-Linux/Mint      .so + dlopen/dlsym/dlclose
-Cardputer ADV   V1 compiled-in registry
-Tab5/NuttX      loadable-app mechanism where practical
-future ADV      runtime .elf loading may be explored later
+Linux/Mint          .so + dlopen/dlsym/dlclose
+Cardputer ADV V1    compiled-in registry
+Cardputer ADV next  runtime /sd/<app>.elf
+Tab5/NuttX          loadable-app mechanism where practical
 ```
 
-Application source does not contain loader-specific logic. ADV runtime loading is deferred because it is not required for the first backend and adds implementation complexity; it is not architecturally rejected.
+The ADV static registry remains a valid baseline and transition mechanism, but runtime ELF loading is now an **active architecture target**. The first field-usable external application is planned as:
+
+```text
+/sd/keyer.elf
+```
+
+Application source does not contain loader-specific logic. `keyer.elf` must depend only on the MiniShell public API and Keyer-owned modules; it must not know about ESP-IDF, FreeRTOS, M5/Cardputer, SD/FATFS implementation details, or the ELF loader itself.
+
+The initial ADV external-app naming convention is `/sd/<app>.elf`. Discovery, relocation, symbol resolution, execution setup, unloading, and any compiled-in-versus-external precedence policy remain private runtime/backend concerns and may evolve during implementation.
+
+Starting ELF work does **not** freeze a long-term binary ABI. Until compatibility is deliberately frozen, an external application may need to be rebuilt against the matching MiniShell API generation.
 
 ## 9. Resident versus application
 
@@ -232,7 +242,15 @@ For each service:
 2. test the public API through an application/probe;
 3. test real platform behavior where platform-specific behavior matters.
 
-The packaging of the probe may differ: dynamically loaded on Linux, statically compiled on ADV V1. The API behavior being tested should be the same.
+Packaging may differ while the observable API behavior stays the same:
+
+```text
+Linux                runtime-loaded .so
+ADV V1 baseline      statically composed probe/app
+ADV ELF milestone    runtime-loaded /sd/<app>.elf
+```
+
+The ELF loader itself also requires focused tests for discovery, load/start/return/unload/cleanup and failure handling. Those loader tests are additional to, not a substitute for, service/API tests.
 
 Linux CI is the reference regression gate. Embedded ports should validate the same observable contract against their hardware/backend.
 
