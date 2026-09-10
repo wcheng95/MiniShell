@@ -13,6 +13,13 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # memory corruption to turn into an unrelated exception.
 CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
 
+# ESP32-S3 defaults to a 32 KiB data cache. The special 16 KiB mode keeps the
+# hardware cache configured at 32 KiB but makes another 16 KiB of internal SRAM
+# available to the heap. Keep the default 16 KiB instruction cache unchanged.
+# This is intentionally isolated as a RAM/performance experiment: validate FT8
+# decode timing before making it part of the permanent ADV configuration.
+CONFIG_ESP32S3_DATA_CACHE_16KB=y
+
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 # CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
