@@ -102,9 +102,9 @@ add_minishell_app(ft8
     apps/ft8/main/ft8_main.c
     apps/ft8/main/ft8_ui_adapter.c
     apps/ft8/src/app_controller/app_controller.c
+    apps/ft8/src/auto_seq/auto_seq.c
     apps/ft8/src/config_service/config_service.c
     apps/ft8/src/presentation_profile/presentation_profile.c
-    apps/ft8/src/qso_scheduler/qso_scheduler.c
     apps/ft8/src/storage_service/storage_service.c
     apps/ft8/src/ui_shell/ui_shell.c
     apps/ft8/src/rx_audio_adapter/rx_audio_adapter.c
@@ -124,9 +124,9 @@ add_minishell_app(ft8
 target_include_directories(ft8 PRIVATE
     apps/ft8/include
     apps/ft8/src/app_controller
+    apps/ft8/src/auto_seq
     apps/ft8/src/config_service
     apps/ft8/src/presentation_profile
-    apps/ft8/src/qso_scheduler
     apps/ft8/src/storage_service
     apps/ft8/src/ui_shell
     apps/ft8/src/rx_audio_adapter
@@ -206,6 +206,18 @@ target_include_directories(linux_terminal_parser_unit PRIVATE
 target_compile_options(linux_terminal_parser_unit PRIVATE
     -Wall -Wextra -Werror -Wpedantic
 )
+
+add_library(ft8_auto_seq_core STATIC
+    apps/ft8/src/auto_seq/auto_seq.c
+)
+target_include_directories(ft8_auto_seq_core PUBLIC
+    apps/ft8/src/auto_seq
+)
+target_compile_options(ft8_auto_seq_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+add_executable(ft8_auto_seq_as2_unit tests/ft8_auto_seq_as2_test.c)
+target_link_libraries(ft8_auto_seq_as2_unit PRIVATE ft8_auto_seq_core)
+target_compile_options(ft8_auto_seq_as2_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
 set(FT8_MONITOR_SOURCES
     apps/ft8/src/ft8_engine/ft8_monitor.c
@@ -407,6 +419,7 @@ add_test(
 
 add_test(NAME ft8_ui_smoke COMMAND ft8_ui_smoke)
 add_test(NAME linux_terminal_parser_unit COMMAND linux_terminal_parser_unit)
+add_test(NAME ft8_auto_seq_as2_unit COMMAND ft8_auto_seq_as2_unit)
 add_test(NAME ft8_monitor_rx1c_unit COMMAND ft8_monitor_rx1c_unit)
 add_test(NAME ft8_decoder_rx1d_unit COMMAND ft8_decoder_rx1d_unit)
 add_test(NAME ft8_hash_store_rx1e_unit COMMAND ft8_hash_store_rx1e_unit)
