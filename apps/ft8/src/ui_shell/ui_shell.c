@@ -192,7 +192,7 @@ static void render_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
             frame_set(frame, i + 1, "%d %s", i + 1, model->tx_lines[index]);
         }
     }
-    frame_footer(frame, "1-6 drop  Enter rotate  Up/Down page");
+    frame_footer(frame, "1-6 drop  Enter rotate  Up/Dn");
 }
 
 static void render_o_root(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -316,7 +316,7 @@ static void render_s(const UiShell *ui, const UiModel *model, UiFrame *frame)
         case UI_SUBMENU_S_LOGGING: render_s_logging(ui, frame); break;
         case UI_SUBMENU_S_TIME_GPS: render_s_time_gps(ui, frame); break;
         case UI_SUBMENU_S_SYSTEM: render_s_system(ui, frame); break;
-        default: render_s_root(ui, model, frame); break;
+        default: render_s_root(ui, frame); break;
     }
 }
 
