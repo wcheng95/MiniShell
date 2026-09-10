@@ -574,7 +574,7 @@ void app_controller_build_memory_model(const AppController *app, UiModel *model)
     }
     if ((info.valid_fields & MINI_MEM_INFO_LARGEST_BLOCK) != 0u) {
         model->memory_largest_valid = true;
-        model->memory_largest_free_bytes = info.largest_free_block;
+        model->memory_largest_free_block = info.largest_free_block;
     }
 }
 
