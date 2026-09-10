@@ -1,6 +1,6 @@
 # MiniFT8-V3 AutoSeq Plan
 
-Status: **IN PROGRESS — AS-0 through AS-5 complete; AS-6 next**
+Status: **IN PROGRESS — AS-0 through AS-7 complete; AS-8 next**
 
 AutoSeq is the current major MiniFT8-V3 block after decode RX. This phase is a structural port first: preserve the proven MiniFT8-V2 AutoSeq behavior while replacing old ownership, dynamic data structures, and cross-module coupling with explicit V3 boundaries.
 
@@ -102,7 +102,7 @@ app_controller
         |
         +--> UiModel -> T UIScreen
         |
-        `--> future TX/logging modules
+        `--> TX lifecycle / future logging owner
 ```
 
 Hard rules:
@@ -114,7 +114,7 @@ Hard rules:
 - `auto_seq` does not perform ADIF/Cabrillo/file I/O;
 - `auto_seq` does not start radio/audio TX;
 - `ui_shell` never owns or receives `QsoContext` pointers;
-- `app_controller` is the only production coordinator between RX, AutoSeq, UI, future TX, and logging.
+- `app_controller` is the only production coordinator between RX, AutoSeq, UI, TX lifecycle, and logging.
 
 ## 5. AutoSeq state storage
 
@@ -187,7 +187,7 @@ RX SNR
 resolved/unresolved hash status
 ```
 
-AS-2 represents the subset needed by the pure state owner as a normalized `AutoSeqRxEvent`. AS-3 maps selected resolved CQs from real `RxMessage` data into that event. AS-4 adds factual ordinary-QSO `qso_kind/report_db` metadata and maps completed `is_to_me` messages automatically in decode order.
+AS-2 represents the subset needed by the pure state owner as a normalized `AutoSeqRxEvent`. AS-3 maps selected resolved CQs from real `RxMessage` data into that event. AS-4 adds factual ordinary-QSO `qso_kind/report_db` metadata and maps completed `is_to_me` messages automatically in decode order. AS-6 adds factual Field Day classification/exchange data and explicit CQ/FreeText configuration.
 
 AutoSeq copies only QSO-lifetime facts into its own context. It must never retain a pointer into `RxBatch`, because the RX batch belongs to the RX state and can be replaced by a later decode window.
 
@@ -198,8 +198,12 @@ my callsign
 my grid
 Skip-TX1
 max retry
-CQ/Field Day configuration as later required
+CQ type / CQ FreeText
+ad-hoc FreeText
+Field Day exchange
 ```
+
+Runtime beacon OFF/EVEN/ODD belongs to the controller-side TX lifecycle rather than persisted AutoSeq configuration.
 
 ## 7. Output contracts
 
@@ -222,22 +226,24 @@ The T UIScreen renders this view. It does not inspect internal queue storage. AS
 
 ### TX intent
 
-A semantic request describing what AutoSeq wants sent, for example:
+AS-7 implements `AutoSeqTxIntent` as a fixed-size semantic snapshot of what the queue head wants sent:
 
 ```text
-message kind: TX1..TX5 / CQ / FreeText / FD exchange
-target callsign
-report/exchange facts
+QSO / CQ / FreeText intent type
+TX1..TX6 semantic kind where applicable
+CQ type
+target/station callsign and grid facts
+report or Field Day exchange facts
 offset_hz
 slot parity
-QSO identity/generation if needed
+retry state
 ```
 
-`TxIntent` does not key a transmitter and does not contain platform-specific CAT/audio operations. Future TX code realizes it. This remains deferred.
+`AutoSeqTxIntent` does not key a transmitter and contains no platform-specific CAT/audio operation, device handle, waveform, or heap-owned string. `app_controller` consumes the snapshot at a valid slot boundary.
 
 ### Policy events
 
-Where V2 currently performs side effects such as logging callbacks, V3 preserves the same eligibility/timing semantics by emitting an AutoSeq event to `app_controller`. The logging owner performs actual I/O. This remains a later AS stage.
+AS-6 converts V2 logging side effects into typed `AutoSeqLogEvent` eligibility. AS-7 captures that event at TX start, before the simulated completion/tick. AutoSeq performs no I/O and the event is not acknowledged until a future logging owner reports a successful write.
 
 ## 8. Event ordering
 
@@ -247,17 +253,21 @@ Preserve the proven V2 single-threaded ordering:
 RX slot completes
     -> decode/build RxBatch
     -> app_controller processes AutoSeq input
-    -> AutoSeq updates queue and exposes TxIntent
-    -> slot boundary later decides TX eligibility
-    -> future TX completes
-    -> app_controller tells AutoSeq TX completed/tick
+    -> AutoSeq updates queue and exposes AutoSeqTxIntent
+    -> later UTC slot boundary decides parity/execution eligibility
+    -> controller records simulated TX start
+    -> controller captures logging eligibility where applicable
+    -> simulated TX completes
+    -> app_controller calls auto_seq_tick() exactly once
 ```
 
 Decode completion must not directly start TX. AutoSeq remains synchronous and deterministic unless concurrency is later proven necessary.
 
-AS-4 makes the first two steps concrete: `rx_emit_event()` still owns only RX assembly; after `batch_generation` changes, `app_controller_step_rx()` walks the completed batch exactly once and feeds eligible addressed messages to AutoSeq in decode order.
+AS-4 makes the RX half concrete: `rx_emit_event()` still owns only RX assembly; after `batch_generation` changes, `app_controller_step_rx()` walks the completed batch exactly once and feeds eligible addressed messages to AutoSeq in decode order.
 
-AS-5 adds user queue-control events through `AppAction`, but deliberately does not create a production source for `auto_seq_tick()`. Tick remains semantically post-TX-completion and is wired only when the TX lifecycle exists in AS-7.
+AS-5 adds user queue-control events through `AppAction`. AS-7 supplies the previously deferred production source for `auto_seq_tick()`: simulated TX completion after a valid slot/parity start.
+
+The controller-side `TxLifecycle` observes MiniShell UTC but AutoSeq does not. Its first observation only anchors the current slot. A valid scheduling edge requires the immediately adjacent next 15-second slot and an observation within its first second. Duplicate slots, wrong parity, missed slots, suspend gaps, and backward/large clock corrections cannot consume AutoSeq TX state.
 
 ## 9. Real fixture anchors
 
@@ -291,6 +301,8 @@ KQ4PUG
 With Skip TX1 off, all eight start as `REPLYING` with `RPLY 0/3`. Their real T-screen projection is six entries on page 1 and two on page 2. All were received in the same slot, so they request the same opposite TX parity.
 
 AS-5 reuses this queue to prove same-parity rotation and absolute-index drop behavior. One rotation moves `N4NJJ` from the head to the end of the eight-entry run. Dropping the rotated head and then the sole page-2 entry leaves six active rows and collapses T from 2 pages to 1.
+
+AS-7 keeps deterministic WAV fixtures isolated from wall-clock TX: when `--rx-slot` supplies a synthetic slot ID, the production wall-clock TX step is disabled so CI cannot consume or reorder the test queue merely by crossing a real 15-second boundary.
 
 ### Addressed-message V2 goldens
 
@@ -436,38 +448,59 @@ AS-2 pure tests remain authoritative for retry/exhaustion, state priority,
 capacity, oldest-inactive eviction and unknown-message guards
 ```
 
-`auto_seq_tick()` remains unwired in production until AS-7 because it represents a completed-TX lifecycle event. No AutoSeq policy changes were made. See `as-5-queue-lifecycle.md`.
+`auto_seq_tick()` remained intentionally unwired through AS-5 because it represents a completed-TX lifecycle event. No AutoSeq policy changes were made. See `as-5-queue-lifecycle.md`.
 
 ### AS-6 — CQ/Beacon, FreeText, Field Day and logging eligibility
 
-Status: **NEXT**
+Status: **COMPLETE**
 
-Port current V2 special behavior:
+Purpose: port V2 special AutoSeq semantics before introducing slot execution.
+
+Completed work:
 
 ```text
-short-lived CQ one-shot
-FreeText one-shot and priority
-Skip-TX1
-ARRL Field Day sequencing
-park-after-signoff behavior
-ADIF/Cabrillo eligibility timing
+short-lived CQ one-shot with fixed CQ type/configuration
+ad-hoc FreeText one-shot with V2 priority/parity behavior
+Skip-TX1 preserved
+ARRL Field Day factual RX classification and exchange retention
+CQ FD intentionally starts at TX2 with local exchange
+park-after-signoff behavior preserved
+typed independent ADIF/Cabrillo eligibility + acknowledgement
+station.txt semantic CQ/FreeText/FD fields round-trip
+no heap, file I/O, clock, Audio, CAT, or RF dependency in AutoSeq
 ```
 
-Side effects are converted to typed events; behavior/timing remains equivalent.
+Beacon OFF/EVEN/ODD runtime scheduling remained deferred to AS-7 rather than becoming persisted AutoSeq state. See `as-6-special-behavior.md`.
 
 ### AS-7 — Slot/TX-intent lifecycle without physical TX
 
-Add the app-controller event boundary that V2 requires:
+Status: **COMPLETE**
+
+Purpose: create the controller-owned execution lifecycle that turns an AutoSeq semantic request into one correctly timed simulated transmission.
+
+Completed work:
 
 ```text
-decode done -> AutoSeq update -> TxIntent latched
-slot boundary -> intent becomes executable
-simulated TX completion -> AutoSeq tick/advance
+AutoSeq queue head -> fixed semantic AutoSeqTxIntent
+MiniShell UTC -> controller-side 15-second TxLifecycle
+first observation anchors without transmitting
+slot parity gates execution
+same-slot duplicates cannot transmit twice
+missed/late/backward/large clock changes re-anchor with no catch-up TX
+simulated TX start captures typed logging eligibility
+simulated completion calls auto_seq_tick() exactly once
+runtime Beacon OFF/EVEN/ODD re-enqueues one-shot CQ only when idle
+QSO/FreeText work preempts beacon generation
+beacon mode change removes stale queued CQ
+--rx-slot deterministic fixtures are isolated from wall-clock TX stepping
+no Audio TX, CAT/Control, waveform, or RF operation added
 ```
 
-Use a fake TX completion event. Do not add Audio TX or Control yet.
+The AS-7 unit suite covers semantic TX intents, slot-edge/parity safety, retries, logging timing, beacon lifecycle, and QSO preemption. See `as-7-tx-lifecycle.md`.
 
 ### AS-8 — Equivalence closure
+
+Status: **NEXT**
 
 Run the V3 pure tests and integrated fixtures against the pinned V2 behavior set.
 

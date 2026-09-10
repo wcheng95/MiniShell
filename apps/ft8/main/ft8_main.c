@@ -6,6 +6,7 @@
 
 #include "minishell/api.h"
 #include "app_controller.h"
+#include "app_controller_tx.h"
 #include "ft8_ui_adapter.h"
 #include "presentation_profile.h"
 #include "ui_shell.h"
@@ -169,6 +170,7 @@ int main(int argc, char **argv)
 
     while (running) {
         bool rx_changed = false;
+        bool tx_changed = false;
         bool rx_active;
         bool memory_visible;
         bool has_input = false;
@@ -181,6 +183,19 @@ int main(int argc, char **argv)
             break;
         }
         if (rx_changed) redraw = true;
+
+        /*
+         * --rx-slot is the deterministic decode-fixture mode. Do not mix its
+         * synthetic RX slot identity with the host's wall-clock TX lifecycle.
+         * Live operation (including --rx without --rx-slot) uses MiniShell UTC.
+         */
+        if (!options.has_rx_slot) {
+            if (!app_controller_step_tx(&app, &tx_changed)) {
+                result = 10;
+                break;
+            }
+            if (tx_changed) redraw = true;
+        }
 
         app_controller_build_ui_model(&app, &model);
         memory_visible = ui.screen == SCREEN_V && ui.submenu == UI_SUBMENU_V_MEMORY;
