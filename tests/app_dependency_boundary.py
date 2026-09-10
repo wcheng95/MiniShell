@@ -34,6 +34,19 @@ APP_RULES = {
         "private_headers": {
             "src/app_controller/app_controller_internal.h": "app_controller",
         },
+        # C2: lifecycle/wiring code may hold UiShell/UiModel objects and pass
+        # them across boundaries, but must not inspect their implementation
+        # state or hard-code UIScreen/submenu policy.
+        "forbidden_source_patterns": {
+            "main/ft8_main.c": (
+                (r"\bui\s*\.\s*(?:screen|submenu)\b",
+                 "ft8_main must not inspect UiShell screen/submenu state"),
+                (r"\b(?:SCREEN_|UI_SUBMENU_)",
+                 "ft8_main must not encode UIScreen/submenu policy"),
+                (r"\bmodel\s*\.\s*[A-Za-z_]",
+                 "ft8_main must not inspect individual UiModel fields"),
+            ),
+        },
         "allowed": {
             "main": {"main", "shared", "app_controller", "presentation_profile", "ui_shell"},
             "shared": {"shared"},
@@ -124,8 +137,15 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
             continue
         checked_files += 1
 
-        for line_number, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), start=1):
+        text = path.read_text(encoding="utf-8")
+        rel_text = rel.as_posix()
+        for pattern, reason in rule.get("forbidden_source_patterns", {}).get(rel_text, ()):
+            if re.search(pattern, text):
+                violations.append(
+                    f"{path.relative_to(root)}: forbidden lifecycle coupling: {reason}"
+                )
+
+        for line_number, line in enumerate(text.splitlines(), start=1):
             match = INCLUDE_RE.match(line)
             if not match:
                 continue
@@ -176,7 +196,7 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
 
 def self_test() -> int:
     # Exercise parsing/resolution, an allowed edge, a forbidden edge, private
-    # header ownership, and an unowned source directory.
+    # header ownership, lifecycle coupling, and an unowned source directory.
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
         app = root / "apps" / "ft8"
@@ -227,6 +247,15 @@ def self_test() -> int:
             for violation in violations:
                 print(f"  {violation}")
             return 1
+
+        # C2 specifically protects ft8_main from learning UIScreen/model internals.
+        ft8_main = app / "main" / "ft8_main.c"
+        ft8_main.write_text("void f(void) { ui.screen = 0; }\n", encoding="utf-8")
+        violations = check_app(root, "ft8")
+        if not any("forbidden lifecycle coupling" in item for item in violations):
+            print("app_dependency_boundary self-test: FAIL (lifecycle coupling not detected)")
+            return 1
+        ft8_main.write_text("void f(void) { (void)0; }\n", encoding="utf-8")
 
         rogue = app / "src" / "rogue"
         rogue.mkdir()
