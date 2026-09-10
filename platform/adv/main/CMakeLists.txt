@@ -79,6 +79,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_keyboard.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_memory.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_time_location.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_usbmsc.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_apps.c"
         "${CMAKE_CURRENT_LIST_DIR}/../platform_info.c"
         "${CMAKE_CURRENT_LIST_DIR}/../resource_config.c"
@@ -107,6 +108,7 @@ idf_component_register(
         esp_driver_sdspi
         esp_driver_usb_serial_jtag
         esp_timer
+        esp_tinyusb
         fatfs
         sdmmc
         wear_levelling
