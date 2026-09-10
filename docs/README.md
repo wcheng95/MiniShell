@@ -7,7 +7,7 @@ Canonical priority:
 3. service contracts under `docs/api/`
 4. architecture/design-principle docs
 5. runtime/application placement docs
-6. application docs (`docs/MiniFT8/`, etc.)
+6. application docs (`docs/MiniFT8/`, `docs/keyer/`, etc.)
 7. project audit/progress records
 
 Current public API covers App, System, Memory, Filesystem, Time/Location, Display, Input, and Audio.
@@ -32,7 +32,14 @@ Application and exploratory notes:
 
 ```text
 docs/MiniFT8/
+docs/keyer/      # Keyer porting + /sd/keyer.elf field-application plan
 docs/js8/       # JS8 DSP research and future JS8Chat project
+```
+
+Current architecture/project planning:
+
+```text
+docs/project/architecture-cleanup.md   # pre-Keyer modularity/no-side-talk gate
 ```
 
 Linux Mint on `pc-1` is the reference/full production target. Historical Tab5/ESP-IDF work is retained on `archive/tab5-legacy`.
