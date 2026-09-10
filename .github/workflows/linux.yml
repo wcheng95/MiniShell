@@ -16,6 +16,14 @@ jobs:
         run: cmake --build build-linux -j2
       - name: Test
         run: ctest --test-dir build-linux --output-on-failure
+      - name: Run AS-8 AutoSeq equivalence suite
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -Wpedantic \
+            -Iapps/ft8/src/auto_seq \
+            tests/ft8_auto_seq_as8_test.c \
+            apps/ft8/src/auto_seq/auto_seq.c \
+            -o build-linux/ft8_auto_seq_as8_unit
+          ./build-linux/ft8_auto_seq_as8_unit
       - name: Configure unit tests
         run: cmake -S tests/unit -B build-unit
       - name: Build unit tests

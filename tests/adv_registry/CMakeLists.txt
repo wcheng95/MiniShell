@@ -18,5 +18,19 @@ target_include_directories(adv_registry_unit PRIVATE
 
 target_compile_options(adv_registry_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
+add_executable(ft8_auto_seq_as8_unit
+    ../ft8_auto_seq_as8_test.c
+    ../../apps/ft8/src/auto_seq/auto_seq.c
+)
+
+target_include_directories(ft8_auto_seq_as8_unit PRIVATE
+    ../../apps/ft8/src/auto_seq
+)
+
+target_compile_options(ft8_auto_seq_as8_unit PRIVATE
+    -Wall -Wextra -Werror -Wpedantic
+)
+
 enable_testing()
 add_test(NAME adv_static_registry_unit COMMAND adv_registry_unit)
+add_test(NAME ft8_auto_seq_as8_unit COMMAND ft8_auto_seq_as8_unit)

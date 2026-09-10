@@ -8,6 +8,9 @@ import sys
 
 SOURCE_SUFFIXES = {".c", ".h", ".cc", ".cpp", ".hpp"}
 INCLUDE_RE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]')
+AUTO_SEQ_HEAP_CALL_RE = re.compile(
+    r"\b(?:malloc|calloc|realloc|aligned_alloc|free|strdup|asprintf)\s*\("
+)
 
 FORBIDDEN_INCLUDE_PREFIXES = (
     "platform/",
@@ -49,6 +52,7 @@ def main() -> int:
 
     root = pathlib.Path(sys.argv[1]).resolve()
     ft8_root = root / "apps" / "ft8"
+    auto_seq_root = ft8_root / "src" / "auto_seq"
     if not ft8_root.is_dir():
         print(f"missing MiniFT8 source tree: {ft8_root}", file=sys.stderr)
         return 2
@@ -76,13 +80,20 @@ def main() -> int:
                 if token in line:
                     violations.append(f"{rel}:{line_number}: forbidden platform token {token}")
 
+            if auto_seq_root in path.parents:
+                heap_match = AUTO_SEQ_HEAP_CALL_RE.search(line)
+                if heap_match:
+                    violations.append(
+                        f"{rel}:{line_number}: AutoSeq heap call {heap_match.group(0).rstrip('(').strip()}"
+                    )
+
     if violations:
         print("MiniFT8 platform-boundary violations:")
         for violation in violations:
             print(f"  {violation}")
         return 1
 
-    print(f"ft8_platform_boundary: PASS ({len(files)} source/header files)")
+    print(f"ft8_platform_boundary: PASS ({len(files)} source/header files; AutoSeq heap-free)")
     return 0
 
 
