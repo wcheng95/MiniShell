@@ -3,5 +3,3 @@ dependencies:
     version: "0.2.17"
   m5stack/m5unified:
     version: "0.2.11"
-  joltwallet/littlefs:
-    version: "1.22.3"
