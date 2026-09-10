@@ -51,11 +51,12 @@ mv
 nano
 rm
 rmdir
+ft8
 ```
 
 These use only the public MiniShell API and can be rebuilt for another MiniShell platform with the required capabilities.
 
-Large domain applications such as MiniFT8, MiniCW, and MiniRTTY belong on this side of the boundary as well.
+Large domain applications such as MiniFT8, Keyer/MiniCW, and MiniRTTY belong on this side of the boundary as well.
 
 ## Platform-dependent resident functions
 
@@ -93,18 +94,26 @@ Keeping them as apps tests the same API that real applications use instead of cr
 
 ## Loader/container independence
 
-Do not describe applications conceptually as "ELF apps" or ".so apps". Those are backend packaging choices.
+Do not define an application conceptually by its container format. "ELF app" and ".so app" describe packaging on a particular backend, not the application's domain architecture.
 
 ```text
-Linux/Mint      .so
-Cardputer ADV   V1 compiled-in registry
-NuttX           native loadable mechanism where practical
-future ADV      runtime .elf loading may be explored later
+Linux/Mint          .so
+Cardputer ADV V1    compiled-in registry
+Cardputer ADV next  runtime /sd/<app>.elf
+NuttX               native loadable mechanism where practical
 ```
 
-The current source-level application contract remains `main(argc, argv)` plus `mini_api_get()`. Applications are rebuilt for the target and current MiniShell API.
+The ADV static registry remains available during transition/testing, but runtime loading is now an active MiniShell architecture target. The first planned field-usable external application is:
 
-A formal binary ABI is intentionally deferred until independently built applications need compatibility across MiniShell releases.
+```text
+/sd/keyer.elf
+```
+
+The source-level application contract remains MiniShell public API plus the application's own modules. Loader details such as ELF parsing, relocation, symbol resolution, execution context, and unloading stay resident/private to MiniShell and the ADV backend.
+
+External loading does not make Keyer platform-aware. The same Keyer source must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or ELF-loader interfaces.
+
+A formal cross-release binary ABI is still intentionally deferred. During this early phase an external application may need to be rebuilt for the matching MiniShell API generation.
 
 ## One-owner rule still applies to resident functionality
 
@@ -117,6 +126,8 @@ Resident functionality must still have:
 - no unnecessary public API expansion.
 
 Moving a feature resident is not permission to put its implementation into `shell.c`.
+
+The runtime ELF loader itself is resident because MiniShell needs it to discover/load/start/unload applications. Keyer remains an application because MiniShell does not need CW behavior to remain a healthy runtime.
 
 ## Packaging small tools
 
@@ -136,11 +147,12 @@ A future grouped `minitools` package is acceptable only if measurement shows tha
 | Function | Default placement |
 | --- | --- |
 | Shell dispatch | resident |
-| App lifecycle/packaging boundary | resident |
+| App lifecycle/discovery/loader boundary | resident |
+| ADV ELF loader | resident/private backend/runtime mechanism |
 | Memory/FS/Time/Display/Input service semantics | resident |
 | `status` | resident diagnostic |
 | `ls`, `cat`, `cp`, `nano`, `free`, `df`, `date` | portable app |
-| MiniFT8/MiniCW/MiniRTTY | portable/domain app |
+| MiniFT8/Keyer/MiniRTTY | portable/domain app |
 | Recovery transfer | platform-dependent resident function |
 | Power/system control | platform-dependent resident function |
 
