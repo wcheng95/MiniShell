@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "app_controller_internal.h"
 #include "app_controller_tx.h"
 #include "auto_seq_tx_intent.h"
 #include "tx_lifecycle.h"
