@@ -36,10 +36,6 @@ typedef struct {
     uint16_t crc_extracted;
     uint16_t crc_calculated;
     uint8_t payload[FT8_PAYLOAD_BYTES];
-
-    /* Factual RX metadata populated by Ft8Engine while its waterfall exists. */
-    int16_t offset_hz;
-    int8_t snr_db;
 } Ft8DecodedPayload;
 
 Ft8DecoderStatus ft8_decoder_find_candidates(const Ft8WaterfallView *waterfall,
