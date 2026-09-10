@@ -1,6 +1,6 @@
 # MiniShell Architecture Cleanup Gate
 
-Status: **Draft for review — C0/C1/C2 complete**  
+Status: **Draft for review — C0/C1/C2/C3 complete**  
 Date: 2026-09-10
 
 ## Purpose
@@ -100,10 +100,11 @@ In particular:
 - `tests/ft8_platform_boundary.py` prevents major platform leakage;
 - `tests/app_dependency_boundary.py` enforces application-local module dependencies, private-header ownership, and the C2 lifecycle/UI boundary;
 - `AppController` state is opaque outside the controller ownership domain;
-- `app_controller` now produces one complete `UiModel` snapshot while `ui_shell` alone decides which fields are visible;
-- `ft8_main` performs lifecycle/wiring only and compares final `UiFrame` output rather than interpreting UIScreen/submenu/model fields.
+- `app_controller` produces one complete `UiModel` snapshot while `ui_shell` alone decides which fields are visible;
+- `ft8_main` performs lifecycle/wiring only and compares final `UiFrame` output rather than interpreting UIScreen/submenu/model fields;
+- runtime ADV ELF loading is now an active architecture target rather than a deferred experiment.
 
-The remaining cleanup work is documentation/architecture direction for runtime external applications and configuration ownership before Keyer starts.
+The remaining cleanup work is configuration ownership/file naming before Keyer starts.
 
 ## 3. Cleanup tasks
 
@@ -240,25 +241,50 @@ Verification completed:
 
 No generic event bus or object framework was introduced.
 
-### C3 — Make external application loading an active architecture target
+### C3 — COMPLETE — External application loading is an active architecture target
 
-Older documentation describes ADV runtime ELF loading as a future experiment. The active project direction is now:
+The current packaging model is now documented as:
+
+```text
+Linux/Mint          runtime .so
+Cardputer ADV V1    compiled-in registry baseline
+Cardputer ADV next  runtime /sd/<app>.elf
+Tab5/NuttX          native loadable mechanism where practical
+```
+
+The first field-usable ADV external application target is:
 
 ```text
 /sd/keyer.elf
 ```
 
-as a real runtime-loaded application target on Cardputer ADV.
-
-Update architecture/application documentation so that:
+C3 updated the canonical application/runtime documentation so that:
 
 - application source remains independent of loader/container format;
 - Linux continues to use runtime `.so` modules;
-- ADV begins a real runtime `.elf` path;
-- independently loaded apps still receive only the MiniShell public application interface;
-- static ADV applications may remain during transition/testing, but runtime loading is no longer merely speculative.
+- ADV runtime ELF is active work rather than a speculative future possibility;
+- the initial ADV external-app path convention is `/sd/<app>.elf`;
+- `keyer.elf` remains a portable MiniShell application and must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or ELF-loader interfaces;
+- discovery, ELF parsing, relocation, symbol resolution, execution setup, unloading, and cleanup stay resident/private to MiniShell and the ADV backend;
+- static ADV applications remain valid during transition/testing;
+- collision/precedence between a static and external app with the same name is deliberately left for loader implementation;
+- a formal stable cross-release binary ABI is still not frozen.
 
-A formal stable cross-release binary ABI is still not frozen. API/loader work may evolve together while the project is early.
+Updated documents include:
+
+```text
+apps/README.md
+docs/architecture/architecture.md
+docs/architecture/design-principles.md
+docs/architecture/resident-vs-app.md
+docs/project/adv-backend-plan.md
+docs/project/progress.md
+platform/adv/README.md
+```
+
+The completed V1 ADV plan remains historical evidence. It explicitly records that static composition was a V1 choice and that C3 supersedes the old "ELF later" wording for current development.
+
+C3 is documentation/architecture only. It does not implement an ELF loader.
 
 ### C4 — Record configuration ownership and file naming
 
@@ -331,7 +357,7 @@ Before Keyer implementation starts, the cleanup is complete when:
 7. ADV build/tests pass;
 8. the existing RX7 golden WAV integration test still passes unchanged in visible behavior.
 
-Items 1-4 and 6-8 are satisfied after C0-C2. Item 5 remains for C3-C4.
+Items 1-4 and 6-8 are satisfied after C0-C2. The runtime-ELF half of item 5 is satisfied by C3; the configuration half remains for C4.
 
 ## 5. Non-goals
 
@@ -342,6 +368,7 @@ Do not use this cleanup to:
 - add Control/CAT implementation;
 - add Digital I/O implementation;
 - implement the Keyer;
+- implement the ELF loader during C3 documentation cleanup;
 - freeze a long-term binary ABI;
 - create a generalized dependency injection/event framework.
 
@@ -354,9 +381,10 @@ Resolved:
 1. **Opaque `AppController`: yes.** C1 uses a small ordinary-C opaque-pointer pattern with MiniShell Memory ownership; no object framework was introduced.
 2. **Dependency checker scope: reusable immediately.** C0 keeps one generic checker with a small per-application rule map; Keyer will add another map later.
 3. **Complete-model rendering: build one complete `UiModel`, then compare final `UiFrame`s.** C2 keeps screen-specific visibility in `ui_shell` and prevents `ft8_main` from learning submenu semantics.
+4. **ADV external app path: `/sd/<app>.elf` initially.** The first field application is `/sd/keyer.elf`; static/external name precedence remains a loader-implementation decision.
 
 Still open:
 
 1. Is `/flash/ft8/setting.txt` the desired eventual rename from the current `station.txt`, or should that migration remain a later application-specific decision? This does not block the ownership rule itself.
 
-Until C3-C4 are reviewed/completed, this remains a cleanup plan rather than the final architecture-cleanup record.
+Until C4 is reviewed/completed, this remains a cleanup plan rather than the final architecture-cleanup record.
