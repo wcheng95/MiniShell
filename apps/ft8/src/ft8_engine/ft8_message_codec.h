@@ -118,11 +118,13 @@ typedef struct {
     char canonical_text[FT8_PROTOCOL_TEXT_CAP];
     Ft8ProtocolData data;
 
-    /* Factual decoder diagnostics copied from the RX-1D boundary. */
+    /* Factual decoder diagnostics copied from the RX-1D/engine boundary. */
     Ft8Candidate candidate;
     int ldpc_errors;
     uint16_t crc_extracted;
     uint16_t crc_calculated;
+    int16_t offset_hz;
+    int8_t snr_db;
 } Ft8ProtocolMessage;
 
 typedef enum {
