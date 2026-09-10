@@ -1,8 +1,8 @@
 # MiniFT8-V3 AutoSeq Plan
 
-Status: **PLANNED — implementation not started**
+Status: **IN PROGRESS — AS-0 through AS-2 complete; AS-3 next**
 
-AutoSeq is the next major MiniFT8-V3 block after decode RX. This phase is a structural port first: preserve the proven MiniFT8-V2 AutoSeq behavior while replacing old ownership, dynamic data structures, and cross-module coupling with explicit V3 boundaries.
+AutoSeq is the current major MiniFT8-V3 block after decode RX. This phase is a structural port first: preserve the proven MiniFT8-V2 AutoSeq behavior while replacing old ownership, dynamic data structures, and cross-module coupling with explicit V3 boundaries.
 
 ## 1. Behavioral reference
 
@@ -20,7 +20,7 @@ files       main/autoseq.cpp
 
 During the port, V2 behavior is authoritative unless a V3 boundary/ownership rule requires a different interface. Behavioral improvements are recorded separately and deferred until equivalence is established.
 
-One intentional representation simplification is already approved:
+One intentional representation simplification is already approved and implemented in AS-2:
 
 > `next_tx` is derived from QSO state rather than stored as independent mutable state.
 
@@ -118,13 +118,13 @@ Hard rules:
 
 ## 5. AutoSeq state storage
 
-Keep the current V2 queue capacity initially:
+The current V2 queue capacity is retained:
 
 ```text
 AUTO_SEQ_MAX_QUEUE = 30
 ```
 
-Preserve V2's single-array active/inactive layout:
+AS-2 preserves V2's single-array active/inactive layout:
 
 ```text
 index 0                                              index 29
@@ -135,27 +135,37 @@ index 0                                              index 29
        active_count                  inactive_start
 ```
 
-The V3 `QsoContext` uses fixed-size fields. Exact layout is finalized in AS-2 after `sizeof` measurement, but the intended shape is:
+The AS-2 `QsoContext` is fixed-size and contains QSO-lifetime facts only:
 
-```c
-QsoState state;
-char dxcall[FT8_PROTOCOL_CALL_CAP];
-char dxgrid[...];
-int16_t offset_hz;
-int8_t snr_tx;
-int8_t snr_rx;
-uint8_t retry_count;
-uint8_t retry_limit;
-uint8_t flags;
-int64_t inactive_since_ms;
-/* compact fixed Field Day metadata as required by V2 behavior */
+```text
+dxcall / dxgrid
+Field Day receive exchange
+SNR sent / received
+audio offset Hz
+TX parity
+state / last RX message kind
+retry counter / limit
+inactive timestamp
+compact flags
 ```
 
-Use a plain integer flag word/mask rather than C implementation-defined bit-fields. Candidate flags include active/logged/Cabrillo/FD/parity/park-after-signoff/FreeText as required by the V2 behavior model.
+Measured Linux x86-64 layout:
+
+```text
+sizeof(QsoContext) =   56 bytes
+sizeof(AutoSeq)    = 1712 bytes
+```
+
+Compile-time guards enforce:
+
+```text
+sizeof(QsoContext) <= 64 bytes
+sizeof(AutoSeq)    <= 2048 bytes
+```
+
+Use a plain integer flag word/mask rather than C implementation-defined bit-fields. Current flags reserve V2 facts for logged/Cabrillo/FD/park-after-signoff/FreeText state.
 
 Do not store canonical display text as authoritative QSO state. Do not store `next_tx`; derive it from `state`.
-
-Target: keep each context small and deterministic. Add compile-time size assertions once the exact structure is chosen. Do not optimize away fields whose V2 semantics are not yet proven redundant.
 
 ## 6. Input contracts
 
@@ -176,6 +186,8 @@ RX SNR
 resolved/unresolved hash status
 ```
 
+AS-2 represents the subset needed by the pure state owner as a normalized `AutoSeqRxEvent`. `app_controller` maps the real `RxMessage` into that event in AS-3/AS-4.
+
 AutoSeq copies only QSO-lifetime facts into its own context. It must never retain a pointer into `RxBatch`, because the RX batch belongs to the RX state and can be replaced by a later decode window.
 
 Station/configuration input is passed explicitly from `app_controller`, including:
@@ -190,7 +202,7 @@ CQ/Field Day configuration as later required
 
 ## 7. Output contracts
 
-AutoSeq exposes three kinds of typed output.
+AutoSeq exposes typed output without transferring storage ownership.
 
 ### QSO view
 
@@ -199,12 +211,13 @@ A read-only compact snapshot for UI/status consumers:
 ```text
 dxcall
 state
+derived next TX
 TX parity
 retry state
 active/inactive marker where relevant
 ```
 
-The T UIScreen renders this view. It does not inspect internal queue storage.
+The T UIScreen renders this view. It does not inspect internal queue storage. AS-2 supplies caller-owned snapshot copies; AS-3 connects them to `UiModel`.
 
 ### TX intent
 
@@ -219,11 +232,11 @@ slot parity
 QSO identity/generation if needed
 ```
 
-`TxIntent` does not key a transmitter and does not contain platform-specific CAT/audio operations. Future TX code realizes it.
+`TxIntent` does not key a transmitter and does not contain platform-specific CAT/audio operations. Future TX code realizes it. This remains deferred beyond AS-2.
 
 ### Policy events
 
-Where V2 currently performs side effects such as logging callbacks, V3 preserves the same eligibility/timing semantics by emitting an AutoSeq event to `app_controller`. The logging owner performs actual I/O.
+Where V2 currently performs side effects such as logging callbacks, V3 preserves the same eligibility/timing semantics by emitting an AutoSeq event to `app_controller`. The logging owner performs actual I/O. This remains a later AS stage.
 
 ## 8. Event ordering
 
@@ -276,72 +289,59 @@ No physical TX occurs during this test.
 
 ### AS-0 — Plan, reference freeze, boundary audit
 
-Status: **COMPLETE when `as-plan.md` and `as-boundary-audit.md` merge.**
+Status: **COMPLETE**
 
 Exit criteria:
 
 ```text
-[ ] V2 AutoSeq reference commit pinned
-[ ] V2 behavior declared oracle
-[ ] V3 ownership map locked
-[ ] current codebase boundary gaps identified
-[ ] no AutoSeq implementation code mixed into planning
+[x] V2 AutoSeq reference commit pinned
+[x] V2 behavior declared oracle
+[x] V3 ownership map locked
+[x] current codebase boundary gaps identified
+[x] no AutoSeq implementation code mixed into planning
 ```
 
 ### AS-1 — Complete AutoSeq input boundary
 
+Status: **COMPLETE**
+
 Purpose: supply the factual/context inputs V2 AutoSeq already relies on, without implementing QSO policy yet.
 
-Work:
+Completed work:
 
 ```text
 ConfigService owns persisted station callsign/grid
 app_controller injects local callsign into RxResultBuilder
-RxMessage carries factual RX SNR
+RxMessage carries factual RX SNR and audio offset Hz
 RX selection action carries absolute decoded-message index
-```
-
-Exit criteria:
-
-```text
-station identity has one owner
-is_to_me works from configured station identity
-selected message resolves through app_controller to retained RxBatch
-RX SNR is factual input, not estimated inside AutoSeq
-no QSO policy added yet
 ```
 
 ### AS-2 — Pure compact AutoSeq core
 
+Status: **COMPLETE**
+
 Purpose: structurally port V2 AutoSeq into fixed C data with explicit ownership.
 
-Work:
+Completed work:
 
 ```text
-new apps/ft8/src/auto_seq/
+apps/ft8/src/auto_seq/ added
 fixed 30-entry active/inactive queue
-compact QsoContext
+56-byte host QsoContext
+1712-byte host AutoSeq owner
 next TX derived from state
 no heap
 no MiniShell
 no UI
 no file/log/radio calls
+prototype qso_scheduler removed
 ```
 
-Port V2 state transitions and helper behavior without improvement.
-
-Exit criteria:
-
-```text
-pure unit-testable module
-sizeof(QsoContext) and sizeof(AutoSeq) measured
-queue bounds statically enforced
-V2 state/queue behavior represented without dynamic strings
-```
-
-At this point remove the prototype `qso_scheduler`; do not keep two owners of AutoSeq settings/policy.
+Pure unit tests cover state progression, retry/inactive/reactivation behavior, priority/rotation/drop controls, reincarnation guards, queue bounds, oldest-inactive eviction, and the pinned V2 full-boundary edge. See `as-2-auto-seq-core.md`.
 
 ### AS-3 — CQ selection + real multi-QSO T screen
+
+Status: **NEXT**
 
 Purpose: connect the proven RX result boundary to AutoSeq manually, still with no TX.
 
