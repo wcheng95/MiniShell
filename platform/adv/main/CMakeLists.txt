@@ -74,6 +74,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_console.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_display.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_filesystem.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_filesystem_handoff.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_i2c.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_input.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_keyboard.cpp"
