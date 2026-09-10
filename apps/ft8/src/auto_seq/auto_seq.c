@@ -6,13 +6,23 @@
 
 _Static_assert(AUTO_SEQ_MAX_QUEUE <= UINT8_MAX, "AutoSeq queue indices must fit in uint8_t");
 _Static_assert(sizeof(QsoContext) <= 64u, "QsoContext exceeded AS-2 compactness budget");
-_Static_assert(sizeof(AutoSeq) <= 2048u, "AutoSeq exceeded AS-2 embedded-storage budget");
+_Static_assert(sizeof(AutoSeq) <= 2048u, "AutoSeq exceeded embedded-storage budget");
 
 static uint16_t clamp_retry(int value)
 {
     if (value <= 0) return 0u;
     if ((unsigned)value > UINT16_MAX) return UINT16_MAX;
     return (uint16_t)value;
+}
+
+static bool copy_checked(char *out, size_t out_size, const char *text)
+{
+    size_t len;
+    if (out == NULL || out_size == 0u || text == NULL) return false;
+    len = strlen(text);
+    if (len >= out_size) return false;
+    memcpy(out, text, len + 1u);
+    return true;
 }
 
 static bool copy_upper_checked(char *out, size_t out_size, const char *text)
@@ -49,6 +59,11 @@ static bool normalize_call(char out[AUTO_SEQ_CALL_CAP], const char *text)
     return true;
 }
 
+static bool cq_type_valid(AutoSeqCqType type)
+{
+    return type <= AUTO_SEQ_CQ_FREETEXT;
+}
+
 static bool event_valid(const AutoSeqRxEvent *event)
 {
     char normalized[AUTO_SEQ_CALL_CAP];
@@ -83,7 +98,7 @@ static void set_state(QsoContext *ctx, AutoSeqState state, uint16_t retry_limit)
 
 static bool context_is_freetext(const QsoContext *ctx)
 {
-    return (ctx->flags & AUTO_SEQ_FLAG_FREETEXT) != 0u;
+    return ctx != NULL && (ctx->flags & AUTO_SEQ_FLAG_FREETEXT) != 0u;
 }
 
 static bool context_has_exchanged(const QsoContext *ctx)
@@ -136,6 +151,21 @@ static QsoContext *append_context(AutoSeq *seq)
 
     ctx = &seq->queue[seq->active_count++];
     context_reset(ctx);
+    return ctx;
+}
+
+static QsoContext *enqueue_one_shot(AutoSeq *seq, const char *marker,
+                                    bool freetext, uint8_t tx_parity)
+{
+    QsoContext *ctx = append_context(seq);
+    if (ctx == NULL) return NULL;
+    if (!copy_checked(ctx->dxcall, sizeof(ctx->dxcall), marker)) {
+        remove_active(seq, seq->active_count - 1u);
+        return NULL;
+    }
+    ctx->tx_parity = tx_parity & 1u;
+    if (freetext) ctx->flags |= AUTO_SEQ_FLAG_FREETEXT;
+    set_state(ctx, AUTO_SEQ_STATE_CALLING, 0u);
     return ctx;
 }
 
@@ -414,6 +444,7 @@ AutoSeqConfig auto_seq_default_config(void)
     AutoSeqConfig config;
     memset(&config, 0, sizeof(config));
     config.max_retry = AUTO_SEQ_DEFAULT_MAX_RETRY;
+    config.cq_type = AUTO_SEQ_CQ;
     return config;
 }
 
@@ -423,11 +454,22 @@ bool auto_seq_init(AutoSeq *seq, const AutoSeqConfig *config)
 
     if (seq == NULL) return false;
     local = config != NULL ? *config : auto_seq_default_config();
+    if (!cq_type_valid(local.cq_type) ||
+        strlen(local.cq_freetext) >= AUTO_SEQ_FREETEXT_CAP ||
+        strlen(local.fd_exchange) >= AUTO_SEQ_FD_EXCHANGE_CAP) {
+        return false;
+    }
+
     memset(seq, 0, sizeof(*seq));
     seq->inactive_start = AUTO_SEQ_MAX_QUEUE;
     seq->config.max_retry = local.max_retry;
     seq->config.skip_tx1 = local.skip_tx1 ? 1u : 0u;
-    if (!auto_seq_set_station(seq, local.callsign, local.grid)) {
+    seq->config.cq_type = local.cq_type;
+    if (!copy_checked(seq->config.cq_freetext, sizeof(seq->config.cq_freetext),
+                      local.cq_freetext) ||
+        !copy_upper_checked(seq->config.fd_exchange, sizeof(seq->config.fd_exchange),
+                            local.fd_exchange) ||
+        !auto_seq_set_station(seq, local.callsign, local.grid)) {
         memset(seq, 0, sizeof(*seq));
         return false;
     }
@@ -439,8 +481,7 @@ void auto_seq_clear(AutoSeq *seq)
     AutoSeqConfig config;
     if (seq == NULL) return;
     config = seq->config;
-    memset(seq->queue, 0, sizeof(seq->queue));
-    seq->active_count = 0u;
+    memset(seq, 0, sizeof(*seq));
     seq->inactive_start = AUTO_SEQ_MAX_QUEUE;
     seq->config = config;
 }
@@ -492,6 +533,29 @@ int auto_seq_get_max_retry(const AutoSeq *seq)
     return seq != NULL ? (int)seq->config.max_retry : 0;
 }
 
+bool auto_seq_set_cq(AutoSeq *seq, AutoSeqCqType type, const char *freetext)
+{
+    char copy[AUTO_SEQ_FREETEXT_CAP];
+    if (seq == NULL || freetext == NULL || !cq_type_valid(type) ||
+        !copy_checked(copy, sizeof(copy), freetext)) {
+        return false;
+    }
+    seq->config.cq_type = type;
+    memcpy(seq->config.cq_freetext, copy, sizeof(copy));
+    return true;
+}
+
+bool auto_seq_set_fd_exchange(AutoSeq *seq, const char *exchange)
+{
+    char copy[AUTO_SEQ_FD_EXCHANGE_CAP];
+    if (seq == NULL || exchange == NULL ||
+        !copy_upper_checked(copy, sizeof(copy), exchange)) {
+        return false;
+    }
+    memcpy(seq->config.fd_exchange, copy, sizeof(copy));
+    return true;
+}
+
 AutoSeqMessageKind auto_seq_next_tx_for_state(AutoSeqState state)
 {
     switch (state) {
@@ -504,10 +568,59 @@ AutoSeqMessageKind auto_seq_next_tx_for_state(AutoSeqState state)
     }
 }
 
+AutoSeqResult auto_seq_start_cq(AutoSeq *seq, uint8_t tx_parity)
+{
+    size_t i;
+    QsoContext *ctx;
+
+    if (seq == NULL) return AUTO_SEQ_ERR_INVALID;
+    for (i = 0u; i < seq->active_count; ++i) {
+        if (seq->queue[i].state == AUTO_SEQ_STATE_CALLING &&
+            !context_is_freetext(&seq->queue[i])) {
+            return AUTO_SEQ_IGNORED;
+        }
+    }
+
+    ctx = enqueue_one_shot(seq, "CQ", false, tx_parity);
+    return ctx != NULL ? AUTO_SEQ_OK : AUTO_SEQ_ERR_FULL;
+}
+
+AutoSeqResult auto_seq_schedule_freetext(AutoSeq *seq, const char *text,
+                                         uint8_t fallback_tx_parity)
+{
+    size_t i;
+    uint8_t parity;
+    QsoContext *ctx;
+
+    if (seq == NULL || text == NULL || text[0] == '\0' ||
+        strlen(text) >= AUTO_SEQ_FREETEXT_CAP) {
+        return AUTO_SEQ_ERR_INVALID;
+    }
+    for (i = 0u; i < seq->active_count; ++i) {
+        if (context_is_freetext(&seq->queue[i])) return AUTO_SEQ_IGNORED;
+    }
+
+    parity = seq->active_count > 0u ? (seq->queue[0].tx_parity & 1u)
+                                    : (fallback_tx_parity & 1u);
+    if (!copy_checked(seq->pending_freetext, sizeof(seq->pending_freetext), text))
+        return AUTO_SEQ_ERR_INVALID;
+
+    ctx = enqueue_one_shot(seq, "(FT)", true, parity);
+    if (ctx == NULL) return AUTO_SEQ_ERR_FULL;
+    sort_and_clean(seq);
+    return AUTO_SEQ_OK;
+}
+
+const char *auto_seq_pending_freetext(const AutoSeq *seq)
+{
+    return seq != NULL ? seq->pending_freetext : "";
+}
+
 AutoSeqResult auto_seq_on_manual_rx(AutoSeq *seq, const AutoSeqRxEvent *event)
 {
     QsoContext *ctx;
     char dxcall[AUTO_SEQ_CALL_CAP];
+    bool is_fd;
 
     if (seq == NULL || !event_valid(event) || !normalize_call(dxcall, event->dxcall))
         return AUTO_SEQ_ERR_INVALID;
@@ -528,10 +641,16 @@ AutoSeqResult auto_seq_on_manual_rx(AutoSeq *seq, const AutoSeqRxEvent *event)
         ctx->offset_hz = event->offset_hz;
         ctx->tx_parity = (uint8_t)(((uint64_t)event->rx_slot_id ^ 1u) & 1u);
         ctx->last_rx_kind = event->kind;
-        if ((event->flags & AUTO_SEQ_RX_FLAG_FD) != 0u)
-            ctx->flags |= AUTO_SEQ_FLAG_FD;
+        is_fd = (event->flags & AUTO_SEQ_RX_FLAG_FD) != 0u;
+        if (is_fd) ctx->flags |= AUTO_SEQ_FLAG_FD;
+
+        /*
+         * Locked V3 Field Day exception: replying to CQ FD never sends grid/TX1.
+         * Start at TX2, whose semantic payload is the configured FD exchange.
+         */
         set_state(ctx,
-                  seq->config.skip_tx1 ? AUTO_SEQ_STATE_REPORT : AUTO_SEQ_STATE_REPLYING,
+                  (seq->config.skip_tx1 || is_fd)
+                      ? AUTO_SEQ_STATE_REPORT : AUTO_SEQ_STATE_REPLYING,
                   seq->config.max_retry);
     }
 
@@ -581,6 +700,54 @@ AutoSeqResult auto_seq_on_addressed_rx(AutoSeq *seq, const AutoSeqRxEvent *event
     (void)apply_response(seq, ctx, event, true);
     sort_and_clean(seq);
     return AUTO_SEQ_OK;
+}
+
+bool auto_seq_prepare_log_event(const AutoSeq *seq, AutoSeqLogEvent *out_event)
+{
+    const QsoContext *ctx;
+    AutoSeqMessageKind tx_kind;
+
+    if (seq == NULL || out_event == NULL || seq->active_count == 0u) return false;
+    ctx = &seq->queue[0];
+    tx_kind = auto_seq_next_tx_for_state(ctx->state);
+    if (tx_kind != AUTO_SEQ_MSG_TX4 && tx_kind != AUTO_SEQ_MSG_TX5) return false;
+
+    memset(out_event, 0, sizeof(*out_event));
+    memcpy(out_event->dxcall, ctx->dxcall, sizeof(out_event->dxcall));
+    memcpy(out_event->dxgrid, ctx->dxgrid, sizeof(out_event->dxgrid));
+    memcpy(out_event->fd_rx_exchange, ctx->fd_rx_exchange,
+           sizeof(out_event->fd_rx_exchange));
+    out_event->snr_tx = ctx->snr_tx;
+    out_event->snr_rx = ctx->snr_rx;
+    out_event->tx_kind = tx_kind;
+    out_event->adif_eligible =
+        ((ctx->flags & AUTO_SEQ_FLAG_LOGGED) == 0u &&
+         ctx->dxcall[0] != '\0' && strcmp(ctx->dxcall, "CQ") != 0) ? 1u : 0u;
+    out_event->cabrillo_fd_eligible =
+        ((ctx->flags & AUTO_SEQ_FLAG_FD) != 0u &&
+         (ctx->flags & AUTO_SEQ_FLAG_CABRILLO_LOGGED) == 0u &&
+         ctx->dxcall[0] != '\0' && ctx->fd_rx_exchange[0] != '\0') ? 1u : 0u;
+
+    return out_event->adif_eligible != 0u || out_event->cabrillo_fd_eligible != 0u;
+}
+
+bool auto_seq_ack_log_event(AutoSeq *seq, const AutoSeqLogEvent *event,
+                            bool adif_written, bool cabrillo_fd_written)
+{
+    QsoContext *ctx;
+
+    if (seq == NULL || event == NULL || seq->active_count == 0u) return false;
+    ctx = &seq->queue[0];
+    if (strcmp(ctx->dxcall, event->dxcall) != 0 ||
+        auto_seq_next_tx_for_state(ctx->state) != event->tx_kind) {
+        return false;
+    }
+
+    if (event->adif_eligible != 0u && adif_written)
+        ctx->flags |= AUTO_SEQ_FLAG_LOGGED;
+    if (event->cabrillo_fd_eligible != 0u && cabrillo_fd_written)
+        ctx->flags |= AUTO_SEQ_FLAG_CABRILLO_LOGGED;
+    return true;
 }
 
 bool auto_seq_tick(AutoSeq *seq, int64_t now_ms)

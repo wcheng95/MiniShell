@@ -17,6 +17,12 @@
 
 _Static_assert(APP_MAX_TX_LINES >= AUTO_SEQ_MAX_QUEUE,
                "UiModel must hold the complete active AutoSeq queue");
+_Static_assert(FT8_CONFIG_CQ == AUTO_SEQ_CQ, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_SOTA == AUTO_SEQ_CQ_SOTA, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_POTA == AUTO_SEQ_CQ_POTA, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_QRP == AUTO_SEQ_CQ_QRP, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_FD == AUTO_SEQ_CQ_FD, "CQ type mapping drifted");
+_Static_assert(FT8_CONFIG_CQ_FREETEXT == AUTO_SEQ_CQ_FREETEXT, "CQ type mapping drifted");
 
 struct AppRxState {
     RxAudioAdapter audio;
@@ -68,7 +74,7 @@ static bool looks_like_grid4(const char *text)
 }
 
 /*
- * AS-3 boundary: turn one retained factual CQ into the normalized event
+ * AS-3/AS-6 boundary: turn one retained factual CQ into the normalized event
  * consumed by pure AutoSeq. No policy is inferred from display text.
  */
 static bool selected_cq_to_event(const RxBatch *batch, const RxMessage *message,
@@ -89,6 +95,7 @@ static bool selected_cq_to_event(const RxBatch *batch, const RxMessage *message,
     out_event->report_db = AUTO_SEQ_SNR_UNKNOWN;
     out_event->kind = AUTO_SEQ_MSG_TX1;
     out_event->flags = AUTO_SEQ_RX_FLAG_CQ;
+    if (message->is_fd) out_event->flags |= AUTO_SEQ_RX_FLAG_FD;
 
     written = snprintf(out_event->dxcall, sizeof(out_event->dxcall), "%s",
                        message->call_de);
@@ -115,9 +122,9 @@ static AutoSeqMessageKind auto_seq_kind_from_rx(RxQsoMessageKind kind)
 }
 
 /*
- * AS-4 boundary: map factual addressed RX metadata into AutoSeq's normalized
- * event. Field Day/DXpedition stages remain unclassified until their own AS
- * stages rather than being inferred from display/canonical text here.
+ * AS-4/AS-6 boundary: map factual addressed RX metadata into AutoSeq's
+ * normalized event. Structured Field Day facts are copied directly from the
+ * RxMessage; DXpedition remains deferred to its own later work.
  */
 static bool addressed_rx_to_event(const RxBatch *batch, const RxMessage *message,
                                   AutoSeqRxEvent *out_event)
@@ -141,6 +148,7 @@ static bool addressed_rx_to_event(const RxBatch *batch, const RxMessage *message
     out_event->report_db = message->report_db;
     out_event->kind = kind;
     out_event->flags = AUTO_SEQ_RX_FLAG_TO_ME;
+    if (message->is_fd) out_event->flags |= AUTO_SEQ_RX_FLAG_FD;
 
     written = snprintf(out_event->dxcall, sizeof(out_event->dxcall), "%s",
                        message->call_de);
@@ -150,6 +158,11 @@ static bool addressed_rx_to_event(const RxBatch *batch, const RxMessage *message
         written = snprintf(out_event->dxgrid, sizeof(out_event->dxgrid), "%s",
                            message->extra);
         if (written < 0 || (size_t)written >= sizeof(out_event->dxgrid)) return false;
+    }
+    if (message->is_fd && message->fd_exchange[0] != '\0') {
+        written = snprintf(out_event->fd_exchange, sizeof(out_event->fd_exchange), "%s",
+                           message->fd_exchange);
+        if (written < 0 || (size_t)written >= sizeof(out_event->fd_exchange)) return false;
     }
     return true;
 }
@@ -187,6 +200,23 @@ static bool app_save_config(AppController *app)
     char text[2048];
     if (!config_service_serialize(&app->config, text, sizeof(text))) return false;
     return storage_service_write_text_atomic(&app->storage, app->station_path, text);
+}
+
+static bool app_sync_auto_seq_config(AppController *app)
+{
+    if (app == NULL) return false;
+    if (!auto_seq_set_station(&app->auto_seq, app->config.callsign, app->config.grid))
+        return false;
+
+    auto_seq_set_skip_tx1(&app->auto_seq, app->config.skip_tx1);
+    auto_seq_set_max_retry(&app->auto_seq, app->config.max_retry);
+
+    if (!auto_seq_set_cq(&app->auto_seq,
+                         (AutoSeqCqType)app->config.cq_type,
+                         app->config.cq_freetext)) {
+        return false;
+    }
+    return auto_seq_set_fd_exchange(&app->auto_seq, app->config.fd_exchange);
 }
 
 static void app_rx_destroy(AppController *app)
@@ -324,12 +354,8 @@ bool app_controller_init(AppController *app, const mini_api_t *api,
                                             text, sizeof(text));
     if (loaded && !config_service_parse(&app->config, text)) return false;
 
-    if (!auto_seq_init(&app->auto_seq, NULL) ||
-        !auto_seq_set_station(&app->auto_seq, app->config.callsign, app->config.grid)) {
+    if (!auto_seq_init(&app->auto_seq, NULL) || !app_sync_auto_seq_config(app))
         return false;
-    }
-    auto_seq_set_skip_tx1(&app->auto_seq, app->config.skip_tx1);
-    auto_seq_set_max_retry(&app->auto_seq, app->config.max_retry);
 
     if (!loaded && !app_save_config(app)) return false;
     return true;

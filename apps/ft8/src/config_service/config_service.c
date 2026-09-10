@@ -24,12 +24,29 @@ static int clamp_band(int value)
     return value;
 }
 
+static int clamp_cq_type(int value)
+{
+    if (value < (int)FT8_CONFIG_CQ) return (int)FT8_CONFIG_CQ;
+    if (value > (int)FT8_CONFIG_CQ_FREETEXT) return (int)FT8_CONFIG_CQ_FREETEXT;
+    return value;
+}
+
 static void strip_cr(char *text)
 {
     size_t len;
     if (text == NULL) return;
     len = strlen(text);
     if (len > 0u && text[len - 1u] == '\r') text[len - 1u] = '\0';
+}
+
+static bool copy_checked(char *out, size_t out_size, const char *text)
+{
+    size_t len;
+    if (out == NULL || out_size == 0u || text == NULL) return false;
+    len = strlen(text);
+    if (len >= out_size) return false;
+    memcpy(out, text, len + 1u);
+    return true;
 }
 
 static bool copy_upper_checked(char *out, size_t out_size, const char *text)
@@ -55,17 +72,19 @@ void config_service_defaults(ConfigService *config)
     config->max_retry = 3;
     config->profile_index = 0;
     config->band_index = 3; /* 20m */
+    config->cq_type = FT8_CONFIG_CQ;
 }
 
 bool config_service_parse(ConfigService *config, const char *text)
 {
+    ConfigService parsed;
+    char buffer[2048];
+    size_t len;
+
     if (config == NULL || text == NULL) return false;
 
-    ConfigService parsed;
     config_service_defaults(&parsed);
-
-    char buffer[2048];
-    size_t len = strlen(text);
+    len = strlen(text);
     if (len >= sizeof(buffer)) return false;
     memcpy(buffer, text, len + 1u);
 
@@ -94,6 +113,14 @@ bool config_service_parse(ConfigService *config, const char *text)
         } else if (strcmp(key, "max_retry") == 0) {
             int parsed_value = atoi(value);
             parsed.max_retry = parsed_value < 0 ? 0 : parsed_value;
+        } else if (strcmp(key, "cq_type") == 0) {
+            parsed.cq_type = (Ft8ConfigCqType)clamp_cq_type(atoi(value));
+        } else if (strcmp(key, "cq_ft") == 0) {
+            if (!copy_checked(parsed.cq_freetext, sizeof(parsed.cq_freetext), value)) return false;
+        } else if (strcmp(key, "free_text") == 0) {
+            if (!copy_checked(parsed.free_text, sizeof(parsed.free_text), value)) return false;
+        } else if (strcmp(key, "fd_exchange") == 0) {
+            if (!copy_upper_checked(parsed.fd_exchange, sizeof(parsed.fd_exchange), value)) return false;
         }
     }
 
@@ -103,22 +130,31 @@ bool config_service_parse(ConfigService *config, const char *text)
 
 bool config_service_serialize(const ConfigService *config, char *out, size_t out_size)
 {
+    int used;
     if (config == NULL || out == NULL || out_size == 0u) return false;
 
-    int used = snprintf(out, out_size,
-                        "# MiniFT8-V3 station.txt\n"
-                        "callsign=%s\n"
-                        "grid=%s\n"
-                        "profile=%d\n"
-                        "band=%d\n"
-                        "skip_tx1=%d\n"
-                        "max_retry=%d\n",
-                        config->callsign,
-                        config->grid,
-                        config->profile_index,
-                        config->band_index,
-                        config->skip_tx1 ? 1 : 0,
-                        config->max_retry);
+    used = snprintf(out, out_size,
+                    "# MiniFT8-V3 station.txt\n"
+                    "callsign=%s\n"
+                    "grid=%s\n"
+                    "profile=%d\n"
+                    "band=%d\n"
+                    "skip_tx1=%d\n"
+                    "max_retry=%d\n"
+                    "cq_type=%u\n"
+                    "cq_ft=%s\n"
+                    "free_text=%s\n"
+                    "fd_exchange=%s\n",
+                    config->callsign,
+                    config->grid,
+                    config->profile_index,
+                    config->band_index,
+                    config->skip_tx1 ? 1 : 0,
+                    config->max_retry,
+                    (unsigned)config->cq_type,
+                    config->cq_freetext,
+                    config->free_text,
+                    config->fd_exchange);
     return used >= 0 && (size_t)used < out_size;
 }
 
@@ -163,4 +199,32 @@ void config_service_set_profile(ConfigService *config, int index)
 void config_service_set_band(ConfigService *config, int index)
 {
     config->band_index = clamp_band(index);
+}
+
+bool config_service_set_cq_type(ConfigService *config, int value)
+{
+    if (config == NULL || value < (int)FT8_CONFIG_CQ ||
+        value > (int)FT8_CONFIG_CQ_FREETEXT) {
+        return false;
+    }
+    config->cq_type = (Ft8ConfigCqType)value;
+    return true;
+}
+
+bool config_service_set_cq_freetext(ConfigService *config, const char *text)
+{
+    return config != NULL &&
+           copy_checked(config->cq_freetext, sizeof(config->cq_freetext), text);
+}
+
+bool config_service_set_free_text(ConfigService *config, const char *text)
+{
+    return config != NULL &&
+           copy_checked(config->free_text, sizeof(config->free_text), text);
+}
+
+bool config_service_set_fd_exchange(ConfigService *config, const char *text)
+{
+    return config != NULL &&
+           copy_upper_checked(config->fd_exchange, sizeof(config->fd_exchange), text);
 }

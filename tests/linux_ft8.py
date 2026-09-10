@@ -65,6 +65,10 @@ def main() -> int:
                     "band=3\n"
                     "skip_tx1=0\n"
                     "max_retry=3\n"
+                    "cq_type=4\n"
+                    "cq_ft=CQ TEST\n"
+                    "free_text=TNX 73\n"
+                    "fd_exchange=1b scv\n"
                 )
             shutil.copyfile(kfs_fixture, os.path.join(root, "flash", "kfs.wav"))
 
@@ -103,6 +107,10 @@ def main() -> int:
                     or "profile=0\n" not in saved
                     or "band=3\n" not in saved
                     or "skip_tx1=1\n" not in saved
+                    or "cq_type=4\n" not in saved
+                    or "cq_ft=CQ TEST\n" not in saved
+                    or "free_text=TNX 73\n" not in saved
+                    or "fd_exchange=1B SCV\n" not in saved
                 ):
                     raise RuntimeError(f"unexpected station.txt contents: {saved!r}")
                 if "mode=" in saved or "mode0_" in saved or "presentation=" in saved:

@@ -32,6 +32,7 @@ static int test_config_and_sizes(void)
     CHECK(sizeof(QsoContext) <= 64u);
     CHECK(sizeof(AutoSeq) <= 2048u);
     CHECK(config.max_retry == AUTO_SEQ_DEFAULT_MAX_RETRY);
+    CHECK(config.cq_type == AUTO_SEQ_CQ);
     snprintf(config.callsign, sizeof(config.callsign), "%s", "ag6aq");
     snprintf(config.grid, sizeof(config.grid), "%s", "cm97");
     config.skip_tx1 = 1u;
@@ -43,9 +44,20 @@ static int test_config_and_sizes(void)
     CHECK(auto_seq_active_count(&seq) == 0u);
     CHECK(auto_seq_inactive_count(&seq) == 0u);
 
+    CHECK(auto_seq_set_cq(&seq, AUTO_SEQ_CQ_SOTA, ""));
+    CHECK(seq.config.cq_type == AUTO_SEQ_CQ_SOTA);
+    CHECK(auto_seq_set_cq(&seq, AUTO_SEQ_CQ_FREETEXT, "TEST CQ"));
+    CHECK(strcmp(seq.config.cq_freetext, "TEST CQ") == 0);
+    CHECK(auto_seq_set_fd_exchange(&seq, "1b scv"));
+    CHECK(strcmp(seq.config.fd_exchange, "1B SCV") == 0);
+
     auto_seq_clear(&seq);
     CHECK(strcmp(seq.config.callsign, "AG6AQ") == 0);
     CHECK(auto_seq_get_skip_tx1(&seq));
+    CHECK(seq.config.cq_type == AUTO_SEQ_CQ_FREETEXT);
+    CHECK(strcmp(seq.config.cq_freetext, "TEST CQ") == 0);
+    CHECK(strcmp(seq.config.fd_exchange, "1B SCV") == 0);
+    CHECK(auto_seq_pending_freetext(&seq)[0] == '\0');
 
     CHECK(auto_seq_next_tx_for_state(AUTO_SEQ_STATE_CALLING) == AUTO_SEQ_MSG_NONE);
     CHECK(auto_seq_next_tx_for_state(AUTO_SEQ_STATE_REPLYING) == AUTO_SEQ_MSG_TX1);
@@ -314,6 +326,139 @@ static int test_capacity_and_oldest_inactive_eviction(void)
     return 0;
 }
 
+static int test_cq_and_freetext_one_shots(void)
+{
+    AutoSeq seq;
+    AutoSeqRxEvent qso = event_for("N6HAN", AUTO_SEQ_MSG_TX1, 800);
+    QsoContext ctx;
+
+    CHECK(auto_seq_init(&seq, NULL));
+    CHECK(auto_seq_start_cq(&seq, 1u) == AUTO_SEQ_OK);
+    CHECK(auto_seq_start_cq(&seq, 1u) == AUTO_SEQ_IGNORED);
+    CHECK(auto_seq_active_count(&seq) == 1u);
+    CHECK(auto_seq_get_active_context(&seq, 0u, &ctx));
+    CHECK(strcmp(ctx.dxcall, "CQ") == 0);
+    CHECK(ctx.state == AUTO_SEQ_STATE_CALLING);
+    CHECK(ctx.tx_parity == 1u);
+    CHECK((ctx.flags & AUTO_SEQ_FLAG_FREETEXT) == 0u);
+    CHECK(auto_seq_tick(&seq, 11000));
+    CHECK(auto_seq_active_count(&seq) == 0u);
+
+    /* Beacon CQ is low priority: an active QSO remains at the head. */
+    CHECK(auto_seq_on_manual_rx(&seq, &qso) == AUTO_SEQ_OK);
+    CHECK(auto_seq_start_cq(&seq, 1u) == AUTO_SEQ_OK);
+    CHECK(auto_seq_active_count(&seq) == 2u);
+    CHECK(auto_seq_get_active_context(&seq, 0u, &ctx));
+    CHECK(strcmp(ctx.dxcall, "N6HAN") == 0);
+
+    /* Ad-hoc FreeText inherits head parity and preempts the active QSO. */
+    CHECK(auto_seq_schedule_freetext(&seq, "HELLO WORLD", 1u) == AUTO_SEQ_OK);
+    CHECK(auto_seq_schedule_freetext(&seq, "SECOND", 1u) == AUTO_SEQ_IGNORED);
+    CHECK(strcmp(auto_seq_pending_freetext(&seq), "HELLO WORLD") == 0);
+    CHECK(auto_seq_get_active_context(&seq, 0u, &ctx));
+    CHECK(strcmp(ctx.dxcall, "(FT)") == 0);
+    CHECK(ctx.state == AUTO_SEQ_STATE_CALLING);
+    CHECK((ctx.flags & AUTO_SEQ_FLAG_FREETEXT) != 0u);
+    CHECK(ctx.tx_parity == 1u); /* N6HAN from slot 800 transmits on odd. */
+    CHECK(auto_seq_tick(&seq, 12000));
+    CHECK(auto_seq_get_active_context(&seq, 0u, &ctx));
+    CHECK(strcmp(ctx.dxcall, "N6HAN") == 0);
+
+    /* With an empty queue, FreeText uses caller fallback parity. */
+    CHECK(auto_seq_init(&seq, NULL));
+    CHECK(auto_seq_schedule_freetext(&seq, "TNX 73", 0u) == AUTO_SEQ_OK);
+    CHECK(auto_seq_get_active_context(&seq, 0u, &ctx));
+    CHECK(ctx.tx_parity == 0u);
+    CHECK(auto_seq_tick(&seq, 13000));
+    CHECK(auto_seq_active_count(&seq) == 0u);
+    return 0;
+}
+
+static int test_field_day_semantics(void)
+{
+    AutoSeq seq;
+    AutoSeqRxEvent event = event_for("W6ABC", AUTO_SEQ_MSG_TX1, 901);
+    QsoContext ctx;
+    AutoSeqLogEvent log_event;
+
+    CHECK(auto_seq_init(&seq, NULL));
+    CHECK(auto_seq_set_fd_exchange(&seq, "1b scv"));
+
+    /* Locked V3 exception: CQ FD selection skips grid/TX1 even when Skip-TX1 is off. */
+    event.flags = AUTO_SEQ_RX_FLAG_CQ | AUTO_SEQ_RX_FLAG_FD;
+    snprintf(event.dxgrid, sizeof(event.dxgrid), "%s", "CM88");
+    CHECK(auto_seq_on_manual_rx(&seq, &event) == AUTO_SEQ_OK);
+    CHECK(auto_seq_get_active_context(&seq, 0u, &ctx));
+    CHECK(ctx.state == AUTO_SEQ_STATE_REPORT);
+    CHECK(auto_seq_next_tx_for_state(ctx.state) == AUTO_SEQ_MSG_TX2);
+    CHECK((ctx.flags & AUTO_SEQ_FLAG_FD) != 0u);
+
+    /* R + their FD exchange is TX3-equivalent and advances us to RR73/TX4. */
+    event = event_for("W6ABC", AUTO_SEQ_MSG_TX3, 903);
+    event.flags = AUTO_SEQ_RX_FLAG_TO_ME | AUTO_SEQ_RX_FLAG_FD;
+    snprintf(event.fd_exchange, sizeof(event.fd_exchange), "%s", "1a scv");
+    CHECK(auto_seq_on_addressed_rx(&seq, &event) == AUTO_SEQ_OK);
+    CHECK(auto_seq_get_active_context(&seq, 0u, &ctx));
+    CHECK(ctx.state == AUTO_SEQ_STATE_ROGERS);
+    CHECK(auto_seq_next_tx_for_state(ctx.state) == AUTO_SEQ_MSG_TX4);
+    CHECK(strcmp(ctx.fd_rx_exchange, "1A SCV") == 0);
+
+    /* TX4 start makes both ADIF and FD Cabrillo eligible independently. */
+    CHECK(auto_seq_prepare_log_event(&seq, &log_event));
+    CHECK(log_event.tx_kind == AUTO_SEQ_MSG_TX4);
+    CHECK(log_event.adif_eligible == 1u);
+    CHECK(log_event.cabrillo_fd_eligible == 1u);
+    CHECK(strcmp(log_event.dxcall, "W6ABC") == 0);
+    CHECK(strcmp(log_event.fd_rx_exchange, "1A SCV") == 0);
+
+    /* Cabrillo succeeds while ADIF fails: only ADIF remains eligible. */
+    CHECK(auto_seq_ack_log_event(&seq, &log_event, false, true));
+    CHECK(auto_seq_prepare_log_event(&seq, &log_event));
+    CHECK(log_event.adif_eligible == 1u);
+    CHECK(log_event.cabrillo_fd_eligible == 0u);
+    CHECK(auto_seq_ack_log_event(&seq, &log_event, true, false));
+    CHECK(!auto_seq_prepare_log_event(&seq, &log_event));
+
+    /* Fresh addressed FD exchange after our CQ is TX2-equivalent -> TX3 reply. */
+    CHECK(auto_seq_init(&seq, NULL));
+    event = event_for("N6HAN", AUTO_SEQ_MSG_TX2, 911);
+    event.flags = AUTO_SEQ_RX_FLAG_TO_ME | AUTO_SEQ_RX_FLAG_FD;
+    snprintf(event.fd_exchange, sizeof(event.fd_exchange), "%s", "2A ORG");
+    CHECK(auto_seq_on_addressed_rx(&seq, &event) == AUTO_SEQ_OK);
+    CHECK(auto_seq_get_active_context(&seq, 0u, &ctx));
+    CHECK(ctx.state == AUTO_SEQ_STATE_ROGER_REPORT);
+    CHECK(auto_seq_next_tx_for_state(ctx.state) == AUTO_SEQ_MSG_TX3);
+    CHECK((ctx.flags & AUTO_SEQ_FLAG_FD) != 0u);
+    CHECK(strcmp(ctx.fd_rx_exchange, "2A ORG") == 0);
+    return 0;
+}
+
+static int test_regular_log_eligibility(void)
+{
+    AutoSeq seq;
+    AutoSeqRxEvent event = event_for("K9XYZ", AUTO_SEQ_MSG_TX1, 1001);
+    AutoSeqLogEvent log_event;
+
+    CHECK(auto_seq_init(&seq, NULL));
+    auto_seq_set_skip_tx1(&seq, true);
+    CHECK(auto_seq_on_manual_rx(&seq, &event) == AUTO_SEQ_OK);
+
+    event = event_for("K9XYZ", AUTO_SEQ_MSG_TX3, 1003);
+    event.flags = AUTO_SEQ_RX_FLAG_TO_ME;
+    event.report_db = -7;
+    CHECK(auto_seq_on_addressed_rx(&seq, &event) == AUTO_SEQ_OK);
+    CHECK(auto_seq_prepare_log_event(&seq, &log_event));
+    CHECK(log_event.tx_kind == AUTO_SEQ_MSG_TX4);
+    CHECK(log_event.adif_eligible == 1u);
+    CHECK(log_event.cabrillo_fd_eligible == 0u);
+
+    CHECK(auto_seq_ack_log_event(&seq, &log_event, false, false));
+    CHECK(auto_seq_prepare_log_event(&seq, &log_event));
+    CHECK(auto_seq_ack_log_event(&seq, &log_event, true, false));
+    CHECK(!auto_seq_prepare_log_event(&seq, &log_event));
+    return 0;
+}
+
 int main(void)
 {
     CHECK(test_config_and_sizes() == 0);
@@ -324,8 +469,11 @@ int main(void)
     CHECK(test_priority_rotation_drop_and_views() == 0);
     CHECK(test_retry_config_update() == 0);
     CHECK(test_capacity_and_oldest_inactive_eviction() == 0);
+    CHECK(test_cq_and_freetext_one_shots() == 0);
+    CHECK(test_field_day_semantics() == 0);
+    CHECK(test_regular_log_eligibility() == 0);
 
-    printf("AS2 sizeof(QsoContext)=%zu sizeof(AutoSeq)=%zu\n",
+    printf("AS6 sizeof(QsoContext)=%zu sizeof(AutoSeq)=%zu\n",
            sizeof(QsoContext), sizeof(AutoSeq));
     puts("ft8_auto_seq_as2_test: PASS");
     return 0;
