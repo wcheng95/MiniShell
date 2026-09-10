@@ -505,8 +505,18 @@ static bool emit_set_band(const UiModel *model, int delta, AppAction *action)
 
 static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction *action)
 {
+    size_t rx_index;
+
     if (line < 0 || line >= UI_MAIN_LINES) return false;
     ui->selected_line = line;
+
+    if (ui->screen == SCREEN_RX && ui->submenu == UI_SUBMENU_NONE) {
+        rx_index = (size_t)visible_page(ui, model) * UI_MAIN_LINES + (size_t)line;
+        if (rx_index >= model->rx_count) return false;
+        action->type = APP_ACTION_SELECT_RX_MESSAGE;
+        action->value.index = (int)rx_index;
+        return true;
+    }
 
     if (ui->screen == SCREEN_O && ui->submenu == UI_SUBMENU_NONE) {
         if (line == 0) return false;
