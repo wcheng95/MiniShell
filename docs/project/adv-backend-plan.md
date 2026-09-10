@@ -2,15 +2,29 @@
 
 ## Status
 
-**COMPLETE**
+**COMPLETE — historical V1 validation plan**
 
-Stages A0, A1, A2, A3, P1, P2, and V1 are complete. The cross-backend/profile detour is closed and MiniFT8 development has resumed at **RX-1B — top-down RX module/interface design**.
+Stages A0, A1, A2, A3, P1, P2, and V1 are complete. This document records the decisions and evidence for that completed checkpoint; later architecture work may supersede implementation choices that were deliberately temporary during V1.
 
 Canonical V1 evidence is recorded in:
 
 ```text
 docs/MiniFT8/v1-validation.md
 ```
+
+### Post-V1 direction
+
+The V1 decision to use static ADV application composition was intentionally temporary. Current architecture cleanup C3 supersedes the old "ELF later" wording as the active direction:
+
+```text
+Cardputer ADV V1    compiled-in registry       COMPLETE baseline
+Cardputer ADV next  runtime /sd/<app>.elf      ACTIVE target
+first field app     /sd/keyer.elf
+```
+
+The static registry may remain during transition/testing. The external loader remains a private MiniShell/backend mechanism; portable applications still use only the public MiniShell API. A long-term cross-release binary ABI is not frozen yet.
+
+The V1 item that mentioned future `/flash/apps`/`/sd/apps` discovery is therefore **historical, not the current path convention**. The initial active external-app convention is `/sd/<app>.elf`. Collision/precedence between static and external apps will be decided during loader implementation.
 
 ## Goal
 
@@ -46,21 +60,23 @@ ADV backend + ADV presentation
 
 The MiniFT8 core and ADV presentation are the same. Only the MiniShell backend changes.
 
-## Locked decisions
+## Locked decisions for the V1 checkpoint
+
+The following were locked for **V1**. Items 5-6 describe the historical V1 packaging choice; see the post-V1 direction above for current ELF work.
 
 1. **MiniShell public API is the platform boundary.** MiniFT8 never includes ESP-IDF, M5/Cardputer, board-driver, POSIX, Linux, or backend-private headers.
 2. **Presentation is MiniFT8 application policy, not backend identity.** Backend and presentation are independent concepts.
 3. **Protocol selection is application selection.** Runtime app `ft8` is FT8-only; future `ft4`, `cw`, `rtty`, `js8`, etc. are separate applications.
 4. **Linux remains the reference/full production target.** Portable-core changes must preserve Linux behavior and tests.
-5. **Cardputer ADV V1 uses static application composition.** Runtime ELF loading is deferred, not rejected.
-6. **Compiled-in ADV applications take priority.** Future external discovery may search `/flash/apps` and then `/sd/apps` for names not provided internally.
+5. **Cardputer ADV V1 uses static application composition.** Runtime ELF loading was deferred for V1, not rejected.
+6. **Compiled-in ADV applications took priority in V1.** The then-proposed `/flash/apps` then `/sd/apps` external search was never frozen as the later loader convention.
 7. **MiniShell API compatibility is not frozen yet.** Breaking API changes remain acceptable when they materially improve clarity, ownership, portability, or real application fit.
-8. **ADV internal persistence uses files, not NVS.** `/flash` is LittleFS; optional `/sd` is FATFS.
-9. **ADV must operate without an SD card.** `/flash`, the shell, and compiled-in apps must remain usable without `/sd`.
+8. **ADV internal persistence uses files, not NVS.** `/flash` and optional `/sd` are MiniShell filesystem namespaces.
+9. **ADV must operate without an SD card.** `/flash`, the shell, and compiled-in baseline apps remain usable without `/sd`; an external app stored on `/sd` naturally requires the card containing it.
 10. **Initial `/flash` allocation is 2 MiB and provisional.** It is an implementation choice, not a public API property.
-11. **ADV Audio is deliberately later.** Do not implement QMX/microphone audio merely to satisfy this checkpoint; add it when RX/TX requires it.
+11. **ADV Audio was deliberately later in V1.** It is added when application requirements justify it.
 12. **MiniFT8-V2 is hardware/behavior reference material only.** Do not refactor V2 as part of V3/MiniShell work.
-13. **Resident-shell scrollback is deferred.** A future private console may retain roughly 50 lines and scroll a 7-row viewport without changing the application Display API.
+13. **Resident-shell scrollback was deferred.** A future private console may retain roughly 50 lines and scroll a 7-row viewport without changing the application Display API.
 14. **Foreground app execution is MiniShell-owned on ADV.** Substantial apps run on a dedicated MiniShell-managed application task rather than borrowing ESP-IDF's `app_main` stack.
 
 ## A0 — portable resident shell/startup — COMPLETE
@@ -129,13 +145,7 @@ M5 libraries are backend dependencies only. ADV uses display-only initialization
 
 ## A3 — ADV Filesystem + Time/Location — COMPLETE
 
-Storage policy:
-
-```text
-/flash    LittleFS on internal flash, initially 2 MiB (provisional)
-/sd       FATFS on removable SD, optional
-NVS       not used
-```
+Storage policy established by this historical checkpoint used the then-current internal `/flash` implementation plus optional `/sd`; later backend storage implementation changes do not alter the public namespace.
 
 The SD card uses the proven V2 wiring:
 
@@ -147,20 +157,18 @@ CS    GPIO12
 SPI   SPI2_HOST
 ```
 
-ESP-IDF FATFS is configured for heap-backed long filenames, a 255-character LFN limit, and UTF-8 API encoding.
-
 Real-device A3 validation passed:
 
 ```text
 SD-less boot
-/flash LittleFS
-optional /sd FATFS
+/flash
+optional /sd
 long filenames
 file/directory API
 a3_probe: PASS
 ```
 
-ADV UTC policy is intentionally session-only until a real RTC/GPS provider is introduced:
+ADV UTC policy was intentionally session-only until a real RTC/GPS provider is introduced:
 
 ```text
 boot UTC anchor     2026-09-01 06:00:00 UTC
@@ -205,16 +213,7 @@ q returns cleanly to M$>
 repeated launch/exit cycles remain stable
 ```
 
-P2 exposed app-stack ownership as a real lifecycle requirement. ADV foreground apps now run on a MiniShell-managed 16 KiB task while the resident shell remains separate.
-
-Useful pre-RX memory baseline from `free`:
-
-```text
-heap free       about 282 KiB
-largest block   about 228 KiB
-```
-
-Repeated `ft8` cycles left the baseline effectively unchanged.
+P2 exposed app-stack ownership as a real lifecycle requirement. ADV foreground apps now run on a MiniShell-managed application task while the resident shell remains separate.
 
 ## V1 — cross-backend/profile checkpoint — COMPLETE
 
@@ -227,7 +226,7 @@ same logical UI actions/state transitions       PASS
 station.txt persistence                         PASS
 ADV 20x7 identity on Linux and real ADV         PASS
 resource behavior / repeated-cycle stability    PASS
-apps/ft8 platform-dependency boundary            PASS
+apps/ft8 platform-dependency boundary           PASS
 ```
 
 Automated evidence includes:
@@ -242,9 +241,9 @@ ADV ESP-IDF firmware build
 
 The platform-boundary test rejects direct ESP-IDF, FreeRTOS, Linux/POSIX, M5/Cardputer, and private backend dependencies under `apps/ft8/`.
 
-## Intentional implementation differences
+## Intentional V1 implementation differences
 
-These are expected and are not V1 failures:
+These were expected and were not V1 failures:
 
 ```text
 Linux app packaging      runtime ft8.so
@@ -253,32 +252,20 @@ Linux execution          host runtime loader/process context
 ADV execution            MiniShell-managed FreeRTOS app task
 Linux DESKTOP UI         30 x 8 with footer
 ADV UI                    20 x 7 without footer
-Linux Audio              WAV/reference provider available
-ADV Audio                unavailable until RX/TX requires it
 ```
 
-## Resume point
+Current post-V1 work deliberately changes only the ADV packaging row by adding a runtime ELF path while preserving the application-facing boundary.
 
-V1 passed. MiniFT8 RX development resumes at:
+## Historical resume point
 
-```text
-RX-1B
-    -> top-down RX goal/responsibilities
-    -> module boundaries
-    -> ownership
-    -> data contracts
-    -> lifecycle/state transitions
-    -> workspace/memory ownership
-    -> dependency direction
-    -> errors/status
-    -> unit-test boundaries
-    -> only then source migration
-```
+At completion of V1, MiniFT8 RX development resumed from its top-down RX plan. That work has since advanced beyond this checkpoint; this document should not be used as the current project-progress tracker.
 
-The architectural purpose of the detour has been met:
+The architectural purpose of the detour was met:
 
 ```text
 the MiniShell backend boundary survives a real embedded port
 and
 the MiniFT8 presentation boundary survives materially different environments
 ```
+
+Current project direction is tracked in `architecture-cleanup.md`, `progress.md`, and `../keyer/README.md`.
