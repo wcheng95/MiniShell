@@ -161,26 +161,28 @@ def main() -> int:
                 transcript.extend(read_until(master_fd, b" 3/3 ", 3.0))
                 os.write(master_fd, b"1234")
 
-                # The eight CQs become eight RPLY contexts: T pages are 6 + 2.
+                # The eight factual CQs become eight RPLY contexts: T pages are 6 + 2.
+                # Wait for the last known row on each page so the returned chunk contains
+                # the complete rendered page before making fixture-specific assertions.
                 os.write(master_fd, b"t")
-                transcript.extend(read_until(master_fd, b" 1/2 ", 3.0))
-                os.write(master_fd, b"\x1b[B")
-                page1_tail = read_until(master_fd, b" 2/2 ", 3.0)
-                if page1_tail.count(b"RPLY 0/3") != 6:
+                page1 = read_until(master_fd, b"WN0KS    RPLY 0/3", 3.0)
+                expected_page1 = (b"N4NJJ", b"AG6X", b"AE7KJ", b"W7RPS",
+                                  b"N7REB", b"WN0KS")
+                if b" 1/2 " not in page1 or page1.count(b"RPLY 0/3") != 6 or \
+                        any(call not in page1 for call in expected_page1):
                     raise RuntimeError(
-                        f"AS-3 T page 1 did not contain six QSO rows: {page1_tail!r}"
+                        f"AS-3 T page 1 did not contain the six expected CQ contexts: {page1!r}"
                     )
-                transcript.extend(page1_tail)
+                transcript.extend(page1)
 
-                # Switching to T resets it to page 1; bytes before that new top
-                # are the remainder of page 2, which must contain exactly 2 rows.
-                os.write(master_fd, b"t")
-                page2_tail = read_until(master_fd, b" 1/2 ", 3.0)
-                if page2_tail.count(b"RPLY 0/3") != 2:
+                os.write(master_fd, b"\x1b[B")
+                page2 = read_until(master_fd, b"KQ4PUG   RPLY 0/3", 3.0)
+                if b" 2/2 " not in page2 or page2.count(b"RPLY 0/3") != 2 or \
+                        b"N5CH" not in page2 or b"KQ4PUG" not in page2:
                     raise RuntimeError(
-                        f"AS-3 T page 2 did not contain two QSO rows: {page2_tail!r}"
+                        f"AS-3 T page 2 did not contain the two expected CQ contexts: {page2!r}"
                     )
-                transcript.extend(page2_tail)
+                transcript.extend(page2)
 
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
