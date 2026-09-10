@@ -22,11 +22,11 @@ wcheng95/Mini-FT8
 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
 ```
 
-Change data representation and ownership without redesigning scheduling/QSO behavior. `next_tx` is intentionally derived from QSO state rather than stored independently. See `as-plan.md`, `as-boundary-audit.md`, `as-1-boundaries.md`, `as-2-auto-seq-core.md`, and `as-3-cq-t-screen.md`.
+Change data representation and ownership without redesigning scheduling/QSO behavior. `next_tx` is intentionally derived from QSO state rather than stored independently. See `as-plan.md`, `as-boundary-audit.md`, `as-1-boundaries.md`, `as-2-auto-seq-core.md`, `as-3-cq-t-screen.md`, and `as-4-addressed-progression.md`.
 
 Production RX tuning has intentionally advanced beyond the original RX-1C/V2-compatible monitor baseline. The current default is `time_osr=2, freq_osr=2`; `2x1` remains the low-memory/reference fallback. See `rx-tuning.md` for measurements and RAM policy.
 
-Validated production RX path:
+Validated production RX/AutoSeq input path:
 
 ```text
 MiniShell Audio
@@ -47,14 +47,17 @@ Ft8Engine
 Ft8ProtocolSlot
         v
 RxResultBuilder
+        | factual RxMessage / qso_kind / report_db
         v
 RxBatch
         v
 app_controller
+        | selected CQ or ordered is_to_me batch events
         v
-UiModel
+AutoSeq
+        |
         v
-ADV 20x7 presentation
+QsoView -> UiModel -> T UIScreen
 ```
 
 `app_controller` remains the sole production coordinator. AutoSeq attaches after `RxResultBuilder` under `app_controller`; it does not become a second coordinator.
@@ -86,8 +89,8 @@ AS-0        COMPLETE — plan, V2 reference freeze, boundary/ownership audit
 AS-1        COMPLETE — station identity, factual SNR/offset, absolute RX selection boundary
 AS-2        COMPLETE — pure compact AutoSeq owner, fixed queue/state core, qso_scheduler removed
 AS-3        COMPLETE — selected factual CQ -> AutoSeq, real multi-QSO T screen
-AS-4        NEXT — automatic addressed-to-me progression
-AS-5        PLANNED — retry/priority/inactive/reactivation/queue controls
+AS-4        COMPLETE — automatic addressed-to-me RX progression
+AS-5        NEXT — retry/priority/inactive/reactivation/queue controls
 AS-6        PLANNED — CQ/FreeText/Field Day/logging eligibility behavior
 AS-7        PLANNED — slot/TxIntent lifecycle with simulated TX completion
 AS-8        PLANNED — V2-equivalence closure on Linux + ADV
@@ -144,7 +147,7 @@ AS-2 removed the prototype `qso_scheduler`; `AppController` now embeds the sole 
 
 ## AS-2 core boundary
 
-The AutoSeq core is now a pure C module with one fixed 30-entry array shared by active and inactive zones. QSO-lifetime data uses fixed-size fields and compact flags; no dynamic strings or heap allocation are used.
+The AutoSeq core is a pure C module with one fixed 30-entry array shared by active and inactive zones. QSO-lifetime data uses fixed-size fields and compact flags; no dynamic strings or heap allocation are used.
 
 Normal QSO TX meaning is derived from `state` instead of stored independently:
 
@@ -182,6 +185,39 @@ RX line 1..6
 ```
 
 The controller uses typed `RxMessage` fields; it does not parse canonical display text. Selecting a non-CQ remains a valid RX selection but has no AutoSeq side effect in AS-3. The T model can represent all 30 active entries while ADV continues to display six per page. See `as-3-cq-t-screen.md`.
+
+## AS-4 automatic addressed-message boundary
+
+AS-4 adds the automatic half of the V2 receive boundary while leaving AutoSeq policy unchanged.
+
+`RxResultBuilder` now classifies ordinary factual QSO stages into two compact `RxMessage` fields:
+
+```text
+RxQsoMessageKind qso_kind
+int8_t            report_db
+```
+
+Ordinary standard messages map as:
+
+```text
+grid       -> TX1
+report     -> TX2
+R+report   -> TX3
+RRR/RR73   -> TX4
+73         -> TX5
+```
+
+This classification uses typed protocol fields rather than parsing canonical display text in `app_controller`. The V2 `-30..+30` report range and the `R FN42` non-TX1 edge are preserved.
+
+After `rx_emit_event()` finishes a new `RxBatch`, `app_controller_step_rx()` walks that completed batch exactly once, in decode order. Only resolved, parse-OK, classifiable `is_to_me` messages become `AutoSeqRxEvent`s for `auto_seq_on_addressed_rx()`.
+
+```text
+ordinary CQ       -> no automatic action
+selected CQ       -> AS-3 manual path
+addressed TX1..5  -> AS-4 automatic path
+```
+
+Active matching, inactive reactivation, state transitions, queue sorting, and unknown TX3/TX4/TX5 reincarnation guards remain inside the unchanged AS-2 AutoSeq core. Field Day and DXpedition special semantics remain deferred. See `as-4-addressed-progression.md`.
 
 ## Locked data/timing contracts
 
@@ -241,7 +277,7 @@ The pinned 1500 Hz CQ golden verifies `offset_hz == 1500`; SNR remains the V2-de
 
 ## RX production proof
 
-The real `tests/kfs16b12k.wav` fixture is now a production cross-platform anchor at 2x2:
+The real `tests/kfs16b12k.wav` fixture is a production cross-platform anchor at 2x2:
 
 ```text
 Linux  16 decoded messages
@@ -258,6 +294,16 @@ app allocation  228.5 KiB
 ```
 
 AS-3 reuses all 16 decoded messages as a production integration fixture. Selecting all 16 queues exactly the eight factual CQs, which render on the T UIScreen as six entries on page 1 and two on page 2.
+
+AS-4 additionally reuses pinned V2 ordinary-QSO WAVs with station `W1ABC`. With no RX-line selection:
+
+```text
+W1ABC K9XYZ FN42  -> K9XYZ RPRT 0/3
+W1ABC K9XYZ -12   -> K9XYZ RRPT 0/3
+W1ABC K9XYZ RR73  -> ignored when no existing context
+```
+
+A two-slot `FN42` then `-12` sequence advances one existing K9XYZ context and leaves exactly one K9XYZ row on the T screen.
 
 ## RX-6 proof
 
@@ -297,6 +343,8 @@ The RX-7 golden workflow passes through the real MiniShell runtime and productio
 13. During AS-1..AS-8, V2 AutoSeq behavior is frozen as the oracle; improvements are deferred and introduced one measured change at a time after equivalence.
 14. Normal-QSO `next_tx` is derived from AutoSeq state rather than maintained as duplicated mutable state.
 15. UI selection remains an absolute `RxMessage` index; QSO policy belongs in `app_controller`/`auto_seq`, never in `ui_shell`.
+16. Ordinary addressed-message stage classification is factual `RxResultBuilder` output; `app_controller` must not recover TX1..TX5 meaning by parsing display strings.
+17. A completed RX batch is the automatic AutoSeq input boundary; process it once in decode order after RX assembly, not from inside the RX callback.
 
 ## Canonical records
 
@@ -328,10 +376,11 @@ as-boundary-audit.md
 as-1-boundaries.md
 as-2-auto-seq-core.md
 as-3-cq-t-screen.md
+as-4-addressed-progression.md
 ```
 
 ## Next
 
-Start **AS-4: automatic addressed-to-me progression** after the AS-3 PR is merged.
+Start **AS-5: retry, priority, inactive/reactivation, and queue controls** after the AS-4 PR is merged.
 
-AS-4 feeds completed RX batches into AutoSeq for messages factually addressed to the configured local callsign. Ordinary CQs remain manual-only; selected CQs continue through the AS-3 path. Preserve the pinned V2 duplicate/matching/state-transition behavior and keep physical TX/TxIntent execution deferred.
+The pure AS-2 core already contains these V2 behaviors. AS-5 should exercise them through the V3 application/event boundaries and expose the needed T-screen queue controls without redesigning retry counts, priority/fairness, or inactive-QSO policy.
