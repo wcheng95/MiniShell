@@ -25,3 +25,10 @@ CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
 CONFIG_FATFS_API_ENCODING_UTF_8=y
+
+# usbmsc temporarily hands the ESP32-S3 USB device peripheral and raw FAT media
+# to TinyUSB. Keep the MSC transfer buffer at 4096 bytes so it is large enough
+# for the existing /flash wear-levelling sector without changing the validated
+# FATFS/wear-levelling storage format.
+CONFIG_TINYUSB_MSC_ENABLED=y
+CONFIG_TINYUSB_MSC_BUFSIZE=4096
