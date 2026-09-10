@@ -171,11 +171,24 @@ static void test_adv_tx_paging(void)
     assert(strstr(frame.rows[1], "1 W1XYZ") != NULL);
     assert(strstr(frame.rows[6], "6 W6XYZ") != NULL);
 
+    /* AS-5: line keys drop absolute QSO indices; Enter requests parity rotation. */
+    assert(ui_shell_handle_input(&ui, &model, key('1'), &action));
+    assert(action.type == APP_ACTION_DROP_TX_QSO);
+    assert(action.value.index == 0);
+    assert(ui_shell_handle_input(&ui, &model, special(UI_INPUT_ENTER), &action));
+    assert(action.type == APP_ACTION_ROTATE_TX_QUEUE);
+
     assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_DOWN), &action));
     ui_shell_render(&ui, &model, &frame);
     assert(strcmp(frame.rows[0], "TX 20 14:32:08 2/2 8") == 0);
     assert(strstr(frame.rows[1], "1 W7XYZ") != NULL);
     assert(strstr(frame.rows[2], "2 W8XYZ") != NULL);
+
+    assert(ui_shell_handle_input(&ui, &model, key('2'), &action));
+    assert(action.type == APP_ACTION_DROP_TX_QSO);
+    assert(action.value.index == 7);
+    assert(!ui_shell_handle_input(&ui, &model, key('3'), &action));
+    assert(action.type == APP_ACTION_NONE);
 
     assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_PAGE_NEXT), &action));
     ui_shell_render(&ui, &model, &frame);
