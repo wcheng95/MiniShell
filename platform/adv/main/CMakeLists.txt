@@ -43,11 +43,16 @@ set(MINIFT8_SOURCES
     "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fftr.c"
 )
 
-set_source_files_properties(
-    "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller.c"
-    "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller_tx.c"
-    PROPERTIES COMPILE_DEFINITIONS FT8_APP_CONTROLLER_INTERNAL
-)
+# ESP-IDF includes component CMakeLists.txt once in script mode to discover
+# requirements. Per-source compile properties are only valid during the real
+# configure/build pass.
+if(NOT CMAKE_SCRIPT_MODE_FILE)
+    set_source_files_properties(
+        "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller.c"
+        "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller_tx.c"
+        PROPERTIES COMPILE_DEFINITIONS FT8_APP_CONTROLLER_INTERNAL
+    )
+endif()
 
 set(ADV_PORTABLE_UTILITY_SOURCES
     "hello_static.c"
