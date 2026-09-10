@@ -39,16 +39,31 @@ set(MINIFT8_SOURCES
     "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fftr.c"
 )
 
+set(ADV_PORTABLE_UTILITY_SOURCES
+    "hello_static.c"
+    "probe_static.c"
+    "a3_probe_static.c"
+    "date_static.c"
+    "free_static.c"
+    "ls_static.c"
+    "cat_static.c"
+    "cp_static.c"
+    "${MINISHELL_ROOT}/apps/cp/main/cp_copy.c"
+    "mv_static.c"
+    "rm_static.c"
+    "mkdir_static.c"
+    "rmdir_static.c"
+    "nano_static.c"
+    "${MINISHELL_ROOT}/apps/nano/main/nano_buffer.c"
+    "${MINISHELL_ROOT}/apps/nano/main/nano_file.c"
+    "${MINISHELL_ROOT}/apps/nano/main/nano_ui.c"
+    "${MINISHELL_ROOT}/apps/nano/main/nano_util.c"
+)
+
 idf_component_register(
     SRCS
         "app_main.c"
-        "hello_static.c"
-        "probe_static.c"
-        "a3_probe_static.c"
-        "date_static.c"
-        "free_static.c"
-        "ls_static.c"
-        "cat_static.c"
+        ${ADV_PORTABLE_UTILITY_SOURCES}
         ${MINIFT8_SOURCES}
         "${MINISHELL_ROOT}/core/minishell_runtime.c"
         "${MINISHELL_ROOT}/core/shell.c"
@@ -93,8 +108,8 @@ idf_component_register(
         esp_driver_usb_serial_jtag
         esp_timer
         fatfs
-        littlefs
         sdmmc
+        wear_levelling
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Wpedantic)

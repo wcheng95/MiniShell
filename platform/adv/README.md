@@ -2,9 +2,11 @@
 
 This directory is the ESP-IDF firmware composition for the Cardputer ADV backend.
 
-## Current stage: P2
+## Current stage: P2 baseline + ADV storage/utilities increment
 
-A1 proved the portable MiniShell runtime on real Cardputer ADV hardware. A2 added the real Cardputer display/keyboard plus System and Memory providers. A3 added Filesystem and Time/Location. P2 now packages the real MiniFT8 `ft8` application into the ADV static registry using the same MiniFT8 sources as Linux.
+A1 proved the portable MiniShell runtime on real Cardputer ADV hardware. A2 added the real Cardputer display/keyboard plus System and Memory providers. A3 added Filesystem and Time/Location. P2 packages the real MiniFT8 `ft8` application into the ADV static registry using the same MiniFT8 sources as Linux.
+
+The current ADV increment keeps MiniFT8 compiled in, expands the portable shell utility set, and changes internal `/flash` storage from LittleFS to FATFS over ESP-IDF wear levelling. This prepares the storage model for a later `usbmsc` USB Mass Storage utility and for future small/medium ELF-loaded applications.
 
 ```text
 ESP-IDF app_main()
@@ -22,15 +24,42 @@ minishell_run()
       |      Memory        ESP-IDF heap
       |      Display       20 x 7 logical text surface
       |      Input         normalized TCA8418 key events
-      |      Filesystem    /flash LittleFS + optional /sd FATFS
+      |      Filesystem    /flash FATFS + optional /sd FATFS
       |      Time/Location monotonic + session UTC + persistent default location
       |
       `-- compiled-in apps
-             hello / probes / utilities
+             shell utilities + nano
              ft8 -> same MiniFT8 sources, ADV presentation default
 ```
 
-Applications never include M5, ESP-IDF, TCA8418, GPIO, I2C, SPI, FATFS, LittleFS, or display-driver headers.
+Applications never include M5, ESP-IDF, TCA8418, GPIO, I2C, SPI, FATFS, wear-levelling, or display-driver headers. Those details remain backend-owned.
+
+## Compiled-in applications
+
+The ADV static registry currently includes:
+
+```text
+hello
+probe
+a3probe
+date
+free
+ls
+cat
+cp
+mv
+rm
+mkdir
+rmdir
+nano
+ft8
+```
+
+The filesystem utilities and `nano` are the existing portable MiniShell applications; ADV only supplies composition wrappers and the platform services they consume. This keeps the same application code usable on Linux and future MiniShell backends.
+
+MiniFT8 remains deliberately compiled into the firmware. Future small/medium utilities may instead be distributed as ELF applications once the ADV ELF loader is implemented.
+
+`df` remains out of the ADV registry for now because the current public `Filesystem.space()` implementation is quota-based and ADV intentionally has no global storage quota across `/flash` and `/sd`. Proper per-volume capacity reporting should be defined separately rather than reporting misleading numbers.
 
 ## MiniFT8 P2 composition
 
@@ -69,7 +98,7 @@ M5GFX      0.2.17
 M5Unified  0.2.11
 ```
 
-M5 libraries are backend implementation dependencies, not application dependencies. The critical V2 audio-ownership rule remains: ADV initializes the display through `M5.Display.begin()` and does **not** call `M5.begin()`. Display/keyboard/storage bring-up does not claim microphone, speaker, codec, or I2S resources.
+M5 libraries are backend implementation dependencies, not application dependencies. The critical audio-ownership rule remains: ADV initializes the display through `M5.Display.begin()` and does **not** call `M5.begin()`. Display/keyboard/storage bring-up does not claim microphone, speaker, codec, or I2S resources.
 
 ## Hardware ownership
 
@@ -78,7 +107,7 @@ ADV display hardware     adv_display
 ADV keyboard/TCA8418     adv_keyboard
 shared ADV I2C bus       adv_i2c
 application allocations  portable Memory service + adv_memory provider
-internal flash storage   adv_filesystem -> LittleFS
+internal flash storage   adv_filesystem -> FATFS + wear levelling
 MicroSD SPI/FATFS        adv_filesystem -> ESP-IDF SDSPI/FATFS
 ```
 
@@ -106,9 +135,9 @@ Display           application-owned/full-screen UI
 System.write()    USB/debug diagnostics
 ```
 
-On ADV, Console output joins the resident text-console stream and is mirrored to USB. Utilities such as `date`, `ls`, and `cat` therefore print on the Cardputer screen. System diagnostics remain USB-only so they cannot overwrite a foreground application's Display UI.
+On ADV, Console output joins the resident text-console stream and is mirrored to USB. Utilities such as `date`, `ls`, `cat`, `cp`, `mv`, `rm`, `mkdir`, and `rmdir` therefore use the normal MiniShell utility interface. `nano` uses the MiniShell Display, Input, Filesystem, and Memory APIs and remains platform-independent. System diagnostics remain USB-only so they cannot overwrite a foreground application's Display UI.
 
-The Cardputer ADV keyboard uses the proven V2 wiring:
+The Cardputer ADV keyboard uses the proven wiring:
 
 ```text
 I2C0
@@ -118,15 +147,23 @@ TCA8418   0x34 @ 400 kHz
 matrix    7 x 8
 ```
 
-## Storage — A3 complete
+## Storage
 
 Canonical ADV storage policy:
 
 ```text
-/flash    LittleFS on internal flash, initially 2 MiB (provisional)
+/flash    FATFS on internal SPI flash through wear levelling, 2 MiB
 /sd       FATFS on removable MicroSD, optional
 NVS       not used
 ```
+
+The internal FATFS volume uses the existing `flash` data partition and mounts at `/flash`. The MiniShell-visible path and 2 MiB partition size are unchanged; only the on-flash filesystem format changes.
+
+### LittleFS -> FATFS migration
+
+This change is intentionally format-incompatible with the earlier ADV LittleFS `/flash` volume. Existing `/flash` files must be copied off before installing this firmware if they need to be preserved.
+
+On first boot after the change, the FATFS mount is allowed to format the `flash` partition when the previous LittleFS contents cannot be mounted. During this development stage there is no automatic LittleFS-to-FATFS data migration.
 
 The optional SD card uses:
 
@@ -143,15 +180,49 @@ The display uses a different SPI host, so the SD bus remains owned independently
 At the MiniShell Filesystem root:
 
 ```text
-/flash    always present after a successful A3 mount
+/flash    always present after a successful internal FATFS mount
 /sd       present only when the card mounted successfully
 ```
 
-An absent or invalid SD card is not a boot failure. Cross-filesystem rename is unsupported; portable copy logic can move data between volumes when needed.
+An absent or invalid SD card is not a boot failure. Same-filesystem `mv` can use the Filesystem rename operation. Cross-filesystem rename remains unsupported at the backend boundary; use `cp` followed by `rm` to move a file between `/flash` and `/sd` today.
 
-ESP-IDF v5.5.x defaults FATFS to 8.3-only filenames. ADV explicitly enables heap-backed long filenames, a 255-character LFN limit, and UTF-8 API encoding so `/sd` satisfies the MiniShell Filesystem filename contract.
+ESP-IDF v5.5.x defaults FATFS to 8.3-only filenames. ADV explicitly enables heap-backed long filenames, a 255-character LFN limit, and UTF-8 API encoding for both volumes so they satisfy the MiniShell Filesystem filename contract.
 
-Real-hardware A3 validation passed with both internal LittleFS and removable FATFS, including `a3probe: PASS` and long-filename directory enumeration.
+The previous A3 hardware validation proved the MiniShell Filesystem behavior using LittleFS `/flash` plus FATFS `/sd`. The new internal FATFS path requires a fresh physical ADV storage validation after flashing.
+
+## Planned `usbmsc` utility
+
+The USB Mass Storage utility is named `usbmsc`.
+
+Planned command interface:
+
+```text
+usbmsc             # same as: usbmsc all
+usbmsc all         # export all available supported volumes
+usbmsc flash       # export /flash only
+usbmsc sd          # export /sd only
+```
+
+`all` is the default. If `/sd` is absent, `usbmsc` exports only the available `/flash` volume.
+
+The ownership rule is strict:
+
+```text
+normal operation
+    MiniShell owns mounted /flash and /sd
+
+usbmsc starts
+    selected volume(s) are closed/unmounted locally
+    USB MSC becomes the exclusive owner
+
+usbmsc exits / host releases storage
+    USB MSC ownership ends
+    MiniShell remounts the selected volume(s)
+```
+
+MiniShell and the USB host must never have writable filesystem ownership of the same volume at the same time.
+
+`usbmsc` is intentionally **not implemented in this storage/utility increment**. First validate FATFS `/flash` and the expanded portable utility set on real ADV hardware; then add USB MSC as a separate platform-resource milestone with explicit mount/unmount and ownership tests.
 
 ## Time policy — A3 complete
 
@@ -175,12 +246,12 @@ The current 8 MiB flash layout is:
 
 ```text
 0x010000 .. 0x5FFFFF   factory application   0x5F0000 bytes
-0x600000 .. 0x7FFFFF   /flash LittleFS       2 MiB
+0x600000 .. 0x7FFFFF   /flash FATFS          2 MiB
 ```
 
 ## Runtime stack
 
-ADV currently executes compiled-in applications on ESP-IDF's main task. A3 filesystem depth exposed the ESP-IDF default stack as too small, so ADV explicitly uses an 8 KiB main-task stack and enables the FreeRTOS stack-overflow canary. This is an implementation choice, not an application API promise. A later application-lifecycle design may give foreground apps their own managed execution task/stack.
+The resident MiniShell runtime/shell uses an 8 KiB ESP-IDF main-task stack with the FreeRTOS stack-overflow canary enabled. Foreground applications execute on a separate ADV-managed FreeRTOS task with a 16 KiB stack. The task size is an ADV implementation choice, not part of the portable MiniShell application API.
 
 ## Build and flash
 
@@ -194,23 +265,35 @@ idf.py -p /dev/ttyACM0 flash monitor
 
 Use the actual `/dev/ttyACM*` device on the host.
 
-## P2 validation
+## Validation
 
 Software checks:
 
 ```text
-Linux MiniFT8 DESKTOP/ADV tests       PASS required
-ADV static registry includes ft8      PASS required
-ESP-IDF firmware build                PASS required
+Linux build/tests                         PASS required
+ADV static registry includes utilities   PASS required
+ESP-IDF firmware build                    PASS required
+FT8 Reference                             gated by FT8-sensitive changes
 ```
 
-Real ADV check:
+Real ADV storage/utility check for this increment:
 
 ```text
-M$> apps          -> includes ft8
-M$> ft8           -> launches the 20 x 7 ADV presentation
-V -> 5            -> Presentation: ADV / UI: text 20x7
-q                 -> returns cleanly to M$>
+M$> apps
+    -> includes cp mv rm mkdir rmdir nano ft8
+
+M$> mkdir /flash/test
+M$> nano /flash/test/note.txt
+M$> cp /flash/test/note.txt /flash/test/copy.txt
+M$> mv /flash/test/copy.txt /flash/test/moved.txt
+M$> rm /flash/test/moved.txt
+M$> rm /flash/test/note.txt
+M$> rmdir /flash/test
+
+M$> ft8
+    -> launches the 20 x 7 ADV presentation
+q
+    -> returns cleanly to M$>
 ```
 
-After that, V1 compares Linux + ADV presentation against ADV + ADV presentation before RX-1B resumes.
+After this passes on hardware, `usbmsc` can be implemented against the proven FATFS storage ownership model.
