@@ -24,6 +24,7 @@ typedef enum {
 
 typedef enum {
     APP_ACTION_NONE = 0,
+    APP_ACTION_SELECT_RX_MESSAGE,
     APP_ACTION_SET_PROFILE,
     APP_ACTION_SET_BAND,
     APP_ACTION_SET_SKIP_TX1,
