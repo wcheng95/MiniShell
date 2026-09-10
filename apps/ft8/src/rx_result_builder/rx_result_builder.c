@@ -54,6 +54,12 @@ static int starts_cq_token(const char *field)
            (strcmp(field, "CQ") == 0 || strncmp(field, "CQ ", 3u) == 0);
 }
 
+static int is_cq_fd_token(const char *field)
+{
+    return field != NULL &&
+           (strcmp(field, "CQ FD") == 0 || strncmp(field, "CQ FD ", 6u) == 0);
+}
+
 static int valid_modifier(const char *text)
 {
     size_t i;
@@ -175,12 +181,14 @@ static size_t split_fields(char *buffer, char **tokens, size_t capacity)
  */
 static int classify_free_text_cq(const char *text,
                                  char call_de[RX_RESULT_CALL_CAP],
-                                 char extra[RX_RESULT_EXTRA_CAP])
+                                 char extra[RX_RESULT_EXTRA_CAP],
+                                 int *out_is_fd)
 {
     char copy[RX_RESULT_TEXT_CAP];
     char *tokens[5] = {0};
     size_t count;
 
+    if (out_is_fd != NULL) *out_is_fd = 0;
     copy_text(copy, sizeof(copy), text);
     count = split_fields(copy, tokens, 5u);
 
@@ -193,6 +201,8 @@ static int classify_free_text_cq(const char *text,
     copy_text(call_de, RX_RESULT_CALL_CAP, tokens[2]);
     if (count == 4u)
         copy_text(extra, RX_RESULT_EXTRA_CAP, tokens[3]);
+    if (out_is_fd != NULL && strcmp(tokens[1], "FD") == 0)
+        *out_is_fd = 1;
     return 1;
 }
 
@@ -258,6 +268,7 @@ static void classify_message(const RxResultBuilder *builder,
         copy_text(out->call_de, sizeof(out->call_de), in->data.standard.call_de);
         copy_text(out->extra, sizeof(out->extra), in->data.standard.extra);
         out->is_cq = starts_cq_token(in->data.standard.call_to) != 0;
+        out->is_fd = is_cq_fd_token(in->data.standard.call_to) != 0;
         if (!out->is_cq)
             out->is_to_me = call_equals(in->data.standard.call_to, local) != 0;
         classify_standard_qso(&in->data.standard, out);
@@ -277,13 +288,23 @@ static void classify_message(const RxResultBuilder *builder,
         }
         break;
 
-    case FT8_PROTOCOL_ARRL_FD:
-        copy_text(out->call_to, sizeof(out->call_to), in->data.arrl_fd.call_to);
-        copy_text(out->call_de, sizeof(out->call_de), in->data.arrl_fd.call_de);
-        copy_text(out->extra, sizeof(out->extra), in->data.arrl_fd.section);
-        out->is_to_me = call_equals(in->data.arrl_fd.call_to, local) != 0;
-        /* Field Day stage/exchange classification is intentionally AS-6. */
+    case FT8_PROTOCOL_ARRL_FD: {
+        const Ft8ProtocolArrlFd *fd = &in->data.arrl_fd;
+        int written;
+
+        copy_text(out->call_to, sizeof(out->call_to), fd->call_to);
+        copy_text(out->call_de, sizeof(out->call_de), fd->call_de);
+        copy_text(out->extra, sizeof(out->extra), fd->section);
+        out->is_to_me = call_equals(fd->call_to, local) != 0;
+        out->is_fd = true;
+        out->qso_kind = fd->has_r ? RX_QSO_MSG_TX3 : RX_QSO_MSG_TX2;
+        written = snprintf(out->fd_exchange, sizeof(out->fd_exchange),
+                           "%u%c %s", (unsigned)fd->transmitter_count,
+                           fd->class_letter, fd->section);
+        if (written < 0 || (size_t)written >= sizeof(out->fd_exchange))
+            out->fd_exchange[0] = '\0';
         break;
+    }
 
     case FT8_PROTOCOL_DXPEDITION:
         out->is_to_me = call_equals(in->data.dxpedition.rr73_call, local) != 0 ||
@@ -291,11 +312,15 @@ static void classify_message(const RxResultBuilder *builder,
         /* DXpedition has different two-message semantics; do not flatten here. */
         break;
 
-    case FT8_PROTOCOL_FREE_TEXT:
+    case FT8_PROTOCOL_FREE_TEXT: {
+        int free_text_fd = 0;
         out->is_cq = classify_free_text_cq(in->canonical_text,
                                            out->call_de,
-                                           out->extra) != 0;
+                                           out->extra,
+                                           &free_text_fd) != 0;
+        out->is_fd = free_text_fd != 0;
         break;
+    }
 
     default:
         break;
