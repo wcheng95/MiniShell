@@ -39,3 +39,15 @@ void app_controller_destroy(AppController *app)
         (void)memory->free(app);
     }
 }
+
+void app_controller_build_model(const AppController *app, UiModel *model)
+{
+    if (model == NULL) return;
+    if (app == NULL) {
+        memset(model, 0, sizeof(*model));
+        return;
+    }
+
+    app_controller_build_ui_model(app, model);
+    app_controller_build_memory_model(app, model);
+}
