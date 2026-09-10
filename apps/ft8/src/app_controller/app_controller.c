@@ -39,6 +39,11 @@ struct AppRxState {
     bool active;
     bool have_batch;
     uint64_t batch_generation;
+
+    /* UI selection is an index into the retained batch, never a retained pointer. */
+    bool selected_rx_valid;
+    size_t selected_rx_index;
+    uint64_t selected_rx_generation;
 };
 
 static void copy_ui_text(char out[UI_TEXT_CAP], const char *text)
@@ -136,6 +141,7 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
                                                 &rx->batch);
         if (result_status != RX_RESULT_OK) return -1;
         rx->have_batch = true;
+        rx->selected_rx_valid = false;
         ++rx->batch_generation;
         return 0;
     }
@@ -240,6 +246,8 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
     rx->framer_initialized = true;
 
     builder_config = rx_result_builder_default_config();
+    (void)snprintf(builder_config.local_callsign,
+                   sizeof(builder_config.local_callsign), "%s", app->config.callsign);
     if (rx_result_builder_init(&rx->builder, &builder_config) != RX_RESULT_OK) goto fail;
     rx->builder_initialized = true;
 
@@ -399,40 +407,50 @@ void app_controller_build_memory_model(const AppController *app, UiModel *model)
 
 bool app_controller_apply_action(AppController *app, const AppAction *action)
 {
+    bool config_changed = false;
+
     if (app == NULL || action == NULL) return false;
-    bool changed = false;
 
     switch (action->type) {
+        case APP_ACTION_SELECT_RX_MESSAGE:
+            if (app->rx == NULL || !app->rx->have_batch || action->value.index < 0 ||
+                (size_t)action->value.index >= app->rx->batch.message_count) {
+                return false;
+            }
+            app->rx->selected_rx_index = (size_t)action->value.index;
+            app->rx->selected_rx_generation = app->rx->batch_generation;
+            app->rx->selected_rx_valid = true;
+            return true;
+
         case APP_ACTION_SET_PROFILE:
             config_service_set_profile(&app->config, action->value.index);
-            changed = true;
+            config_changed = true;
             break;
 
         case APP_ACTION_SET_BAND:
             config_service_set_band(&app->config, action->value.index);
-            changed = true;
+            config_changed = true;
             break;
 
         case APP_ACTION_SET_SKIP_TX1:
             qso_scheduler_set_skip_tx1(&app->scheduler, action->value.bool_value);
             config_service_set_skip_tx1(&app->config, action->value.bool_value);
-            changed = true;
+            config_changed = true;
             break;
 
         case APP_ACTION_SET_MAX_RETRY:
             qso_scheduler_set_max_retry(&app->scheduler, action->value.int_value);
             config_service_set_max_retry(&app->config,
                                          qso_scheduler_get_max_retry(&app->scheduler));
-            changed = true;
+            config_changed = true;
             break;
 
         case APP_ACTION_NONE:
         default:
-            break;
+            return false;
     }
 
-    if (!changed) return false;
-    return app_save_config(app);
+    return config_changed && app_save_config(app);
 }
 
 void app_controller_shutdown(AppController *app)
