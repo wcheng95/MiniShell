@@ -22,7 +22,7 @@ wcheng95/Mini-FT8
 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
 ```
 
-Change data representation and ownership without redesigning scheduling/QSO behavior. `next_tx` is intentionally derived from QSO state rather than stored independently. See `as-plan.md`, `as-boundary-audit.md`, and `as-1-boundaries.md`.
+Change data representation and ownership without redesigning scheduling/QSO behavior. `next_tx` is intentionally derived from QSO state rather than stored independently. See `as-plan.md`, `as-boundary-audit.md`, `as-1-boundaries.md`, and `as-2-auto-seq-core.md`.
 
 Production RX tuning has intentionally advanced beyond the original RX-1C/V2-compatible monitor baseline. The current default is `time_osr=2, freq_osr=2`; `2x1` remains the low-memory/reference fallback. See `rx-tuning.md` for measurements and RAM policy.
 
@@ -84,8 +84,8 @@ RX-7        COMPLETE — decoded RX UI + ADV cross-build
 
 AS-0        COMPLETE — plan, V2 reference freeze, boundary/ownership audit
 AS-1        COMPLETE — station identity, factual SNR/offset, absolute RX selection boundary
-AS-2        NEXT — pure compact AutoSeq structural port
-AS-3        PLANNED — CQ selection + real multi-QSO T screen
+AS-2        COMPLETE — pure compact AutoSeq owner, fixed queue/state core, qso_scheduler removed
+AS-3        NEXT — CQ selection + real multi-QSO T screen
 AS-4        PLANNED — automatic addressed-to-me progression
 AS-5        PLANNED — retry/priority/inactive/reactivation/queue controls
 AS-6        PLANNED — CQ/FreeText/Field Day/logging eligibility behavior
@@ -140,7 +140,30 @@ auto_seq
 
 `auto_seq` must not call MiniShell, `Ft8Engine`, `Ft8HashStore`, UI code, filesystem/logging code, Audio, Control, or platform APIs. It uses fixed-size C data and no AutoSeq heap allocation.
 
-The current `qso_scheduler` is only a prototype settings holder and will be removed when `auto_seq` becomes the real owner in AS-2; do not keep two scheduler/QSO-policy owners.
+AS-2 removed the prototype `qso_scheduler`; `AppController` now embeds the sole `AutoSeq` runtime owner. Persisted settings remain owned by `ConfigService` and are copied into AutoSeq at initialization/update time.
+
+## AS-2 core boundary
+
+The AutoSeq core is now a pure C module with one fixed 30-entry array shared by active and inactive zones. QSO-lifetime data uses fixed-size fields and compact flags; no dynamic strings or heap allocation are used.
+
+Normal QSO TX meaning is derived from `state` instead of stored independently:
+
+```text
+REPLYING       -> TX1
+REPORT         -> TX2
+ROGER_REPORT   -> TX3
+ROGERS         -> TX4
+SIGNOFF        -> TX5
+```
+
+Measured Linux x86-64 layout:
+
+```text
+QsoContext   56 bytes
+AutoSeq    1712 bytes total for the 30-entry owner
+```
+
+Compile-time guards require `QsoContext <= 64 bytes` and `AutoSeq <= 2048 bytes` on every target. The module accepts normalized factual RX events and caller-supplied monotonic time; mapping real `RxMessage` objects into those events begins in AS-3/AS-4. See `as-2-auto-seq-core.md`.
 
 ## Locked data/timing contracts
 
@@ -254,6 +277,7 @@ The RX-7 golden workflow passes through the real MiniShell runtime and productio
 11. Repeated bounded state such as AutoSeq flags, active-QSO metadata, hash metadata, and candidate flags should use narrow fields, masks, or bitsets when the RAM saving is material; compactness must not obscure correctness or timing-sensitive behavior.
 12. AutoSeq must copy QSO-lifetime facts from `RxMessage`; it must never retain pointers into an `RxBatch` owned by RX state.
 13. During AS-1..AS-8, V2 AutoSeq behavior is frozen as the oracle; improvements are deferred and introduced one measured change at a time after equivalence.
+14. Normal-QSO `next_tx` is derived from AutoSeq state rather than maintained as duplicated mutable state.
 
 ## Canonical records
 
@@ -283,12 +307,13 @@ AutoSeq:
 as-plan.md
 as-boundary-audit.md
 as-1-boundaries.md
+as-2-auto-seq-core.md
 ```
 
 ## Next
 
-Start **AS-2: pure compact AutoSeq structural port**.
+Start **AS-3: CQ selection + real multi-QSO T screen** after the AS-2 PR is merged.
 
-AS-2 introduces the real `auto_seq` module and removes the prototype `qso_scheduler` owner. It should establish the fixed 30-entry active/inactive storage, compact `QsoContext`, configuration boundary, state representation, and read-only queue/intent contracts while preserving the pinned V2 behavior model.
+AS-3 connects the AS-1 absolute RX-selection boundary to the AS-2 pure AutoSeq core. `app_controller` should map the selected `RxMessage` into a normalized `AutoSeqRxEvent`, create/update the QSO context, then project caller-owned `AutoSeqQsoView` data into the T UIScreen.
 
-Do not connect real RX selection, T-screen queue behavior, automatic `is_to_me` processing, TX execution, or logging I/O in AS-2. Those remain later stages so the state owner can first be tested as a pure module.
+Use the eight CQs in `tests/kfs16b12k.wav` as the first real multi-QSO queue fixture. Keep automatic addressed-to-me processing for AS-4 and keep real TX/TxIntent execution for later stages.

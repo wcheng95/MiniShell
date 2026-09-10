@@ -170,15 +170,18 @@ bool app_controller_init(AppController *app, const mini_api_t *api,
     if (path_length < 0 || (size_t)path_length >= sizeof(app->station_path)) return false;
 
     config_service_defaults(&app->config);
-    qso_scheduler_init(&app->scheduler);
 
     char text[2048];
     bool loaded = storage_service_read_text(&app->storage, app->station_path,
                                             text, sizeof(text));
     if (loaded && !config_service_parse(&app->config, text)) return false;
 
-    qso_scheduler_set_skip_tx1(&app->scheduler, app->config.skip_tx1);
-    qso_scheduler_set_max_retry(&app->scheduler, app->config.max_retry);
+    if (!auto_seq_init(&app->auto_seq, NULL) ||
+        !auto_seq_set_station(&app->auto_seq, app->config.callsign, app->config.grid)) {
+        return false;
+    }
+    auto_seq_set_skip_tx1(&app->auto_seq, app->config.skip_tx1);
+    auto_seq_set_max_retry(&app->auto_seq, app->config.max_retry);
 
     if (!loaded && !app_save_config(app)) return false;
     return true;
@@ -352,8 +355,8 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
     snprintf(model->band_name, sizeof(model->band_name), "%s",
              config_service_band_name(model->profile_index, model->band_index));
 
-    model->skip_tx1 = qso_scheduler_get_skip_tx1(&app->scheduler);
-    model->max_retry = qso_scheduler_get_max_retry(&app->scheduler);
+    model->skip_tx1 = auto_seq_get_skip_tx1(&app->auto_seq);
+    model->max_retry = auto_seq_get_max_retry(&app->auto_seq);
     model->rx_active = app_controller_rx_active(app);
     build_utc_model(app, model);
 
@@ -433,15 +436,15 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
             break;
 
         case APP_ACTION_SET_SKIP_TX1:
-            qso_scheduler_set_skip_tx1(&app->scheduler, action->value.bool_value);
+            auto_seq_set_skip_tx1(&app->auto_seq, action->value.bool_value);
             config_service_set_skip_tx1(&app->config, action->value.bool_value);
             config_changed = true;
             break;
 
         case APP_ACTION_SET_MAX_RETRY:
-            qso_scheduler_set_max_retry(&app->scheduler, action->value.int_value);
+            auto_seq_set_max_retry(&app->auto_seq, action->value.int_value);
             config_service_set_max_retry(&app->config,
-                                         qso_scheduler_get_max_retry(&app->scheduler));
+                                         auto_seq_get_max_retry(&app->auto_seq));
             config_changed = true;
             break;
 

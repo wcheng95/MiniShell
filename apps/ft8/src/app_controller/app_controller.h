@@ -6,8 +6,8 @@
 
 #include "minishell/api.h"
 #include "ft8/app_types.h"
+#include "auto_seq.h"
 #include "config_service.h"
-#include "qso_scheduler.h"
 #include "storage_service.h"
 
 typedef struct AppRxState AppRxState;
@@ -22,7 +22,7 @@ typedef struct {
 typedef struct {
     const mini_api_t *api;
     ConfigService config;
-    QsoScheduler scheduler;
+    AutoSeq auto_seq;
     StorageService storage;
     char station_path[256];
     AppRxState *rx;
