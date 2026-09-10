@@ -22,7 +22,7 @@ wcheng95/Mini-FT8
 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
 ```
 
-Change data representation and ownership without redesigning scheduling/QSO behavior. `next_tx` is intentionally derived from QSO state rather than stored independently. See `as-plan.md`, `as-boundary-audit.md`, `as-1-boundaries.md`, and `as-2-auto-seq-core.md`.
+Change data representation and ownership without redesigning scheduling/QSO behavior. `next_tx` is intentionally derived from QSO state rather than stored independently. See `as-plan.md`, `as-boundary-audit.md`, `as-1-boundaries.md`, `as-2-auto-seq-core.md`, and `as-3-cq-t-screen.md`.
 
 Production RX tuning has intentionally advanced beyond the original RX-1C/V2-compatible monitor baseline. The current default is `time_osr=2, freq_osr=2`; `2x1` remains the low-memory/reference fallback. See `rx-tuning.md` for measurements and RAM policy.
 
@@ -85,8 +85,8 @@ RX-7        COMPLETE — decoded RX UI + ADV cross-build
 AS-0        COMPLETE — plan, V2 reference freeze, boundary/ownership audit
 AS-1        COMPLETE — station identity, factual SNR/offset, absolute RX selection boundary
 AS-2        COMPLETE — pure compact AutoSeq owner, fixed queue/state core, qso_scheduler removed
-AS-3        NEXT — CQ selection + real multi-QSO T screen
-AS-4        PLANNED — automatic addressed-to-me progression
+AS-3        COMPLETE — selected factual CQ -> AutoSeq, real multi-QSO T screen
+AS-4        NEXT — automatic addressed-to-me progression
 AS-5        PLANNED — retry/priority/inactive/reactivation/queue controls
 AS-6        PLANNED — CQ/FreeText/Field Day/logging eligibility behavior
 AS-7        PLANNED — slot/TxIntent lifecycle with simulated TX completion
@@ -163,7 +163,25 @@ QsoContext   56 bytes
 AutoSeq    1712 bytes total for the 30-entry owner
 ```
 
-Compile-time guards require `QsoContext <= 64 bytes` and `AutoSeq <= 2048 bytes` on every target. The module accepts normalized factual RX events and caller-supplied monotonic time; mapping real `RxMessage` objects into those events begins in AS-3/AS-4. See `as-2-auto-seq-core.md`.
+Compile-time guards require `QsoContext <= 64 bytes` and `AutoSeq <= 2048 bytes` on every target. The module accepts normalized factual RX events and caller-supplied monotonic time. See `as-2-auto-seq-core.md`.
+
+## AS-3 manual CQ boundary
+
+AS-3 connects the AS-1 selection boundary to the AS-2 state owner without adding a second policy path:
+
+```text
+RX line 1..6
+    -> ui_shell absolute decoded-message index
+    -> app_controller validates retained RxBatch
+    -> selected resolved factual CQ only
+    -> copy RxMessage facts into AutoSeqRxEvent
+    -> auto_seq_on_manual_rx()
+    -> AutoSeqQsoView snapshot
+    -> UiModel.tx_lines[]
+    -> T UIScreen
+```
+
+The controller uses typed `RxMessage` fields; it does not parse canonical display text. Selecting a non-CQ remains a valid RX selection but has no AutoSeq side effect in AS-3. The T model can represent all 30 active entries while ADV continues to display six per page. See `as-3-cq-t-screen.md`.
 
 ## Locked data/timing contracts
 
@@ -197,7 +215,7 @@ For AutoSeq/TX, preserve the V2 event rule: decode completion updates AutoSeq an
 
 ## AS-1 input boundary
 
-AS-1 makes the future AutoSeq input factual and self-contained:
+AS-1 makes the AutoSeq input factual and self-contained:
 
 ```text
 ConfigService
@@ -217,7 +235,7 @@ app_controller
     stores index + batch generation only
 ```
 
-A completed new RX batch invalidates the prior selection. AutoSeq must copy QSO-lifetime facts when AS-3 connects this boundary; it must never retain an `RxMessage *`.
+A completed new RX batch invalidates the prior selection. AutoSeq copies QSO-lifetime facts through the controller; it never retains an `RxMessage *`.
 
 The pinned 1500 Hz CQ golden verifies `offset_hz == 1500`; SNR remains the V2-defined integer range `-30..99`. See `as-1-boundaries.md`.
 
@@ -239,7 +257,7 @@ largest block    53.0 KiB
 app allocation  228.5 KiB
 ```
 
-The eight CQs will be reused by AS-3 as the first real multi-QSO queue/T-screen fixture.
+AS-3 reuses all 16 decoded messages as a production integration fixture. Selecting all 16 queues exactly the eight factual CQs, which render on the T UIScreen as six entries on page 1 and two on page 2.
 
 ## RX-6 proof
 
@@ -278,6 +296,7 @@ The RX-7 golden workflow passes through the real MiniShell runtime and productio
 12. AutoSeq must copy QSO-lifetime facts from `RxMessage`; it must never retain pointers into an `RxBatch` owned by RX state.
 13. During AS-1..AS-8, V2 AutoSeq behavior is frozen as the oracle; improvements are deferred and introduced one measured change at a time after equivalence.
 14. Normal-QSO `next_tx` is derived from AutoSeq state rather than maintained as duplicated mutable state.
+15. UI selection remains an absolute `RxMessage` index; QSO policy belongs in `app_controller`/`auto_seq`, never in `ui_shell`.
 
 ## Canonical records
 
@@ -308,12 +327,11 @@ as-plan.md
 as-boundary-audit.md
 as-1-boundaries.md
 as-2-auto-seq-core.md
+as-3-cq-t-screen.md
 ```
 
 ## Next
 
-Start **AS-3: CQ selection + real multi-QSO T screen** after the AS-2 PR is merged.
+Start **AS-4: automatic addressed-to-me progression** after the AS-3 PR is merged.
 
-AS-3 connects the AS-1 absolute RX-selection boundary to the AS-2 pure AutoSeq core. `app_controller` should map the selected `RxMessage` into a normalized `AutoSeqRxEvent`, create/update the QSO context, then project caller-owned `AutoSeqQsoView` data into the T UIScreen.
-
-Use the eight CQs in `tests/kfs16b12k.wav` as the first real multi-QSO queue fixture. Keep automatic addressed-to-me processing for AS-4 and keep real TX/TxIntent execution for later stages.
+AS-4 feeds completed RX batches into AutoSeq for messages factually addressed to the configured local callsign. Ordinary CQs remain manual-only; selected CQs continue through the AS-3 path. Preserve the pinned V2 duplicate/matching/state-transition behavior and keep physical TX/TxIntent execution deferred.
