@@ -20,7 +20,15 @@ Valid ADV installations are:
 /sd/keyer.elf
 ```
 
-External application discovery uses `/flash` first, then `/sd`. Therefore the same `keyer.elf` binary may be copied from SD to flash and must run unchanged; if both copies exist, `/flash/keyer.elf` wins.
+ADV application resolution is:
+
+```text
+1. compiled-in application
+2. /flash/<app>.elf
+3. /sd/<app>.elf
+```
+
+Therefore the same `keyer.elf` binary may be copied from SD to flash and must run unchanged; if both external copies exist, `/flash/keyer.elf` wins.
 
 The Keyer application should be portable at the source/API level. Board-specific deployment details may live in its application settings.
 
@@ -358,14 +366,15 @@ keyer
 MiniShell> run keyer
 ```
 
-External discovery order is fixed:
+Resolution order is fixed:
 
 ```text
-1. /flash/keyer.elf
-2. /sd/keyer.elf
+1. compiled-in keyer, if one exists
+2. /flash/keyer.elf
+3. /sd/keyer.elf
 ```
 
-Either location may contain the same runtime artifact. If only `/sd/keyer.elf` exists, it runs from SD. If that file is copied to `/flash/keyer.elf`, the flash copy runs instead. No Keyer source or binary change should be required.
+The current plan does not compile Keyer into ADV, so normal Keyer deployment will exercise the external tiers. Either external location may contain the same runtime artifact. If only `/sd/keyer.elf` exists, it runs from SD. If that file is copied to `/flash/keyer.elf`, the flash copy runs instead. No Keyer source or binary change should be required.
 
 This is intended to be a real runtime-loaded application, not a statically linked app renamed `.elf`.
 
@@ -387,23 +396,31 @@ Exit criteria:
 
 ### K1 — ADV runtime ELF proof
 
-Prove the runtime-loading mechanism with a minimal external ELF before depending on Keyer complexity.
+Prove the runtime-loading mechanism with a minimal **non-colliding** external ELF before depending on Keyer complexity.
 
-Required proof:
+Use a runtime name that is not present in the compiled-in registry, for example `elfhello`:
 
 ```text
-/sd/hello.elf
+/sd/elfhello.elf
     discover -> load -> call MiniShell API -> return -> unload
 
-copy same binary to:
-/flash/hello.elf
+copy the exact same binary to:
+/flash/elfhello.elf
     discover -> load -> call MiniShell API -> return -> unload
 
-when both exist:
-    /flash/hello.elf wins
+when both external copies exist:
+    /flash/elfhello.elf wins
 ```
 
-This is loader validation only. Precedence between a compiled-in `hello` and an external `hello` remains a separate loader-design question; K1 must at least prove the external `/flash` then `/sd` ordering.
+Do not use `hello.elf` for this proof while `hello` remains compiled in, because the established resolution rule would intentionally select compiled-in `hello` first and would not prove that the ELF loader executed.
+
+K1 should also verify the full resolution rule separately:
+
+```text
+compiled-in > /flash external > /sd external
+```
+
+This is loader validation only.
 
 ### K2 — MiniShell Digital I/O V1
 
@@ -486,7 +503,7 @@ The binary must not be rebuilt or changed between those tests. When both copies 
 Field validation should include at least:
 
 - repeated load/run/exit/unload;
-- `/flash` then `/sd` discovery behavior;
+- `/flash` then `/sd` external discovery behavior;
 - paddle at representative slow/normal/fast WPM;
 - Iambic A and B;
 - straight key;
@@ -555,7 +572,8 @@ Use mocks/providers to test:
 
 ADV hardware confirms:
 
-- runtime discovery from `/flash` and `/sd`, with `/flash` first;
+- full app resolution order: compiled-in, `/flash`, `/sd`;
+- same external ELF runs from `/flash` and `/sd`;
 - actual paddle input;
 - actual radio keying;
 - active-low/open-drain behavior where configured;
@@ -574,6 +592,11 @@ Before implementation, finalize:
 5. Whether CAT KeyOut waits until after the first GPIO field milestone; current recommendation is yes.
 6. Whether the existing Mini-CW decoded-text/FIFO behavior is part of K3/K7 or deferred to a later Keyer increment.
 7. ELF loader constraints for ADV: relocation types, symbol resolution, memory ownership, failure cleanup, and API-version matching.
-8. Precedence between a compiled-in application and an external application with the same name. External-location precedence itself is already fixed as `/flash` then `/sd`.
 
-Until those are reviewed, this document is the porting plan rather than the final implementation specification.
+Resolved runtime-location rule:
+
+```text
+compiled-in > /flash/<app>.elf > /sd/<app>.elf
+```
+
+Until the remaining questions are reviewed, this document is the porting plan rather than the final implementation specification.
