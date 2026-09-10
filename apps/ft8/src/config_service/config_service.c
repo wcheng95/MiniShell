@@ -1,5 +1,6 @@
 #include "config_service.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,8 +24,33 @@ static int clamp_band(int value)
     return value;
 }
 
+static void strip_cr(char *text)
+{
+    size_t len;
+    if (text == NULL) return;
+    len = strlen(text);
+    if (len > 0u && text[len - 1u] == '\r') text[len - 1u] = '\0';
+}
+
+static bool copy_upper_checked(char *out, size_t out_size, const char *text)
+{
+    size_t i;
+    size_t len;
+
+    if (out == NULL || out_size == 0u || text == NULL) return false;
+    len = strlen(text);
+    if (len >= out_size) return false;
+
+    for (i = 0u; i < len; ++i) {
+        out[i] = (char)toupper((unsigned char)text[i]);
+    }
+    out[len] = '\0';
+    return true;
+}
+
 void config_service_defaults(ConfigService *config)
 {
+    memset(config, 0, sizeof(*config));
     config->skip_tx1 = false;
     config->max_retry = 3;
     config->profile_index = 0;
@@ -44,16 +70,28 @@ bool config_service_parse(ConfigService *config, const char *text)
     memcpy(buffer, text, len + 1u);
 
     for (char *line = strtok(buffer, "\n"); line != NULL; line = strtok(NULL, "\n")) {
-        char *eq = strchr(line, '=');
+        char *eq;
+        const char *key;
+        char *value;
+
+        strip_cr(line);
+        eq = strchr(line, '=');
         if (eq == NULL) continue;
         *eq = '\0';
-        const char *key = line;
-        const char *value = eq + 1;
+        key = line;
+        value = eq + 1;
 
-        if (strcmp(key, "profile") == 0) parsed.profile_index = clamp_profile(atoi(value));
-        else if (strcmp(key, "band") == 0) parsed.band_index = clamp_band(atoi(value));
-        else if (strcmp(key, "skip_tx1") == 0) parsed.skip_tx1 = atoi(value) != 0;
-        else if (strcmp(key, "max_retry") == 0) {
+        if (strcmp(key, "callsign") == 0) {
+            if (!copy_upper_checked(parsed.callsign, sizeof(parsed.callsign), value)) return false;
+        } else if (strcmp(key, "grid") == 0) {
+            if (!copy_upper_checked(parsed.grid, sizeof(parsed.grid), value)) return false;
+        } else if (strcmp(key, "profile") == 0) {
+            parsed.profile_index = clamp_profile(atoi(value));
+        } else if (strcmp(key, "band") == 0) {
+            parsed.band_index = clamp_band(atoi(value));
+        } else if (strcmp(key, "skip_tx1") == 0) {
+            parsed.skip_tx1 = atoi(value) != 0;
+        } else if (strcmp(key, "max_retry") == 0) {
             int parsed_value = atoi(value);
             parsed.max_retry = parsed_value < 0 ? 0 : parsed_value;
         }
@@ -69,10 +107,14 @@ bool config_service_serialize(const ConfigService *config, char *out, size_t out
 
     int used = snprintf(out, out_size,
                         "# MiniFT8-V3 station.txt\n"
+                        "callsign=%s\n"
+                        "grid=%s\n"
                         "profile=%d\n"
                         "band=%d\n"
                         "skip_tx1=%d\n"
                         "max_retry=%d\n",
+                        config->callsign,
+                        config->grid,
                         config->profile_index,
                         config->band_index,
                         config->skip_tx1 ? 1 : 0,
