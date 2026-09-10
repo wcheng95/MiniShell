@@ -9,20 +9,22 @@ backend       Linux
 presentation  ADV when UI is involved
 ```
 
-Stay on Linux until a genuine embedded-backend dependency must be exercised. MiniFT8-V2 remains the behavioral/golden reference; V2 structure is not copied wholesale.
+Stay on Linux until a genuine embedded-backend dependency must be exercised. MiniFT8-V2 remains the behavioral/golden reference for preserved behavior; V2 structure is not copied wholesale.
 
 ## Current priority
 
-The **decode-RX milestone is complete through RX-7**. The current major block is **AutoSeq (AS)**.
+The **decode-RX milestone is complete through RX-7** and the **structural AutoSeq port is complete through AS-8**.
 
-AutoSeq is a boundary/ownership port first. Preserve the current MiniFT8-V2 AutoSeq behavior pinned at:
+The AutoSeq port used MiniFT8-V2 behavior pinned at:
 
 ```text
 wcheng95/Mini-FT8
 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
 ```
 
-Change data representation and ownership without redesigning scheduling/QSO behavior. `next_tx` is intentionally derived from QSO state rather than stored independently. See `as-plan.md`, `as-boundary-audit.md`, `as-1-boundaries.md`, `as-2-auto-seq-core.md`, `as-3-cq-t-screen.md`, `as-4-addressed-progression.md`, `as-5-queue-lifecycle.md`, `as-6-special-behavior.md`, and `as-7-tx-lifecycle.md`.
+AS-8 closes equivalence and records the deliberate V3 differences. `next_tx` is intentionally derived from QSO state rather than stored independently, and CQ FD intentionally begins with the Field Day exchange at TX2. See `as-plan.md`, `as-boundary-audit.md`, `as-1-boundaries.md`, `as-2-auto-seq-core.md`, `as-3-cq-t-screen.md`, `as-4-addressed-progression.md`, `as-5-queue-lifecycle.md`, `as-6-special-behavior.md`, `as-7-tx-lifecycle.md`, and `as-8-equivalence.md`.
+
+After AS-8, AutoSeq behavior changes are no longer part of the structural port. Introduce each change separately with an explicit old behavior, reason, new invariant, tests, and platform/RAM/timing evidence where relevant.
 
 Production RX tuning has intentionally advanced beyond the original RX-1C/V2-compatible monitor baseline. The current default is `time_osr=2, freq_osr=2`; `2x1` remains the low-memory/reference fallback. See `rx-tuning.md` for measurements and RAM policy.
 
@@ -103,10 +105,10 @@ AS-4        COMPLETE — automatic addressed-to-me RX progression
 AS-5        COMPLETE — queue drop/rotate, inactive parking/reactivation boundary
 AS-6        COMPLETE — CQ/FreeText/Field Day/logging eligibility semantics
 AS-7        COMPLETE — semantic TxIntent + UTC slot/parity + simulated TX completion
-AS-8        NEXT — V2-equivalence closure on Linux + ADV
+AS-8        COMPLETE — pinned V2 equivalence closure, heap guard, Linux/ADV regression gate
 ```
 
-RX-2's pending manual pc-1 test does not block the structural sequence because its pinned Linux reference is green.
+RX-2's pending manual pc-1 test does not invalidate the completed structural sequence because its pinned Linux reference remains green.
 
 ## Locked RX ownership
 
@@ -151,7 +153,7 @@ auto_seq
         `--> TxIntent/policy events -> app_controller -> TX lifecycle / future logging
 ```
 
-`auto_seq` must not call MiniShell, `Ft8Engine`, `Ft8HashStore`, UI code, filesystem/logging code, Audio, Control, or platform APIs. It uses fixed-size C data and no AutoSeq heap allocation.
+`auto_seq` must not call MiniShell, `Ft8Engine`, `Ft8HashStore`, UI code, filesystem/logging code, Audio, Control, or platform APIs. It uses fixed-size C data and no AutoSeq heap allocation. AS-8 makes the no-heap rule mechanical in `tests/ft8_platform_boundary.py`.
 
 AS-2 removed the prototype `qso_scheduler`; `AppController` now embeds the sole `AutoSeq` runtime owner. Persisted settings remain owned by `ConfigService` and are copied into AutoSeq at initialization/update time.
 
@@ -292,6 +294,28 @@ Runtime Beacon OFF/EVEN/ODD is controller lifecycle state. On matching parity, a
 
 `--rx-slot` deterministic WAV runs disable wall-clock TX stepping so real UTC boundaries cannot alter fixture queue state. Logging eligibility is captured at TX start but is not falsely acknowledged; persistent ADIF/Cabrillo serialization remains a separate future owner. See `as-7-tx-lifecycle.md`.
 
+## AS-8 equivalence closure
+
+AS-8 closes the structural AutoSeq port against the pinned V2 source and host-scenario behavior set. It deliberately introduces no new production AutoSeq policy.
+
+`tests/ft8_auto_seq_as8_test.c` explicitly covers the historical behavior families that are most useful as regression anchors:
+
+```text
+ordinary QSO progression
+REPORT + plain TX2 deadlock repair
+inactive REPORT reactivation
+unknown TX3/TX4/TX5 reincarnation guards
+FreeText one-shot priority/parity
+Field Day progression and TX4/TX5 log eligibility
+late Field Day signoff/reentry without duplicate logging
+```
+
+The same pure suite is required by both the Linux and ADV CI gates. The ADV gate also cross-builds the actual ESP32-S3 production firmware. The production Linux `kfs16b12k.wav` integration remains the end-to-end 16-decode / 8-CQ / T-page 6+2 proof, while the established physical ADV run remains the exact 16-decode hardware anchor.
+
+AS-8 also enforces the AutoSeq no-heap boundary mechanically. The platform-boundary test rejects allocator calls inside `apps/ft8/src/auto_seq/`.
+
+Intentional differences from pinned V2 are recorded in `as-8-equivalence.md`; most notably, CQ FD always starts at TX2 in V3, and `next_tx` is derived from state rather than stored as mutable state. No accidental production behavior difference requiring an AutoSeq policy change was found during closure.
+
 ## Locked data/timing contracts
 
 MiniShell transport:
@@ -366,7 +390,7 @@ largest block    53.0 KiB
 app allocation  228.5 KiB
 ```
 
-These are the established 2x2 RX runtime measurements, not an AS-7-specific hardware heap measurement.
+These are the established 2x2 RX runtime measurements, not an AS-8-specific hardware heap measurement.
 
 AS-3 reuses all 16 decoded messages as a production integration fixture. Selecting all 16 queues exactly the eight factual CQs, which render on the T UIScreen as six entries on page 1 and two on page 2.
 
@@ -380,7 +404,7 @@ W1ABC K9XYZ RR73  -> ignored when no existing context
 
 A two-slot `FN42` then `-12` sequence advances one existing K9XYZ context and leaves exactly one K9XYZ row on the T screen.
 
-AS-5 extends those production proofs with queue rotation/drop and inactive reactivation. AS-7 preserves deterministic fixture state by disabling wall-clock simulated TX whenever `--rx-slot` is supplied.
+AS-5 extends those production proofs with queue rotation/drop and inactive reactivation. AS-7 preserves deterministic fixture state by disabling wall-clock simulated TX whenever `--rx-slot` is supplied. AS-8 retains those integrated proofs and adds explicit equivalence regression coverage in both Linux and ADV gates.
 
 ## RX-6 proof
 
@@ -407,7 +431,7 @@ The RX-7 golden workflow passes through the real MiniShell runtime and productio
 
 1. Stream raw audio; retain the waterfall; retain full-slot PCM only by explicit exception.
 2. Preserve the proven 6 kHz FT8-engine boundary during cleanup.
-3. Preserve V2 algorithms/behavior unless a separately measured change is intended.
+3. Preserve V2 algorithms/behavior unless a separately measured change is intended or an intentional V3 difference is explicitly recorded.
 4. Exact payload bytes are authoritative protocol-message identity.
 5. Protocol type is first-class; typed fields are authoritative and canonical text is derived convenience.
 6. `Ft8HashStore` is explicit per-engine state, not global, AutoSeq, or MiniShell state.
@@ -417,7 +441,7 @@ The RX-7 golden workflow passes through the real MiniShell runtime and productio
 10. `app_controller` remains the sole production coordinator.
 11. Repeated bounded state such as AutoSeq flags, active-QSO metadata, hash metadata, and candidate flags should use narrow fields, masks, or bitsets when the RAM saving is material; compactness must not obscure correctness or timing-sensitive behavior.
 12. AutoSeq must copy QSO-lifetime facts from `RxMessage`; it must never retain pointers into an `RxBatch` owned by RX state.
-13. During AS-1..AS-8, V2 AutoSeq behavior is frozen as the oracle; improvements are deferred and introduced one measured change at a time after equivalence.
+13. AS-1..AS-8 used pinned V2 AutoSeq behavior as the oracle except for explicitly documented V3 differences; post-port improvements must now be introduced one measured change at a time.
 14. Normal-QSO `next_tx` is derived from AutoSeq state rather than maintained as duplicated mutable state.
 15. UI selection remains an absolute `RxMessage` index; QSO policy belongs in `app_controller`/`auto_seq`, never in `ui_shell`.
 16. Ordinary addressed-message stage classification is factual `RxResultBuilder` output; `app_controller` must not recover TX1..TX5 meaning by parsing display strings.
@@ -428,6 +452,7 @@ The RX-7 golden workflow passes through the real MiniShell runtime and productio
 21. Runtime slot timing and Beacon OFF/EVEN/ODD belong to the controller TX lifecycle, not AutoSeq or persisted station configuration.
 22. Clock discontinuities must never cause catch-up TX; first observation and missed/backward/large-jump slots only re-anchor scheduling state.
 23. Logging eligibility is captured at TX start and acknowledged only after a real logging owner reports successful persistence.
+24. AutoSeq remains heap-free; CI rejects direct allocator calls inside the AutoSeq module.
 
 ## Canonical records
 
@@ -463,10 +488,11 @@ as-4-addressed-progression.md
 as-5-queue-lifecycle.md
 as-6-special-behavior.md
 as-7-tx-lifecycle.md
+as-8-equivalence.md
 ```
 
 ## Next
 
-Start **AS-8: V2-equivalence closure**.
+The structural AutoSeq port is closed. Do not invent an AS-9 merely to continue the sequence.
 
-AS-8 should close the structural AutoSeq port rather than add new behavior: map the pinned V2 host scenarios to V3 tests, verify the real multi-CQ and addressed-message fixtures, verify the same queue/state behavior on Linux and ADV, confirm AutoSeq remains heap-free/bounded, and document every intentional behavioral difference. Physical Audio TX, CAT/Control, RF transmission, and persistent ADIF/Cabrillo writers remain downstream work unless AS-8 reveals a boundary defect that must be corrected first.
+The next MiniFT8 block should be selected explicitly from downstream work or a deliberate post-port behavior improvement. Physical Audio TX, CAT/Control, RF transmission, and persistent ADIF/Cabrillo writers remain downstream. Any AutoSeq improvement should follow the post-port measurement rule in `as-plan.md` rather than modifying the closed V2-equivalence baseline silently.
