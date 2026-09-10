@@ -105,14 +105,15 @@ NuttX               native loadable mechanism where practical
 
 The ADV static registry remains available during transition/testing, but runtime loading is now an active MiniShell architecture target.
 
-External application search order on ADV is:
+The established ADV application resolution order is:
 
 ```text
-1. /flash/<app>.elf
-2. /sd/<app>.elf
+1. compiled-in application
+2. /flash/<app>.elf
+3. /sd/<app>.elf
 ```
 
-The same ELF may live in either location; when both copies exist, `/flash` wins. Therefore both of these are valid Keyer installations:
+Thus external discovery searches `/flash` before `/sd`. The same ELF may live in either external location; when both copies exist, `/flash` wins. Both of these are valid Keyer installations:
 
 ```text
 /flash/keyer.elf
@@ -123,7 +124,7 @@ The source-level application contract remains MiniShell public API plus the appl
 
 External loading does not make Keyer platform-aware. The same Keyer source must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or ELF-loader interfaces.
 
-External-location precedence is fixed as `/flash` then `/sd`. Any precedence between a compiled-in application and an external application of the same name remains a separate loader-design decision.
+The resolution order is a MiniShell runtime policy and does not leak into application source.
 
 A formal cross-release binary ABI is still intentionally deferred. During this early phase an external application may need to be rebuilt for the matching MiniShell API generation.
 
