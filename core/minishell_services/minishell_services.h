@@ -62,8 +62,6 @@ typedef struct {
                                  char *out_name, uint32_t name_size,
                                  uint32_t *out_type, uint32_t *out_has_entry);
     mini_result_t (*fs_dir_close)(void *ctx, minishell_backend_dir_t dir);
-    mini_result_t (*fs_space)(void *ctx, const char *path,
-                              uint64_t *out_total_bytes, uint64_t *out_free_bytes);
 
     /* Time/location baseline. */
     uint64_t (*monotonic_us)(void *ctx);
