@@ -1,6 +1,6 @@
 # MiniFT8-V3 AS-6 — CQ, FreeText, Field Day, and logging eligibility
 
-Status: **IMPLEMENTED — awaiting final branch CI before merge**
+Status: **COMPLETE**
 
 AS-6 ports the remaining special AutoSeq semantics needed before a TX lifecycle exists. It intentionally does **not** add physical TX, Audio TX, CAT/Control, slot execution, or production `auto_seq_tick()` wiring.
 
@@ -249,4 +249,4 @@ CAT/Control
 physical RF transmission
 ```
 
-AS-7 should consume the semantics established here rather than moving scheduling or platform work back into AutoSeq.
+AS-7 consumes these semantics without moving scheduling or platform work back into AutoSeq.
