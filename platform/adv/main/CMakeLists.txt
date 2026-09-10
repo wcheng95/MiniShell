@@ -80,6 +80,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_keyboard.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_memory.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_time_location.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_wav.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_usbmsc.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_apps.c"
         "${CMAKE_CURRENT_LIST_DIR}/../platform_info.c"
