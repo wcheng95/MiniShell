@@ -11,9 +11,9 @@
 #include <unistd.h>
 
 #include "driver/spi_master.h"
-#include "esp_littlefs.h"
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
+#include "wear_levelling.h"
 
 #include "adv_internal.h"
 
@@ -45,6 +45,7 @@ typedef struct {
 } adv_dir_handle_t;
 
 static bool s_flash_mounted;
+static wl_handle_t s_flash_wl_handle = WL_INVALID_HANDLE;
 static bool s_sd_mounted;
 static bool s_sd_bus_initialized;
 static sdmmc_card_t *s_sd_card;
@@ -466,26 +467,33 @@ static void sd_try_mount(void)
     s_sd_mounted = true;
 }
 
+static void flash_shutdown(void)
+{
+    if (!s_flash_mounted) return;
+    (void)esp_vfs_fat_spiflash_unmount_rw_wl(ADV_FLASH_PATH, s_flash_wl_handle);
+    s_flash_wl_handle = WL_INVALID_HANDLE;
+    s_flash_mounted = false;
+}
+
 int adv_filesystem_prepare(void)
 {
-    esp_vfs_littlefs_conf_t config = {
-        .base_path = ADV_FLASH_PATH,
-        .partition_label = ADV_FLASH_LABEL,
+    esp_vfs_fat_mount_config_t config = {
         .format_if_mount_failed = true,
-        .dont_mount = false,
-        .grow_on_mount = true,
+        .max_files = 8,
+        .allocation_unit_size = 4096,
     };
 
-    esp_err_t error = esp_vfs_littlefs_register(&config);
+    esp_err_t error = esp_vfs_fat_spiflash_mount_rw_wl(
+        ADV_FLASH_PATH, ADV_FLASH_LABEL, &config, &s_flash_wl_handle);
     if (error != ESP_OK) {
+        s_flash_wl_handle = WL_INVALID_HANDLE;
         s_flash_mounted = false;
         return -1;
     }
     s_flash_mounted = true;
 
     if (mkdir(ADV_FLASH_PATH "/minishell", 0777) != 0 && errno != EEXIST) {
-        (void)esp_vfs_littlefs_unregister(ADV_FLASH_LABEL);
-        s_flash_mounted = false;
+        flash_shutdown();
         return -1;
     }
 
@@ -498,10 +506,7 @@ int adv_filesystem_prepare(void)
 void adv_filesystem_shutdown(void)
 {
     sd_shutdown();
-    if (s_flash_mounted) {
-        (void)esp_vfs_littlefs_unregister(ADV_FLASH_LABEL);
-        s_flash_mounted = false;
-    }
+    flash_shutdown();
 }
 
 bool adv_filesystem_flash_ready(void)
