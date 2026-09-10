@@ -14,6 +14,7 @@ extern "C" {
 #define RX_RESULT_CALL_CAP FT8_PROTOCOL_CALL_CAP
 #define RX_RESULT_EXTRA_CAP FT8_PROTOCOL_EXTRA_CAP
 #define RX_RESULT_TEXT_CAP FT8_PROTOCOL_TEXT_CAP
+#define RX_RESULT_FD_EXCHANGE_CAP 12u
 #define RX_RESULT_REPORT_UNKNOWN (-99)
 
 typedef enum {
@@ -52,6 +53,7 @@ typedef struct {
     /* Factual application classification only; no reply/TX policy. */
     bool is_cq;
     bool is_to_me;
+    bool is_fd;
     RxQsoMessageKind qso_kind;
     int8_t report_db;
 
@@ -61,6 +63,7 @@ typedef struct {
     char call_to[RX_RESULT_CALL_CAP];
     char call_de[RX_RESULT_CALL_CAP];
     char extra[RX_RESULT_EXTRA_CAP];
+    char fd_exchange[RX_RESULT_FD_EXCHANGE_CAP];
 
     /* Factual RX measurements used later by AutoSeq/QSO policy. */
     int16_t offset_hz;
