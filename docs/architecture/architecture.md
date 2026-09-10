@@ -146,25 +146,29 @@ Packaging/loading is private:
 ```text
 Linux/Mint          .so + dlopen()/dlsym()/dlclose()
 Cardputer ADV V1    compiled-in registry
-Cardputer ADV next  runtime /sd/<app>.elf
+Cardputer ADV next  runtime external .elf
 Tab5/NuttX          loadable-app mechanism where practical
 ```
 
 ADV V1 intentionally used static composition to prove the backend and application boundary first. That historical decision remains valid, but runtime ELF is now an **active architecture milestone**, not a deferred possibility.
 
-The initial ADV external-app convention is:
+ADV external application discovery uses this fixed order:
 
 ```text
-/sd/<app>.elf
+1. /flash/<app>.elf
+2. /sd/<app>.elf
 ```
 
-The first field-usable target is:
+The same external ELF may be installed in either location. If both copies exist, the `/flash` copy wins. For Keyer, both are valid:
 
 ```text
+/flash/keyer.elf
 /sd/keyer.elf
 ```
 
-The loader is a resident/private MiniShell mechanism. ELF parsing, relocation, symbol resolution, execution-task setup, cleanup, and unloading must not leak into application source. Static ADV applications may remain during transition/testing. Precedence when the same application name exists both statically and externally is intentionally left for loader implementation rather than frozen here.
+`/sd/keyer.elf` is convenient during development and for removable distribution. Copying the exact same file to `/flash/keyer.elf` must make it runnable from flash without changing the application binary.
+
+The loader is a resident/private MiniShell mechanism. Path discovery, ELF parsing, relocation, symbol resolution, execution-task setup, cleanup, and unloading must not leak into application source. Static ADV applications may remain during transition/testing. External-location precedence is fixed as `/flash` then `/sd`; precedence when the same application name exists both statically and externally remains a separate loader-design decision.
 
 User-visible behavior remains `apps`, `run <app>`, direct `<app>`, and return to `M$>` where practical. Runtime application names are lowercase. A user should eventually be able to add a supported application file without rebuilding MiniShell.
 
@@ -326,7 +330,7 @@ The architecture also uses dedicated dependency checks so application source can
 Runtime ELF adds another boundary that must be tested independently:
 
 ```text
-discovery
+/flash then /sd discovery order
 load
 entry/start
 MiniShell API use
@@ -335,6 +339,8 @@ unload/release
 MiniShell-managed resource cleanup
 invalid/missing ELF failure paths
 ```
+
+Tests must prove that the same ELF works from either external location and that `/flash/<app>.elf` wins when both external copies exist.
 
 Those loader tests do not replace service/API tests. Service/unit tests remain more important than merely proving that one executable file can load.
 
@@ -372,8 +378,10 @@ The current architecture cleanup gate is preparing the next milestone:
 ```text
 ADV external runtime application loading
         |
-        v
-/sd/keyer.elf
+        +--> /flash/keyer.elf
+        `--> /sd/keyer.elf
+
+search order: /flash then /sd
 ```
 
 The purpose is not merely to prove ELF parsing. A field-usable Keyer should exercise the external-app lifecycle plus real MiniShell services strongly enough to validate the runtime architecture in practical use.
