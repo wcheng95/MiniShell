@@ -1,6 +1,6 @@
 # MiniFT8-V3 AutoSeq Plan
 
-Status: **IN PROGRESS — AS-0 through AS-2 complete; AS-3 next**
+Status: **IN PROGRESS — AS-0 through AS-3 complete; AS-4 next**
 
 AutoSeq is the current major MiniFT8-V3 block after decode RX. This phase is a structural port first: preserve the proven MiniFT8-V2 AutoSeq behavior while replacing old ownership, dynamic data structures, and cross-module coupling with explicit V3 boundaries.
 
@@ -186,7 +186,7 @@ RX SNR
 resolved/unresolved hash status
 ```
 
-AS-2 represents the subset needed by the pure state owner as a normalized `AutoSeqRxEvent`. `app_controller` maps the real `RxMessage` into that event in AS-3/AS-4.
+AS-2 represents the subset needed by the pure state owner as a normalized `AutoSeqRxEvent`. AS-3 now maps selected resolved CQs from real `RxMessage` data into that event; AS-4 will add automatic addressed-to-me mapping.
 
 AutoSeq copies only QSO-lifetime facts into its own context. It must never retain a pointer into `RxBatch`, because the RX batch belongs to the RX state and can be replaced by a later decode window.
 
@@ -217,7 +217,7 @@ retry state
 active/inactive marker where relevant
 ```
 
-The T UIScreen renders this view. It does not inspect internal queue storage. AS-2 supplies caller-owned snapshot copies; AS-3 connects them to `UiModel`.
+The T UIScreen renders this view. It does not inspect internal queue storage. AS-3 now projects caller-owned active snapshots into `UiModel.tx_lines[]`, with the model sized for the full 30-entry active queue and six visible entries per ADV page.
 
 ### TX intent
 
@@ -232,7 +232,7 @@ slot parity
 QSO identity/generation if needed
 ```
 
-`TxIntent` does not key a transmitter and does not contain platform-specific CAT/audio operations. Future TX code realizes it. This remains deferred beyond AS-2.
+`TxIntent` does not key a transmitter and does not contain platform-specific CAT/audio operations. Future TX code realizes it. This remains deferred.
 
 ### Policy events
 
@@ -270,18 +270,20 @@ ADV    16 decoded messages
 CQ      8 messages
 ```
 
-The first integrated queue test uses the eight real CQs. Selecting them one by one should create eight independent QSO contexts:
+AS-3 selects all 16 messages through the real RX UIScreen action path. Only the eight factual resolved CQs enter AutoSeq:
 
 ```text
-select CQ #1 -> queue 1
-select CQ #2 -> queue 2
-...
-select CQ #8 -> queue 8
+N4NJJ
+AG6X
+AE7KJ
+W7RPS
+N7REB
+WN0KS
+N5CH
+KQ4PUG
 ```
 
-All eight were received in the same slot, so they request the same opposite TX parity. Only one is eligible per matching TX slot; preserve V2 queue priority/rotation behavior rather than inventing new scheduling.
-
-With the ADV six-line T UIScreen, eight queued entries naturally exercise paging as 6 + 2.
+With Skip TX1 off, all eight start as `REPLYING` with `RPLY 0/3`. Their real T-screen projection is six entries on page 1 and two on page 2. All were received in the same slot, so they request the same opposite TX parity.
 
 No physical TX occurs during this test.
 
@@ -341,27 +343,32 @@ Pure unit tests cover state progression, retry/inactive/reactivation behavior, p
 
 ### AS-3 — CQ selection + real multi-QSO T screen
 
-Status: **NEXT**
+Status: **COMPLETE**
 
 Purpose: connect the proven RX result boundary to AutoSeq manually, still with no TX.
 
-Work:
+Completed work:
 
 ```text
 1..6 on RX -> absolute APP_ACTION_SELECT_RX_MESSAGE
-app_controller validates selected RxMessage
-CQ selection -> AutoSeq V2-equivalent manual-touch behavior
+app_controller validates retained RxMessage
+selected resolved factual CQ -> AutoSeq V2-equivalent manual-touch behavior
+non-CQ selection remains selection-only
 AutoSeq QsoView -> UiModel TX lines
-T screen pages real queue
+T screen pages the real 30-entry-capable queue six rows at a time
 ```
 
-Golden integrated test:
+Golden integrated result:
 
 ```text
-kfs.wav -> 16 messages -> 8 CQ -> select all 8 -> queue=8 -> T pages 6+2
+kfs.wav -> 16 messages -> select all 16 -> 8 factual CQ -> queue=8 -> T pages 6+2
 ```
 
+See `as-3-cq-t-screen.md`.
+
 ### AS-4 — Automatic addressed-to-me progression
+
+Status: **NEXT**
 
 Purpose: feed completed RX batches into AutoSeq exactly where V2 automatically processes messages addressed to us.
 
