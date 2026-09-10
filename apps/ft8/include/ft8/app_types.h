@@ -59,7 +59,7 @@ typedef struct {
     uint8_t utc_second;
     uint8_t slot_counter; /* 0..14, rendered as 0..E. */
 
-    /* V -> Memory. Populated only while that read-only page is visible. */
+    /* Complete diagnostics snapshot; ui_shell decides which fields are visible. */
     bool memory_app_valid;
     uint64_t memory_app_allocated_bytes;
     uint32_t memory_app_allocation_count;
