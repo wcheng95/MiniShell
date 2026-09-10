@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "app_controller.h"
+#include "tx_lifecycle.h"
 
 /* Production UTC-driven observation. Missing UTC is a non-fatal no-TX state. */
 bool app_controller_step_tx(AppController *app, bool *out_model_changed);
