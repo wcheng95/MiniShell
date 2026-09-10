@@ -12,14 +12,12 @@
 #define FT8_CONFIG_FD_EXCHANGE_CAP 12u
 
 typedef uint8_t Ft8ConfigCqType;
-enum {
-    FT8_CONFIG_CQ = 0u,
-    FT8_CONFIG_CQ_SOTA,
-    FT8_CONFIG_CQ_POTA,
-    FT8_CONFIG_CQ_QRP,
-    FT8_CONFIG_CQ_FD,
-    FT8_CONFIG_CQ_FREETEXT
-};
+#define FT8_CONFIG_CQ          ((Ft8ConfigCqType)0u)
+#define FT8_CONFIG_CQ_SOTA     ((Ft8ConfigCqType)1u)
+#define FT8_CONFIG_CQ_POTA     ((Ft8ConfigCqType)2u)
+#define FT8_CONFIG_CQ_QRP      ((Ft8ConfigCqType)3u)
+#define FT8_CONFIG_CQ_FD       ((Ft8ConfigCqType)4u)
+#define FT8_CONFIG_CQ_FREETEXT ((Ft8ConfigCqType)5u)
 
 typedef struct {
     char callsign[FT8_CONFIG_CALLSIGN_CAP];
