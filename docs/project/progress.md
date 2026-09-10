@@ -6,7 +6,7 @@
 - Cardputer ADV is the second real MiniShell backend.
 - Linux runtime app discovery/loading uses `.so` modules.
 - ADV V1 proved the same application model with a compiled-in registry; runtime external `.elf` loading is now the active next packaging target.
-- ADV external application search order is `/flash/<app>.elf` first, then `/sd/<app>.elf`.
+- ADV application resolution is: compiled-in first, then `/flash/<app>.elf`, then `/sd/<app>.elf`.
 - The first planned field-usable ADV external application is `keyer.elf`, valid as either `/flash/keyer.elf` or `/sd/keyer.elf`.
 - System, Console, Memory, Filesystem, Time/Location, Display, Input, and Audio public contracts have automated coverage. Digital I/O is not yet public and will be driven by the Keyer requirement.
 - MiniFT8 is runtime app `ft8` and is FT8-only. Future Keyer/FT4/RTTY/JS8 functionality remains separate applications rather than an FT8-internal protocol selector.
@@ -29,7 +29,7 @@ keyer.elf
     |-- /flash/keyer.elf
     `-- /sd/keyer.elf
 
-search order: /flash then /sd
+resolution: compiled-in -> /flash -> /sd
 ```
 
 C4 records the ownership split already agreed in design:
@@ -52,7 +52,7 @@ Current status:
 C0  application dependency/no-side-talk enforcement   COMPLETE
 C1  opaque AppController                              COMPLETE
 C2  ft8_main lifecycle/wiring only                    COMPLETE
-C3  ADV external .elf + /flash -> /sd search order   COMPLETE
+C3  ADV ELF + compiled-in -> /flash -> /sd order     COMPLETE
 C4  configuration ownership/naming                    NEXT
 ```
 
@@ -110,7 +110,7 @@ foreground app lifecycle/return to M$>
 platform-dependency boundary
 ```
 
-ADV V1 used static application composition deliberately. C3 now makes runtime external `.elf` loading the active post-V1 direction while retaining static composition as a transition/testing mechanism. External discovery is `/flash` first, then `/sd`.
+ADV V1 used static application composition deliberately. C3 now adds runtime external `.elf` loading while preserving compiled-in applications as the first resolution tier. For external applications, `/flash` is searched before `/sd`.
 
 ## ADV current storage/runtime baseline
 
