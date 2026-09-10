@@ -26,12 +26,12 @@ MiniShell may be thin or thick depending on the target. The application-facing A
 
 ## 3. Responsibilities
 
-MiniShell has two primary responsibilities:
+MiniShell owns two major domains:
 
-1. **Platform adaptation** — logical services such as memory, storage, time/location, display, input, and audio, with later services such as Digital I/O, control, or networking added only when justified by application requirements.
-2. **Application runtime** — discovery, foreground lifecycle, cleanup, and where practical load/unload without rebuilding MiniShell.
+1. **Platform adaptation** — memory, storage, time/location, display, input, audio, and later Digital I/O/control/networking only when application requirements justify them.
+2. **Application runtime** — discovery, foreground lifecycle, cleanup, and where practical runtime load/unload without rebuilding MiniShell.
 
-A third cross-cutting responsibility is **resource policy**: MiniShell defines the resource domain applications may consume and enforces it through the owning services.
+MiniShell also owns application-visible resource policy.
 
 ## 4. Dependency direction
 
@@ -51,22 +51,21 @@ private backend hooks
 platform implementation
 ```
 
-No application-visible handle is a POSIX descriptor, `DIR *`, NuttX object, ESP-IDF object, or board-driver object.
+No public handle is a POSIX, NuttX, ESP-IDF, FreeRTOS, or board-driver object.
 
-The private backend boundary may evolve freely. The public API is also still under active architectural development: backward source and binary compatibility are **not yet promised**. In-tree applications are rebuilt when the API changes. External applications may likewise need to be rebuilt for the matching MiniShell API generation. A formal binary ABI may be introduced later if cross-release compatibility becomes a real distribution requirement.
+The public API is still under architectural development. Backward source/binary compatibility is not yet promised; external applications may need rebuilding for a matching MiniShell API generation. A formal ABI may be introduced later when cross-release compatibility becomes a real requirement.
 
 ## 5. Current composition
 
-The active Linux build is composed from:
+Reference Linux composition:
 
 ```text
-platform/linux/main.c            Linux C entry point only
-core/minishell_runtime.c         portable MiniShell lifecycle/startup
-core/shell.c                     resident shell parsing/control plane
+platform/linux/main.c            platform entry
+core/minishell_runtime.c         portable runtime lifecycle
+core/shell.c                     resident shell/control plane
 core/app_manager.c               foreground app lifecycle
 core/minishell_services/*        portable service semantics
-platform/linux/linux_console.c   resident stdin/stdout console provider
-platform/linux/*                 Linux private backend/providers
+platform/linux/*                 private Linux providers/backend
 include/minishell/api.h          public application API
 apps/*                           portable/domain applications
 ```
@@ -77,19 +76,11 @@ The portable runtime entry is:
 int minishell_run(void);
 ```
 
-A platform-specific entry point calls that function. Linux uses ordinary C `main()`. Cardputer ADV uses ESP-IDF `app_main()` below the same portable runtime boundary.
-
-The active ADV backend lives under:
-
-```text
-platform/adv/
-```
-
-It already provides a real second backend with Cardputer display/keyboard, memory, filesystem, time/location, and the current ADV application-composition path. The earlier Tab5/ESP-IDF implementation path is preserved in branch `archive/tab5-legacy` as historical reference.
+Linux calls it from ordinary `main()`. Cardputer ADV calls the same runtime from ESP-IDF `app_main()` below the platform boundary.
 
 ## 6. Ownership
 
-Application-visible ownership is explicit:
+Application-visible resource ownership is explicit:
 
 ```text
 App lifecycle       app_manager
@@ -100,29 +91,12 @@ UTC/location        Time/Location service
 Text display        Display service
 Logical key queue   Input service
 Audio streams       Audio service
-App packaging/load  private platform mechanism behind app_manager
+App packaging/load  private platform/runtime mechanism
 ```
 
-Resident-shell console ownership is separate and private:
+A backend provides primitives; it does not redefine application semantics.
 
-```text
-portable shell
-    -> minishell_platform_console_write/read_line
-    -> platform-private console provider
-
-Linux
-    -> stdin/stdout
-
-ADV
-    -> Cardputer display/keyboard shell interaction
-       plus backend-owned diagnostic/USB paths where available
-```
-
-This console interface is **not** a public application service. Applications continue to use MiniShell Display, Input, System, Console, and other public APIs according to intent.
-
-A backend/provider supplies primitives; it does not redefine application semantics.
-
-On Linux the OS physically owns files, memory, terminal devices, etc. MiniShell remains the single application-facing gateway. On a thick embedded target MiniShell may also directly own the hardware driver.
+The resident shell console is a separate private boundary. Applications use public System/Console/Display/Input APIs according to intent rather than the private shell console.
 
 ## 7. Application lifecycle and runtime packaging
 
@@ -141,18 +115,16 @@ shell
   -> shell
 ```
 
-Packaging/loading is private:
+Packaging is backend-specific:
 
 ```text
 Linux/Mint          .so + dlopen()/dlsym()/dlclose()
 Cardputer ADV V1    compiled-in registry
 Cardputer ADV next  runtime external .elf
-Tab5/NuttX          loadable-app mechanism where practical
+Tab5/NuttX          native loadable mechanism where practical
 ```
 
-ADV V1 intentionally used static composition to prove the backend and application boundary first. That historical decision remains valid, but runtime ELF is now an **active architecture milestone**, not a deferred possibility.
-
-The established ADV application resolution order is:
+ADV application resolution is fixed:
 
 ```text
 1. compiled-in application
@@ -160,22 +132,22 @@ The established ADV application resolution order is:
 3. /sd/<app>.elf
 ```
 
-For external applications, `/flash` is searched before `/sd`. The same external ELF may be installed in either location. If both external copies exist, the `/flash` copy wins. For Keyer, both are valid:
+The same external ELF must run unchanged from `/flash` or `/sd`. If both external copies exist, `/flash` wins.
+
+For Keyer:
 
 ```text
 /flash/keyer.elf
 /sd/keyer.elf
 ```
 
-`/sd/keyer.elf` is convenient during development and for removable distribution. Copying the exact same file to `/flash/keyer.elf` must make it runnable from flash without changing the application binary.
+are both valid installations.
 
-The loader is a resident/private MiniShell mechanism. Path discovery, ELF parsing, relocation, symbol resolution, execution-task setup, cleanup, and unloading must not leak into application source. The resolution order above is a MiniShell runtime rule, not application logic.
-
-User-visible behavior remains `apps`, `run <app>`, direct `<app>`, and return to `M$>` where practical. Runtime application names are lowercase. A user should eventually be able to add a supported application file without rebuilding MiniShell.
+Loader parsing, relocation, symbol resolution, execution-task setup, cleanup, and unloading remain resident/private. The application source does not know its container or installation location.
 
 ## 8. Current public services
 
-The current public API exposes:
+Current public API:
 
 ```text
 App
@@ -189,27 +161,13 @@ Input
 Audio
 ```
 
-`MINISHELL_API_VERSION` identifies the API generation expected by the current source/build. `struct_size`, capabilities, validity bits, fixed-width types, and opaque handles remain useful design mechanisms, but they are **not a backward-compatibility promise** during this phase.
+Digital I/O and Control are not yet public services. Keyer is expected to provide the first concrete Digital I/O requirement.
 
-Notable application-driven behavior includes:
-
-```text
-Filesystem     dir_open / dir_read / dir_close
-Filesystem     space(path)
-Filesystem     rename replaces an existing regular-file destination
-Display text   optional write_at_attr(..., MINI_TEXT_ATTR_INVERSE)
-Audio          format-described independent RX/TX streams
-```
-
-The Audio API transports ordered frames and does not assign application meaning such as stereo versus I/Q to channels. The current Linux WAV RX provider validates and streams exact-format PCM through the private provider boundary.
-
-API changes remain justified by real application requirements, but incompatible changes are allowed when they improve clarity, ownership, or portability. Digital I/O and Control are not yet public MiniShell services; Keyer is expected to provide the first concrete requirement for Digital I/O.
-
-Canonical public contracts live under `docs/api/`.
+Public contracts live under `docs/api/`.
 
 ## 9. Resource policy
 
-Linux intentionally does not expose the PC's unconstrained resources as MiniShell resources.
+Linux intentionally exposes a bounded MiniShell resource domain rather than raw host resources.
 
 Default Linux policy:
 
@@ -218,70 +176,60 @@ Memory budget    8 MiB
 Storage budget  64 MiB
 ```
 
-The limits are configurable and enforced. `free` and `df` report this MiniShell-visible domain.
+`free` and `df` report MiniShell-visible resources.
 
-This lets Linux remain a powerful development host while applications are exercised under embedded-like constraints.
-
-## 10. Filesystem model
+## 10. Filesystem and configuration model
 
 Applications use one logical namespace:
 
 ```text
 /
-|-- sd
-`-- flash
+|-- flash
+`-- sd
 ```
 
 Typical paths:
 
 ```text
-/sd/log.txt
 /flash/config.txt
-/flash/ft8/station.txt
+/flash/keyer/setting.txt
+/flash/ft8/station.txt      # current MiniFT8 implementation
+/sd/keyer.elf
 ```
 
-Linux maps the namespace underneath a private host directory, by default `~/.local/share/minishell/fs`. Applications never see the host path.
+MiniShell Filesystem owns path/handle/storage semantics. Applications may own the meaning and policy of files they create.
 
-Filesystem service owns normalization, logical file/directory handles, lifecycle cleanup, namespace semantics, replacement rename semantics, and quota behavior. The backend supplies native filesystem primitives.
+Canonical configuration ownership is defined in `configuration.md`:
 
-A domain application may own file *policy* without owning the filesystem. For example, MiniFT8's `storage_service` owns its application file naming and temporary-file save sequence, while all file handles and namespace semantics remain owned by MiniShell Filesystem.
+```text
+/flash/config.txt
+    MiniShell-owned resident/platform configuration
 
-The configuration-ownership rule is defined separately during architecture cleanup: `/flash/config.txt` is reserved for MiniShell-owned resident/platform configuration, while `/flash/<app>/setting.txt` is reserved for application-owned settings. Existing application filenames such as MiniFT8 `station.txt` may migrate separately and are not automatically renamed by this architecture rule.
+/flash/<app>/setting.txt
+    application-owned configuration and deployment settings
+```
+
+Hardware-specific application settings are valid. For example, Keyer may own numeric GPIO assignments and ask MiniShell Digital I/O to configure/read/write those generic lines. MiniShell must not know that a line means `dit`, `dah`, paddle, or KeyOut.
+
+This does not imply a generic public MiniShell Config service. MiniShell may parse its own system configuration internally; applications may use Filesystem and application-local configuration modules.
+
+MiniFT8 currently uses `/flash/ft8/station.txt`. The canonical eventual application-settings path is `/flash/ft8/setting.txt`, but that migration is a separate MiniFT8 task and is not part of C4.
 
 ## 11. Time model
 
 Time/Location owns monotonic and UTC semantics.
 
-Linux startup reads host UTC and anchors MiniShell UTC to monotonic time. `date` may re-anchor MiniShell UTC for the current session without changing Linux system time or persisting an offset. A backend with a writable RTC may persist an equivalent UTC correction.
+Linux anchors MiniShell UTC from host UTC and advances it from monotonic time. Manual MiniShell date correction does not modify host system time. Backends with RTC/GPS may implement equivalent policy below MiniShell.
 
 Monotonic time is never changed by UTC correction.
 
-Configured default location is MiniShell-owned persistent state; live location may later come from GPS or another provider.
-
 ## 12. Display and input
 
-Display and Input remain separate logical services.
+Display and Input are separate public services.
 
-Linux maps text Display calls to terminal output/ANSI behavior and normalizes terminal bytes into logical Input events. Applications never embed terminal escape sequences.
+Linux maps logical text display operations to terminal behavior and normalizes terminal input bytes into MiniShell input events. Applications never embed terminal escape sequences.
 
-Examples:
-
-```text
-nano cursor
-    -> MINI_TEXT_ATTR_INVERSE
-    -> Linux reverse video below MiniShell
-
-MiniFT8 UiFrame / UiInput
-    -> MiniShell Display / Input
-    -> Linux terminal
-    -> ADV Cardputer display/keyboard
-```
-
-The Linux terminal backend owns ANSI/CSI and UTF-8 byte-stream reconstruction, including split-read state and the standalone-Escape ambiguity policy. Those details remain below the Input API.
-
-The resident shell's line-oriented console is a different private boundary. On Linux it deliberately disables stdio input buffering so shell reads do not consume bytes intended for a foreground application's raw Input service.
-
-MiniFT8's application UI therefore has no ncurses/Linux dependency.
+MiniFT8 uses its own UI model/frame types above MiniShell; Cardputer ADV and Linux render the same application semantics through different backends/presentations.
 
 ## 13. Resident shell versus applications
 
@@ -302,99 +250,77 @@ ft8
 hello cat cp date df free ls mkdir mv nano rm rmdir
 ```
 
-Keyer is the next planned domain application and the first planned field-usable ADV runtime ELF. Future protocol applications such as `ft4`, `rtty`, and `js8` are separate applications rather than protocol modes inside `ft8`.
+Keyer is the next planned domain application and the first field-usable ADV runtime ELF.
 
-`put/get`, `suspend`, `poweroff`, and similar operations are platform-dependent. They may exist on a target where useful and be absent elsewhere; no fake implementation is required.
+Platform-dependent bootstrap/system commands may exist where useful without requiring fake parity across every backend.
 
 ## 14. Mocks and simulation
 
-Mocks stay underneath MiniShell:
+Mocks stay below MiniShell:
 
 ```text
-MiniFT8 core
+application core
     |
 MiniShell API
     +-- Linux provider
-    +-- file-audio provider
-    +-- future QMX/live-radio provider
-    +-- simulated providers
+    +-- embedded provider
+    +-- file/simulated provider
 ```
 
-Mocks emulate service providers, not application-domain outcomes. Do not bypass the MiniFT8 decoder/scheduler with fake decoded QSOs when testing those modules.
+Mocks emulate resource providers, not application-domain outcomes.
 
 ## 15. Testing model
 
-Linux CTest/CI covers shell/app loading, portable service semantics and lifecycle, terminal Input, utility applications, filesystem behavior, resource policy, Audio/WAV transport, MiniFT8 UI/runtime behavior, and focused FT8 unit/reference tests.
+Linux CI is the reference regression gate. Service tests validate semantics independently; application tests validate public behavior; embedded builds/hardware validate backend-specific behavior.
 
-The architecture also uses dedicated dependency checks so application source cannot silently acquire platform dependencies or forbidden sibling-module coupling.
-
-Runtime ELF adds another boundary that must be tested independently:
+Runtime ELF adds focused tests for:
 
 ```text
-compiled-in > /flash > /sd resolution order
-load
-entry/start
-MiniShell API use
-return
-unload/release
-MiniShell-managed resource cleanup
+compiled-in > /flash > /sd resolution
+discovery/load
+MiniShell API call
+return/unload
+resource cleanup
 invalid/missing ELF failure paths
 ```
 
-Tests must prove that the same ELF works from either external location, that `/flash/<app>.elf` wins when both external copies exist, and that a compiled-in application wins over a same-name external copy. A non-colliding external test app should be used to prove the loader path itself.
+Use a non-colliding app such as `elfhello` when proving the external loader so a compiled-in application cannot mask loader execution.
 
-Those loader tests do not replace service/API tests. Service/unit tests remain more important than merely proving that one executable file can load.
+The architecture also uses platform-boundary and application dependency/no-side-talk checks.
 
-## 16. Module-size and internal-debt policy
+## 16. Small-module rule
 
-The architecture does not equate "one owner" with "one giant file." An owner may be implemented by several private helper modules while presenting one semantic service.
+One owner does not mean one giant file. An ownership domain may use several private helper modules while exposing one coherent responsibility.
 
-The H1-H5 architecture-audit debt is resolved. In particular:
+Split modules when responsibilities genuinely diverge; do not split only to meet a line-count target.
 
-```text
-Linux backend      split by responsibility
-portable core      no POSIX loader-result leakage
-Filesystem owner   private path/handle/quota helpers split out
-terminal input     stateful ANSI/CSI/UTF-8 parser isolated below Input
-resident console   stdin/stdout isolated below private backend boundary
-startup            platform entry point separated from portable runtime
-```
+## 17. Cross-platform baseline and next milestone
 
-Future debt should be recorded when discovered rather than allowed to blur ownership boundaries. See `../project/consistency-check.md` for the audit record.
-
-## 17. Cross-platform baseline and current milestone
-
-The Linux/ADV cross-backend presentation checkpoint is complete:
+The Linux/ADV MiniFT8 baseline is established:
 
 ```text
 Linux backend + DESKTOP presentation   PASS
 Linux backend + ADV presentation       PASS
 ADV backend   + ADV presentation       PASS
+MiniFT8 RX-7 production path           PASS on Linux
+ADV firmware build                     PASS
 ```
 
-MiniFT8 RX integration has advanced through RX-7 on Linux while preserving the platform boundary, and Cardputer ADV continues to pass the firmware build gate.
-
-The current architecture cleanup gate is preparing the next milestone:
+The pre-Keyer architecture cleanup is complete:
 
 ```text
-ADV application resolution
-    1. compiled-in
-    2. /flash/<app>.elf
-    3. /sd/<app>.elf
-
-first field external app:
-    keyer.elf
+C0 dependency/no-side-talk enforcement   COMPLETE
+C1 opaque AppController                  COMPLETE
+C2 lifecycle-only ft8_main               COMPLETE
+C3 runtime ELF direction/resolution      COMPLETE
+C4 configuration ownership/namespace     COMPLETE
 ```
 
-The purpose is not merely to prove ELF parsing. A field-usable Keyer should exercise the external-app lifecycle plus real MiniShell services strongly enough to validate the runtime architecture in practical use.
-
-Historical cross-backend evidence remains in `../project/adv-backend-plan.md`.
+The next work is Keyer plan review/finalization followed by runtime ELF and Digital I/O implementation.
 
 ## 18. Reference-development rule
 
-New portable behavior is normally developed on Linux first unless inherently target-specific. Linux establishes golden observable behavior for later ports.
-
-Embedded constraints remain design inputs even on Mint:
+New portable behavior is normally developed on Linux first unless inherently target-specific. Embedded constraints remain visible throughout:
 
 ```text
 bounded resources
@@ -405,4 +331,12 @@ controlled allocation
 no host-specific types in application code
 ```
 
-The ADV backend and MiniFT8 cross-platform baseline are already established. Architecture cleanup C0-C3 prepares the system for external applications; C4 finalizes configuration ownership/naming before Keyer/ELF implementation starts.
+See:
+
+```text
+design-principles.md
+configuration.md
+resident-vs-app.md
+../project/architecture-cleanup.md
+../keyer/README.md
+```
