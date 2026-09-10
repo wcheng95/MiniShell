@@ -48,6 +48,10 @@ typedef struct {
     char call_de[RX_RESULT_CALL_CAP];
     char extra[RX_RESULT_EXTRA_CAP];
 
+    /* Factual RX measurements used later by AutoSeq/QSO policy. */
+    int16_t offset_hz;
+    int8_t snr_db;
+
     Ft8Candidate candidate;
     int ldpc_errors;
     uint16_t crc_extracted;

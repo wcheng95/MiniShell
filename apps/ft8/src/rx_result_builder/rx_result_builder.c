@@ -168,6 +168,8 @@ static void copy_common(RxMessage *out, const Ft8ProtocolMessage *in)
     out->parse_status = in->parse_status;
     out->has_unresolved_hash = in->has_unresolved_hash;
     copy_text(out->canonical_text, sizeof(out->canonical_text), in->canonical_text);
+    out->offset_hz = in->offset_hz;
+    out->snr_db = in->snr_db;
     out->candidate = in->candidate;
     out->ldpc_errors = in->ldpc_errors;
     out->crc_extracted = in->crc_extracted;

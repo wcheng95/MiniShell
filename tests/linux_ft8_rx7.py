@@ -96,6 +96,11 @@ def main() -> int:
                 if re.search(rb"RX 20 [0-9]{2}:[0-9]{2}:[0-9]{2} 1/1 [0-9A-E]", plain) is None:
                     raise RuntimeError("locked ADV RX top line was not rendered")
 
+                # AS-1: line 1 resolves to absolute RX index 0 in app_controller.
+                # A rejected/stale action would terminate ft8 with application error.
+                os.write(master_fd, b"1")
+                transcript.extend(read_until(master_fd, b"CQ W1XYZ FN42", 3.0))
+
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
                 os.write(master_fd, b"exit\n")

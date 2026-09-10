@@ -13,7 +13,7 @@ Stay on Linux until a genuine embedded-backend dependency must be exercised. Min
 
 ## Current priority
 
-The **decode-RX milestone is complete through RX-7**. The next major block is now **AutoSeq (AS)**.
+The **decode-RX milestone is complete through RX-7**. The current major block is **AutoSeq (AS)**.
 
 AutoSeq is a boundary/ownership port first. Preserve the current MiniFT8-V2 AutoSeq behavior pinned at:
 
@@ -22,7 +22,7 @@ wcheng95/Mini-FT8
 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
 ```
 
-Change data representation and ownership without redesigning scheduling/QSO behavior. `next_tx` is intentionally derived from QSO state rather than stored independently. See `as-plan.md` and `as-boundary-audit.md`.
+Change data representation and ownership without redesigning scheduling/QSO behavior. `next_tx` is intentionally derived from QSO state rather than stored independently. See `as-plan.md`, `as-boundary-audit.md`, and `as-1-boundaries.md`.
 
 Production RX tuning has intentionally advanced beyond the original RX-1C/V2-compatible monitor baseline. The current default is `time_osr=2, freq_osr=2`; `2x1` remains the low-memory/reference fallback. See `rx-tuning.md` for measurements and RAM policy.
 
@@ -83,8 +83,8 @@ RX-6        COMPLETE — MiniShell Audio + Linux WAV integration
 RX-7        COMPLETE — decoded RX UI + ADV cross-build
 
 AS-0        COMPLETE — plan, V2 reference freeze, boundary/ownership audit
-AS-1        NEXT — complete station identity, factual SNR, RX selection boundary
-AS-2        PLANNED — pure compact AutoSeq structural port
+AS-1        COMPLETE — station identity, factual SNR/offset, absolute RX selection boundary
+AS-2        NEXT — pure compact AutoSeq structural port
 AS-3        PLANNED — CQ selection + real multi-QSO T screen
 AS-4        PLANNED — automatic addressed-to-me progression
 AS-5        PLANNED — retry/priority/inactive/reactivation/queue controls
@@ -172,6 +172,32 @@ The 720-sample slot-end remainder is discarded. A first partial slot after strea
 
 For AutoSeq/TX, preserve the V2 event rule: decode completion updates AutoSeq and produces a pending semantic intent; a later slot-boundary event decides execution; TX completion/tick advances retry/QSO scheduling. AutoSeq does not poll a clock or start TX itself.
 
+## AS-1 input boundary
+
+AS-1 makes the future AutoSeq input factual and self-contained:
+
+```text
+ConfigService
+    owns station callsign/grid
+
+Ft8Engine
+    owns V2-compatible SNR calculation and decoder-bin -> audio-Hz conversion
+
+RxResultBuilder
+    projects snr_db and offset_hz into RxMessage
+
+ui_shell
+    converts visible RX line selection to an absolute decoded-message index
+
+app_controller
+    validates the index against the retained RxBatch
+    stores index + batch generation only
+```
+
+A completed new RX batch invalidates the prior selection. AutoSeq must copy QSO-lifetime facts when AS-3 connects this boundary; it must never retain an `RxMessage *`.
+
+The pinned 1500 Hz CQ golden verifies `offset_hz == 1500`; SNR remains the V2-defined integer range `-30..99`. See `as-1-boundaries.md`.
+
 ## RX production proof
 
 The real `tests/kfs16b12k.wav` fixture is now a production cross-platform anchor at 2x2:
@@ -256,16 +282,13 @@ AutoSeq:
 ```text
 as-plan.md
 as-boundary-audit.md
+as-1-boundaries.md
 ```
 
 ## Next
 
-Start **AS-1** with three bounded boundary-completion tasks:
+Start **AS-2: pure compact AutoSeq structural port**.
 
-```text
-AS-1a  ConfigService owns station callsign/grid and app_controller injects callsign into RxResultBuilder
-AS-1b  factual RX SNR is carried into RxMessage; AutoSeq never estimates it
-AS-1c  RX 1..6 selection emits an absolute decoded-message AppAction resolved by app_controller
-```
+AS-2 introduces the real `auto_seq` module and removes the prototype `qso_scheduler` owner. It should establish the fixed 30-entry active/inactive storage, compact `QsoContext`, configuration boundary, state representation, and read-only queue/intent contracts while preserving the pinned V2 behavior model.
 
-No QSO state-machine code should be added until these input boundaries are explicit.
+Do not connect real RX selection, T-screen queue behavior, automatic `is_to_me` processing, TX execution, or logging I/O in AS-2. Those remain later stages so the state owner can first be tested as a pure module.

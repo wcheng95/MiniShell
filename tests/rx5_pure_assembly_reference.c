@@ -286,17 +286,21 @@ int main(int argc, char **argv)
         sink.batch.messages[0].protocol_type != FT8_PROTOCOL_STANDARD ||
         sink.batch.messages[0].parse_status != FT8_PROTOCOL_PARSE_OK ||
         !sink.batch.messages[0].is_cq || sink.batch.messages[0].is_to_me ||
+        sink.batch.messages[0].offset_hz != 1500 ||
+        sink.batch.messages[0].snr_db < -30 || sink.batch.messages[0].snr_db > 99 ||
         strcmp(sink.batch.messages[0].canonical_text, "CQ W1XYZ FN42") != 0 ||
         strcmp(sink.batch.messages[0].call_de, "W1XYZ") != 0 ||
         strcmp(sink.batch.messages[0].extra, "FN42") != 0)
         goto cleanup;
 
-    printf("RX5 slot=%lld blocks=%zu messages=%zu cq=%d to_me=%d text=\"%s\"\n",
+    printf("RX5 slot=%lld blocks=%zu messages=%zu cq=%d to_me=%d snr=%d offset=%d text=\"%s\"\n",
            (long long)sink.batch.slot_id,
            sink.block_count,
            sink.batch.message_count,
            sink.batch.messages[0].is_cq ? 1 : 0,
            sink.batch.messages[0].is_to_me ? 1 : 0,
+           (int)sink.batch.messages[0].snr_db,
+           (int)sink.batch.messages[0].offset_hz,
            sink.batch.messages[0].canonical_text);
     puts("rx5_pure_assembly_reference: PASS");
     rc = 0;

@@ -45,6 +45,19 @@ def main() -> int:
 
     try:
         with tempfile.TemporaryDirectory(prefix="minishell-ft8-") as root:
+            station = os.path.join(root, "flash", "ft8", "station.txt")
+            os.makedirs(os.path.dirname(station), exist_ok=True)
+            with open(station, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "# MiniFT8-V3 station.txt\n"
+                    "callsign=ag6aq\n"
+                    "grid=cm97\n"
+                    "profile=0\n"
+                    "band=3\n"
+                    "skip_tx1=0\n"
+                    "max_retry=3\n"
+                )
+
             env = os.environ.copy()
             env["MINISHELL_APP_DIR"] = app_dir
             env["MINISHELL_ROOT"] = root
@@ -72,10 +85,15 @@ def main() -> int:
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
-                station = os.path.join(root, "flash", "ft8", "station.txt")
                 with open(station, "r", encoding="utf-8") as handle:
                     saved = handle.read()
-                if "profile=0\n" not in saved or "band=3\n" not in saved or "skip_tx1=1\n" not in saved:
+                if (
+                    "callsign=AG6AQ\n" not in saved
+                    or "grid=CM97\n" not in saved
+                    or "profile=0\n" not in saved
+                    or "band=3\n" not in saved
+                    or "skip_tx1=1\n" not in saved
+                ):
                     raise RuntimeError(f"unexpected station.txt contents: {saved!r}")
                 if "mode=" in saved or "mode0_" in saved or "presentation=" in saved:
                     raise RuntimeError(f"unexpected persisted state: {saved!r}")
