@@ -26,8 +26,8 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
 bool app_controller_step_rx(AppController *app, bool *out_model_changed);
 bool app_controller_rx_active(const AppController *app);
 
-void app_controller_build_ui_model(const AppController *app, UiModel *model);
-void app_controller_build_memory_model(const AppController *app, UiModel *model);
+/* Build one complete application snapshot; presentation decides what is visible. */
+void app_controller_build_model(const AppController *app, UiModel *model);
 bool app_controller_apply_action(AppController *app, const AppAction *action);
 
 /* Controller implementation files opt in to the concrete private state. */
