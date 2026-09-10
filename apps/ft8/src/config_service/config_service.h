@@ -6,7 +6,12 @@
 
 #include "ft8/app_types.h"
 
+#define FT8_CONFIG_CALLSIGN_CAP 14u
+#define FT8_CONFIG_GRID_CAP 7u
+
 typedef struct {
+    char callsign[FT8_CONFIG_CALLSIGN_CAP];
+    char grid[FT8_CONFIG_GRID_CAP];
     bool skip_tx1;
     int max_retry;
     int profile_index;
