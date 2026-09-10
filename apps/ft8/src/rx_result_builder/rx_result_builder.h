@@ -14,6 +14,7 @@ extern "C" {
 #define RX_RESULT_CALL_CAP FT8_PROTOCOL_CALL_CAP
 #define RX_RESULT_EXTRA_CAP FT8_PROTOCOL_EXTRA_CAP
 #define RX_RESULT_TEXT_CAP FT8_PROTOCOL_TEXT_CAP
+#define RX_RESULT_REPORT_UNKNOWN (-99)
 
 typedef enum {
     RX_RESULT_OK = 0,
@@ -21,6 +22,17 @@ typedef enum {
     RX_RESULT_ERR_NOT_INITIALIZED = -2,
     RX_RESULT_ERR_OUTPUT_FULL = -3
 } RxResultStatus;
+
+/* Factual FT8 QSO message stage. This is RX classification, not TX policy. */
+typedef uint8_t RxQsoMessageKind;
+enum {
+    RX_QSO_MSG_NONE = 0u,
+    RX_QSO_MSG_TX1,
+    RX_QSO_MSG_TX2,
+    RX_QSO_MSG_TX3,
+    RX_QSO_MSG_TX4,
+    RX_QSO_MSG_TX5
+};
 
 typedef struct {
     char local_callsign[RX_RESULT_CALL_CAP];
@@ -40,6 +52,8 @@ typedef struct {
     /* Factual application classification only; no reply/TX policy. */
     bool is_cq;
     bool is_to_me;
+    RxQsoMessageKind qso_kind;
+    int8_t report_db;
 
     char canonical_text[RX_RESULT_TEXT_CAP];
 
