@@ -44,6 +44,7 @@ int main(void)
     protocol[0].data.standard.call_to_kind = FT8_PROTOCOL_FIELD_TOKEN;
     strcpy(protocol[0].data.standard.call_de, "W1XYZ");
     strcpy(protocol[0].data.standard.extra, "FN42");
+    protocol[0].data.standard.extra_kind = FT8_PROTOCOL_FIELD_GRID;
 
     protocol[1].type = FT8_PROTOCOL_STANDARD;
     protocol[1].parse_status = FT8_PROTOCOL_PARSE_OK;
@@ -54,6 +55,7 @@ int main(void)
     protocol[1].data.standard.call_to_kind = FT8_PROTOCOL_FIELD_CALL;
     strcpy(protocol[1].data.standard.call_de, "W6ABC");
     strcpy(protocol[1].data.standard.extra, "-10");
+    protocol[1].data.standard.extra_kind = FT8_PROTOCOL_FIELD_REPORT;
 
     protocol[2].type = FT8_PROTOCOL_FREE_TEXT;
     protocol[2].parse_status = FT8_PROTOCOL_PARSE_OK;
@@ -68,18 +70,57 @@ int main(void)
     CHECK(!output[0].is_to_me);
     CHECK(strcmp(output[0].call_de, "W1XYZ") == 0);
     CHECK(strcmp(output[0].extra, "FN42") == 0);
+    CHECK(output[0].qso_kind == RX_QSO_MSG_TX1);
+    CHECK(output[0].report_db == RX_RESULT_REPORT_UNKNOWN);
     CHECK(output[0].snr_db == -17);
     CHECK(output[0].offset_hz == 1425);
 
     CHECK(!output[1].is_cq);
     CHECK(output[1].is_to_me);
     CHECK(strcmp(output[1].call_to, "<AG6AQ>") == 0);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_TX2);
+    CHECK(output[1].report_db == -10);
     CHECK(output[1].snr_db == -9);
     CHECK(output[1].offset_hz == 975);
 
     CHECK(output[2].protocol_type == FT8_PROTOCOL_FREE_TEXT);
     CHECK(output[2].is_cq);
+    CHECK(output[2].qso_kind == RX_QSO_MSG_NONE);
     CHECK(strcmp(output[2].call_de, "K7XYZ") == 0);
+
+    /* Typed standard extras classify the remaining ordinary QSO stages. */
+    strcpy(protocol[1].data.standard.extra, "R-08");
+    protocol[1].data.standard.extra_kind = FT8_PROTOCOL_FIELD_REPORT;
+    CHECK(rx_result_builder_build(&builder, &slot,
+                                  output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_TX3);
+    CHECK(output[1].report_db == -8);
+
+    strcpy(protocol[1].data.standard.extra, "RR73");
+    protocol[1].data.standard.extra_kind = FT8_PROTOCOL_FIELD_TOKEN;
+    CHECK(rx_result_builder_build(&builder, &slot,
+                                  output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_TX4);
+    CHECK(output[1].report_db == RX_RESULT_REPORT_UNKNOWN);
+
+    strcpy(protocol[1].data.standard.extra, "73");
+    protocol[1].data.standard.extra_kind = FT8_PROTOCOL_FIELD_TOKEN;
+    CHECK(rx_result_builder_build(&builder, &slot,
+                                  output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_TX5);
+
+    strcpy(protocol[1].data.standard.extra, "FN42");
+    protocol[1].data.standard.extra_kind = FT8_PROTOCOL_FIELD_GRID;
+    CHECK(rx_result_builder_build(&builder, &slot,
+                                  output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_TX1);
+
+    /* V2 does not treat an R-prefixed grid as an ordinary TX1. */
+    strcpy(protocol[1].data.standard.extra, "R FN42");
+    protocol[1].data.standard.extra_kind = FT8_PROTOCOL_FIELD_GRID;
+    CHECK(rx_result_builder_build(&builder, &slot,
+                                  output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_NONE);
 
     strcpy(protocol[2].canonical_text, "CQ HELLO WORLD");
     CHECK(rx_result_builder_build(&builder, &slot,
