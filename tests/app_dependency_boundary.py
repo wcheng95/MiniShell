@@ -31,6 +31,9 @@ APP_RULES = {
             "ui_shell": ("src/ui_shell",),
             "ft8_engine": ("src/ft8_engine",),
         },
+        "private_headers": {
+            "src/app_controller/app_controller_internal.h": "app_controller",
+        },
         "allowed": {
             "main": {"main", "shared", "app_controller", "presentation_profile", "ui_shell"},
             "shared": {"shared"},
@@ -150,6 +153,15 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
                 )
                 continue
 
+            target_rel = target.relative_to(app_root).as_posix()
+            private_owner = rule.get("private_headers", {}).get(target_rel)
+            if private_owner is not None and src_module != private_owner:
+                violations.append(
+                    f"{path.relative_to(root)}:{line_number}: private header {include} "
+                    f"is owned by {private_owner}, not {src_module}"
+                )
+                continue
+
             allowed = rule["allowed"].get(src_module, {src_module})
             if dst_module not in allowed:
                 violations.append(
@@ -163,17 +175,21 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
 
 
 def self_test() -> int:
-    # Exercise parsing/resolution, an allowed edge, a forbidden edge, and an
-    # unowned source directory under an enforced application root.
+    # Exercise parsing/resolution, an allowed edge, a forbidden edge, private
+    # header ownership, and an unowned source directory.
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
         app = root / "apps" / "ft8"
         (app / "main").mkdir(parents=True)
+        (app / "src" / "app_controller").mkdir(parents=True)
         (app / "src" / "config_service").mkdir(parents=True)
         (app / "src" / "ui_shell").mkdir(parents=True)
         (app / "include" / "ft8").mkdir(parents=True)
 
         (app / "include" / "ft8" / "app_types.h").write_text(
+            "#pragma once\n", encoding="utf-8"
+        )
+        (app / "src" / "app_controller" / "app_controller_internal.h").write_text(
             "#pragma once\n", encoding="utf-8"
         )
         (app / "src" / "config_service" / "config_service.h").write_text(
@@ -190,6 +206,16 @@ def self_test() -> int:
         violations = check_app(root, "ft8")
         if not any("main -> config_service" in item for item in violations):
             print("app_dependency_boundary self-test: FAIL (forbidden edge not detected)")
+            return 1
+
+        # Even an otherwise-allowed main -> app_controller edge may not include
+        # the controller's private implementation header.
+        (app / "main" / "probe.c").write_text(
+            '#include "app_controller_internal.h"\n', encoding="utf-8"
+        )
+        violations = check_app(root, "ft8")
+        if not any("private header" in item for item in violations):
+            print("app_dependency_boundary self-test: FAIL (private header not protected)")
             return 1
 
         (app / "main" / "probe.c").write_text(
