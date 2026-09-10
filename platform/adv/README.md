@@ -6,19 +6,24 @@ This directory is the ESP-IDF firmware composition for the Cardputer ADV backend
 
 A1 proved the portable MiniShell runtime on real Cardputer ADV hardware. A2 added the real Cardputer display/keyboard plus System and Memory providers. A3 added Filesystem and Time/Location. P2 packaged the real MiniFT8 `ft8` application into the ADV static registry using the same MiniFT8 sources as Linux. That static path remains the validated baseline.
 
-The active post-V1 direction is now runtime external application loading from:
+The active post-V1 direction is runtime external application loading. The established ADV application resolution order is:
 
 ```text
-/sd/<app>.elf
+1. compiled-in application
+2. /flash/<app>.elf
+3. /sd/<app>.elf
 ```
 
-The first field-usable target is:
+The first field-usable external target is `keyer.elf`, valid in either external location:
 
 ```text
+/flash/keyer.elf
 /sd/keyer.elf
 ```
 
-The ELF loader is a private MiniShell/ADV runtime mechanism. Portable Keyer code must use only the public MiniShell API; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or loader interfaces. Static applications remain available during loader bring-up and transition/testing.
+The same binary must run unchanged from either location. If both external copies exist, `/flash/keyer.elf` wins. `/sd/keyer.elf` remains convenient for development/removable distribution and can later be copied to `/flash/keyer.elf`.
+
+The ELF loader is a private MiniShell/ADV runtime mechanism. Portable Keyer code must use only the public MiniShell API; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or loader interfaces. Static applications remain available during loader bring-up and transition/testing and retain first resolution priority.
 
 The current ADV storage baseline uses FATFS for both internal `/flash` and optional `/sd`. The `usbmsc` utility adds ADV-only USB Mass Storage handoff so either or both FAT media can be exposed temporarily to a host PC without violating filesystem ownership.
 
@@ -45,9 +50,10 @@ minishell_run()
       |      shell utilities + nano + usbmsc
       |      ft8 -> same MiniFT8 sources, ADV presentation default
       |
-      `-- active next loader path
+      `-- external ELF fallback
+             /flash/<app>.elf
              /sd/<app>.elf
-             first target: /sd/keyer.elf
+             first field target: keyer.elf
 ```
 
 Applications never include M5, ESP-IDF, TCA8418, GPIO, I2C, SPI, FATFS, wear-levelling, or display-driver headers. Those details remain backend-owned. `usbmsc` is deliberately an ADV platform utility because raw-media and USB-device ownership are backend concerns rather than portable application services.
@@ -78,7 +84,7 @@ The filesystem utilities and `nano` are the existing portable MiniShell applicat
 
 MiniFT8 remains deliberately compiled into the firmware for the current baseline. New external-app work starts with `keyer.elf`; converting existing static apps to ELF is not required before the loader and Keyer path are proven.
 
-Collision/precedence behavior between a compiled-in application and an external application of the same name is not frozen yet. That belongs to the loader/discovery design rather than the application API.
+Because compiled-in applications have first priority, the initial ELF loader proof should use a non-colliding name such as `elfhello` rather than `hello`. That ensures a successful launch actually exercises the ELF path.
 
 `df` remains out of the ADV registry for now because the current public `Filesystem.space()` implementation is quota-based and ADV intentionally has no global storage quota across `/flash` and `/sd`. Proper per-volume capacity reporting should be defined separately rather than reporting misleading numbers.
 
@@ -401,4 +407,4 @@ usbmsc all                   PASS
 filesystem remount           PASS
 ```
 
-The next ADV runtime milestone is external application discovery/load/run/return/unload from `/sd/<app>.elf`, followed immediately by the field-usable `/sd/keyer.elf` path. The loader bring-up may use a tiny probe first, but it should remain a short infrastructure step rather than a separate product detour.
+The next ADV runtime milestone is external application discovery/load/run/return/unload using a non-colliding probe such as `elfhello.elf`. It must prove the established resolution policy, including identical external ELF execution from `/flash` and `/sd` with `/flash` taking priority. The field-usable target immediately after loader proof is `keyer.elf`, valid from either external location.
