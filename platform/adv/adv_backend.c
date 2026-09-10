@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <string.h>
 
 #include "adv_internal.h"
@@ -9,40 +8,6 @@ static minishell_services_port_t s_services_port;
 static bool s_display_ready;
 static bool s_keyboard_ready;
 static bool s_filesystem_ready;
-
-typedef struct {
-    const char *name;
-    uint64_t free_bytes;
-    uint64_t largest_free_block;
-} adv_ram_checkpoint_t;
-
-static void capture_ram_checkpoint(adv_ram_checkpoint_t *checkpoint, const char *name)
-{
-    if (checkpoint == NULL) return;
-
-    checkpoint->name = name;
-    checkpoint->free_bytes = 0u;
-    checkpoint->largest_free_block = 0u;
-    (void)adv_memory_get_info(NULL, &checkpoint->free_bytes,
-                              &checkpoint->largest_free_block);
-}
-
-static void print_ram_ledger(const adv_ram_checkpoint_t *checkpoints, size_t count)
-{
-    char line[96];
-
-    adv_console_debug_write("ADV RAM boot ledger (bytes):\n");
-    for (size_t i = 0; i < count; ++i) {
-        const int written = snprintf(line, sizeof(line),
-                                     "  %-16s free=%llu largest=%llu\n",
-                                     checkpoints[i].name,
-                                     (unsigned long long)checkpoints[i].free_bytes,
-                                     (unsigned long long)checkpoints[i].largest_free_block);
-        if (written > 0) {
-            adv_console_debug_write(line);
-        }
-    }
-}
 
 static void system_write(void *ctx, const char *text)
 {
@@ -99,37 +64,24 @@ static void configure_services_port(void)
 
 int minishell_platform_init(void)
 {
-    adv_ram_checkpoint_t ram[6];
-
-    capture_ram_checkpoint(&ram[0], "boot entry");
-
     if (adv_console_prepare() != 0) return -1;
-    capture_ram_checkpoint(&ram[1], "after console");
 
     s_display_ready = adv_display_prepare() == 0;
     if (!s_display_ready) {
         adv_console_debug_write("ADV: display unavailable; USB console remains active\n");
     }
-    capture_ram_checkpoint(&ram[2], "after display");
 
     s_keyboard_ready = adv_keyboard_prepare() == 0;
     if (!s_keyboard_ready) {
         adv_console_debug_write("ADV: keyboard unavailable; USB input remains active\n");
     }
-    capture_ram_checkpoint(&ram[3], "after keyboard");
 
     s_filesystem_ready = adv_filesystem_prepare() == 0;
     if (!s_filesystem_ready) {
         adv_console_debug_write("ADV: /flash filesystem unavailable; continuing without persistence\n");
     }
-    capture_ram_checkpoint(&ram[4], "after filesystem");
 
     configure_services_port();
-    capture_ram_checkpoint(&ram[5], "shell ready");
-
-    /* Temporary diagnostic: capture all values before printing so diagnostic
-     * formatting/output cannot perturb the intermediate heap measurements. */
-    print_ram_ledger(ram, sizeof(ram) / sizeof(ram[0]));
     return 0;
 }
 
