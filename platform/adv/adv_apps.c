@@ -22,6 +22,13 @@ extern int minishell_app_date_main(int argc, char **argv);
 extern int minishell_app_free_main(int argc, char **argv);
 extern int minishell_app_ls_main(int argc, char **argv);
 extern int minishell_app_cat_main(int argc, char **argv);
+extern int minishell_app_cp_main(int argc, char **argv);
+extern int minishell_app_mv_main(int argc, char **argv);
+extern int minishell_app_rm_main(int argc, char **argv);
+extern int minishell_app_mkdir_main(int argc, char **argv);
+extern int minishell_app_rmdir_main(int argc, char **argv);
+extern int minishell_app_df_main(int argc, char **argv);
+extern int minishell_app_nano_main(int argc, char **argv);
 extern int minishell_app_ft8_main(int argc, char **argv);
 
 static const adv_app_entry_t s_apps[] = {
@@ -32,6 +39,13 @@ static const adv_app_entry_t s_apps[] = {
     {"free", minishell_app_free_main},
     {"ls", minishell_app_ls_main},
     {"cat", minishell_app_cat_main},
+    {"cp", minishell_app_cp_main},
+    {"mv", minishell_app_mv_main},
+    {"rm", minishell_app_rm_main},
+    {"mkdir", minishell_app_mkdir_main},
+    {"rmdir", minishell_app_rmdir_main},
+    {"df", minishell_app_df_main},
+    {"nano", minishell_app_nano_main},
     {"ft8", minishell_app_ft8_main},
 };
 
