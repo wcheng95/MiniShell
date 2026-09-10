@@ -90,8 +90,10 @@ def main() -> int:
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
                 os.write(master_fd, b"o")
                 transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
+
+                # O/1 is intentionally a no-op. C2 redraws only when the
+                # rendered UiFrame changes, so do not require a duplicate frame.
                 os.write(master_fd, b"1")
-                transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
                 os.write(master_fd, b"5")
                 transcript.extend(read_until(master_fd, b"Skip TX1: OFF", 3.0))
                 os.write(master_fd, b"3")
