@@ -45,7 +45,11 @@ jobs:
           target: esp32s3
           path: platform/adv/elf_apps/elfhello
           command: |
-            idf.py build
+            set -e
+            idf.py elf
             test -s build/elfhello.app.elf
+            echo "=== elfhello undefined imports ==="
+            xtensa-esp32s3-elf-nm -u build/elfhello.app.elf
+            test "$(xtensa-esp32s3-elf-nm -u build/elfhello.app.elf | awk '{print $2}' | sort -u)" = "mini_api_get"
             echo "=== elfhello ELF header ==="
             xtensa-esp32s3-elf-readelf -h build/elfhello.app.elf
