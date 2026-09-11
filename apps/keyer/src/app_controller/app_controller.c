@@ -25,14 +25,18 @@ static void console_write(const char *text)
 
 static bool exit_requested(void)
 {
-    mini_key_event_t event = {
-        .struct_size = sizeof(event),
-    };
+    mini_key_event_t event;
 
     if (s_api == NULL || s_api->input == NULL || s_api->input->key == NULL ||
         s_api->input->key->read == NULL) {
         return false;
     }
+
+    event.struct_size = sizeof(event);
+    event.type = MINI_KEY_EVENT_NONE;
+    event.codepoint = 0u;
+    event.key = MINI_KEY_NONE;
+    event.modifiers = MINI_KEY_MOD_NONE;
 
     while (s_api->input->key->read(&event, MINI_WAIT_NONE) == MINI_OK) {
         if (event.type == MINI_KEY_EVENT_CHAR &&
