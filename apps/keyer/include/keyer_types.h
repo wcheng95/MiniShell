@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "keyer_engine.h"
@@ -7,6 +8,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define KEYER_SIDETONE_MIN_HZ      300u
+#define KEYER_SIDETONE_MAX_HZ      999u
+#define KEYER_SIDETONE_DEFAULT_HZ  700u
 
 typedef enum {
     KEYER_KEY_IN_PADDLE = 0,
@@ -25,6 +30,8 @@ typedef enum {
 
 typedef struct {
     uint8_t wpm;
+    bool sidetone_enabled;
+    uint16_t sidetone_hz;
     keyer_engine_paddle_mode_t paddle_mode;
     keyer_key_in_mode_t key_in_mode;
     keyer_key_out_mode_t key_out_mode;
