@@ -48,6 +48,12 @@ CONFIG_FATFS_API_ENCODING_UTF_8=y
 # instead. This trades some multi-file I/O performance for much lower idle RAM.
 # CONFIG_FATFS_PER_FILE_CACHE is not set
 
+# K1 runtime application loading. External applications remain normal ELF APP
+# files and resolve MiniShell through the explicitly registered mini_api_get()
+# symbol. Shared-object dlopen/dlsym support is not needed for the first proof.
+CONFIG_ELF_LOADER=y
+# CONFIG_ELF_DYNAMIC_LOAD_SHARED_OBJECT is not set
+
 # usbmsc temporarily hands the ESP32-S3 USB device peripheral and raw FAT media
 # to TinyUSB. Keep the MSC transfer buffer at 4096 bytes so it is large enough
 # for the existing /flash wear-levelling sector without changing the validated
