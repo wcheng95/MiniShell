@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-#define MINISHELL_API_VERSION 0x00000002u
+#define MINISHELL_API_VERSION 0x00000003u
 
 #if defined(__GNUC__)
 #define MINI_IMPORT __attribute__((visibility("default")))
@@ -321,6 +321,36 @@ typedef struct {
     const mini_audio_tx_api_t *tx;
 } mini_audio_api_t;
 
+#define MINI_DIGITAL_IO_CAP_INPUT              (1ull << 0)
+#define MINI_DIGITAL_IO_CAP_INPUT_PULLUP       (1ull << 1)
+#define MINI_DIGITAL_IO_CAP_OUTPUT             (1ull << 2)
+#define MINI_DIGITAL_IO_CAP_OUTPUT_OPEN_DRAIN  (1ull << 3)
+
+#define MINI_DIGITAL_IO_MODE_INPUT              1u
+#define MINI_DIGITAL_IO_MODE_INPUT_PULLUP       2u
+#define MINI_DIGITAL_IO_MODE_OUTPUT             3u
+#define MINI_DIGITAL_IO_MODE_OUTPUT_OPEN_DRAIN  4u
+
+typedef uint32_t mini_digital_io_t;
+#define MINI_DIGITAL_IO_INVALID ((mini_digital_io_t)0u)
+
+typedef struct {
+    uint32_t struct_size;
+    uint32_t line_id;
+    uint32_t mode;
+    uint32_t initial_level;
+} mini_digital_io_config_t;
+
+typedef struct {
+    uint32_t struct_size;
+    uint64_t capabilities;
+    mini_result_t (*open)(const mini_digital_io_config_t *config,
+                          mini_digital_io_t *out_line);
+    mini_result_t (*read)(mini_digital_io_t line, uint32_t *out_level);
+    mini_result_t (*write)(mini_digital_io_t line, uint32_t level);
+    mini_result_t (*close)(mini_digital_io_t line);
+} mini_digital_io_api_t;
+
 typedef struct {
     uint32_t api_version;
     uint32_t struct_size;
@@ -332,6 +362,7 @@ typedef struct {
     const mini_display_api_t *display;
     const mini_input_api_t *input;
     const mini_audio_api_t *audio;
+    const mini_digital_io_api_t *digital_io;
 } mini_api_t;
 
 MINI_IMPORT const mini_api_t *mini_api_get(void);
