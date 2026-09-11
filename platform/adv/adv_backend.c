@@ -88,9 +88,9 @@ int minishell_platform_init(void)
     }
 
     /* GPS is a resident MiniShell provider. It owns the same PORTA UART used by
-     * Mini-FT8 V2: UART1, RX=G1, TX=G2. Starting after /flash lets it preload a
-     * previously auto-detected baud without making filesystem persistence a
-     * requirement for GPS operation. */
+     * Mini-FT8 V2: UART1, RX=G1, TX=G2. Prepare the UART now so capability
+     * discovery is stable, but do not start its producer task until the
+     * Time/Location service table is configured. */
     if (adv_gps_prepare() != 0) {
         adv_console_debug_write("ADV: GPS unavailable; Time/Location continues without live GPS\n");
     }
@@ -124,4 +124,16 @@ void minishell_platform_services_prepare(minishell_services_port_t *out_port)
     /* The Cardputer speaker is a physical Audio TX endpoint and does not depend
      * on Filesystem availability. It is opened lazily by the foreground app. */
     adv_audio_speaker_configure(out_port);
+}
+
+void minishell_platform_services_started(void)
+{
+    if (adv_gps_ready() && adv_gps_start() != 0) {
+        adv_console_debug_write("ADV: GPS provider failed to start\n");
+    }
+}
+
+void minishell_platform_services_stopping(void)
+{
+    adv_gps_stop();
 }
