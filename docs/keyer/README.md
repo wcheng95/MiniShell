@@ -1,6 +1,6 @@
 # Keyer on MiniShell
 
-Status: **Draft for review — K0 architecture gate complete**  
+Status: **Draft for review — K0/K1 complete; K2 next**  
 Date: 2026-09-10
 
 ## Purpose
@@ -320,6 +320,8 @@ The current plan does not compile Keyer into ADV, so normal Keyer deployment exe
 
 This must be a real runtime-loaded application, not a statically linked app renamed `.elf`. The application binary may initially require the matching MiniShell API generation; long-term cross-release ABI compatibility is not required yet.
 
+On Cardputer ADV, Espressif's ELF loader relocates executable sections into internal executable SRAM. ESP-IDF 5.5.1 must therefore build ADV with `CONFIG_ESP_SYSTEM_MEMPROT_FEATURE` disabled; otherwise the capability allocator exposes zero `MALLOC_CAP_EXEC` heap and even a tiny ELF `.text` allocation fails. External ADV applications are therefore trusted code, not sandboxed applications.
+
 ## 10. Development stages
 
 ### K0 — COMPLETE — architecture gate
@@ -337,15 +339,18 @@ compiled-in -> /flash -> /sd resolution
 configuration ownership/namespace
 ```
 
-### K1 — ADV runtime ELF proof
+### K1 — COMPLETE — ADV runtime ELF proof
 
-Prove the loader with a minimal non-colliding external ELF, for example `elfhello`:
+Hardware-validated on Cardputer ADV with the non-colliding `elfhello.elf` test application.
+
+Proven behavior:
 
 ```text
 /sd/elfhello.elf
-    discover -> load -> call MiniShell API -> return -> unload
+    discover -> load -> relocate -> mini_api_get()
+    -> MiniShell Console API -> return -> unload
 
-copy the exact same binary to:
+same binary copied to:
 /flash/elfhello.elf
     discover -> load -> call MiniShell API -> return -> unload
 
@@ -353,13 +358,24 @@ when both external copies exist:
     /flash/elfhello.elf wins
 ```
 
-Do not use `hello.elf` while `hello` remains compiled in, because compiled-in priority would mask the ELF path.
+Repeated SD load/run/unload cycles returned cleanly to `M$>` with stable executable-heap measurements. Hardware evidence included approximately:
 
-K1 also verifies:
+```text
+before load: exec free=300828, largest=286720
+after unload: exec free=301984, largest=286720
+```
+
+The exact free-byte difference is allocator/coalescing behavior; the stable largest block and repeated identical cycles show no observed K1 loader leak.
+
+K1 also verified the complete application resolution rule:
 
 ```text
 compiled-in > /flash external > /sd external
 ```
+
+`elfhello` imports only `mini_api_get`; all application service calls then go through the MiniShell API table. Broad libc/ESP-IDF loader symbol tables remain disabled for external applications.
+
+Do not use `hello.elf` while `hello` remains compiled in, because compiled-in priority would mask the ELF path.
 
 ### K2 — MiniShell Digital I/O V1
 
@@ -465,17 +481,18 @@ Before implementation, finalize:
 4. Whether UAC sidetone/output is required before the first field milestone or immediately after Speaker.
 5. Whether CAT KeyOut waits until after the first GPIO field milestone; current recommendation is yes.
 6. Whether Mini-CW decoded-text/TX-FIFO behavior belongs in K3/K7 or a later increment.
-7. ADV ELF loader constraints: relocation types, symbol resolution, memory ownership, failure cleanup, and API-version matching.
 
 Already resolved:
 
 ```text
 K0 architecture gate                              COMPLETE
+K1 ADV runtime ELF proof                          COMPLETE
 MiniShell must not know Keyer semantics           YES
 Keyer GPIO assignments may be app settings        YES
 canonical Keyer settings path                     /flash/keyer/setting.txt
 app resolution                                    compiled-in -> /flash -> /sd
 same ELF binary from /flash or /sd                REQUIRED
+ADV ELF executable-memory requirement             MEMPROT_FEATURE off on IDF 5.5.1
 ```
 
-Until the remaining questions are reviewed, this document remains the Keyer porting plan rather than the final implementation specification.
+K2 Digital I/O is the next implementation stage.
