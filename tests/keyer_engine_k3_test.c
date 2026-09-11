@@ -68,9 +68,9 @@ static void test_wpm_and_single_dit(void)
     CHECK(!keyer_engine_key_down(&engine));
     expect_no_event(&engine);
 
-    keyer_engine_step(&engine, 179999u, false, false, false);
+    keyer_engine_step(&engine, 239999u, false, false, false);
     expect_no_event(&engine);
-    keyer_engine_step(&engine, 180000u, false, false, false);
+    keyer_engine_step(&engine, 240000u, false, false, false);
     keyer_engine_event_t decoded = next_event(&engine, KEYER_ENGINE_EVENT_CHAR);
     CHECK(decoded.ch == 'E');
 
