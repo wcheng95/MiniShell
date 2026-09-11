@@ -25,6 +25,7 @@ set(MINISHELL_SERVICE_SOURCES
     core/minishell_services/display_service.c
     core/minishell_services/input_service.c
     core/minishell_services/audio_service.c
+    core/minishell_services/digital_io_service.c
 )
 
 set(MINISHELL_LINUX_SOURCES
@@ -39,6 +40,7 @@ set(MINISHELL_LINUX_SOURCES
     platform/linux/linux_loader.c
     platform/linux/linux_services.c
     platform/linux/linux_audio_wav.c
+    platform/linux/linux_digital_io.c
     platform/linux/platform_info.c
     platform/linux/resource_config.c
 )
