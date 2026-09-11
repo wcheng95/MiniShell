@@ -18,6 +18,7 @@ add_executable(minishell_unit_tests
     ../../core/minishell_services/display_service.c
     ../../core/minishell_services/input_service.c
     ../../core/minishell_services/audio_service.c
+    ../../core/minishell_services/digital_io_service.c
     ../../apps/nano/main/nano_buffer.c
     ../../apps/cp/main/cp_copy.c
     test_support.c
