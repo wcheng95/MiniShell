@@ -6,9 +6,9 @@
 - Cardputer ADV is the second real MiniShell backend.
 - Linux runtime app discovery/loading uses `.so` modules.
 - ADV now has hardware-validated runtime external `.elf` loading using Espressif's ELF loader.
-- ADV application resolution is: compiled-in first, then `/flash/<app>.elf`, then `/sd/<app>.elf`.
-- K1 proved a real Xtensa `elfhello.elf` from both SD and internal flash, including MiniShell API resolution, clean return/unload, repeated execution, and `/flash` priority when both external copies exist.
-- The first planned field-usable ADV external application is `keyer.elf`, valid as either `/flash/keyer.elf` or `/sd/keyer.elf`.
+- ADV application resolution is: compiled-in first, then `/flash/apps/<app>.elf`, then `/sd/apps/<app>.elf`.
+- K1 proved a real Xtensa `elfhello.elf` from both SD and internal flash, including MiniShell API resolution, clean return/unload, repeated execution, and flash priority when both external copies exist. Canonical external app directories are now `/flash/apps` and `/sd/apps`.
+- The first planned field-usable ADV external application is `keyer.elf`, valid as either `/flash/apps/keyer.elf` or `/sd/apps/keyer.elf`.
 - System, Console, Memory, Filesystem, Time/Location, Display, Input, and Audio public contracts have automated coverage. Digital I/O is not yet public and is now the active Keyer requirement.
 - MiniFT8 is runtime app `ft8` and is FT8-only. Future Keyer/FT4/RTTY/JS8 functionality remains separate applications rather than an FT8-internal protocol selector.
 - MiniFT8 RX integration has advanced through RX-7 on Linux, including the production decoded-UI golden test.
@@ -36,8 +36,8 @@ K3 portable Keyer engine
         |
         v
 keyer.elf
-    |-- /flash/keyer.elf
-    `-- /sd/keyer.elf
+    |-- /flash/apps/keyer.elf
+    `-- /sd/apps/keyer.elf
 ```
 
 Canonical configuration ownership is fixed:
@@ -62,10 +62,10 @@ Application settings may be hardware-specific. Keyer may own GPIO-number setting
 
 Cardputer ADV hardware validated the non-colliding `elfhello.elf` runtime application.
 
-Proven path:
+Canonical path after the K1 directory cleanup is:
 
 ```text
-/sd/elfhello.elf
+/sd/apps/elfhello.elf
     -> discovered by apps
     -> Xtensa ELF load/relocation
     -> mini_api_get()
@@ -75,10 +75,10 @@ Proven path:
     -> M$>
 ```
 
-The exact same ELF was copied to `/flash/elfhello.elf`; with both external copies present MiniShell selected `/flash`, proving the external resolution order. Static-registry tests separately protect the complete rule:
+The exact same ELF may be copied to `/flash/apps/elfhello.elf`; with both external copies present MiniShell selects the flash copy. Static-registry tests protect the complete rule:
 
 ```text
-compiled-in > /flash > /sd
+compiled-in > /flash/apps > /sd/apps
 ```
 
 Repeated SD executions showed stable executable-heap behavior. A representative run was:
@@ -100,7 +100,7 @@ External ADV applications are trusted code, not sandboxed applications. The ELF 
 C0  application dependency/no-side-talk enforcement   COMPLETE
 C1  opaque AppController                              COMPLETE
 C2  ft8_main lifecycle/wiring only                    COMPLETE
-C3  ADV ELF + compiled-in -> /flash -> /sd order     COMPLETE
+C3  ADV ELF + compiled-in -> /flash/apps -> /sd/apps  COMPLETE
 C4  configuration ownership/naming                    COMPLETE
 ```
 
@@ -171,13 +171,20 @@ docs/project/adv-backend-plan.md
 docs/MiniFT8/v1-validation.md
 ```
 
-ADV V1 used static application composition deliberately. C3 added runtime external `.elf` loading while preserving compiled-in applications as the first resolution tier. K1 has now validated the external `/flash` and `/sd` tiers on actual Cardputer ADV hardware.
+ADV V1 used static application composition deliberately. C3 added runtime external `.elf` loading while preserving compiled-in applications as the first resolution tier. K1 has now validated the external flash and SD tiers on actual Cardputer ADV hardware; binaries are searched only under `/flash/apps` and `/sd/apps`.
 
 ## ADV current storage/runtime baseline
 
 ```text
 /flash    FATFS on internal flash through wear levelling
 /sd       optional FATFS on MicroSD
+```
+
+External ADV application binaries are kept under:
+
+```text
+/flash/apps
+/sd/apps
 ```
 
 Application code sees only MiniShell logical paths and does not know FATFS, wear levelling, SPI, or board details.
