@@ -129,7 +129,6 @@ add_minishell_app(ft8
 )
 set_source_files_properties(
     apps/ft8/src/app_controller/app_controller.c
-    apps/ft8/src/app_controller/app_controller_instance.c
     apps/ft8/src/app_controller/app_controller_tx.c
     PROPERTIES COMPILE_DEFINITIONS FT8_APP_CONTROLLER_INTERNAL
 )
@@ -263,26 +262,57 @@ target_include_directories(ft8_monitor_core PUBLIC
     apps/ft8/src/ft8_engine
     apps/ft8/src/ft8_engine/vendor/kissfft
 )
-target_link_libraries(ft8_monitor_core PRIVATE m)
-target_compile_options(ft8_monitor_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
+target_compile_options(ft8_monitor_core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ft8_monitor_core PUBLIC m)
 
-add_library(ft8_decoder_core STATIC
+set(FT8_DECODER_SOURCES
     apps/ft8/src/ft8_engine/ft8_decoder.c
     apps/ft8/src/ft8_engine/ft8_ldpc.c
     apps/ft8/src/ft8_engine/ft8_crc.c
-    apps/ft8/src/ft8_engine/ft8_message_codec.c
+)
+
+add_library(ft8_decoder_core STATIC ${FT8_DECODER_SOURCES})
+target_include_directories(ft8_decoder_core PUBLIC
+    apps/ft8/src/ft8_engine
+)
+target_compile_options(ft8_decoder_core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ft8_decoder_core PUBLIC m)
+
+add_library(ft8_hash_store_core STATIC
     apps/ft8/src/ft8_engine/ft8_hash_store.c
 )
-target_include_directories(ft8_decoder_core PUBLIC apps/ft8/src/ft8_engine)
-target_link_libraries(ft8_decoder_core PRIVATE m)
-target_compile_options(ft8_decoder_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
+target_include_directories(ft8_hash_store_core PUBLIC
+    apps/ft8/src/ft8_engine
+)
+target_compile_options(ft8_hash_store_core PRIVATE -Wall -Wextra -Wpedantic)
+
+add_library(ft8_protocol_core STATIC
+    apps/ft8/src/ft8_engine/ft8_message_codec.c
+)
+target_include_directories(ft8_protocol_core PUBLIC
+    apps/ft8/src/ft8_engine
+)
+target_compile_options(ft8_protocol_core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ft8_protocol_core PUBLIC ft8_hash_store_core)
 
 add_library(ft8_engine_core STATIC
     apps/ft8/src/ft8_engine/ft8_engine.c
 )
-target_include_directories(ft8_engine_core PUBLIC apps/ft8/src/ft8_engine)
-target_link_libraries(ft8_engine_core PUBLIC ft8_monitor_core ft8_decoder_core)
-target_compile_options(ft8_engine_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
+target_include_directories(ft8_engine_core PUBLIC
+    apps/ft8/src/ft8_engine
+)
+target_compile_options(ft8_engine_core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ft8_engine_core PUBLIC
+    ft8_monitor_core
+    ft8_decoder_core
+    ft8_protocol_core
+)
+
+add_executable(ft8_decode
+    apps/ft8/tools/ft8_decode.c
+)
+target_link_libraries(ft8_decode PRIVATE ft8_engine_core)
+target_compile_options(ft8_decode PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
 add_executable(ft8_monitor_rx1c_unit tests/ft8_monitor_rx1c_test.c)
 target_link_libraries(ft8_monitor_rx1c_unit PRIVATE ft8_monitor_core)
@@ -293,11 +323,11 @@ target_link_libraries(ft8_decoder_rx1d_unit PRIVATE ft8_decoder_core)
 target_compile_options(ft8_decoder_rx1d_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
 add_executable(ft8_hash_store_rx1e_unit tests/ft8_hash_store_rx1e_test.c)
-target_link_libraries(ft8_hash_store_rx1e_unit PRIVATE ft8_decoder_core)
+target_link_libraries(ft8_hash_store_rx1e_unit PRIVATE ft8_hash_store_core)
 target_compile_options(ft8_hash_store_rx1e_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
 add_executable(ft8_message_codec_rx1f_unit tests/ft8_message_codec_rx1f_test.c)
-target_link_libraries(ft8_message_codec_rx1f_unit PRIVATE ft8_decoder_core)
+target_link_libraries(ft8_message_codec_rx1f_unit PRIVATE ft8_protocol_core)
 target_compile_options(ft8_message_codec_rx1f_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
 add_executable(ft8_engine_rx1g_unit tests/ft8_engine_rx1g_test.c)
@@ -312,10 +342,12 @@ target_include_directories(rx_audio_adapter_rx6_unit PRIVATE
     include
     apps/ft8/src/rx_audio_adapter
 )
-target_compile_options(rx_audio_adapter_rx6_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+target_compile_options(rx_audio_adapter_rx6_unit PRIVATE
+    -Wall -Wextra -Werror -Wpedantic
+)
 
 set(FT8_RX1C_REFERENCE_WAV "" CACHE FILEPATH
-    "Optional pinned MiniFT8-V2 6 kHz RX-1A golden WAV for monitor regression")
+    "Optional pinned MiniFT8-V2 6 kHz RX-1A golden WAV")
 if(FT8_RX1C_REFERENCE_WAV)
     if(NOT EXISTS "${FT8_RX1C_REFERENCE_WAV}")
         message(FATAL_ERROR "FT8_RX1C_REFERENCE_WAV does not exist: ${FT8_RX1C_REFERENCE_WAV}")
