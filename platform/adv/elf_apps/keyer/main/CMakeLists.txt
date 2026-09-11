@@ -9,6 +9,7 @@ idf_component_register(
         "${MINISHELL_ROOT}/apps/keyer/src/keyer_engine/keyer_decoder.c"
         "${MINISHELL_ROOT}/apps/keyer/src/keyin/keyin.c"
         "${MINISHELL_ROOT}/apps/keyer/src/keyout/keyout.c"
+        "${MINISHELL_ROOT}/apps/keyer/src/sidetone/sidetone.c"
     INCLUDE_DIRS
         "${MINISHELL_ROOT}/include"
         "${MINISHELL_ROOT}/apps/keyer/include"
@@ -17,6 +18,7 @@ idf_component_register(
         "${MINISHELL_ROOT}/apps/keyer/src/keyer_engine"
         "${MINISHELL_ROOT}/apps/keyer/src/keyin"
         "${MINISHELL_ROOT}/apps/keyer/src/keyout"
+        "${MINISHELL_ROOT}/apps/keyer/src/sidetone"
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Werror -Wpedantic)
