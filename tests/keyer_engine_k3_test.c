@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "keyer_decoder.h"
 #include "keyer_engine.h"
 
 #define CHECK(expr) do { \
@@ -39,6 +40,39 @@ static void expect_no_event(keyer_engine_t *engine)
 {
     keyer_engine_event_t event;
     CHECK(!keyer_engine_poll_event(engine, &event));
+}
+
+static keyer_decoder_result_t decode_pattern(const char *pattern)
+{
+    keyer_engine_decoder_t decoder;
+    keyer_decoder_reset(&decoder);
+    for (const char *p = pattern; *p != '\0'; ++p) {
+        CHECK(*p == '.' || *p == '-');
+        keyer_decoder_append(&decoder, *p == '-');
+    }
+    return keyer_decoder_finalize(&decoder);
+}
+
+static void test_decoder_compatibility(void)
+{
+    keyer_decoder_result_t result = decode_pattern(".-");
+    CHECK(result.type == KEYER_DECODER_RESULT_CHAR);
+    CHECK(result.ch == 'A');
+
+    result = decode_pattern("......");
+    CHECK(result.type == KEYER_DECODER_RESULT_BACKSPACE);
+    CHECK(result.ch == '\b');
+
+    result = decode_pattern(".-..-.");
+    CHECK(result.type == KEYER_DECODER_RESULT_ENTER);
+    CHECK(result.ch == '\n');
+
+    result = decode_pattern("----");
+    CHECK(result.type == KEYER_DECODER_RESULT_SPACE);
+    CHECK(result.ch == ' ');
+
+    result = decode_pattern("-.-.-");
+    CHECK(result.type == KEYER_DECODER_RESULT_INVALID);
 }
 
 static void test_wpm_and_single_dit(void)
@@ -187,6 +221,7 @@ static void test_bug_manual_dah(void)
 
 int main(void)
 {
+    test_decoder_compatibility();
     test_wpm_and_single_dit();
     test_held_dit_repeats();
     test_squeeze_alternates();
