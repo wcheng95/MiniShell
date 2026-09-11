@@ -19,6 +19,9 @@ typedef uintptr_t minishell_backend_dir_t;
 typedef uintptr_t minishell_backend_audio_t;
 #define MINISHELL_BACKEND_AUDIO_INVALID ((minishell_backend_audio_t)0u)
 
+typedef uintptr_t minishell_backend_digital_t;
+#define MINISHELL_BACKEND_DIGITAL_INVALID ((minishell_backend_digital_t)0u)
+
 typedef struct {
     uint64_t memory_bytes;
     uint64_t storage_bytes;
@@ -123,6 +126,18 @@ typedef struct {
     mini_result_t (*audio_tx_stop)(void *ctx, minishell_backend_audio_t audio);
     mini_result_t (*audio_tx_abort)(void *ctx, minishell_backend_audio_t audio);
     mini_result_t (*audio_tx_close)(void *ctx, minishell_backend_audio_t audio);
+
+    /* Generic Digital I/O. The application owns semantic meaning; the backend
+     * only sees numeric line IDs, electrical mode, and logical 0/1 levels. */
+    uint64_t digital_io_capabilities;
+    mini_result_t (*digital_io_open)(void *ctx, uint32_t line_id, uint32_t mode,
+                                     uint32_t initial_level,
+                                     minishell_backend_digital_t *out_line);
+    mini_result_t (*digital_io_read)(void *ctx, minishell_backend_digital_t line,
+                                     uint32_t *out_level);
+    mini_result_t (*digital_io_write)(void *ctx, minishell_backend_digital_t line,
+                                      uint32_t level);
+    mini_result_t (*digital_io_close)(void *ctx, minishell_backend_digital_t line);
 } minishell_services_port_t;
 
 /* Configure the resident service layer. Safe to call again in host tests. */
