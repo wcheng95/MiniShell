@@ -30,6 +30,11 @@ int minishell_platform_console_read_line(char *buffer, size_t capacity);
 const minishell_services_port_t *minishell_platform_services_port(void);
 void minishell_platform_services_prepare(minishell_services_port_t *out_port);
 
+/* Resident producers such as GPS may publish into MiniShell services only
+ * after the service table is configured, and must stop before it is removed. */
+void minishell_platform_services_started(void);
+void minishell_platform_services_stopping(void);
+
 minishell_platform_result_t minishell_platform_apps_list(minishell_app_emit_fn emit,
                                                          void *ctx);
 minishell_platform_result_t minishell_platform_app_run(const char *name,
