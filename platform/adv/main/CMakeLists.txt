@@ -123,6 +123,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/.."
     REQUIRES
         elf_loader
+        heap
         esp_driver_i2c
         esp_driver_spi
         esp_driver_sdspi
