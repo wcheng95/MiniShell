@@ -20,8 +20,8 @@
 #error "ADV requires shared FATFS sector cache; CONFIG_FATFS_PER_FILE_CACHE must be disabled"
 #endif
 
-#if CONFIG_ESP_SYSTEM_MEMPROT
-#error "ADV runtime ELF requires executable SRAM; CONFIG_ESP_SYSTEM_MEMPROT must be disabled"
+#if defined(CONFIG_ESP_SYSTEM_MEMPROT_FEATURE) || defined(CONFIG_ESP_SYSTEM_MEMPROT)
+#error "ADV runtime ELF requires executable SRAM; ESP-IDF memory protection must be disabled"
 #endif
 
 /* Compile-time configuration guard only. */
