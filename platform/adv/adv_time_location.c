@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "adv_gps.h"
 #include "adv_internal.h"
 #include "adv_rtc.h"
 
@@ -132,6 +133,12 @@ void adv_time_location_configure(minishell_services_port_t *port)
     port->time_location_capabilities = MINI_TIMELOC_CAP_UTC;
     port->utc_load = utc_load;
     if (adv_rtc_ready()) port->utc_store = utc_store;
+
+    /* A resident GPS provider makes live location available even when /flash is
+     * unavailable. location_get() remains NOT_READY until a valid fix arrives. */
+    if (adv_gps_ready()) {
+        port->time_location_capabilities |= MINI_TIMELOC_CAP_LOCATION;
+    }
 
     if (!adv_filesystem_flash_ready()) return;
 
