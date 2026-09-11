@@ -1,6 +1,10 @@
 #ifndef FT8_APP_CONTROLLER_INTERNAL_H
 #define FT8_APP_CONTROLLER_INTERNAL_H
 
+#ifndef FT8_APP_CONTROLLER_INTERNAL
+#error "app_controller_internal.h is private to app_controller implementation files"
+#endif
+
 #include "app_controller.h"
 #include "auto_seq.h"
 #include "auto_seq_tx_intent.h"
