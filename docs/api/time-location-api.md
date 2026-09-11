@@ -109,7 +109,7 @@ The pin pair is owned by `adv_i2c`, not by the RTC driver, because the RTC and o
 
 At startup, a valid RTC establishes the UTC anchor. `date`/`utc_set()` writes the RTC and then re-anchors the in-memory MiniShell clock. The RTC is second-resolution, so persisted fractional nanoseconds are not retained across reboot.
 
-The current MiniShell DS3231 backend accepts calendar years 2000 through 2099. If the RTC is detected but its oscillator-stop flag indicates invalid timekeeping state, UTC remains not-ready until corrected with `date`. If no RTC is detected, the existing deterministic ADV development fallback remains available and `date` correction is session-only.
+The current MiniShell DS3231 backend accepts calendar years 2000 through 2099. If the RTC is absent or detected but not yet valid, including an asserted oscillator-stop flag, MiniShell starts from the deterministic fallback `2026-09-01 06:00:00 UTC` and advances from there using the monotonic clock. `date` can then initialize the RTC and clear the oscillator-stop flag. Actual RTC I/O failures remain errors rather than being silently replaced by fallback time.
 
 RTC ownership is independent of `/flash`; loss of the internal filesystem does not disable UTC. Persistent default location still depends on `/flash`.
 
@@ -215,7 +215,7 @@ Host service tests cover:
 - default-location set/get/clear persistence behavior;
 - public service discovery.
 
-ADV firmware CI builds the platform RTC integration together with the shared I2C owner. Hardware verification should confirm RTC bootstrap, persistent `date` update, and reboot retention on the actual Cardputer/RTC module.
+ADV firmware CI builds the platform RTC integration together with the shared I2C owner. Hardware verification should confirm RTC bootstrap, persistent `date` update, unset-RTC fallback, and reboot retention on the actual Cardputer/RTC module.
 
 `date` is a portable application using the same UTC operations.
 
