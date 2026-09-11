@@ -40,7 +40,7 @@ static void log_exec_heap(const char *phase)
 static bool valid_root(const char *root)
 {
     return root != NULL &&
-           (strcmp(root, "/flash") == 0 || strcmp(root, "/sd") == 0);
+           (strcmp(root, "/flash/apps") == 0 || strcmp(root, "/sd/apps") == 0);
 }
 
 static bool valid_name(const char *name)
