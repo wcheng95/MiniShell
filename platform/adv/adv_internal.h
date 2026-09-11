@@ -45,6 +45,7 @@ bool adv_filesystem_flash_ready(void);
 bool adv_filesystem_sd_ready(void);
 void adv_filesystem_configure(minishell_services_port_t *port);
 void adv_audio_wav_configure(minishell_services_port_t *port);
+void adv_audio_speaker_configure(minishell_services_port_t *port);
 void adv_time_location_configure(minishell_services_port_t *port);
 void adv_digital_io_configure(minishell_services_port_t *port);
 
