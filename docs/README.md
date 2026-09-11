@@ -10,7 +10,7 @@ Canonical priority:
 6. application docs (`docs/MiniFT8/`, `docs/keyer/`, etc.)
 7. project audit/progress records
 
-Current public API covers App, System, Memory, Filesystem, Time/Location, Display, Input, and Audio.
+Current public API covers App, System, Console, Memory, Filesystem, Time/Location, Display, Input, Audio, and Digital I/O.
 
 MiniShell's public contract is currently an **API**, not a frozen long-term binary ABI. Breaking API changes are allowed while the architecture is still being established. Backward source or binary compatibility will be introduced deliberately only when independently built applications make it necessary.
 
@@ -20,12 +20,14 @@ Current service contracts:
 docs/api/api-foundation.md
 docs/api/app-api.md
 docs/api/system-api.md
+docs/api/console-api.md
 docs/api/memory-api.md
 docs/api/filesystem-api.md
 docs/api/time-location-api.md
 docs/api/display-api.md
 docs/api/input-api.md
 docs/api/audio-api.md
+docs/api/digital-io-api.md
 ```
 
 Canonical architecture rules:
@@ -60,6 +62,6 @@ Completed architecture cleanup record:
 docs/project/architecture-cleanup.md   # C0-C4 complete
 ```
 
-ADV application resolution is compiled-in first, then `/flash/<app>.elf`, then `/sd/<app>.elf`.
+ADV application resolution is compiled-in first, then `/flash/apps/<app>.elf`, then `/sd/apps/<app>.elf`.
 
 The maintained MiniShell targets are Linux Mint on `pc-1` and Cardputer ADV.
