@@ -1,5 +1,6 @@
 #include "adv_rtc.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "driver/i2c_master.h"
@@ -126,6 +127,10 @@ mini_result_t adv_rtc_load_utc(int64_t *out_seconds, uint32_t *out_nanoseconds)
 {
     if (out_seconds == NULL || out_nanoseconds == NULL) return MINI_ERR_INVALID;
     if (!s_ready) return MINI_ERR_NOT_READY;
+
+    uint8_t control = 0u;
+    if (!read_block(ADV_RTC_REG_CONTROL1, &control, 1u)) return MINI_ERR_IO;
+    if ((control & ADV_RTC_CONTROL1_STOP) != 0u) return MINI_ERR_NOT_READY;
 
     uint8_t regs[7];
     if (!read_block(ADV_RTC_REG_SECONDS, regs, sizeof(regs))) return MINI_ERR_IO;
