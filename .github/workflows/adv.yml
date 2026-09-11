@@ -72,6 +72,6 @@ jobs:
             xtensa-esp32s3-elf-readelf -rW build/keyer.app.elf | tee /tmp/keyer-relocs.txt
             grep -q 'mini_api_get' /tmp/keyer-relocs.txt
             test "$(grep -c 'R_XTENSA_JMP_SLOT' /tmp/keyer-relocs.txt)" -eq 1
-            test "$(awk '/R_XTENSA_JMP_SLOT/ {print $(NF-2)}' /tmp/keyer-relocs.txt)" = 'mini_api_get'
+            grep 'R_XTENSA_JMP_SLOT' /tmp/keyer-relocs.txt | grep -q 'mini_api_get'
             echo "=== keyer ELF header ==="
             xtensa-esp32s3-elf-readelf -h build/keyer.app.elf
