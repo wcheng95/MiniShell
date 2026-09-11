@@ -1,6 +1,6 @@
 # Keyer on MiniShell
 
-Status: **K0/K1/K2 complete; K3 next**  
+Status: **K0/K1/K2/K3 complete; K4 next**  
 Date: 2026-09-10
 
 ## Purpose
@@ -147,7 +147,7 @@ ui_adapter
     MiniShell Display/Input edge adapter
 ```
 
-`morse_decoder` may remain a private `keyer_engine` submodule if that improves readability/testing. Do not split merely to create files.
+The Morse decoder is currently a private `keyer_engine` submodule. It remains platform-independent and does not talk to sibling application modules.
 
 ## 4. KeyIn / KeyOut model
 
@@ -160,7 +160,9 @@ Straight Key on first configured input
 Straight Key on second configured input
 ```
 
-KeyOut is a Keyer application abstraction, not a MiniShell service. The engine emits logical:
+Paddle reversal is deliberately outside `keyer_engine`: `keyin` maps physical inputs to logical `dit` and `dah` before stepping the engine.
+
+KeyOut is a Keyer application abstraction, not a MiniShell service. The engine exposes logical:
 
 ```text
 key_down
@@ -188,22 +190,18 @@ GPIO KeyOut comes first. CAT waits until after the GPIO field milestone.
 
 CW timing belongs to `keyer_engine`.
 
-Use MiniShell monotonic time for deadlines and elapsed-time measurement. Do not port FreeRTOS tick types or `xTaskGetTickCount()` into Keyer.
+The pure engine accepts an explicit monotonic `now_us` value. It does not call MiniShell, FreeRTOS, ESP-IDF, or a host clock directly. The application controller will obtain MiniShell monotonic time and pass it into the engine.
 
-Initial target:
+Runtime model:
 
 ```text
-monotonic_us()
-    -> engine timing/deadlines
-
-short periodic application loop
-    -> sample KeyIn
-    -> advance keyer_engine
-    -> apply KeyOut state
-    -> update sidetone state
+MiniShell monotonic_us()
+    -> app_controller
+    -> keyer_engine_step(now_us, logical inputs)
+    -> logical key state/events
 ```
 
-At 60 WPM a dit is about 20 ms, so approximately 1 ms loop granularity is a reasonable initial target. Measure before adding interrupt or scheduled-edge mechanisms.
+At 60 WPM a dit is about 20 ms, so approximately 1 ms application-loop granularity remains a reasonable initial ADV target. Measure before adding interrupt or scheduled-edge mechanisms.
 
 ## 6. Audio model
 
@@ -308,36 +306,85 @@ backend may reject reserved/unavailable lines
 no interrupt/callback API in V1
 ```
 
-Linux supplies a deterministic virtual provider for portable testing. ADV supplies a generic ESP32-S3 GPIO provider and reserves resident MiniShell-owned shared I2C/keyboard and SD-bus lines.
+Linux supplies a deterministic virtual provider for portable testing. ADV supplies a generic ESP32-S3 GPIO provider with an application-facing allow-list:
+
+```text
+G1 G2 G3 G4 G5 G6 G13 G15
+```
+
+This keeps resident LCD, keyboard/I2C, SD, audio, and other built-in resources outside application Digital I/O ownership.
+
+Physical paddle and radio-keying behavior is intentionally deferred to K4, where Keyer supplies real deployment GPIO assignments.
+
+### K3 — COMPLETE — portable Keyer engine
+
+Implemented under:
+
+```text
+apps/keyer/src/keyer_engine/
+    keyer_engine.c/.h
+    keyer_decoder.c/.h
+```
+
+The engine is pure C domain logic. It has no MiniShell, Digital I/O, Audio, Display, Filesystem, ESP-IDF, FreeRTOS, POSIX, or board dependency.
+
+Current behavior:
+
+```text
+WPM range                     5-60
+CW unit                       1200 / WPM ms
+Dit                           1 unit
+Dah                           3 units
+Inter-element gap             1 unit
+Character completion          3 units after element end
+Word-space completion         7 units after element end
+Paddle memory                 opposite paddle remembered
+Held squeeze                  alternating dit/dah
+Bug                           automatic dit + manual held dah
+Straight key                  <=2 units dit, >2 units dah
+Logical output                key_down/key_up state
+Decoder                       letters/digits/basic punctuation
+Invalid Morse                 '~'
+```
+
+The Mini-CW decoder's existing special input gestures are preserved:
+
+```text
+6-12 consecutive dits   backspace
+.-..-.                  enter
+----                    explicit space
+```
+
+Mini-CW compatibility note: its June 2026 hardware fix intentionally made the enum/display selection named `Iambic A` carry the squeeze-release extra-element behavior. K3 preserves that observed field behavior rather than silently renaming or reversing the modes during the first port. A future semantic cleanup would require an explicit migration and regression change.
+
+K3 regression coverage in `tests/keyer_engine_k3_test.c` includes:
+
+```text
+WPM clamp and timing
+single-dit key state and decode timing
+held-dit repeat
+held-squeeze alternation
+opposite-paddle memory
+Mini-CW Iambic A/B compatibility
+straight-key dit/dah classification
+Bug manual dah behavior
+Morse decode + Mini-CW special gestures
+invalid-Morse behavior
+```
 
 Verification:
 
 ```text
-Linux build + CTest                 PASS
-Digital I/O integration/lifecycle  PASS
-strict unit suite                   PASS
-AS-8                               PASS
-ADV registry                       PASS
-ADV firmware build                 PASS
-ADV runtime-ELF build              PASS
+Linux normal build/CTest        PASS
+AS-8                            PASS
+strict unit build               PASS
+keyer_engine_k3_unit            PASS
+FT8 reference regression        PASS
 ```
 
-Physical paddle and radio-keying behavior is intentionally deferred to K4, where Keyer supplies real deployment GPIO assignments.
+K3 deliberately does not connect to physical GPIO. That boundary belongs to K4.
 
-### K3 — NEXT — minimal portable Keyer engine
-
-Port useful Mini-CW timing/state-machine behavior into a platform-independent engine:
-
-- paddle input state;
-- Iambic A/B behavior already validated by Mini-CW;
-- straight key;
-- WPM;
-- logical key-down/key-up state;
-- basic decoded output only if it can be reused cleanly without complicating the engine.
-
-K3 must run as pure host tests with no Digital I/O, Audio, Display, Input, Filesystem, ESP-IDF, or FreeRTOS dependency.
-
-### K4 — GPIO KeyIn/KeyOut on ADV
+### K4 — NEXT — GPIO KeyIn/KeyOut on ADV
 
 ```text
 setting.txt
@@ -351,6 +398,17 @@ setting.txt
 Hardware deployment pins come from Keyer settings, not MiniShell source and not `/flash/config.txt`.
 
 K4 is where actual paddle electrical behavior and KeyOut safety/release behavior are validated on hardware.
+
+Initial ADV deployment may use:
+
+```text
+Dit       G13  input + pull-up
+Dah       G15  input + pull-up
+KeyOut    G3   open-drain, released at open
+KeyOut 2  G6   open-drain, released at open
+```
+
+These meanings remain Keyer-owned settings; MiniShell sees only generic line IDs/modes/levels.
 
 ### K5 — sidetone through MiniShell Audio TX
 
@@ -397,7 +455,8 @@ The first target is a small, reliable field CW keyer that validates MiniShell in
 K0 architecture gate                              COMPLETE
 K1 ADV runtime ELF proof                          COMPLETE
 K2 MiniShell Digital I/O V1                       COMPLETE
-K3 portable Keyer engine                          NEXT
+K3 portable Keyer engine                          COMPLETE
+K4 GPIO KeyIn/KeyOut                              NEXT
 MiniShell must not know Keyer semantics           YES
 Keyer GPIO assignments may be app settings        YES
 canonical Keyer settings path                     /flash/keyer/setting.txt
@@ -405,6 +464,7 @@ app resolution                                    compiled-in -> /flash/apps -> 
 same ELF binary from /flash/apps or /sd/apps      REQUIRED
 Digital I/O IDs                                   generic numeric line IDs
 Digital I/O initial modes                         input / pullup / output / open-drain
+ADV application GPIO allow-list                   1,2,3,4,5,6,13,15
 Digital I/O V1 IRQ/callback                       NO
 CAT KeyOut                                        after GPIO milestone
 ADV ELF executable-memory requirement             MEMPROT_FEATURE off on IDF 5.5.1
