@@ -8,17 +8,31 @@
 
 #include "adv_i2c.h"
 
-#define ADV_RTC_ADDRESS 0x68u
 #define ADV_RTC_I2C_HZ 400000u
-#define ADV_RTC_REG_SECONDS 0x00u
-#define ADV_RTC_REG_STATUS 0x0fu
-#define ADV_RTC_STATUS_OSF 0x80u
-#define ADV_RTC_MONTH_CENTURY 0x80u
-#define ADV_RTC_HOUR_12H 0x40u
-#define ADV_RTC_HOUR_PM 0x20u
+
+#define DS3231_ADDRESS 0x68u
+#define DS3231_REG_SECONDS 0x00u
+#define DS3231_REG_STATUS 0x0fu
+#define DS3231_STATUS_OSF 0x80u
+#define DS3231_MONTH_CENTURY 0x80u
+#define DS3231_HOUR_12H 0x40u
+#define DS3231_HOUR_PM 0x20u
+
+#define HYM8563_ADDRESS 0x51u
+#define HYM8563_REG_CONTROL1 0x00u
+#define HYM8563_CONTROL1_STOP 0x20u
+#define HYM8563_REG_SECONDS 0x02u
+#define HYM8563_SECONDS_VL 0x80u
+
+/* M5 Unit RTC has shipped with HYM8563/BM8563-compatible parts. */
+typedef enum {
+    ADV_RTC_NONE = 0,
+    ADV_RTC_DS3231,
+    ADV_RTC_HYM8563,
+} adv_rtc_kind_t;
 
 static i2c_master_dev_handle_t s_device;
-static bool s_ready;
+static adv_rtc_kind_t s_kind;
 
 static int is_leap(int year)
 {
@@ -74,14 +88,14 @@ static uint8_t bcd_encode(unsigned value)
     return (uint8_t)(((value / 10u) << 4) | (value % 10u));
 }
 
-static int hour_decode(uint8_t value)
+static int ds3231_hour_decode(uint8_t value)
 {
-    if ((value & ADV_RTC_HOUR_12H) == 0u) return bcd_decode(value & 0x3fu);
+    if ((value & DS3231_HOUR_12H) == 0u) return bcd_decode(value & 0x3fu);
 
     int hour = bcd_decode(value & 0x1fu);
     if (hour < 1 || hour > 12) return -1;
     if (hour == 12) hour = 0;
-    if ((value & ADV_RTC_HOUR_PM) != 0u) hour += 12;
+    if ((value & DS3231_HOUR_PM) != 0u) hour += 12;
     return hour;
 }
 
@@ -105,63 +119,37 @@ static bool write_byte(uint8_t reg, uint8_t value)
     return write_block(reg, &value, 1u);
 }
 
-int adv_rtc_prepare(void)
+static bool attach_and_probe(uint8_t address, uint8_t probe_reg, adv_rtc_kind_t kind)
 {
-    if (s_ready) return 0;
-    if (adv_i2c_prepare() != 0) return -1;
-
     i2c_device_config_t config = {0};
     config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
-    config.device_address = ADV_RTC_ADDRESS;
+    config.device_address = address;
     config.scl_speed_hz = ADV_RTC_I2C_HZ;
 
     if (i2c_master_bus_add_device(adv_i2c_bus(), &config, &s_device) != ESP_OK) {
         s_device = NULL;
-        return -1;
+        return false;
     }
 
-    uint8_t status = 0u;
-    if (!read_block(ADV_RTC_REG_STATUS, &status, 1u)) {
+    uint8_t probe = 0u;
+    if (!read_block(probe_reg, &probe, 1u)) {
         (void)i2c_master_bus_rm_device(s_device);
         s_device = NULL;
-        return -1;
+        return false;
     }
 
-    s_ready = true;
-    return 0;
+    s_kind = kind;
+    return true;
 }
 
-bool adv_rtc_ready(void)
+static mini_result_t calendar_to_utc(int year, int month, int day,
+                                     int hour, int minute, int second,
+                                     int64_t *out_seconds,
+                                     uint32_t *out_nanoseconds)
 {
-    return s_ready;
-}
-
-mini_result_t adv_rtc_load_utc(int64_t *out_seconds, uint32_t *out_nanoseconds)
-{
-    if (out_seconds == NULL || out_nanoseconds == NULL) return MINI_ERR_INVALID;
-    if (!s_ready) return MINI_ERR_NOT_READY;
-
-    uint8_t status = 0u;
-    if (!read_block(ADV_RTC_REG_STATUS, &status, 1u)) return MINI_ERR_IO;
-    if ((status & ADV_RTC_STATUS_OSF) != 0u) return MINI_ERR_NOT_READY;
-
-    uint8_t regs[7];
-    if (!read_block(ADV_RTC_REG_SECONDS, regs, sizeof(regs))) return MINI_ERR_IO;
-
-    int second = bcd_decode(regs[0] & 0x7fu);
-    int minute = bcd_decode(regs[1] & 0x7fu);
-    int hour = hour_decode(regs[2]);
-    int weekday = bcd_decode(regs[3] & 0x07u);
-    int day = bcd_decode(regs[4] & 0x3fu);
-    int month = bcd_decode(regs[5] & 0x1fu);
-    int year2 = bcd_decode(regs[6]);
-    int year = year2 < 0 ? -1 : 2000 + year2;
-
-    if ((regs[5] & ADV_RTC_MONTH_CENTURY) != 0u ||
-        second < 0 || second > 59 || minute < 0 || minute > 59 ||
-        hour < 0 || hour > 23 || weekday < 1 || weekday > 7 ||
-        year < 2000 || year > 2099 || month < 1 || month > 12 ||
-        day < 1 || day > days_in_month(year, month)) {
+    if (second < 0 || second > 59 || minute < 0 || minute > 59 ||
+        hour < 0 || hour > 23 || year < 2000 || year > 2099 ||
+        month < 1 || month > 12 || day < 1 || day > days_in_month(year, month)) {
         return MINI_ERR_IO;
     }
 
@@ -171,9 +159,58 @@ mini_result_t adv_rtc_load_utc(int64_t *out_seconds, uint32_t *out_nanoseconds)
     return MINI_OK;
 }
 
-mini_result_t adv_rtc_store_utc(int64_t seconds, uint32_t nanoseconds)
+static mini_result_t ds3231_load_utc(int64_t *out_seconds, uint32_t *out_nanoseconds)
 {
-    if (!s_ready) return MINI_ERR_NOT_READY;
+    uint8_t status = 0u;
+    if (!read_block(DS3231_REG_STATUS, &status, 1u)) return MINI_ERR_IO;
+    if ((status & DS3231_STATUS_OSF) != 0u) return MINI_ERR_NOT_READY;
+
+    uint8_t regs[7];
+    if (!read_block(DS3231_REG_SECONDS, regs, sizeof(regs))) return MINI_ERR_IO;
+
+    int second = bcd_decode(regs[0] & 0x7fu);
+    int minute = bcd_decode(regs[1] & 0x7fu);
+    int hour = ds3231_hour_decode(regs[2]);
+    int weekday = bcd_decode(regs[3] & 0x07u);
+    int day = bcd_decode(regs[4] & 0x3fu);
+    int month = bcd_decode(regs[5] & 0x1fu);
+    int year2 = bcd_decode(regs[6]);
+    int year = year2 < 0 ? -1 : 2000 + year2;
+
+    if ((regs[5] & DS3231_MONTH_CENTURY) != 0u || weekday < 1 || weekday > 7) {
+        return MINI_ERR_IO;
+    }
+    return calendar_to_utc(year, month, day, hour, minute, second,
+                           out_seconds, out_nanoseconds);
+}
+
+static mini_result_t hym8563_load_utc(int64_t *out_seconds, uint32_t *out_nanoseconds)
+{
+    uint8_t regs[7];
+    if (!read_block(HYM8563_REG_SECONDS, regs, sizeof(regs))) return MINI_ERR_IO;
+    if ((regs[0] & HYM8563_SECONDS_VL) != 0u) return MINI_ERR_NOT_READY;
+
+    int second = bcd_decode(regs[0] & 0x7fu);
+    int minute = bcd_decode(regs[1] & 0x7fu);
+    int hour = bcd_decode(regs[2] & 0x3fu);
+    int day = bcd_decode(regs[3] & 0x3fu);
+    int weekday = bcd_decode(regs[4] & 0x07u);
+    int month = bcd_decode(regs[5] & 0x1fu);
+    int year2 = bcd_decode(regs[6]);
+    int year = year2 < 0 ? -1 : 2000 + year2;
+
+    /* HYM8563/BM8563 weekday is 0..6. The century bit is intentionally
+     * ignored; MiniShell currently supports 2000..2099 only. */
+    if (weekday < 0 || weekday > 6) return MINI_ERR_IO;
+    return calendar_to_utc(year, month, day, hour, minute, second,
+                           out_seconds, out_nanoseconds);
+}
+
+static mini_result_t split_utc(int64_t seconds, uint32_t nanoseconds,
+                               int *year, unsigned *month, unsigned *day,
+                               unsigned *hour, unsigned *minute, unsigned *second,
+                               int64_t *out_days)
+{
     if (nanoseconds >= 1000000000u) return MINI_ERR_INVALID;
 
     int64_t days = seconds / 86400;
@@ -183,15 +220,29 @@ mini_result_t adv_rtc_store_utc(int64_t seconds, uint32_t nanoseconds)
         --days;
     }
 
+    civil_from_days(days, year, month, day);
+    if (*year < 2000 || *year > 2099) return MINI_ERR_INVALID;
+
+    *hour = (unsigned)(sod / 3600);
+    *minute = (unsigned)((sod % 3600) / 60);
+    *second = (unsigned)(sod % 60);
+    *out_days = days;
+    return MINI_OK;
+}
+
+static mini_result_t ds3231_store_utc(int64_t seconds, uint32_t nanoseconds)
+{
     int year;
     unsigned month;
     unsigned day;
-    civil_from_days(days, &year, &month, &day);
-    if (year < 2000 || year > 2099) return MINI_ERR_INVALID;
+    unsigned hour;
+    unsigned minute;
+    unsigned second;
+    int64_t days;
+    mini_result_t split = split_utc(seconds, nanoseconds, &year, &month, &day,
+                                    &hour, &minute, &second, &days);
+    if (split != MINI_OK) return split;
 
-    unsigned hour = (unsigned)(sod / 3600);
-    unsigned minute = (unsigned)((sod % 3600) / 60);
-    unsigned second = (unsigned)(sod % 60);
     int64_t weekday_zero = (days + 4) % 7;
     if (weekday_zero < 0) weekday_zero += 7;
 
@@ -205,10 +256,91 @@ mini_result_t adv_rtc_store_utc(int64_t seconds, uint32_t nanoseconds)
         bcd_encode((unsigned)(year - 2000)),
     };
 
-    if (!write_block(ADV_RTC_REG_SECONDS, regs, sizeof(regs))) return MINI_ERR_IO;
+    if (!write_block(DS3231_REG_SECONDS, regs, sizeof(regs))) return MINI_ERR_IO;
 
     uint8_t status = 0u;
-    if (!read_block(ADV_RTC_REG_STATUS, &status, 1u)) return MINI_ERR_IO;
-    if (!write_byte(ADV_RTC_REG_STATUS, (uint8_t)(status & ~ADV_RTC_STATUS_OSF))) return MINI_ERR_IO;
+    if (!read_block(DS3231_REG_STATUS, &status, 1u)) return MINI_ERR_IO;
+    if (!write_byte(DS3231_REG_STATUS, (uint8_t)(status & ~DS3231_STATUS_OSF))) {
+        return MINI_ERR_IO;
+    }
     return MINI_OK;
+}
+
+static mini_result_t hym8563_store_utc(int64_t seconds, uint32_t nanoseconds)
+{
+    int year;
+    unsigned month;
+    unsigned day;
+    unsigned hour;
+    unsigned minute;
+    unsigned second;
+    int64_t days;
+    mini_result_t split = split_utc(seconds, nanoseconds, &year, &month, &day,
+                                    &hour, &minute, &second, &days);
+    if (split != MINI_OK) return split;
+
+    int64_t weekday_zero = (days + 4) % 7;
+    if (weekday_zero < 0) weekday_zero += 7;
+
+    uint8_t regs[7] = {
+        bcd_encode(second),
+        bcd_encode(minute),
+        bcd_encode(hour),
+        bcd_encode(day),
+        bcd_encode((unsigned)weekday_zero),
+        bcd_encode(month),
+        bcd_encode((unsigned)(year - 2000)),
+    };
+
+    if (!write_byte(HYM8563_REG_CONTROL1, HYM8563_CONTROL1_STOP)) return MINI_ERR_IO;
+    if (!write_block(HYM8563_REG_SECONDS, regs, sizeof(regs))) {
+        (void)write_byte(HYM8563_REG_CONTROL1, 0u);
+        return MINI_ERR_IO;
+    }
+    if (!write_byte(HYM8563_REG_CONTROL1, 0u)) return MINI_ERR_IO;
+    return MINI_OK;
+}
+
+int adv_rtc_prepare(void)
+{
+    if (s_kind != ADV_RTC_NONE) return 0;
+    if (adv_i2c_prepare() != 0) return -1;
+
+    /* Keep DS3231 as the first choice to preserve existing ADV behavior.
+     * M5 Unit RTC uses a different address, so either module works without
+     * a user-visible configuration switch. */
+    if (attach_and_probe(DS3231_ADDRESS, DS3231_REG_STATUS, ADV_RTC_DS3231)) return 0;
+    if (attach_and_probe(HYM8563_ADDRESS, HYM8563_REG_CONTROL1, ADV_RTC_HYM8563)) return 0;
+    return -1;
+}
+
+bool adv_rtc_ready(void)
+{
+    return s_kind != ADV_RTC_NONE;
+}
+
+mini_result_t adv_rtc_load_utc(int64_t *out_seconds, uint32_t *out_nanoseconds)
+{
+    if (out_seconds == NULL || out_nanoseconds == NULL) return MINI_ERR_INVALID;
+
+    switch (s_kind) {
+        case ADV_RTC_DS3231:
+            return ds3231_load_utc(out_seconds, out_nanoseconds);
+        case ADV_RTC_HYM8563:
+            return hym8563_load_utc(out_seconds, out_nanoseconds);
+        default:
+            return MINI_ERR_NOT_READY;
+    }
+}
+
+mini_result_t adv_rtc_store_utc(int64_t seconds, uint32_t nanoseconds)
+{
+    switch (s_kind) {
+        case ADV_RTC_DS3231:
+            return ds3231_store_utc(seconds, nanoseconds);
+        case ADV_RTC_HYM8563:
+            return hym8563_store_utc(seconds, nanoseconds);
+        default:
+            return MINI_ERR_NOT_READY;
+    }
 }
