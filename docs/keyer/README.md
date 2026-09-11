@@ -1,11 +1,11 @@
 # Keyer on MiniShell
 
-Status: **Draft for review — K0/K1 complete; K2 next**  
+Status: **K0/K1/K2 complete; K3 next**  
 Date: 2026-09-10
 
 ## Purpose
 
-Port the useful Keyer portion of Mini-CW into MiniShell as a small, field-usable application and use it as the first practical stress test of runtime application loading on Cardputer ADV.
+Port the useful Keyer portion of Mini-CW into MiniShell as a small, field-usable application and use it as the first practical external application on Cardputer ADV.
 
 Target runtime artifact:
 
@@ -28,34 +28,11 @@ ADV application resolution is:
 3. /sd/apps/<app>.elf
 ```
 
-Therefore the same `keyer.elf` binary may be copied from SD to flash and must run unchanged; if both external copies exist, `/flash/apps/keyer.elf` wins.
+The same `keyer.elf` binary must run unchanged from either external location. If both copies exist, `/flash/apps/keyer.elf` wins.
 
-The Keyer application is portable at the source/API boundary. Board-specific deployment details may live in its application settings.
+## 1. Hard boundaries
 
-The prerequisite architecture cleanup is complete in `../project/architecture-cleanup.md`. Canonical configuration ownership is defined in `../architecture/configuration.md`.
-
-## 1. Goals
-
-The first useful Keyer should exercise real MiniShell services while remaining much smaller than MiniFT8.
-
-It should eventually cover:
-
-```text
-paddle / straight-key input
-        |
-        v
-portable keyer engine
-        |
-        +--> KeyOut: GPIO or radio Control/CAT
-        |
-        `--> sidetone/audio: Speaker or UAC
-```
-
-This validates runtime app loading, timing, Digital I/O, Audio TX, Display/Input, Filesystem/application settings, clean ownership, and later Control/CAT.
-
-## 2. Hard boundaries
-
-### 2.1 MiniShell must not know Keyer concepts
+### MiniShell must not know Keyer concepts
 
 MiniShell must not contain knowledge of:
 
@@ -72,13 +49,11 @@ Keyer settings
 
 MiniShell provides generic services only: Digital I/O, Audio, Time, Display, Input, Filesystem, and later generic Control where justified.
 
-### 2.2 Application source must not know the platform
+### Application source must not know the platform
 
 `keyer.elf` source must not include or directly call ESP-IDF, FreeRTOS, M5/Cardputer APIs, board GPIO drivers, USB/UAC implementation APIs, device-specific CAT syntax, Linux/POSIX APIs, or ELF-loader interfaces.
 
-Its installation path is not application logic. The same ELF must work from `/flash/apps/keyer.elf` or `/sd/apps/keyer.elf`.
-
-### 2.3 No side talk
+### No side talk
 
 `app_controller` coordinates Keyer modules.
 
@@ -97,25 +72,17 @@ app_controller
 keyin keyout keyer_engine
 ```
 
-A pure Keyer state machine does not fetch settings or operate platform resources on its own.
+Pure domain/state-machine modules do not fetch settings or operate platform resources directly.
 
-## 3. Configuration ownership
+## 2. Configuration ownership
 
 Canonical rule: `../architecture/configuration.md`.
 
-### 3.1 MiniShell configuration
-
-Reserved system file:
+MiniShell owns:
 
 ```text
 /flash/config.txt
 ```
-
-This is MiniShell-owned and contains only resident/platform configuration MiniShell itself needs, for example debug UART GPIO selection, RTC/GPS physical assignment, GPS baud/detection policy, and resident platform resource sharing/detection.
-
-It must not contain `keyer_*`, dit, dah, paddle, KeyOut, WPM, tone, or other application-domain settings.
-
-### 3.2 Keyer configuration
 
 Keyer owns:
 
@@ -123,31 +90,7 @@ Keyer owns:
 /flash/keyer/setting.txt
 ```
 
-This may contain both portable Keyer behavior and deployment-specific hardware assignments.
-
-Settings to define during review/implementation include:
-
-```text
-KeyIn type
-Dit input GPIO
-Dah input GPIO
-KeyOut backend: GPIO | CAT | OFF
-KeyOut GPIO assignment/mode when GPIO is selected
-Control endpoint when CAT is selected
-WPM
-Iambic mode
-tone frequency
-volume
-Audio Out endpoint: Speaker | UAC
-TX delay
-Tune timeout
-```
-
-Exact key names and file syntax are not frozen yet.
-
-The important rule is:
-
-> Keyer interprets Keyer settings. MiniShell only receives generic service requests.
+Keyer settings may include deployment-specific GPIO assignments. This does not make MiniShell aware of their meaning.
 
 Example:
 
@@ -166,16 +109,13 @@ keyin
         |
         v
 MiniShell Digital I/O
-    configure/read generic line 13
+    line_id = 13
+    input + pull-up
 ```
 
-MiniShell does not know that line 13 represents a dit paddle contact.
+MiniShell knows only a generic line request; Keyer knows that the line represents `dit`.
 
-This allows the same application binary to run with different hardware-specific settings on different MiniShell targets.
-
-## 4. Initial module model
-
-Keep the first version small:
+## 3. Initial module model
 
 ```text
 keyer_main
@@ -209,18 +149,25 @@ ui_adapter
 
 `morse_decoder` may remain a private `keyer_engine` submodule if that improves readability/testing. Do not split merely to create files.
 
-## 5. KeyOut model
+## 4. KeyIn / KeyOut model
 
-KeyOut is a Keyer application abstraction, not a MiniShell service name.
+KeyIn interprets generic digital lines as application input. Initial modes:
 
-The engine expresses logical key state:
+```text
+Paddle
+Paddle-Reverse
+Straight Key on first configured input
+Straight Key on second configured input
+```
+
+KeyOut is a Keyer application abstraction, not a MiniShell service. The engine emits logical:
 
 ```text
 key_down
 key_up
 ```
 
-`app_controller` configures `keyout` from application configuration.
+and `app_controller` sends that state through the configured KeyOut edge module.
 
 ```text
 config_service
@@ -232,34 +179,12 @@ app_controller
 keyout
    |        \
    v         v
-GPIO      Control/CAT
-   |         |
-   v         v
-MiniShell generic services
+Digital I/O  Control/CAT
 ```
 
-For GPIO KeyOut, Keyer settings supply line assignments/electrical mode and `keyout` asks generic MiniShell Digital I/O to configure/drive those lines. MiniShell does not know they key a transmitter.
+GPIO KeyOut comes first. CAT waits until after the GPIO field milestone.
 
-For later CAT KeyOut, device-specific CAT syntax, transport, inversion, retry, and sequencing remain below a generic MiniShell Control boundary. Do not hide CAT inside Digital I/O.
-
-## 6. KeyIn model
-
-KeyIn interprets generic digital lines as application input.
-
-Initial modes:
-
-```text
-Paddle
-Paddle-Reverse
-Straight Key on first configured input
-Straight Key on second configured input
-```
-
-KeyIn reads MiniShell Digital I/O states and provides normalized paddle/SK state to `keyer_engine`.
-
-V1 should prefer polling over callbacks/interrupt APIs unless measurement proves polling inadequate.
-
-## 7. Timing model
+## 5. Timing model
 
 CW timing belongs to `keyer_engine`.
 
@@ -273,16 +198,16 @@ monotonic_us()
 
 short periodic application loop
     -> sample KeyIn
-    -> advance keyer engine
+    -> advance keyer_engine
     -> apply KeyOut state
     -> update sidetone state
 ```
 
-At 60 WPM a dit is about 20 ms, so approximately 1 ms loop granularity is a reasonable initial ADV target. Measure before adding lower-level scheduled-edge mechanisms.
+At 60 WPM a dit is about 20 ms, so approximately 1 ms loop granularity is a reasonable initial target. Measure before adding interrupt or scheduled-edge mechanisms.
 
-## 8. Audio model
+## 6. Audio model
 
-KeyOut and Audio Out are independent.
+KeyOut and Audio Out are independent:
 
 ```text
 keyer_engine
@@ -292,13 +217,11 @@ keyer_engine
     `--> sidetone    audible CW state
 ```
 
-MiniShell Audio output may be Speaker or UAC. Keyer selects its endpoint through application settings rather than hardcoding Cardputer speaker behavior.
+MiniShell Audio transports streams. Keyer owns tone frequency, volume policy, tone generation, and CW timing.
 
-MiniShell transports PCM and owns stream/backend lifecycle. Keyer owns tone frequency, tone generation, CW timing, volume policy, and tone on/off state.
+## 7. Runtime ELF target
 
-## 9. Runtime ELF target
-
-Desired ADV user experience:
+Desired user experience:
 
 ```text
 M$> apps
@@ -308,27 +231,17 @@ keyer
 M$> keyer
 ```
 
-Resolution:
+Keyer is not planned as a compiled-in ADV app; normal deployment therefore exercises the runtime ELF path.
 
-```text
-1. compiled-in keyer, if one exists
-2. /flash/apps/keyer.elf
-3. /sd/apps/keyer.elf
-```
+The public MiniShell API is still evolving. K2 advanced API generation v2 -> v3, so external applications must currently be rebuilt against the matching MiniShell API generation.
 
-The current plan does not compile Keyer into ADV, so normal Keyer deployment exercises the external tiers.
+On Cardputer ADV, Espressif's ELF loader relocates executable sections into executable internal SRAM. ESP-IDF 5.5.1 therefore builds MiniShell with `CONFIG_ESP_SYSTEM_MEMPROT_FEATURE` disabled. External ADV apps are trusted code, not sandboxed code.
 
-This must be a real runtime-loaded application, not a statically linked app renamed `.elf`. The application binary may initially require the matching MiniShell API generation; long-term cross-release ABI compatibility is not required yet.
-
-On Cardputer ADV, Espressif's ELF loader relocates executable sections into internal executable SRAM. ESP-IDF 5.5.1 must therefore build ADV with `CONFIG_ESP_SYSTEM_MEMPROT_FEATURE` disabled; otherwise the capability allocator exposes zero `MALLOC_CAP_EXEC` heap and even a tiny ELF `.text` allocation fails. External ADV applications are therefore trusted code, not sandboxed applications.
-
-## 10. Development stages
+## 8. Development stages
 
 ### K0 — COMPLETE — architecture gate
 
-`../project/architecture-cleanup.md` C0-C4 is complete.
-
-Established before Keyer code:
+Established:
 
 ```text
 dependency/no-side-talk enforcement
@@ -341,71 +254,88 @@ configuration ownership/namespace
 
 ### K1 — COMPLETE — ADV runtime ELF proof
 
-Hardware-validated on Cardputer ADV with the non-colliding `elfhello.elf` test application. K1 was originally proven from the volume roots; the canonical search directories were then tightened to `/flash/apps` and `/sd/apps` without changing loader semantics.
-
-Canonical behavior:
+Hardware validated with `elfhello.elf`:
 
 ```text
 /sd/apps/elfhello.elf
     discover -> load -> relocate -> mini_api_get()
     -> MiniShell Console API -> return -> unload
 
-same binary copied to:
+same binary:
 /flash/apps/elfhello.elf
-    discover -> load -> call MiniShell API -> return -> unload
 
-when both external copies exist:
-    /flash/apps/elfhello.elf wins
-```
-
-Repeated load/run/unload cycles returned cleanly to `M$>` with stable executable-heap measurements. Hardware evidence included approximately:
-
-```text
-before load: exec free=300828, largest=286720
-after unload: exec free=301984, largest=286720
-```
-
-The exact free-byte difference is allocator/coalescing behavior; the stable largest block and repeated identical cycles show no observed K1 loader leak.
-
-K1 protects the complete application resolution rule:
-
-```text
+precedence:
 compiled-in > /flash/apps > /sd/apps
 ```
 
-`elfhello` imports only `mini_api_get`; all application service calls then go through the MiniShell API table. Broad libc/ESP-IDF loader symbol tables remain disabled for external applications.
+Repeated execution showed stable executable heap and no observed loader leak.
 
-Do not use `hello.elf` while `hello` remains compiled in, because compiled-in priority would mask the ELF path.
+### K2 — COMPLETE — MiniShell Digital I/O V1
 
-### K2 — MiniShell Digital I/O V1
-
-Add the smallest generic Digital I/O API demonstrated by Keyer needs.
-
-Likely operations:
+Canonical contract:
 
 ```text
-open/configure generic line
+docs/api/digital-io-api.md
+```
+
+Public operations:
+
+```text
+open
 read
 write
 close
 ```
 
-Semantics must cover input pull-up and output modes required by the existing Mini-CW adapter, including active-low/open-drain output where supported.
+V1 modes:
 
-Do not expose Keyer-specific endpoint names or hard-coded board pins in MiniShell. Develop/test service semantics on Linux/mock first, then implement the ADV provider.
+```text
+input
+input + pull-up
+output
+open-drain output
+```
 
-### K3 — minimal portable Keyer engine
+Additional semantics:
+
+```text
+numeric generic line IDs
+opaque public handles
+initial output level supplied at open
+duplicate-open rejection
+automatic line cleanup at app exit
+backend may reject reserved/unavailable lines
+no interrupt/callback API in V1
+```
+
+Linux supplies a deterministic virtual provider for portable testing. ADV supplies a generic ESP32-S3 GPIO provider and reserves resident MiniShell-owned shared I2C/keyboard and SD-bus lines.
+
+Verification:
+
+```text
+Linux build + CTest                 PASS
+Digital I/O integration/lifecycle  PASS
+strict unit suite                   PASS
+AS-8                               PASS
+ADV registry                       PASS
+ADV firmware build                 PASS
+ADV runtime-ELF build              PASS
+```
+
+Physical paddle and radio-keying behavior is intentionally deferred to K4, where Keyer supplies real deployment GPIO assignments.
+
+### K3 — NEXT — minimal portable Keyer engine
 
 Port useful Mini-CW timing/state-machine behavior into a platform-independent engine:
 
-- paddle input;
-- Iambic A/B behavior as already validated by Mini-CW;
+- paddle input state;
+- Iambic A/B behavior already validated by Mini-CW;
 - straight key;
 - WPM;
-- key-down/key-up state;
-- basic decoded output if the existing decoder can be cleanly reused.
+- logical key-down/key-up state;
+- basic decoded output only if it can be reused cleanly without complicating the engine.
 
-Preserve known Mini-CW behavior during the first port unless regression tests support a deliberate change.
+K3 must run as pure host tests with no Digital I/O, Audio, Display, Input, Filesystem, ESP-IDF, or FreeRTOS dependency.
 
 ### K4 — GPIO KeyIn/KeyOut on ADV
 
@@ -420,15 +350,15 @@ setting.txt
 
 Hardware deployment pins come from Keyer settings, not MiniShell source and not `/flash/config.txt`.
 
+K4 is where actual paddle electrical behavior and KeyOut safety/release behavior are validated on hardware.
+
 ### K5 — sidetone through MiniShell Audio TX
 
-Add portable tone generation and an ADV Audio TX provider. Speaker may be first; UAC remains the alternate endpoint under the same MiniShell Audio API.
+Add portable tone generation and an ADV Audio TX provider. Speaker may be first; UAC remains an alternate endpoint under the same MiniShell Audio API.
 
 ### K6 — minimal field UI and settings
 
-Implement the smallest practical field UI. Reuse proven Mini-CW behavior where useful without mechanically porting its old architecture.
-
-Hold-Backspace and gestures requiring press/release semantics may remain deferred until MiniShell Input has a justified event model.
+Implement the smallest practical field UI and `/flash/keyer/setting.txt` handling. Reuse proven Mini-CW behavior where useful without mechanically porting its old architecture.
 
 ### K7 — `keyer.elf` field milestone
 
@@ -439,15 +369,15 @@ Build one `keyer.elf` and validate the exact same binary from:
 /flash/apps/keyer.elf
 ```
 
-Validate repeated load/run/exit/unload, external discovery order, paddle at representative WPM, Iambic A/B, straight key, KeyOut cancellation/release safety, GPIO electrical behavior, sidetone timing, configuration persistence/reload, and resource cleanup.
+Validate repeated load/run/exit/unload, discovery order, representative WPM, Iambic A/B, straight key, KeyOut cancellation/release safety, GPIO electrical behavior, sidetone timing, configuration persistence/reload, and resource cleanup.
 
 ### K8 — Control/CAT KeyOut
 
-After a generic MiniShell Control service is defined/tested, add `KeyOut = CAT` without changing `keyer_engine`. GPIO and CAT keying should be interchangeable below the same logical KeyOut state machine.
+After a generic MiniShell Control service is defined/tested, add `KeyOut = CAT` without changing `keyer_engine`.
 
-## 11. What not to port initially
+## 9. Deferred scope
 
-Defer unless needed for field usefulness:
+Do not initially port:
 
 - Lessons mode;
 - Words mode;
@@ -459,40 +389,23 @@ Defer unless needed for field usefulness:
 - advanced long-press keyboard gestures;
 - unrelated system settings.
 
-The first target is a small, reliable CW keyer that validates MiniShell in real use.
+The first target is a small, reliable field CW keyer that validates MiniShell in real use.
 
-## 12. Test strategy
-
-Use three layers.
-
-Pure module tests cover Morse timing/state transitions, Iambic modes, straight-key timing/decoder, TX FIFO if included, cancellation, and setting parsing/serialization.
-
-MiniShell boundary tests cover Digital I/O requests/cleanup, Audio TX lifecycle, application resource cleanup, GPIO KeyOut, and later Control KeyOut.
-
-ADV hardware tests cover the full app resolution order, the same ELF from `/flash/apps` and `/sd/apps`, actual paddle input/radio keying, configured electrical behavior, Speaker/UAC behavior, alternate debug UART when USB-C OTG is occupied, and load/exit/reload stability.
-
-## 13. Review questions
-
-Before implementation, finalize:
-
-1. Exact first field milestone: proposed minimum is paddle + SK + GPIO KeyOut + Speaker sidetone.
-2. Exact Digital I/O V1 semantics and whether generic numeric line IDs are sufficient across initial targets.
-3. Exact `/flash/keyer/setting.txt` syntax and key names.
-4. Whether UAC sidetone/output is required before the first field milestone or immediately after Speaker.
-5. Whether CAT KeyOut waits until after the first GPIO field milestone; current recommendation is yes.
-6. Whether Mini-CW decoded-text/TX-FIFO behavior belongs in K3/K7 or a later increment.
-
-Already resolved:
+## 10. Current resolved decisions
 
 ```text
 K0 architecture gate                              COMPLETE
 K1 ADV runtime ELF proof                          COMPLETE
+K2 MiniShell Digital I/O V1                       COMPLETE
+K3 portable Keyer engine                          NEXT
 MiniShell must not know Keyer semantics           YES
 Keyer GPIO assignments may be app settings        YES
 canonical Keyer settings path                     /flash/keyer/setting.txt
 app resolution                                    compiled-in -> /flash/apps -> /sd/apps
 same ELF binary from /flash/apps or /sd/apps      REQUIRED
+Digital I/O IDs                                   generic numeric line IDs
+Digital I/O initial modes                         input / pullup / output / open-drain
+Digital I/O V1 IRQ/callback                       NO
+CAT KeyOut                                        after GPIO milestone
 ADV ELF executable-memory requirement             MEMPROT_FEATURE off on IDF 5.5.1
 ```
-
-K2 Digital I/O is the next implementation stage.
