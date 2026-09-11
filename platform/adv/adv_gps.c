@@ -412,7 +412,7 @@ int adv_gps_prepare(void)
 
     if (s_ready) return 0;
     if (uart_is_driver_installed(ADV_GPS_UART)) {
-        ESP_LOGW(TAG, "UART1 already owned; GPS not started");
+        ESP_LOGW(TAG, "UART1 already owned; GPS not prepared");
         return -1;
     }
 
@@ -431,28 +431,48 @@ int adv_gps_prepare(void)
     s_baud_locked = false;
     s_rtc_synced_once = false;
     s_last_rtc_hour_key = -1;
+    s_ready = true;
+    ESP_LOGI(TAG, "GPS prepared UART1 RX=G1 TX=G2 at %d baud", s_active_baud);
+    return 0;
+}
+
+int adv_gps_start(void)
+{
+    if (!s_ready) return -1;
+    if (s_task != NULL || s_running) return 0;
+
     s_running = true;
     if (xTaskCreate(gps_task, "adv_gps", ADV_GPS_TASK_STACK, NULL,
                     ADV_GPS_TASK_PRIORITY, &s_task) != pdPASS) {
         s_running = false;
-        (void)uart_driver_delete(ADV_GPS_UART);
+        s_task = NULL;
         return -1;
     }
-    s_ready = true;
-    ESP_LOGI(TAG, "GPS started UART1 RX=G1 TX=G2 at %d baud", s_active_baud);
+    ESP_LOGI(TAG, "GPS provider started");
     return 0;
+}
+
+void adv_gps_stop(void)
+{
+    if (!s_running && s_task == NULL) return;
+
+    s_running = false;
+    for (unsigned i = 0u; i < 20u && s_task != NULL; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (s_task != NULL) {
+        vTaskDelete(s_task);
+        s_task = NULL;
+    }
+    minishell_services_live_location_clear();
+    ESP_LOGI(TAG, "GPS provider stopped");
 }
 
 void adv_gps_shutdown(void)
 {
     if (!s_ready) return;
-    s_running = false;
-    if (s_task != NULL) {
-        vTaskDelete(s_task);
-        s_task = NULL;
-    }
+    adv_gps_stop();
     (void)uart_driver_delete(ADV_GPS_UART);
-    minishell_services_live_location_clear();
     s_ready = false;
     s_baud_locked = false;
 }
