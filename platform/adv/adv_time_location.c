@@ -12,9 +12,7 @@
 #define ADV_LOCATION_PATH ADV_STATE_DIR "/location.txt"
 #define ADV_LOCATION_TEMP ADV_STATE_DIR "/location.tmp"
 
-/* Preserve the deterministic no-RTC bootstrap used by ADV development builds.
- * If a detected RTC has invalid contents, utc_load() reports that condition
- * instead so the user can initialize it explicitly with `date`. */
+/* Deterministic ADV bootstrap when no valid persistent RTC sample exists. */
 #define ADV_DEFAULT_UTC_SECONDS ((int64_t)1788242400) /* 2026-09-01 06:00:00 UTC */
 
 static mini_result_t result_from_errno(int error)
@@ -64,7 +62,13 @@ static mini_result_t utc_load(void *ctx, int64_t *out_seconds,
 {
     (void)ctx;
     if (out_seconds == NULL || out_nanoseconds == NULL) return MINI_ERR_INVALID;
-    if (adv_rtc_ready()) return adv_rtc_load_utc(out_seconds, out_nanoseconds);
+
+    if (adv_rtc_ready()) {
+        mini_result_t result = adv_rtc_load_utc(out_seconds, out_nanoseconds);
+        if (result == MINI_OK) return MINI_OK;
+        if (result != MINI_ERR_NOT_READY) return result;
+    }
+
     *out_seconds = ADV_DEFAULT_UTC_SECONDS;
     *out_nanoseconds = 0u;
     return MINI_OK;
