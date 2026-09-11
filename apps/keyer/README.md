@@ -9,41 +9,81 @@ K0 architecture gate      COMPLETE
 K1 ADV runtime ELF        COMPLETE
 K2 MiniShell Digital I/O  COMPLETE
 K3 portable keyer engine  COMPLETE
-K4 GPIO KeyIn/KeyOut      NEXT
+K4 GPIO KeyIn/KeyOut      IN PROGRESS
 ```
 
-K3 deliberately contains only portable CW behavior. It has no MiniShell, GPIO, ESP-IDF, audio, display, filesystem, or board dependency.
-
-Current module:
+Current module structure:
 
 ```text
+main/keyer_main.c
+include/keyer_types.h
+src/app_controller/
+src/config_service/
 src/keyer_engine/
-    keyer_engine.c/.h   paddle / straight-key timing state machine
-    keyer_decoder.c/.h  private Morse pattern decoder
+src/keyin/
+src/keyout/
 ```
 
-Implemented K3 behavior includes:
+Dependency direction:
 
 ```text
-5-60 WPM timing
-1:3 dit/dah timing and 1-unit element gap
-logical key_down/key_up state
-opposite-paddle memory
-held-squeeze alternation
-Mini-CW-compatible Iambic A/B behavior
-Bug mode: automatic dit + manual held dah
-straight-key dit/dah classification
-3-unit character and 7-unit word timing
-Morse decode with Mini-CW special input gestures
-invalid-Morse '~' marker
+config_service
+      |
+      v
+app_controller
+   /      |       \
+  v       v        v
+keyin  keyer_engine keyout
+  |                  |
+  v                  v
+MiniShell Digital I/O
 ```
 
-Host regression coverage lives in `tests/keyer_engine_k3_test.c` and is part of the strict unit suite.
+There is no sibling-module orchestration. `keyer_engine` remains MiniShell-independent.
 
-Later stages place platform-facing code around this engine:
+K4 KeyIn modes:
 
 ```text
-KeyIn -> keyer_engine -> logical key state -> KeyOut / sidetone
+Paddle
+PaddleR
+SK-T
+SK-R
 ```
 
-See `docs/keyer/README.md` for the complete staged plan.
+K4 KeyOut modes:
+
+```text
+Paddle
+PaddleR
+SK
+SK-M
+Off
+```
+
+Default ADV deployment settings:
+
+```text
+G13/G15   active-low pull-up KeyIn
+G3/G6     active-low open-drain KeyOut
+20 WPM
+IambicA
+KeyIn=Paddle
+KeyOut=SK
+```
+
+KeyOut opens in the released state and releases both lines before close/application exit. `SK-M` retains Mini-CW's special ring-grounded idle while the app is running, but shutdown still releases both outputs.
+
+Host regression coverage:
+
+```text
+tests/keyer_engine_k3_test.c
+tests/keyer_k4_io_test.c
+```
+
+The K4 ADV ELF build project is:
+
+```text
+platform/adv/elf_apps/keyer/
+```
+
+See `docs/keyer/README.md` for the staged plan and `platform/adv/elf_apps/keyer/README.md` for the K4 hardware test.
