@@ -74,6 +74,28 @@ target_compile_options(keyer_k4_io_unit PRIVATE
     -Wall -Wextra -Werror -Wpedantic
 )
 
+add_executable(keyer_k4_controller_unit
+    ../keyer_k4_controller_test.c
+    ../../apps/keyer/src/app_controller/app_controller.c
+    ../../apps/keyer/src/config_service/config_service.c
+    ../../apps/keyer/src/keyer_engine/keyer_engine.c
+    ../../apps/keyer/src/keyer_engine/keyer_decoder.c
+    ../../apps/keyer/src/keyin/keyin.c
+    ../../apps/keyer/src/keyout/keyout.c
+)
+target_include_directories(keyer_k4_controller_unit PRIVATE
+    ../../include
+    ../../apps/keyer/include
+    ../../apps/keyer/src/app_controller
+    ../../apps/keyer/src/config_service
+    ../../apps/keyer/src/keyer_engine
+    ../../apps/keyer/src/keyin
+    ../../apps/keyer/src/keyout
+)
+target_compile_options(keyer_k4_controller_unit PRIVATE
+    -Wall -Wextra -Werror -Wpedantic
+)
+
 enable_testing()
 foreach(group system console memory filesystem time_location display input audio)
     add_test(NAME api_${group}_unit COMMAND minishell_unit_tests ${group})
@@ -82,3 +104,4 @@ add_test(NAME nano_editor_unit COMMAND minishell_unit_tests nano_buffer)
 add_test(NAME cp_copy_unit COMMAND minishell_unit_tests cp_copy)
 add_test(NAME keyer_engine_k3_unit COMMAND keyer_engine_k3_unit)
 add_test(NAME keyer_k4_io_unit COMMAND keyer_k4_io_unit)
+add_test(NAME keyer_k4_controller_unit COMMAND keyer_k4_controller_unit)
