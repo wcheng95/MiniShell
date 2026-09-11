@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "adv_internal.h"
+#include "adv_rtc.h"
 #include "minishell_services.h"
 #include "platform_backend.h"
 
@@ -40,10 +41,8 @@ static void configure_services_port(void)
     s_services_port.sleep_ms = adv_sleep_ms;
     s_services_port.time_location_capabilities = 0u;
 
-    if (s_filesystem_ready) {
-        adv_filesystem_configure(&s_services_port);
-        adv_time_location_configure(&s_services_port);
-    }
+    if (s_filesystem_ready) adv_filesystem_configure(&s_services_port);
+    adv_time_location_configure(&s_services_port);
 
     if (s_display_ready) {
         s_services_port.display_capabilities = MINI_DISPLAY_CAP_TEXT;
@@ -76,6 +75,10 @@ int minishell_platform_init(void)
     s_keyboard_ready = adv_keyboard_prepare() == 0;
     if (!s_keyboard_ready) {
         adv_console_debug_write("ADV: keyboard unavailable; USB input remains active\n");
+    }
+
+    if (adv_rtc_prepare() != 0) {
+        adv_console_debug_write("ADV: RTC unavailable; using session UTC fallback\n");
     }
 
     s_filesystem_ready = adv_filesystem_prepare() == 0;
