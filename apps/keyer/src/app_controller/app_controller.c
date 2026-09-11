@@ -33,10 +33,10 @@ static bool exit_requested(void)
     }
 
     event.struct_size = sizeof(event);
-    event.type = MINI_KEY_EVENT_NONE;
+    event.type = 0u;
     event.codepoint = 0u;
-    event.key = MINI_KEY_NONE;
-    event.modifiers = MINI_KEY_MOD_NONE;
+    event.key = 0u;
+    event.modifiers = 0u;
 
     while (s_api->input->key->read(&event, MINI_WAIT_NONE) == MINI_OK) {
         if (event.type == MINI_KEY_EVENT_CHAR &&
