@@ -53,12 +53,12 @@ static void capture_app(const char *name, void *ctx)
 bool adv_elf_loader_app_exists(const char *root, const char *name)
 {
     if (root == NULL || name == NULL) return false;
-    if (strcmp(root, "/flash") == 0) {
+    if (strcmp(root, "/flash/apps") == 0) {
         if (strcmp(name, "hello") == 0) return true;
         if (strcmp(name, "elfhello") == 0) return s_flash_elfhello;
         return false;
     }
-    if (strcmp(root, "/sd") == 0) {
+    if (strcmp(root, "/sd/apps") == 0) {
         return strcmp(name, "elfhello") == 0 || strcmp(name, "sdonly") == 0;
     }
     return false;
@@ -70,12 +70,12 @@ minishell_platform_result_t adv_elf_loader_apps_list(const char *root,
 {
     if (root == NULL || emit == NULL) return MINISHELL_PLATFORM_ERR_INVALID;
 
-    if (strcmp(root, "/flash") == 0) {
+    if (strcmp(root, "/flash/apps") == 0) {
         emit("hello", ctx); /* must be hidden by the compiled-in app */
         if (s_flash_elfhello) emit("elfhello", ctx);
         return MINISHELL_PLATFORM_OK;
     }
-    if (strcmp(root, "/sd") == 0) {
+    if (strcmp(root, "/sd/apps") == 0) {
         emit("elfhello", ctx);
         emit("sdonly", ctx);
         return MINISHELL_PLATFORM_OK;
@@ -97,7 +97,7 @@ minishell_platform_result_t adv_elf_loader_app_run(const char *root,
 
     ++s_external_runs;
     s_last_external_root = root;
-    *out_app_result = strcmp(root, "/flash") == 0 ? 41 : 42;
+    *out_app_result = strcmp(root, "/flash/apps") == 0 ? 41 : 42;
     return MINISHELL_PLATFORM_OK;
 }
 
@@ -280,20 +280,20 @@ int main(void)
            MINISHELL_PLATFORM_OK);
     assert(app_result == 41);
     assert(s_external_runs == 1);
-    assert(strcmp(s_last_external_root, "/flash") == 0);
+    assert(strcmp(s_last_external_root, "/flash/apps") == 0);
 
     s_flash_elfhello = false;
     assert(minishell_platform_app_run("elfhello", 1, elfhello_argv, &app_result) ==
            MINISHELL_PLATFORM_OK);
     assert(app_result == 42);
     assert(s_external_runs == 2);
-    assert(strcmp(s_last_external_root, "/sd") == 0);
+    assert(strcmp(s_last_external_root, "/sd/apps") == 0);
 
     char *sdonly_argv[] = {(char *)"sdonly"};
     assert(minishell_platform_app_run("sdonly", 1, sdonly_argv, &app_result) ==
            MINISHELL_PLATFORM_OK);
     assert(app_result == 42);
-    assert(strcmp(s_last_external_root, "/sd") == 0);
+    assert(strcmp(s_last_external_root, "/sd/apps") == 0);
 
     assert(minishell_platform_app_run("missing", 0, NULL, &app_result) ==
            MINISHELL_PLATFORM_ERR_NOT_FOUND);
