@@ -152,6 +152,14 @@ int main(int argc, char **argv)
         UiFrame frame;
         AppAction action;
 
+        /* MiniShell owns GPS hardware and publishes live location. FT8 only
+         * consumes that service state and turns it into its transient working
+         * Maidenhead grid. */
+        if (!app_controller_step_location(app, NULL)) {
+            result = 11;
+            break;
+        }
+
         if (!app_controller_step_rx(app, &step_changed)) {
             result = 9;
             break;
