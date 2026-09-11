@@ -6,7 +6,6 @@
 
 #include "minishell/api.h"
 #include "app_controller.h"
-#include "app_controller_tx.h"
 #include "ft8_ui_adapter.h"
 #include "presentation_profile.h"
 #include "ui_shell.h"
