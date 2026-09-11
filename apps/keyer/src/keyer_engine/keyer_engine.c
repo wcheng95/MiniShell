@@ -1,7 +1,6 @@
 #include "keyer_engine.h"
 
 #include <stddef.h>
-#include <string.h>
 
 #include "keyer_decoder.h"
 
@@ -373,7 +372,8 @@ void keyer_engine_init(keyer_engine_t *engine,
 {
     if (engine == NULL) return;
 
-    memset(engine, 0, sizeof(*engine));
+    /* Every live field is initialized by config assignment + reset below.
+     * Avoid a libc memset dependency so runtime ELFs import MiniShell only. */
     engine->config.wpm = 20u;
     engine->config.input_mode = KEYER_ENGINE_INPUT_PADDLE;
     engine->config.paddle_mode = KEYER_ENGINE_PADDLE_IAMBIC_A;
