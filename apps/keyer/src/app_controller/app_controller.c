@@ -8,12 +8,14 @@
 #include "keyer_types.h"
 #include "keyin.h"
 #include "keyout.h"
+#include "sidetone.h"
 
 static const mini_api_t *s_api;
 static keyer_config_t s_config;
 static keyer_engine_t s_engine;
 static keyin_t s_keyin;
 static keyout_t s_keyout;
+static sidetone_t s_sidetone;
 static bool s_initialized;
 
 static void console_write(const char *text)
@@ -98,21 +100,21 @@ mini_result_t app_controller_init(const mini_api_t *api)
 
     rc = config_service_load(api, &s_config, &loaded_from_file);
     if (rc != MINI_OK) {
-        console_write("keyer K4: invalid/unreadable setting.txt\n");
+        console_write("keyer K5: invalid/unreadable setting.txt\n");
         s_api = NULL;
         return rc;
     }
 
     rc = keyin_open(&s_keyin, api->digital_io, &s_config);
     if (rc != MINI_OK) {
-        console_write("keyer K4: KeyIn open failed\n");
+        console_write("keyer K5: KeyIn open failed\n");
         s_api = NULL;
         return rc;
     }
 
     rc = keyout_open(&s_keyout, api->digital_io, &s_config);
     if (rc != MINI_OK) {
-        console_write("keyer K4: KeyOut open failed\n");
+        console_write("keyer K5: KeyOut open failed\n");
         keyin_close(&s_keyin);
         s_api = NULL;
         return rc;
@@ -123,12 +125,24 @@ mini_result_t app_controller_init(const mini_api_t *api)
     engine_config.paddle_mode = s_config.paddle_mode;
     keyer_engine_init(&s_engine, &engine_config, api->time_location->monotonic_us());
 
-    if (loaded_from_file) {
-        console_write("keyer K4: loaded /flash/keyer/setting.txt\n");
-    } else {
-        console_write("keyer K4: using default settings\n");
+    rc = sidetone_open(&s_sidetone, api->audio,
+                       s_config.sidetone_enabled, s_config.sidetone_hz);
+    if (rc == MINI_ERR_UNSUPPORTED) {
+        console_write("keyer K5: sidetone unavailable; continuing silent\n");
+    } else if (rc != MINI_OK) {
+        console_write("keyer K5: sidetone open failed\n");
+        keyout_close(&s_keyout);
+        keyin_close(&s_keyin);
+        s_api = NULL;
+        return rc;
     }
-    console_write("keyer K4: ready; q or ESC exits\n");
+
+    if (loaded_from_file) {
+        console_write("keyer K5: loaded /flash/keyer/setting.txt\n");
+    } else {
+        console_write("keyer K5: using default settings\n");
+    }
+    console_write("keyer K5: ready; q or ESC exits\n");
     s_initialized = true;
     return MINI_OK;
 }
@@ -144,7 +158,7 @@ int app_controller_run(void)
     while (!exit_requested()) {
         mini_result_t rc = keyin_read(&s_keyin, &sample);
         if (rc != MINI_OK) {
-            console_write("\nkeyer K4: KeyIn read failed\n");
+            console_write("\nkeyer K5: KeyIn read failed\n");
             (void)keyout_release(&s_keyout);
             return 3;
         }
@@ -156,21 +170,31 @@ int app_controller_run(void)
                           sample.dah_pressed,
                           sample.straight_pressed);
 
+        bool key_down = keyer_engine_key_down(&s_engine);
         rc = keyout_apply(&s_keyout,
-                          keyer_engine_key_down(&s_engine),
+                          key_down,
                           keyer_engine_last_element(&s_engine),
                           input_mode);
         if (rc != MINI_OK) {
-            console_write("\nkeyer K4: KeyOut write failed\n");
+            console_write("\nkeyer K5: KeyOut write failed\n");
             (void)keyout_release(&s_keyout);
             return 4;
         }
 
+        rc = sidetone_apply(&s_sidetone, key_down);
+        if (rc != MINI_OK) {
+            console_write("\nkeyer K5: sidetone write failed\n");
+            (void)keyout_release(&s_keyout);
+            return 5;
+        }
+
         emit_decoded_events();
-        (void)s_api->time_location->sleep_ms(1u);
+        if (!sidetone_streaming(&s_sidetone)) {
+            (void)s_api->time_location->sleep_ms(1u);
+        }
     }
 
-    console_write("\nkeyer K4: exit\n");
+    console_write("\nkeyer K5: exit\n");
     return 0;
 }
 
@@ -178,6 +202,7 @@ void app_controller_shutdown(void)
 {
     if (!s_initialized && s_api == NULL) return;
 
+    sidetone_close(&s_sidetone);
     keyout_close(&s_keyout);
     keyin_close(&s_keyin);
     s_initialized = false;
