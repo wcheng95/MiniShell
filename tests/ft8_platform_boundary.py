@@ -49,6 +49,7 @@ FORBIDDEN_TOKENS = (
 ALLOWED_LOCAL_DEPS: dict[str, set[str]] = {
     "main": {"main", "shared", "app_controller", "presentation_profile", "ui_shell"},
     "shared": {"shared"},
+    "tools": {"tools", "ft8_engine"},
     "app_controller": {
         "app_controller",
         "shared",
@@ -95,6 +96,8 @@ def module_for_path(path: pathlib.Path, ft8_root: pathlib.Path) -> str | None:
         return "main"
     if parts[0] == "include":
         return "shared"
+    if parts[0] == "tools":
+        return "tools"
     if parts[0] == "src" and len(parts) >= 2:
         return parts[1]
     return None
