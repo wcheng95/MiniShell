@@ -34,9 +34,6 @@ APP_RULES = {
         "private_headers": {
             "src/app_controller/app_controller_internal.h": "app_controller",
         },
-        # C2: lifecycle/wiring code may hold UiShell/UiModel objects and pass
-        # them across boundaries, but must not inspect their implementation
-        # state or hard-code UIScreen/submenu policy.
         "forbidden_source_patterns": {
             "main/ft8_main.c": (
                 (r"\bui\s*\.\s*(?:screen|submenu)\b",
@@ -79,6 +76,7 @@ APP_RULES = {
             "keyer_engine": ("src/keyer_engine",),
             "keyin": ("src/keyin",),
             "keyout": ("src/keyout",),
+            "sidetone": ("src/sidetone",),
         },
         "private_headers": {},
         "forbidden_source_patterns": {},
@@ -90,12 +88,13 @@ APP_RULES = {
             "shared": {"shared", "keyer_engine"},
             "app_controller": {
                 "app_controller", "shared", "config_service",
-                "keyer_engine", "keyin", "keyout",
+                "keyer_engine", "keyin", "keyout", "sidetone",
             },
             "config_service": {"config_service", "shared"},
             "keyer_engine": {"keyer_engine"},
             "keyin": {"keyin", "shared"},
             "keyout": {"keyout", "shared"},
+            "sidetone": {"sidetone"},
         },
     },
 }
@@ -188,9 +187,6 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
                 )
                 continue
 
-            # Not an application-local header: standard library or MiniShell
-            # public API. Platform leakage remains the responsibility of the
-            # separate platform-boundary checker.
             if target is None:
                 continue
 
@@ -224,8 +220,6 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
 
 
 def self_test() -> int:
-    # Exercise parsing/resolution, an allowed edge, a forbidden edge, private
-    # header ownership, lifecycle coupling, and an unowned source directory.
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
         app = root / "apps" / "ft8"
@@ -251,14 +245,11 @@ def self_test() -> int:
             '#include "ui_shell.h"\n#include "config_service.h"\n', encoding="utf-8"
         )
 
-        # main -> config_service is intentionally forbidden by the FT8 map.
         violations = check_app(root, "ft8")
         if not any("main -> config_service" in item for item in violations):
             print("app_dependency_boundary self-test: FAIL (forbidden edge not detected)")
             return 1
 
-        # Even an otherwise-allowed main -> app_controller edge may not include
-        # the controller's private implementation header.
         (app / "main" / "probe.c").write_text(
             '#include "app_controller_internal.h"\n', encoding="utf-8"
         )
@@ -277,7 +268,6 @@ def self_test() -> int:
                 print(f"  {violation}")
             return 1
 
-        # C2 specifically protects ft8_main from learning UIScreen/model internals.
         ft8_main = app / "main" / "ft8_main.c"
         ft8_main.write_text("void f(void) { ui.screen = 0; }\n", encoding="utf-8")
         violations = check_app(root, "ft8")
