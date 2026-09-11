@@ -82,6 +82,7 @@ add_executable(keyer_k4_controller_unit
     ../../apps/keyer/src/keyer_engine/keyer_decoder.c
     ../../apps/keyer/src/keyin/keyin.c
     ../../apps/keyer/src/keyout/keyout.c
+    ../../apps/keyer/src/sidetone/sidetone.c
 )
 target_include_directories(keyer_k4_controller_unit PRIVATE
     ../../include
@@ -91,8 +92,21 @@ target_include_directories(keyer_k4_controller_unit PRIVATE
     ../../apps/keyer/src/keyer_engine
     ../../apps/keyer/src/keyin
     ../../apps/keyer/src/keyout
+    ../../apps/keyer/src/sidetone
 )
 target_compile_options(keyer_k4_controller_unit PRIVATE
+    -Wall -Wextra -Werror -Wpedantic
+)
+
+add_executable(keyer_k5_sidetone_unit
+    ../keyer_k5_sidetone_test.c
+    ../../apps/keyer/src/sidetone/sidetone.c
+)
+target_include_directories(keyer_k5_sidetone_unit PRIVATE
+    ../../include
+    ../../apps/keyer/src/sidetone
+)
+target_compile_options(keyer_k5_sidetone_unit PRIVATE
     -Wall -Wextra -Werror -Wpedantic
 )
 
@@ -105,3 +119,4 @@ add_test(NAME cp_copy_unit COMMAND minishell_unit_tests cp_copy)
 add_test(NAME keyer_engine_k3_unit COMMAND keyer_engine_k3_unit)
 add_test(NAME keyer_k4_io_unit COMMAND keyer_k4_io_unit)
 add_test(NAME keyer_k4_controller_unit COMMAND keyer_k4_controller_unit)
+add_test(NAME keyer_k5_sidetone_unit COMMAND keyer_k5_sidetone_unit)
