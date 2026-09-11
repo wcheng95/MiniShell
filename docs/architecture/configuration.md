@@ -198,4 +198,4 @@ MiniShell services
     no application-domain interpretation
 ```
 
-This rule is independent of application packaging. An external application may run from `/flash/<app>.elf` or `/sd/<app>.elf` while its canonical persistent settings remain under `/flash/<app>/setting.txt`.
+This rule is independent of application packaging. An external ADV application may run from `/flash/apps/<app>.elf` or `/sd/apps/<app>.elf` while its canonical persistent settings remain under `/flash/<app>/setting.txt`.
