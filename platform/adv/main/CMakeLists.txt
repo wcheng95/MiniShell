@@ -13,6 +13,7 @@ set(MINISHELL_SERVICE_SOURCES
     "${MINISHELL_ROOT}/core/minishell_services/display_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/input_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/audio_service.c"
+    "${MINISHELL_ROOT}/core/minishell_services/digital_io_service.c"
 )
 
 set(MINIFT8_SOURCES
@@ -96,6 +97,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_memory.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_time_location.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_wav.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_digital_io.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_usbmsc.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_elf_loader.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_apps.c"
@@ -124,6 +126,7 @@ idf_component_register(
     REQUIRES
         elf_loader
         heap
+        esp_driver_gpio
         esp_driver_i2c
         esp_driver_spi
         esp_driver_sdspi
