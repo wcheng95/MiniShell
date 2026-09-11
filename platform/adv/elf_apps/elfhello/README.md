@@ -34,7 +34,13 @@ elfhello.elf
 
 Renaming/copying the file does not change the binary.
 
-The K1 CI gate also verifies that the runtime ELF has exactly one unresolved resident import:
+Espressif intentionally strips normal symbol/debug tables from the generated `.app.elf`, so ordinary `nm -u` may report `no symbols`. K1 verifies the loader-relevant relocation metadata instead:
+
+```bash
+xtensa-esp32s3-elf-readelf -rW build/elfhello.app.elf
+```
+
+The output must reference:
 
 ```text
 mini_api_get
