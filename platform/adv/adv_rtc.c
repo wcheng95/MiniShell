@@ -8,12 +8,14 @@
 
 #include "adv_i2c.h"
 
-#define ADV_RTC_ADDRESS 0x51u
+#define ADV_RTC_ADDRESS 0x68u
 #define ADV_RTC_I2C_HZ 400000u
-#define ADV_RTC_REG_CONTROL1 0x00u
-#define ADV_RTC_REG_SECONDS 0x02u
-#define ADV_RTC_CONTROL1_STOP 0x20u
-#define ADV_RTC_SECONDS_VL 0x80u
+#define ADV_RTC_REG_SECONDS 0x00u
+#define ADV_RTC_REG_STATUS 0x0fu
+#define ADV_RTC_STATUS_OSF 0x80u
+#define ADV_RTC_MONTH_CENTURY 0x80u
+#define ADV_RTC_HOUR_12H 0x40u
+#define ADV_RTC_HOUR_PM 0x20u
 
 static i2c_master_dev_handle_t s_device;
 static bool s_ready;
@@ -72,6 +74,17 @@ static uint8_t bcd_encode(unsigned value)
     return (uint8_t)(((value / 10u) << 4) | (value % 10u));
 }
 
+static int hour_decode(uint8_t value)
+{
+    if ((value & ADV_RTC_HOUR_12H) == 0u) return bcd_decode(value & 0x3fu);
+
+    int hour = bcd_decode(value & 0x1fu);
+    if (hour < 1 || hour > 12) return -1;
+    if (hour == 12) hour = 0;
+    if ((value & ADV_RTC_HOUR_PM) != 0u) hour += 12;
+    return hour;
+}
+
 static bool read_block(uint8_t reg, uint8_t *data, size_t size)
 {
     if (s_device == NULL || data == NULL || size == 0u) return false;
@@ -107,8 +120,8 @@ int adv_rtc_prepare(void)
         return -1;
     }
 
-    uint8_t control = 0u;
-    if (!read_block(ADV_RTC_REG_CONTROL1, &control, 1u)) {
+    uint8_t status = 0u;
+    if (!read_block(ADV_RTC_REG_STATUS, &status, 1u)) {
         (void)i2c_master_bus_rm_device(s_device);
         s_device = NULL;
         return -1;
@@ -128,27 +141,27 @@ mini_result_t adv_rtc_load_utc(int64_t *out_seconds, uint32_t *out_nanoseconds)
     if (out_seconds == NULL || out_nanoseconds == NULL) return MINI_ERR_INVALID;
     if (!s_ready) return MINI_ERR_NOT_READY;
 
-    uint8_t control = 0u;
-    if (!read_block(ADV_RTC_REG_CONTROL1, &control, 1u)) return MINI_ERR_IO;
-    if ((control & ADV_RTC_CONTROL1_STOP) != 0u) return MINI_ERR_NOT_READY;
+    uint8_t status = 0u;
+    if (!read_block(ADV_RTC_REG_STATUS, &status, 1u)) return MINI_ERR_IO;
+    if ((status & ADV_RTC_STATUS_OSF) != 0u) return MINI_ERR_NOT_READY;
 
     uint8_t regs[7];
     if (!read_block(ADV_RTC_REG_SECONDS, regs, sizeof(regs))) return MINI_ERR_IO;
-    if ((regs[0] & ADV_RTC_SECONDS_VL) != 0u) return MINI_ERR_NOT_READY;
 
     int second = bcd_decode(regs[0] & 0x7fu);
     int minute = bcd_decode(regs[1] & 0x7fu);
-    int hour = bcd_decode(regs[2] & 0x3fu);
-    int day = bcd_decode(regs[3] & 0x3fu);
-    int weekday = regs[4] & 0x07u;
+    int hour = hour_decode(regs[2]);
+    int weekday = bcd_decode(regs[3] & 0x07u);
+    int day = bcd_decode(regs[4] & 0x3fu);
     int month = bcd_decode(regs[5] & 0x1fu);
     int year2 = bcd_decode(regs[6]);
     int year = year2 < 0 ? -1 : 2000 + year2;
 
-    if (second < 0 || second > 59 || minute < 0 || minute > 59 ||
-        hour < 0 || hour > 23 || year < 2000 || year > 2099 ||
-        month < 1 || month > 12 || day < 1 || day > days_in_month(year, month) ||
-        weekday < 0 || weekday > 6) {
+    if ((regs[5] & ADV_RTC_MONTH_CENTURY) != 0u ||
+        second < 0 || second > 59 || minute < 0 || minute > 59 ||
+        hour < 0 || hour > 23 || weekday < 1 || weekday > 7 ||
+        year < 2000 || year > 2099 || month < 1 || month > 12 ||
+        day < 1 || day > days_in_month(year, month)) {
         return MINI_ERR_IO;
     }
 
@@ -179,24 +192,23 @@ mini_result_t adv_rtc_store_utc(int64_t seconds, uint32_t nanoseconds)
     unsigned hour = (unsigned)(sod / 3600);
     unsigned minute = (unsigned)((sod % 3600) / 60);
     unsigned second = (unsigned)(sod % 60);
-    int64_t weekday_value = (days + 4) % 7;
-    if (weekday_value < 0) weekday_value += 7;
+    int64_t weekday_zero = (days + 4) % 7;
+    if (weekday_zero < 0) weekday_zero += 7;
 
     uint8_t regs[7] = {
         bcd_encode(second),
         bcd_encode(minute),
         bcd_encode(hour),
+        bcd_encode((unsigned)weekday_zero + 1u),
         bcd_encode(day),
-        (uint8_t)weekday_value,
         bcd_encode(month),
         bcd_encode((unsigned)(year - 2000)),
     };
 
-    if (!write_byte(ADV_RTC_REG_CONTROL1, ADV_RTC_CONTROL1_STOP)) return MINI_ERR_IO;
-    if (!write_block(ADV_RTC_REG_SECONDS, regs, sizeof(regs))) {
-        (void)write_byte(ADV_RTC_REG_CONTROL1, 0u);
-        return MINI_ERR_IO;
-    }
-    if (!write_byte(ADV_RTC_REG_CONTROL1, 0u)) return MINI_ERR_IO;
+    if (!write_block(ADV_RTC_REG_SECONDS, regs, sizeof(regs))) return MINI_ERR_IO;
+
+    uint8_t status = 0u;
+    if (!read_block(ADV_RTC_REG_STATUS, &status, 1u)) return MINI_ERR_IO;
+    if (!write_byte(ADV_RTC_REG_STATUS, (uint8_t)(status & ~ADV_RTC_STATUS_OSF))) return MINI_ERR_IO;
     return MINI_OK;
 }
