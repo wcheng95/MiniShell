@@ -69,6 +69,35 @@ APP_RULES = {
             "ft8_engine": {"ft8_engine"},
         },
     },
+    "keyer": {
+        "enforced_roots": {"main", "include", "src"},
+        "module_paths": {
+            "main": ("main",),
+            "shared": ("include",),
+            "app_controller": ("src/app_controller",),
+            "config_service": ("src/config_service",),
+            "keyer_engine": ("src/keyer_engine",),
+            "keyin": ("src/keyin",),
+            "keyout": ("src/keyout",),
+        },
+        "private_headers": {},
+        "forbidden_source_patterns": {},
+        "allowed": {
+            "main": {"main", "app_controller"},
+            # keyer_types currently reuses the portable engine's paddle-mode
+            # type. This is a type dependency only; orchestration remains in
+            # app_controller.
+            "shared": {"shared", "keyer_engine"},
+            "app_controller": {
+                "app_controller", "shared", "config_service",
+                "keyer_engine", "keyin", "keyout",
+            },
+            "config_service": {"config_service", "shared"},
+            "keyer_engine": {"keyer_engine"},
+            "keyin": {"keyin", "shared"},
+            "keyout": {"keyout", "shared"},
+        },
+    },
 }
 
 
