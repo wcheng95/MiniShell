@@ -9,7 +9,7 @@
 - Public MiniShell API generation is v3 and currently exposes App, System, Console, Memory, Filesystem, Time/Location, Display, Input, Audio, and Digital I/O.
 - K2 Digital I/O V1 is complete on Linux and ADV.
 - K3 provides a pure portable Keyer timing/state-machine engine.
-- K4 GPIO KeyIn/KeyOut software integration is implemented; real ADV hardware validation is the current gate.
+- K4 GPIO KeyIn/KeyOut integration is complete on real Cardputer ADV hardware, including clean application exit with no observable RAM leakage.
 - MiniFT8 remains a separate FT8-only runtime application and has Linux RX integration through RX-7.
 - Architecture cleanup C0-C4 is complete.
 
@@ -28,10 +28,10 @@ K2 MiniShell Digital I/O      COMPLETE
 K3 portable Keyer engine      COMPLETE
         |
         v
-K4 GPIO KeyIn/KeyOut          HARDWARE VALIDATION PENDING
+K4 GPIO KeyIn/KeyOut          COMPLETE
         |
         v
-K5 sidetone                   NEXT AFTER K4
+K5 sidetone                   NEXT
 ```
 
 K4 keeps orchestration in `app_controller`:
@@ -51,7 +51,7 @@ MiniShell Digital I/O
 
 Keyer sibling modules do not orchestrate each other. The application dependency checker now enforces the Keyer graph as well as FT8's graph.
 
-## K4 GPIO KeyIn/KeyOut — hardware validation pending
+## K4 GPIO KeyIn/KeyOut — complete
 
 Software implementation:
 
@@ -134,16 +134,15 @@ The ADV external Keyer project produces:
 platform/adv/elf_apps/keyer/build/keyer.app.elf
 ```
 
-The resident ADV ELF loader continues to export only `mini_api_get`. K4 CI requires the Keyer ELF to have exactly one external jump-slot import, `mini_api_get`; application code must remain self-contained rather than expanding MiniShell's resident libc export surface.
+The resident ADV ELF loader continues to export only `mini_api_get`. K4 CI requires the Keyer ELF to have exactly one external jump-slot import, `mini_api_get`; application code remains self-contained rather than expanding MiniShell's resident libc export surface.
 
-K4 becomes complete only after actual Cardputer ADV verifies:
+Real Cardputer ADV hardware validation passed:
 
 ```text
-G13/G15 paddle input
-representative decoded CW
-G3/G6 physical keying
-G3/G6 released after q/ESC
-clean return to M$>
+physical GPIO KeyIn/KeyOut path works correctly
+application exits cleanly back to MiniShell
+KeyOut lines are released during shutdown
+no observable RAM leakage across load/run/exit
 ```
 
 ## K3 portable Keyer engine — complete
