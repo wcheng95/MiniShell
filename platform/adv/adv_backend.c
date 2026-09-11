@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include "adv_gps.h"
 #include "adv_internal.h"
 #include "adv_rtc.h"
 #include "minishell_services.h"
@@ -86,12 +87,21 @@ int minishell_platform_init(void)
         adv_console_debug_write("ADV: /flash filesystem unavailable; continuing without persistence\n");
     }
 
+    /* GPS is a resident MiniShell provider. It owns the same PORTA UART used by
+     * Mini-FT8 V2: UART1, RX=G1, TX=G2. Starting after /flash lets it preload a
+     * previously auto-detected baud without making filesystem persistence a
+     * requirement for GPS operation. */
+    if (adv_gps_prepare() != 0) {
+        adv_console_debug_write("ADV: GPS unavailable; Time/Location continues without live GPS\n");
+    }
+
     configure_services_port();
     return 0;
 }
 
 void minishell_platform_shutdown(void)
 {
+    adv_gps_shutdown();
     adv_filesystem_shutdown();
 }
 
