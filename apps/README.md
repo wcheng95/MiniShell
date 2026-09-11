@@ -24,26 +24,26 @@ On Linux, the reference build produces runtime-loadable `.so` modules under:
 build-linux/runtime/apps/
 ```
 
-Cardputer ADV V1 proved the application model with selected applications compiled into the firmware through a static registry. Runtime ELF loading is now an active target.
+Cardputer ADV V1 proved the application model with selected applications compiled into the firmware through a static registry. Runtime ELF loading is now hardware-validated.
 
 ADV application resolution is:
 
 ```text
 1. compiled-in application
-2. /flash/<app>.elf
-3. /sd/<app>.elf
+2. /flash/apps/<app>.elf
+3. /sd/apps/<app>.elf
 ```
 
-The same external ELF may be installed in either filesystem location. If both external copies exist, `/flash/<app>.elf` wins.
+The same external ELF may be installed in either application directory. If both external copies exist, `/flash/apps/<app>.elf` wins.
 
 For Keyer, both are valid:
 
 ```text
-/flash/keyer.elf
-/sd/keyer.elf
+/flash/apps/keyer.elf
+/sd/apps/keyer.elf
 ```
 
-`/sd/keyer.elf` is convenient for development/removable distribution; copying the same binary to `/flash/keyer.elf` must work without rebuilding it.
+`/sd/apps/keyer.elf` is convenient for development/removable distribution; copying the same binary to `/flash/apps/keyer.elf` must work without rebuilding it.
 
 Application discovery/loading remains a private backend/runtime responsibility. Application source must use only the MiniShell public API and its own modules; it must not include POSIX, ESP-IDF, FreeRTOS, M5/Cardputer, board-driver, or loader-specific interfaces.
 
