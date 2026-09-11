@@ -97,6 +97,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_memory.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_time_location.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_wav.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_speaker.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_digital_io.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_usbmsc.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_elf_loader.c"
@@ -125,9 +126,11 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/.."
     REQUIRES
         elf_loader
+        esp_codec_dev
         heap
         esp_driver_gpio
         esp_driver_i2c
+        esp_driver_i2s
         esp_driver_spi
         esp_driver_sdspi
         esp_driver_usb_serial_jtag
