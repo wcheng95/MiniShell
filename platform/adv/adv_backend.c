@@ -103,9 +103,12 @@ void minishell_platform_services_prepare(minishell_services_port_t *out_port)
     memset(out_port, 0, sizeof(*out_port));
     *out_port = s_services_port;
     if (s_filesystem_ready) {
-        /* WAV is an ADV test Audio provider layered on the normal Filesystem
-         * backend. It is attached to the per-app service port rather than the
-         * resident shell so the FT8 core sees only MiniShell Audio. */
+        /* WAV is an ADV test Audio RX provider layered on the normal Filesystem
+         * backend. It remains independent of the physical speaker TX path. */
         adv_audio_wav_configure(out_port);
     }
+
+    /* The Cardputer speaker is a physical Audio TX endpoint and does not depend
+     * on Filesystem availability. It is opened lazily by the foreground app. */
+    adv_audio_speaker_configure(out_port);
 }
