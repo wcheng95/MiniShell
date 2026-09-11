@@ -5,11 +5,12 @@
 - Linux Mint on `pc-1` is the reference/full production target.
 - Cardputer ADV is the second real MiniShell backend.
 - Linux runtime app discovery/loading uses `.so` modules.
-- ADV now has hardware-validated runtime external `.elf` loading using Espressif's ELF loader.
+- ADV has hardware-validated runtime external `.elf` loading using Espressif's ELF loader.
 - ADV application resolution is: compiled-in first, then `/flash/apps/<app>.elf`, then `/sd/apps/<app>.elf`.
-- K1 proved a real Xtensa `elfhello.elf` from both SD and internal flash, including MiniShell API resolution, clean return/unload, repeated execution, and flash priority when both external copies exist. Canonical external app directories are now `/flash/apps` and `/sd/apps`.
+- K1 proved a real Xtensa `elfhello.elf` from both SD and internal flash, including MiniShell API resolution, clean return/unload, repeated execution, and flash priority when both external copies exist. Canonical external app directories are `/flash/apps` and `/sd/apps`.
 - The first planned field-usable ADV external application is `keyer.elf`, valid as either `/flash/apps/keyer.elf` or `/sd/apps/keyer.elf`.
-- System, Console, Memory, Filesystem, Time/Location, Display, Input, and Audio public contracts have automated coverage. Digital I/O is not yet public and is now the active Keyer requirement.
+- System, Console, Memory, Filesystem, Time/Location, Display, Input, Audio, and Digital I/O are public MiniShell service domains. K2 added Digital I/O V1 on Linux and ADV.
+- The current public API generation is v3. K2 advanced v2 -> v3, so external apps built against v2 must be rebuilt for the matching firmware.
 - MiniFT8 is runtime app `ft8` and is FT8-only. Future Keyer/FT4/RTTY/JS8 functionality remains separate applications rather than an FT8-internal protocol selector.
 - MiniFT8 RX integration has advanced through RX-7 on Linux, including the production decoded-UI golden test.
 - The pre-Keyer architecture cleanup C0-C4 is complete.
@@ -17,7 +18,7 @@
 
 ## Current priority
 
-K0 and K1 are complete. Begin K2, the generic MiniShell Digital I/O service needed by Keyer:
+K0-K2 are complete. K3, the portable Keyer timing/state-machine engine, is next:
 
 ```text
 K0 architecture gate          COMPLETE
@@ -26,10 +27,13 @@ K0 architecture gate          COMPLETE
 K1 ADV runtime ELF proof      COMPLETE
         |
         v
-K2 MiniShell Digital I/O      NEXT
+K2 MiniShell Digital I/O      COMPLETE
         |
         v
-K3 portable Keyer engine
+K3 portable Keyer engine      NEXT
+        |
+        v
+K4 GPIO KeyIn/KeyOut
         |
         v
 ...
@@ -38,6 +42,29 @@ K3 portable Keyer engine
 keyer.elf
     |-- /flash/apps/keyer.elf
     `-- /sd/apps/keyer.elf
+```
+
+K2 Digital I/O V1 provides:
+
+```text
+numeric line ID
+opaque line handle
+open / read / write / close
+input
+input + pull-up
+output
+open-drain output
+initial output level during open
+duplicate-open rejection
+automatic app-exit cleanup
+```
+
+Linux supplies a deterministic virtual provider for portable development/testing. ADV supplies an ESP32-S3 GPIO provider and rejects lines reserved by resident MiniShell hardware. Actual paddle/KeyOut electrical validation is intentionally part of K4, where Keyer supplies real deployment GPIO assignments.
+
+Canonical contract:
+
+```text
+docs/api/digital-io-api.md
 ```
 
 Canonical configuration ownership is fixed:
@@ -94,6 +121,39 @@ ESP-IDF 5.5.1 uses `CONFIG_ESP_SYSTEM_MEMPROT_FEATURE`. Cardputer ADV has no PSR
 
 External ADV applications are trusted code, not sandboxed applications. The ELF loader exports only `mini_api_get`; broad libc and ESP-IDF symbol tables are disabled so portable application services flow through the MiniShell API table.
 
+## Digital I/O — K2 complete
+
+K2 established the first generic hardware-line service required by Keyer without introducing Keyer semantics into MiniShell.
+
+Public API:
+
+```text
+api->digital_io
+    open(config, &handle)
+    read(handle, &level)
+    write(handle, level)
+    close(handle)
+```
+
+The public service owns opaque handles, duplicate-line exclusion, mode validation, and foreground-app cleanup. Backends own platform realization and line availability/reservation policy.
+
+Verification completed:
+
+```text
+Linux build                             PASS
+Linux CTest                             PASS
+Digital I/O integration/lifecycle       PASS
+strict unit suite                       PASS
+AS-8 equivalence                        PASS
+ADV static registry                     PASS
+ADV ESP-IDF firmware build              PASS
+ADV runtime-ELF build                   PASS
+```
+
+The Linux integration probe deliberately exits with an open-drain line still open and then runs again. The second run successfully reopens the same line, proving MiniShell lifecycle cleanup rather than relying on application cleanup.
+
+K2 does not assign or interpret Keyer GPIOs. Physical paddle/KeyOut testing remains K4.
+
 ## Architecture cleanup — complete
 
 ```text
@@ -110,7 +170,7 @@ Canonical record:
 docs/project/architecture-cleanup.md
 ```
 
-The code-bearing C0-C2 cleanup passed Linux build/CTest, strict units, AS-8, RX-1C through RX-7 including production RX7, and the Cardputer ADV ESP-IDF build. C3-C4 established the architecture that K1 has now validated on actual ADV hardware.
+The code-bearing C0-C2 cleanup passed Linux build/CTest, strict units, AS-8, RX-1C through RX-7 including production RX7, and the Cardputer ADV ESP-IDF build. C3-C4 established the architecture that K1 has validated on actual ADV hardware.
 
 ## MiniFT8 configuration transition
 
@@ -128,7 +188,7 @@ A later MiniFT8 migration may move this to:
 /flash/ft8/setting.txt
 ```
 
-That rename is not part of C4 and must not be mixed into the Keyer/ELF work. MiniFT8 continues to own the current `station.txt` contents until such a migration is deliberately implemented.
+That rename is not part of C4 and must not be mixed into the Keyer work. MiniFT8 continues to own the current `station.txt` contents until such a migration is deliberately implemented.
 
 Keyer starts directly with:
 
@@ -171,7 +231,7 @@ docs/project/adv-backend-plan.md
 docs/MiniFT8/v1-validation.md
 ```
 
-ADV V1 used static application composition deliberately. C3 added runtime external `.elf` loading while preserving compiled-in applications as the first resolution tier. K1 has now validated the external flash and SD tiers on actual Cardputer ADV hardware; binaries are searched only under `/flash/apps` and `/sd/apps`.
+ADV V1 used static application composition deliberately. C3 added runtime external `.elf` loading while preserving compiled-in applications as the first resolution tier. K1 validated the external flash and SD tiers on actual Cardputer ADV hardware; binaries are searched only under `/flash/apps` and `/sd/apps`.
 
 ## ADV current storage/runtime baseline
 
@@ -217,5 +277,6 @@ docs/MiniFT8/v1-validation.md
 docs/MiniFT8/development.md
 docs/MiniFT8/rx.md
 docs/api/api-foundation.md
+docs/api/digital-io-api.md
 platform/adv/README.md
 ```
