@@ -14,6 +14,7 @@ target_include_directories(adv_registry_unit PRIVATE
     ../../include
     ../../core
     ../../core/minishell_services
+    ../../platform/adv
 )
 
 target_compile_options(adv_registry_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
