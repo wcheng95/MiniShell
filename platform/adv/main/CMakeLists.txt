@@ -97,6 +97,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_time_location.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_wav.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_usbmsc.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_elf_loader.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_apps.c"
         "${CMAKE_CURRENT_LIST_DIR}/../platform_info.c"
         "${CMAKE_CURRENT_LIST_DIR}/../resource_config.c"
@@ -121,6 +122,7 @@ idf_component_register(
         "${MINISHELL_ROOT}/apps/ft8/src/ft8_engine/vendor/kissfft"
         "${CMAKE_CURRENT_LIST_DIR}/.."
     REQUIRES
+        elf_loader
         esp_driver_i2c
         esp_driver_spi
         esp_driver_sdspi
