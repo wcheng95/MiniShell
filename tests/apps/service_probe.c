@@ -25,7 +25,7 @@ int main(int argc, char **argv)
     }
 
     if (api->memory == NULL || api->fs == NULL || api->time_location == NULL ||
-        api->display == NULL || api->input == NULL) {
+        api->display == NULL || api->input == NULL || api->digital_io == NULL) {
         return fail(api, "missing service table", 3);
     }
 
@@ -152,6 +152,68 @@ int main(int argc, char **argv)
         api->input->key == NULL || api->input->key->read == NULL) {
         return fail(api, "input capability", 23);
     }
+
+    const uint64_t digital_required = MINI_DIGITAL_IO_CAP_INPUT |
+                                      MINI_DIGITAL_IO_CAP_INPUT_PULLUP |
+                                      MINI_DIGITAL_IO_CAP_OUTPUT |
+                                      MINI_DIGITAL_IO_CAP_OUTPUT_OPEN_DRAIN;
+    if ((api->digital_io->capabilities & digital_required) != digital_required ||
+        api->digital_io->open == NULL || api->digital_io->read == NULL ||
+        api->digital_io->write == NULL || api->digital_io->close == NULL) {
+        return fail(api, "digital io capability", 24);
+    }
+
+    mini_digital_io_t input = MINI_DIGITAL_IO_INVALID;
+    mini_digital_io_config_t input_cfg = {
+        .struct_size = sizeof(input_cfg),
+        .line_id = 100u,
+        .mode = MINI_DIGITAL_IO_MODE_INPUT_PULLUP,
+        .initial_level = 0u,
+    };
+    uint32_t level = 0u;
+    if (api->digital_io->open(&input_cfg, &input) != MINI_OK ||
+        input == MINI_DIGITAL_IO_INVALID ||
+        api->digital_io->read(input, &level) != MINI_OK || level != 1u ||
+        api->digital_io->write(input, 0u) != MINI_ERR_ACCESS) {
+        return fail(api, "digital input", 25);
+    }
+
+    mini_digital_io_t duplicate = MINI_DIGITAL_IO_INVALID;
+    if (api->digital_io->open(&input_cfg, &duplicate) != MINI_ERR_EXISTS ||
+        duplicate != MINI_DIGITAL_IO_INVALID ||
+        api->digital_io->close(input) != MINI_OK ||
+        api->digital_io->close(input) != MINI_ERR_BAD_HANDLE) {
+        return fail(api, "digital ownership", 26);
+    }
+
+    mini_digital_io_t output = MINI_DIGITAL_IO_INVALID;
+    mini_digital_io_config_t output_cfg = {
+        .struct_size = sizeof(output_cfg),
+        .line_id = 101u,
+        .mode = MINI_DIGITAL_IO_MODE_OUTPUT,
+        .initial_level = 1u,
+    };
+    if (api->digital_io->open(&output_cfg, &output) != MINI_OK ||
+        api->digital_io->read(output, &level) != MINI_OK || level != 1u ||
+        api->digital_io->write(output, 0u) != MINI_OK ||
+        api->digital_io->read(output, &level) != MINI_OK || level != 0u ||
+        api->digital_io->close(output) != MINI_OK) {
+        return fail(api, "digital output", 27);
+    }
+
+    mini_digital_io_t open_drain = MINI_DIGITAL_IO_INVALID;
+    mini_digital_io_config_t od_cfg = {
+        .struct_size = sizeof(od_cfg),
+        .line_id = 102u,
+        .mode = MINI_DIGITAL_IO_MODE_OUTPUT_OPEN_DRAIN,
+        .initial_level = 1u,
+    };
+    if (api->digital_io->open(&od_cfg, &open_drain) != MINI_OK ||
+        api->digital_io->write(open_drain, 0u) != MINI_OK) {
+        return fail(api, "digital open drain", 28);
+    }
+    /* Intentionally leave open_drain open. app_end() must reclaim it, and the
+     * second service_probe run in linux_services.py proves that cleanup. */
 
     api->system->write("service_probe: PASS\n");
     return 0;
