@@ -57,12 +57,13 @@ CONFIG_ELF_LOADER=y
 # CONFIG_ELF_LOADER_LIBC_SYMBOLS is not set
 # CONFIG_ELF_LOADER_ESPIDF_SYMBOLS is not set
 
-# ESP-IDF enables ESP_SYSTEM_MEMPROT by default on ESP32-S3. With that feature
-# enabled, the capability allocator intentionally exposes no MALLOC_CAP_EXEC
-# heap. The Espressif ELF loader needs executable SRAM for relocated .text on
-# this no-PSRAM Cardputer ADV, so runtime ELF loading requires memory protection
-# to be disabled. This is an explicit MiniShell ADV platform tradeoff.
-# CONFIG_ESP_SYSTEM_MEMPROT is not set
+# ESP-IDF 5.5.1 enables ESP_SYSTEM_MEMPROT_FEATURE by default on ESP32-S3. With
+# that feature enabled, the capability allocator intentionally exposes no
+# MALLOC_CAP_EXEC heap. The Espressif ELF loader needs executable SRAM for
+# relocated .text on this no-PSRAM Cardputer ADV, so runtime ELF loading requires
+# memory protection to be disabled. This is an explicit MiniShell ADV platform
+# tradeoff.
+# CONFIG_ESP_SYSTEM_MEMPROT_FEATURE is not set
 
 # usbmsc temporarily hands the ESP32-S3 USB device peripheral and raw FAT media
 # to TinyUSB. Keep the MSC transfer buffer at 4096 bytes so it is large enough
