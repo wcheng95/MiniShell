@@ -289,27 +289,28 @@ See `docs/MiniFT8/README.md` and `docs/project/architecture-cleanup.md`.
 
 ## Keyer direction
 
-Keyer is the next application. K1 hardware-validated ADV runtime ELF loading, K2 added generic MiniShell Digital I/O, and K3 now provides a pure portable CW timing/state-machine engine. K4 is the first hardware integration stage.
+Keyer is the next field application. K1 hardware-validated ADV runtime ELF loading, K2 added generic MiniShell Digital I/O, K3 provides the pure CW engine, and K4 now wires that engine to application-owned KeyIn/KeyOut modules.
 
 ```text
 K0 architecture gate      COMPLETE
 K1 ADV runtime ELF        COMPLETE
 K2 Digital I/O            COMPLETE
 K3 portable Keyer engine  COMPLETE
-K4 GPIO KeyIn/KeyOut      NEXT
+K4 GPIO KeyIn/KeyOut      HARDWARE VALIDATION PENDING
+K5 sidetone               NEXT AFTER K4
 ```
 
-The K3 engine has no MiniShell or platform dependency; it consumes logical paddle/straight-key states plus monotonic time and produces logical key state/events. K4 wraps it with application-owned KeyIn/KeyOut modules through MiniShell Digital I/O.
+K4 defaults to G13/G15 active-low pull-up paddle input and G3/G6 active-low open-drain KeyOut. Host tests cover the complete controller chain and safe release behavior; real Cardputer ADV validation is required before K4 is complete.
 
-Later stages add Audio sidetone, application-owned settings/UI, and finally the field `keyer.elf` milestone.
+The ADV Keyer ELF remains constrained to one resident import, `mini_api_get`; application libc helpers are not added to MiniShell's resident export surface.
 
-See `docs/keyer/README.md`.
+See `docs/keyer/README.md` and `platform/adv/elf_apps/keyer/README.md`.
 
 ## Testing
 
-Linux CI/CTest covers shell/application loading, service semantics and lifecycle, filesystem/resource policy, terminal input, utilities, audio transport, Digital I/O semantics/cleanup, the portable Keyer engine, MiniFT8 UI/runtime behavior, and focused FT8 tests.
+Linux CI/CTest covers shell/application loading, service semantics and lifecycle, filesystem/resource policy, terminal input, utilities, audio transport, Digital I/O semantics/cleanup, K3 engine behavior, K4 KeyIn/KeyOut/controller behavior, MiniFT8 UI/runtime behavior, and focused FT8 tests.
 
-Architecture checks also enforce application/platform boundaries and MiniFT8's no-side-talk dependency rules. Cardputer ADV has a separate ESP-IDF firmware build gate.
+Architecture checks enforce application/platform boundaries plus no-side-talk dependency rules for both MiniFT8 and Keyer. Cardputer ADV has separate firmware, registry, K1 ELF, and Keyer ELF build gates.
 
 ## Documentation
 
