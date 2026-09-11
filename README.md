@@ -235,7 +235,7 @@ Source of truth:
 include/minishell/api.h
 ```
 
-The current API exposes:
+The current API generation is **v3** and exposes:
 
 ```text
 App
@@ -247,9 +247,10 @@ Time/Location
 Display
 Input
 Audio
+Digital I/O
 ```
 
-Digital I/O is the next planned public service, driven by the Keyer requirement.
+Digital I/O V1 provides generic numeric-line `open/read/write/close` semantics with input, input-pullup, output, and open-drain output modes. Application-domain meanings and hardware assignments remain outside MiniShell.
 
 MiniShell is still in active architectural development, so backward source and binary compatibility are not yet promised. External applications may need rebuilding for the matching MiniShell API generation. A formal stable ABI can be introduced later when distribution requirements justify it.
 
@@ -264,6 +265,7 @@ UTC/location        Time/Location service
 logical display     Display service
 logical key queue   Input service
 audio streams       Audio service
+digital lines       Digital I/O service
 app loading         private platform runtime mechanism
 ```
 
@@ -287,22 +289,22 @@ See `docs/MiniFT8/README.md` and `docs/project/architecture-cleanup.md`.
 
 ## Keyer direction
 
-Keyer is the next application. K1 has already hardware-validated ADV runtime ELF loading; the next stage is generic MiniShell Digital I/O. The Keyer plan covers:
+Keyer is the next application. K1 hardware-validated ADV runtime ELF loading and K2 added generic MiniShell Digital I/O. The next stage is the portable Keyer engine.
 
 ```text
-runtime ELF loading
-Digital I/O
-paddle / straight-key input
-GPIO KeyOut
-Audio sidetone
-application-owned settings
+K0 architecture gate      COMPLETE
+K1 ADV runtime ELF        COMPLETE
+K2 Digital I/O            COMPLETE
+K3 portable Keyer engine  NEXT
 ```
+
+The later Keyer stages add paddle/straight-key edge integration, GPIO KeyOut, Audio sidetone, application-owned settings/UI, and finally the field `keyer.elf` milestone.
 
 See `docs/keyer/README.md`.
 
 ## Testing
 
-Linux CI/CTest covers shell/application loading, service semantics and lifecycle, filesystem/resource policy, terminal input, utilities, audio transport, MiniFT8 UI/runtime behavior, and focused FT8 tests.
+Linux CI/CTest covers shell/application loading, service semantics and lifecycle, filesystem/resource policy, terminal input, utilities, audio transport, Digital I/O semantics/cleanup, MiniFT8 UI/runtime behavior, and focused FT8 tests.
 
 Architecture checks also enforce application/platform boundaries and MiniFT8's no-side-talk dependency rules. Cardputer ADV has a separate ESP-IDF firmware build gate.
 
