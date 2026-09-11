@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <string.h>
 
+/* This is an intentional white-box controller test. Production peer modules
+ * must not include app_controller_internal.h. */
+#define FT8_APP_CONTROLLER_INTERNAL 1
 #include "app_controller_internal.h"
 #include "app_controller_tx.h"
 #include "auto_seq_tx_intent.h"
