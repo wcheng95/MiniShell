@@ -60,6 +60,8 @@ static void configure_services_port(void)
         s_services_port.input_wait = adv_input_wait;
         s_services_port.input_flush = adv_input_flush;
     }
+
+    adv_digital_io_configure(&s_services_port);
 }
 
 int minishell_platform_init(void)
