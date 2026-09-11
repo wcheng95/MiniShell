@@ -1,7 +1,6 @@
 #include "keyer_decoder.h"
 
 #include <stddef.h>
-#include <string.h>
 
 typedef struct {
     const char *pattern;
@@ -21,6 +20,17 @@ static const decoder_entry_t DECODER_TABLE[] = {
     {".-.-.-", '.'}, {"--..--", ','}, {"..--..", '?'}, {"-..-.", '/'},
     {"-...-", '='},
 };
+
+static bool pattern_equal(const char *a, const char *b)
+{
+    if (a == NULL || b == NULL) return false;
+    while (*a != '\0' && *b != '\0') {
+        if (*a != *b) return false;
+        ++a;
+        ++b;
+    }
+    return *a == '\0' && *b == '\0';
+}
 
 static bool all_dits(const keyer_engine_decoder_t *decoder)
 {
@@ -75,14 +85,14 @@ keyer_decoder_result_t keyer_decoder_finalize(keyer_engine_decoder_t *decoder)
         return result;
     }
 
-    if (strcmp(decoder->pattern, ".-..-.") == 0) {
+    if (pattern_equal(decoder->pattern, ".-..-.")) {
         result.type = KEYER_DECODER_RESULT_ENTER;
         result.ch = '\n';
         keyer_decoder_reset(decoder);
         return result;
     }
 
-    if (strcmp(decoder->pattern, "----") == 0) {
+    if (pattern_equal(decoder->pattern, "----")) {
         result.type = KEYER_DECODER_RESULT_SPACE;
         result.ch = ' ';
         keyer_decoder_reset(decoder);
@@ -90,7 +100,7 @@ keyer_decoder_result_t keyer_decoder_finalize(keyer_engine_decoder_t *decoder)
     }
 
     for (size_t i = 0u; i < sizeof(DECODER_TABLE) / sizeof(DECODER_TABLE[0]); ++i) {
-        if (strcmp(decoder->pattern, DECODER_TABLE[i].pattern) == 0) {
+        if (pattern_equal(decoder->pattern, DECODER_TABLE[i].pattern)) {
             result.type = KEYER_DECODER_RESULT_CHAR;
             result.ch = DECODER_TABLE[i].ch;
             keyer_decoder_reset(decoder);
