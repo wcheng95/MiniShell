@@ -65,6 +65,7 @@ static void configure_services_port(void)
     linux_filesystem_configure(&s_services_port);
     linux_time_location_configure(&s_services_port);
     linux_terminal_configure(&s_services_port);
+    linux_digital_io_configure(&s_services_port);
 }
 
 int minishell_platform_init(void)
