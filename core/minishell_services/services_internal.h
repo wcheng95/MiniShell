@@ -20,6 +20,7 @@ const mini_time_location_api_t *minishell_time_location_service_api(void);
 const mini_display_api_t *minishell_display_service_api(void);
 const mini_input_api_t *minishell_input_service_api(void);
 const mini_audio_api_t *minishell_audio_service_api(void);
+const mini_digital_io_api_t *minishell_digital_io_service_api(void);
 
 void minishell_memory_service_configure(void);
 void minishell_memory_service_app_begin(void);
@@ -39,6 +40,10 @@ void minishell_audio_service_configure(void);
 void minishell_audio_service_app_begin(void);
 void minishell_audio_service_app_end(void);
 
+void minishell_digital_io_service_configure(void);
+void minishell_digital_io_service_app_begin(void);
+void minishell_digital_io_service_app_end(void);
+
 bool minishell_console_service_available(void);
 bool minishell_memory_service_available(void);
 bool minishell_filesystem_service_available(void);
@@ -46,3 +51,4 @@ bool minishell_time_location_service_available(void);
 bool minishell_display_service_available(void);
 bool minishell_input_service_available(void);
 bool minishell_audio_service_available(void);
+bool minishell_digital_io_service_available(void);
