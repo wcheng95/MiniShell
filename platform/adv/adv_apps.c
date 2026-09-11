@@ -9,6 +9,9 @@
 #include "freertos/task.h"
 #endif
 
+#define ADV_FLASH_APP_DIR "/flash/apps"
+#define ADV_SD_APP_DIR "/sd/apps"
+
 typedef int (*adv_app_entry_fn)(int argc, char **argv);
 
 typedef struct {
@@ -185,8 +188,8 @@ static void emit_external_app(const char *name, void *ctx)
     if (context == NULL || name == NULL || find_static_app(name) != NULL) return;
 
     /* Flash shadows SD for an external app with the same name. */
-    if (strcmp(context->root, "/sd") == 0 &&
-        adv_elf_loader_app_exists("/flash", name)) {
+    if (strcmp(context->root, ADV_SD_APP_DIR) == 0 &&
+        adv_elf_loader_app_exists(ADV_FLASH_APP_DIR, name)) {
         return;
     }
 
@@ -198,12 +201,12 @@ minishell_platform_result_t minishell_platform_apps_list(minishell_app_emit_fn e
 {
     minishell_platform_result_t result;
     external_emit_context_t flash_context = {
-        .root = "/flash",
+        .root = ADV_FLASH_APP_DIR,
         .emit = emit,
         .ctx = ctx,
     };
     external_emit_context_t sd_context = {
-        .root = "/sd",
+        .root = ADV_SD_APP_DIR,
         .emit = emit,
         .ctx = ctx,
     };
@@ -214,10 +217,10 @@ minishell_platform_result_t minishell_platform_apps_list(minishell_app_emit_fn e
         emit(s_apps[i].name, ctx);
     }
 
-    result = adv_elf_loader_apps_list("/flash", emit_external_app, &flash_context);
+    result = adv_elf_loader_apps_list(ADV_FLASH_APP_DIR, emit_external_app, &flash_context);
     if (result != MINISHELL_PLATFORM_OK) return result;
 
-    result = adv_elf_loader_apps_list("/sd", emit_external_app, &sd_context);
+    result = adv_elf_loader_apps_list(ADV_SD_APP_DIR, emit_external_app, &sd_context);
     if (result != MINISHELL_PLATFORM_OK) return result;
 
     return MINISHELL_PLATFORM_OK;
@@ -240,12 +243,12 @@ minishell_platform_result_t minishell_platform_app_run(const char *name,
         return run_entry(static_app->entry, argc, argv, out_app_result);
     }
 
-    if (adv_elf_loader_app_exists("/flash", name)) {
-        return run_external("/flash", name, argc, argv, out_app_result);
+    if (adv_elf_loader_app_exists(ADV_FLASH_APP_DIR, name)) {
+        return run_external(ADV_FLASH_APP_DIR, name, argc, argv, out_app_result);
     }
 
-    if (adv_elf_loader_app_exists("/sd", name)) {
-        return run_external("/sd", name, argc, argv, out_app_result);
+    if (adv_elf_loader_app_exists(ADV_SD_APP_DIR, name)) {
+        return run_external(ADV_SD_APP_DIR, name, argc, argv, out_app_result);
     }
 
     return MINISHELL_PLATFORM_ERR_NOT_FOUND;
