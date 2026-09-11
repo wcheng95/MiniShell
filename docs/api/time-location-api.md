@@ -96,7 +96,7 @@ At MiniShell startup, Linux system UTC is assumed correct and is used to establi
 
 `date`/`utc_set()` may re-anchor MiniShell UTC for the current process when a few seconds of correction are needed. This does **not** change Linux system time and does **not** persist an offset. Restarting MiniShell reads Linux UTC again.
 
-### Cardputer ADV behavior
+### Cardputer ADV RTC behavior
 
 Cardputer ADV auto-detects a backend-owned RTC on the shared I2C bus:
 
@@ -121,6 +121,38 @@ At startup, a valid RTC establishes the UTC anchor. `date`/`utc_set()` writes th
 The current ADV RTC backends accept calendar years 2000 through 2099. DS3231 uses its oscillator-stop flag to report an untrusted clock; HYM8563/BM8563 uses the VL bit in its seconds register. If the RTC is absent or detected but not yet valid, MiniShell starts from the deterministic fallback `2026-09-01 06:00:00 UTC` and advances from there using the monotonic clock. `date` can then initialize the selected RTC. Actual RTC I/O failures remain errors rather than being silently replaced by fallback time.
 
 RTC ownership is independent of `/flash`; loss of the internal filesystem does not disable UTC. Persistent default location still depends on `/flash`.
+
+### Cardputer ADV GPS behavior
+
+Cardputer ADV also has a resident GPS provider beneath Time/Location. It deliberately reuses the Mini-FT8 V2 PORTA wiring:
+
+```text
+UART1
+GPS TX -> Cardputer RX GPIO1 (G1)
+GPS RX <- Cardputer TX GPIO2 (G2)
+```
+
+The GPS UART is owned by MiniShell, not by FT8 or another application. A future CAT/provider that wants the same UART must therefore be arbitrated at the platform/resource-owner layer rather than opening UART1 directly from an application.
+
+The provider accepts checksum-valid NMEA and uses RMC for UTC and live latitude/longitude. Valid RMC fixes publish `MINI_LOCATION_SOURCE_LIVE` coordinates in degrees × 10^7 and continuously re-anchor MiniShell UTC. An invalid RMC fix clears the live-location state; configured/default location remains available according to the normal source-selection policy.
+
+GPS baud behavior follows Mini-FT8 V2:
+
+```text
+supported baud     115200 or 9600
+initial baud       last detected baud, otherwise 115200
+probe window       2.5 seconds when bytes arrive but no valid NMEA locks
+fallback           rotate 115200 <-> 9600 until valid NMEA is found
+saved baud         /flash/minishell/gps_baud.txt
+```
+
+The saved baud belongs to MiniShell platform state. It is no longer an FT8 station setting. GPS still works if `/flash` is unavailable; only remembered baud persistence is lost.
+
+When a valid GPS UTC sample arrives, MiniShell corrects its in-memory UTC. If a supported RTC is present, MiniShell also persists GPS time on the first accepted fix and then near the top of each new UTC hour. This preserves the useful Mini-FT8 V2 behavior without making FT8 own GPS or RTC hardware.
+
+The GPS producer task starts only after MiniShell services are configured and stops before the service table is removed. This prevents a resident hardware producer from publishing into an uninitialized Time/Location service during boot or shutdown.
+
+Current GPS scope is deliberately small: UTC plus live latitude/longitude. Satellite count, altitude, speed, heading, PPS, and raw NMEA are not application-facing API features yet.
 
 ### Embedded behavior
 
@@ -202,6 +234,7 @@ Time/Location is the sole application-facing owner of:
 monotonic abstraction
 UTC anchor/correction state
 RTC access where present
+GPS-derived UTC/location where present
 live location state
 configured location persistence
 source-selection policy
@@ -221,10 +254,11 @@ Host service tests cover:
 - UTC availability;
 - UTC correction, persistence-provider calls, and progression;
 - persistence-write failure behavior;
+- live/default location selection;
 - default-location set/get/clear persistence behavior;
 - public service discovery.
 
-ADV firmware CI builds both RTC paths together with the shared I2C owner. Hardware verification should confirm RTC bootstrap, persistent `date` update, unset-RTC fallback, and reboot retention with both DS3231 and M5 Unit RTC hardware.
+ADV firmware CI builds both RTC paths and the GPS provider together with their shared platform owners. Hardware verification should confirm RTC bootstrap/persistence and GPS baud detection, UTC synchronization, RTC update, and live-location publication on an actual Cardputer ADV.
 
 `date` is a portable application using the same UTC operations.
 
@@ -237,8 +271,8 @@ time zones/local civil time
 calendar formatting/parsing inside the service
 accuracy/uncertainty metadata
 altitude/speed/heading
-alarms/periodic timers
-raw GNSS data
+satellite/fix-quality metadata
+PPS/raw GNSS data
 location names/geocoding
 ```
 
