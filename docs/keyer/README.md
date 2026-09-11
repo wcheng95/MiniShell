@@ -16,19 +16,19 @@ keyer.elf
 Valid ADV installations are:
 
 ```text
-/flash/keyer.elf
-/sd/keyer.elf
+/flash/apps/keyer.elf
+/sd/apps/keyer.elf
 ```
 
 ADV application resolution is:
 
 ```text
 1. compiled-in application
-2. /flash/<app>.elf
-3. /sd/<app>.elf
+2. /flash/apps/<app>.elf
+3. /sd/apps/<app>.elf
 ```
 
-Therefore the same `keyer.elf` binary may be copied from SD to flash and must run unchanged; if both external copies exist, `/flash/keyer.elf` wins.
+Therefore the same `keyer.elf` binary may be copied from SD to flash and must run unchanged; if both external copies exist, `/flash/apps/keyer.elf` wins.
 
 The Keyer application is portable at the source/API boundary. Board-specific deployment details may live in its application settings.
 
@@ -76,7 +76,7 @@ MiniShell provides generic services only: Digital I/O, Audio, Time, Display, Inp
 
 `keyer.elf` source must not include or directly call ESP-IDF, FreeRTOS, M5/Cardputer APIs, board GPIO drivers, USB/UAC implementation APIs, device-specific CAT syntax, Linux/POSIX APIs, or ELF-loader interfaces.
 
-Its installation path is not application logic. The same ELF must work from `/flash/keyer.elf` or `/sd/keyer.elf`.
+Its installation path is not application logic. The same ELF must work from `/flash/apps/keyer.elf` or `/sd/apps/keyer.elf`.
 
 ### 2.3 No side talk
 
@@ -301,19 +301,19 @@ MiniShell transports PCM and owns stream/backend lifecycle. Keyer owns tone freq
 Desired ADV user experience:
 
 ```text
-MiniShell> apps
+M$> apps
 ...
 keyer
 
-MiniShell> run keyer
+M$> keyer
 ```
 
 Resolution:
 
 ```text
 1. compiled-in keyer, if one exists
-2. /flash/keyer.elf
-3. /sd/keyer.elf
+2. /flash/apps/keyer.elf
+3. /sd/apps/keyer.elf
 ```
 
 The current plan does not compile Keyer into ADV, so normal Keyer deployment exercises the external tiers.
@@ -335,30 +335,30 @@ dependency/no-side-talk enforcement
 opaque-controller pattern
 lifecycle-only main pattern
 ADV runtime external-ELF direction
-compiled-in -> /flash -> /sd resolution
+compiled-in -> /flash/apps -> /sd/apps resolution
 configuration ownership/namespace
 ```
 
 ### K1 — COMPLETE — ADV runtime ELF proof
 
-Hardware-validated on Cardputer ADV with the non-colliding `elfhello.elf` test application.
+Hardware-validated on Cardputer ADV with the non-colliding `elfhello.elf` test application. K1 was originally proven from the volume roots; the canonical search directories were then tightened to `/flash/apps` and `/sd/apps` without changing loader semantics.
 
-Proven behavior:
+Canonical behavior:
 
 ```text
-/sd/elfhello.elf
+/sd/apps/elfhello.elf
     discover -> load -> relocate -> mini_api_get()
     -> MiniShell Console API -> return -> unload
 
 same binary copied to:
-/flash/elfhello.elf
+/flash/apps/elfhello.elf
     discover -> load -> call MiniShell API -> return -> unload
 
 when both external copies exist:
-    /flash/elfhello.elf wins
+    /flash/apps/elfhello.elf wins
 ```
 
-Repeated SD load/run/unload cycles returned cleanly to `M$>` with stable executable-heap measurements. Hardware evidence included approximately:
+Repeated load/run/unload cycles returned cleanly to `M$>` with stable executable-heap measurements. Hardware evidence included approximately:
 
 ```text
 before load: exec free=300828, largest=286720
@@ -367,10 +367,10 @@ after unload: exec free=301984, largest=286720
 
 The exact free-byte difference is allocator/coalescing behavior; the stable largest block and repeated identical cycles show no observed K1 loader leak.
 
-K1 also verified the complete application resolution rule:
+K1 protects the complete application resolution rule:
 
 ```text
-compiled-in > /flash external > /sd external
+compiled-in > /flash/apps > /sd/apps
 ```
 
 `elfhello` imports only `mini_api_get`; all application service calls then go through the MiniShell API table. Broad libc/ESP-IDF loader symbol tables remain disabled for external applications.
@@ -435,8 +435,8 @@ Hold-Backspace and gestures requiring press/release semantics may remain deferre
 Build one `keyer.elf` and validate the exact same binary from:
 
 ```text
-/sd/keyer.elf
-/flash/keyer.elf
+/sd/apps/keyer.elf
+/flash/apps/keyer.elf
 ```
 
 Validate repeated load/run/exit/unload, external discovery order, paddle at representative WPM, Iambic A/B, straight key, KeyOut cancellation/release safety, GPIO electrical behavior, sidetone timing, configuration persistence/reload, and resource cleanup.
@@ -469,7 +469,7 @@ Pure module tests cover Morse timing/state transitions, Iambic modes, straight-k
 
 MiniShell boundary tests cover Digital I/O requests/cleanup, Audio TX lifecycle, application resource cleanup, GPIO KeyOut, and later Control KeyOut.
 
-ADV hardware tests cover the full app resolution order, the same ELF from `/flash` and `/sd`, actual paddle input/radio keying, configured electrical behavior, Speaker/UAC behavior, alternate debug UART when USB-C OTG is occupied, and load/exit/reload stability.
+ADV hardware tests cover the full app resolution order, the same ELF from `/flash/apps` and `/sd/apps`, actual paddle input/radio keying, configured electrical behavior, Speaker/UAC behavior, alternate debug UART when USB-C OTG is occupied, and load/exit/reload stability.
 
 ## 13. Review questions
 
@@ -490,8 +490,8 @@ K1 ADV runtime ELF proof                          COMPLETE
 MiniShell must not know Keyer semantics           YES
 Keyer GPIO assignments may be app settings        YES
 canonical Keyer settings path                     /flash/keyer/setting.txt
-app resolution                                    compiled-in -> /flash -> /sd
-same ELF binary from /flash or /sd                REQUIRED
+app resolution                                    compiled-in -> /flash/apps -> /sd/apps
+same ELF binary from /flash/apps or /sd/apps      REQUIRED
 ADV ELF executable-memory requirement             MEMPROT_FEATURE off on IDF 5.5.1
 ```
 
