@@ -7,6 +7,8 @@ extern "C" {
 #endif
 
 int adv_gps_prepare(void);
+int adv_gps_start(void);
+void adv_gps_stop(void);
 void adv_gps_shutdown(void);
 bool adv_gps_ready(void);
 int adv_gps_active_baud(void);
