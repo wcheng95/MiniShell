@@ -147,9 +147,14 @@ int main(void)
     }
 
     for (uint32_t i = 0u; i < 6u; ++i) {
-        s_nonzero_this_apply = 0u;
         CHECK(sidetone_apply(&sidetone, false) == MINI_OK);
     }
+    CHECK(sidetone.gain_q8 == 0u);
+
+    /* Gain reaches zero during the sixth release block; the following block
+     * must therefore be pure silence. */
+    s_nonzero_this_apply = 0u;
+    CHECK(sidetone_apply(&sidetone, false) == MINI_OK);
     CHECK(s_nonzero_this_apply == 0u);
 
     sidetone_close(&sidetone);
