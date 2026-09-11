@@ -12,12 +12,12 @@ After obtaining the API table, Console output is an indirect MiniShell API call.
 
 ## Build
 
-Use the same ESP-IDF family as the ADV firmware:
+Use the same ESP-IDF family as the ADV firmware. Espressif's runtime-ELF project target is `elf`; do not build the unrelated normal firmware image for this application:
 
 ```bash
 cd ~/projects/MiniShell/platform/adv/elf_apps/elfhello
 idf.py fullclean
-idf.py build
+idf.py elf
 ```
 
 The Espressif ELF build produces:
@@ -33,6 +33,14 @@ elfhello.elf
 ```
 
 Renaming/copying the file does not change the binary.
+
+The K1 CI gate also verifies that the runtime ELF has exactly one unresolved resident import:
+
+```text
+mini_api_get
+```
+
+All platform services are then reached indirectly through the returned MiniShell API table.
 
 ## K1 hardware validation
 
