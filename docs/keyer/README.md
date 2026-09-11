@@ -1,6 +1,6 @@
 # Keyer on MiniShell
 
-Status: **K0/K1/K2/K3 complete; K4 implemented, hardware validation pending**  
+Status: **K0/K1/K2/K3/K4 complete; K5 next**  
 Date: 2026-09-10
 
 ## Purpose
@@ -95,7 +95,7 @@ config_service
     defaults + /flash/keyer/setting.txt parsing
 
 keyer_engine
-    portable CW timing/state machine
+    portable CW timing state machine
 
 keyin
     MiniShell Digital I/O -> logical dit/dah/straight
@@ -207,7 +207,7 @@ Mini-CW compatibility: the field-validated June 2026 A/B swap is preserved; the 
 
 Regression: `tests/keyer_engine_k3_test.c`.
 
-### K4 — IN PROGRESS — GPIO KeyIn/KeyOut
+### K4 — COMPLETE — GPIO KeyIn/KeyOut
 
 Software implementation is present under:
 
@@ -272,15 +272,7 @@ The external build project produces:
 platform/adv/elf_apps/keyer/build/keyer.app.elf
 ```
 
-K4 is **not complete** until real Cardputer ADV hardware validates:
-
-```text
-G13/G15 physical paddle input
-representative CW/decoded output
-G3/G6 active-low keying
-G3/G6 released on q/ESC exit
-clean return to M$>
-```
+Cardputer ADV hardware validation passed the real GPIO KeyIn/KeyOut path. The application exited cleanly back to MiniShell with outputs released and no observable RAM leakage across the ELF lifecycle.
 
 ### K5 — sidetone through MiniShell Audio TX
 
@@ -305,8 +297,8 @@ K0 architecture gate                 COMPLETE
 K1 ADV runtime ELF proof             COMPLETE
 K2 MiniShell Digital I/O V1          COMPLETE
 K3 portable Keyer engine             COMPLETE
-K4 GPIO KeyIn/KeyOut                 HARDWARE VALIDATION PENDING
-K5 sidetone                          NEXT AFTER K4
+K4 GPIO KeyIn/KeyOut                 COMPLETE
+K5 sidetone                          NEXT
 
 MiniShell knows Keyer semantics      NO
 Keyer config path                    /flash/keyer/setting.txt
