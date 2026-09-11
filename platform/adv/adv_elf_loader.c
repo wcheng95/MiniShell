@@ -11,6 +11,7 @@
 
 #include "adv_internal.h"
 #include "esp_elf.h"
+#include "esp_heap_caps.h"
 #include "minishell/api.h"
 
 #define ADV_ELF_APP_NAME_MAX 127u
@@ -21,6 +22,20 @@ static const struct esp_elfsym s_minishell_symbols[] = {
 };
 
 static bool s_symbols_registered;
+
+static void log_exec_heap(const char *phase)
+{
+    char line[128];
+    size_t free_bytes = heap_caps_get_free_size(MALLOC_CAP_EXEC);
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_EXEC);
+    int written = snprintf(line, sizeof(line),
+                           "ADV ELF: exec heap %s free=%u largest=%u\n",
+                           phase != NULL ? phase : "",
+                           (unsigned)free_bytes, (unsigned)largest);
+    if (written > 0 && (size_t)written < sizeof(line)) {
+        adv_console_debug_write(line);
+    }
+}
 
 static bool valid_root(const char *root)
 {
@@ -202,6 +217,7 @@ minishell_platform_result_t adv_elf_loader_app_run(const char *root,
     if (written > 0 && (size_t)written < sizeof(log_line)) {
         adv_console_debug_write(log_line);
     }
+    log_exec_heap("before");
 
     if (esp_elf_init(&elf) != 0) {
         result = MINISHELL_PLATFORM_ERR_LOAD;
@@ -224,5 +240,6 @@ minishell_platform_result_t adv_elf_loader_app_run(const char *root,
 cleanup:
     if (elf_initialized) esp_elf_deinit(&elf);
     free(data);
+    log_exec_heap("after");
     return result;
 }
