@@ -1,6 +1,8 @@
 #include <string.h>
 
+#include "adv_gps.h"
 #include "adv_internal.h"
+#include "adv_rtc.h"
 #include "minishell_services.h"
 #include "platform_backend.h"
 
@@ -40,10 +42,8 @@ static void configure_services_port(void)
     s_services_port.sleep_ms = adv_sleep_ms;
     s_services_port.time_location_capabilities = 0u;
 
-    if (s_filesystem_ready) {
-        adv_filesystem_configure(&s_services_port);
-        adv_time_location_configure(&s_services_port);
-    }
+    if (s_filesystem_ready) adv_filesystem_configure(&s_services_port);
+    adv_time_location_configure(&s_services_port);
 
     if (s_display_ready) {
         s_services_port.display_capabilities = MINI_DISPLAY_CAP_TEXT;
@@ -78,9 +78,21 @@ int minishell_platform_init(void)
         adv_console_debug_write("ADV: keyboard unavailable; USB input remains active\n");
     }
 
+    if (adv_rtc_prepare() != 0) {
+        adv_console_debug_write("ADV: RTC unavailable; using session UTC fallback\n");
+    }
+
     s_filesystem_ready = adv_filesystem_prepare() == 0;
     if (!s_filesystem_ready) {
         adv_console_debug_write("ADV: /flash filesystem unavailable; continuing without persistence\n");
+    }
+
+    /* GPS is a resident MiniShell provider. It owns the same PORTA UART used by
+     * Mini-FT8 V2: UART1, RX=G1, TX=G2. Prepare the UART now so capability
+     * discovery is stable, but do not start its producer task until the
+     * Time/Location service table is configured. */
+    if (adv_gps_prepare() != 0) {
+        adv_console_debug_write("ADV: GPS unavailable; Time/Location continues without live GPS\n");
     }
 
     configure_services_port();
@@ -89,6 +101,7 @@ int minishell_platform_init(void)
 
 void minishell_platform_shutdown(void)
 {
+    adv_gps_shutdown();
     adv_filesystem_shutdown();
 }
 
@@ -111,4 +124,16 @@ void minishell_platform_services_prepare(minishell_services_port_t *out_port)
     /* The Cardputer speaker is a physical Audio TX endpoint and does not depend
      * on Filesystem availability. It is opened lazily by the foreground app. */
     adv_audio_speaker_configure(out_port);
+}
+
+void minishell_platform_services_started(void)
+{
+    if (adv_gps_ready() && adv_gps_start() != 0) {
+        adv_console_debug_write("ADV: GPS provider failed to start\n");
+    }
+}
+
+void minishell_platform_services_stopping(void)
+{
+    adv_gps_stop();
 }

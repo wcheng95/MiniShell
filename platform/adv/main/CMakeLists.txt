@@ -92,6 +92,8 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_filesystem.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_filesystem_handoff.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_i2c.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_rtc.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_gps.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_input.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_keyboard.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_memory.c"
@@ -133,6 +135,7 @@ idf_component_register(
         esp_driver_i2s
         esp_driver_spi
         esp_driver_sdspi
+        esp_driver_uart
         esp_driver_usb_serial_jtag
         esp_timer
         esp_tinyusb

@@ -5,15 +5,15 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "adv_gps.h"
 #include "adv_internal.h"
+#include "adv_rtc.h"
 
 #define ADV_STATE_DIR "/flash/minishell"
 #define ADV_LOCATION_PATH ADV_STATE_DIR "/location.txt"
 #define ADV_LOCATION_TEMP ADV_STATE_DIR "/location.tmp"
 
-/* ADV has no time source in A3a.  Start every boot from a deterministic UTC
- * anchor and let the user correct it for the current session with `date`.
- * RTC/GPS providers can replace this bootstrap later without changing apps. */
+/* Deterministic ADV bootstrap when no valid persistent RTC sample exists. */
 #define ADV_DEFAULT_UTC_SECONDS ((int64_t)1788242400) /* 2026-09-01 06:00:00 UTC */
 
 static mini_result_t result_from_errno(int error)
@@ -63,9 +63,22 @@ static mini_result_t utc_load(void *ctx, int64_t *out_seconds,
 {
     (void)ctx;
     if (out_seconds == NULL || out_nanoseconds == NULL) return MINI_ERR_INVALID;
+
+    if (adv_rtc_ready()) {
+        mini_result_t result = adv_rtc_load_utc(out_seconds, out_nanoseconds);
+        if (result == MINI_OK) return MINI_OK;
+        if (result != MINI_ERR_NOT_READY) return result;
+    }
+
     *out_seconds = ADV_DEFAULT_UTC_SECONDS;
     *out_nanoseconds = 0u;
     return MINI_OK;
+}
+
+static mini_result_t utc_store(void *ctx, int64_t seconds, uint32_t nanoseconds)
+{
+    (void)ctx;
+    return adv_rtc_store_utc(seconds, nanoseconds);
 }
 
 static mini_result_t default_location_load(void *ctx,
@@ -115,15 +128,24 @@ static mini_result_t default_location_clear(void *ctx)
 
 void adv_time_location_configure(minishell_services_port_t *port)
 {
-    if (port == NULL || !adv_filesystem_flash_ready()) return;
+    if (port == NULL) return;
 
-    port->time_location_capabilities =
-        MINI_TIMELOC_CAP_UTC |
+    port->time_location_capabilities = MINI_TIMELOC_CAP_UTC;
+    port->utc_load = utc_load;
+    if (adv_rtc_ready()) port->utc_store = utc_store;
+
+    /* A resident GPS provider makes live location available even when /flash is
+     * unavailable. location_get() remains NOT_READY until a valid fix arrives. */
+    if (adv_gps_ready()) {
+        port->time_location_capabilities |= MINI_TIMELOC_CAP_LOCATION;
+    }
+
+    if (!adv_filesystem_flash_ready()) return;
+
+    port->time_location_capabilities |=
         MINI_TIMELOC_CAP_LOCATION |
         MINI_TIMELOC_CAP_DEFAULT_LOCATION |
         MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION;
-    port->utc_load = utc_load;
-    /* No utc_store in A3a: manual `date` correction is session-only. */
     port->default_location_load = default_location_load;
     port->default_location_store = default_location_store;
     port->default_location_clear = default_location_clear;

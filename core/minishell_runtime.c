@@ -22,10 +22,12 @@ int minishell_run(void)
     minishell_services_port_t services_port;
     minishell_platform_services_prepare(&services_port);
     minishell_services_configure(&services_port);
+    minishell_platform_services_started();
 
     minishell_platform_console_write("minishell\n");
     int result = minishell_shell_run();
 
+    minishell_platform_services_stopping();
     minishell_services_configure(NULL);
     minishell_platform_shutdown();
     return result;

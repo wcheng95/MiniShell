@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include <string.h>
 
 #include "services_internal.h"
@@ -19,6 +20,19 @@ typedef struct {
 static time_location_state_t s_state;
 static mini_time_location_api_t s_time_api;
 static bool s_available;
+static atomic_flag s_state_lock = ATOMIC_FLAG_INIT;
+
+static void state_lock(void)
+{
+    while (atomic_flag_test_and_set_explicit(&s_state_lock, memory_order_acquire)) {
+        /* State critical sections contain memory copies/arithmetic only. */
+    }
+}
+
+static void state_unlock(void)
+{
+    atomic_flag_clear_explicit(&s_state_lock, memory_order_release);
+}
 
 static bool valid_geo(int32_t latitude_e7, int32_t longitude_e7)
 {
@@ -32,7 +46,7 @@ static uint64_t monotonic_now(void)
     return port->monotonic_us != NULL ? port->monotonic_us(port->ctx) : 0u;
 }
 
-static void set_utc_anchor(int64_t seconds, uint32_t nanoseconds, uint64_t mono_us)
+static void set_utc_anchor_locked(int64_t seconds, uint32_t nanoseconds, uint64_t mono_us)
 {
     s_state.utc_valid = true;
     s_state.utc_anchor_seconds = seconds;
@@ -40,7 +54,7 @@ static void set_utc_anchor(int64_t seconds, uint32_t nanoseconds, uint64_t mono_
     s_state.utc_anchor_monotonic_us = mono_us;
 }
 
-static void utc_at(uint64_t mono_us, int64_t *out_seconds, uint32_t *out_nanoseconds)
+static void utc_at_locked(uint64_t mono_us, int64_t *out_seconds, uint32_t *out_nanoseconds)
 {
     uint64_t elapsed_us = mono_us - s_state.utc_anchor_monotonic_us;
     int64_t seconds = s_state.utc_anchor_seconds + (int64_t)(elapsed_us / 1000000u);
@@ -51,61 +65,11 @@ static void utc_at(uint64_t mono_us, int64_t *out_seconds, uint32_t *out_nanosec
     *out_nanoseconds = (uint32_t)nanoseconds;
 }
 
-static uint64_t tl_monotonic_us(void) { return monotonic_now(); }
-
-static mini_result_t tl_sleep_ms(uint32_t milliseconds)
+static mini_result_t effective_location_locked(int32_t *out_latitude_e7,
+                                               int32_t *out_longitude_e7,
+                                               uint32_t *out_source,
+                                               uint64_t *out_updated_us)
 {
-    const minishell_services_port_t *port = minishell_services_port();
-    if (!s_available || port->sleep_ms == NULL) return MINI_ERR_UNSUPPORTED;
-    return port->sleep_ms(port->ctx, milliseconds);
-}
-
-static mini_result_t tl_utc_get(mini_utc_time_t *out_time)
-{
-    const uint32_t v0_size = MINI_FIELD_END(mini_utc_time_t, nanoseconds);
-    if ((s_time_api.capabilities & MINI_TIMELOC_CAP_UTC) == 0u) return MINI_ERR_UNSUPPORTED;
-    if (out_time == NULL || out_time->struct_size < v0_size) return MINI_ERR_INVALID;
-    if (!s_state.utc_valid) return MINI_ERR_NOT_READY;
-    int64_t seconds;
-    uint32_t nanoseconds;
-    utc_at(monotonic_now(), &seconds, &nanoseconds);
-    out_time->unix_seconds = seconds;
-    out_time->nanoseconds = nanoseconds;
-    return MINI_OK;
-}
-
-mini_result_t minishell_services_utc_sync(int64_t seconds, uint32_t nanoseconds, bool persist)
-{
-    const minishell_services_port_t *port = minishell_services_port();
-    if ((s_time_api.capabilities & MINI_TIMELOC_CAP_UTC) == 0u) return MINI_ERR_UNSUPPORTED;
-    if (nanoseconds >= 1000000000u) return MINI_ERR_INVALID;
-    if (persist) {
-        if (port->utc_store == NULL) return MINI_ERR_UNSUPPORTED;
-        mini_result_t result = port->utc_store(port->ctx, seconds, nanoseconds);
-        if (result != MINI_OK) return result;
-    }
-    set_utc_anchor(seconds, nanoseconds, monotonic_now());
-    return MINI_OK;
-}
-
-static mini_result_t tl_utc_set(const mini_utc_time_t *time)
-{
-    const minishell_services_port_t *port = minishell_services_port();
-    const uint32_t v0_size = MINI_FIELD_END(mini_utc_time_t, nanoseconds);
-    if ((s_time_api.capabilities & MINI_TIMELOC_CAP_SET_UTC) == 0u) return MINI_ERR_UNSUPPORTED;
-    if (time == NULL || time->struct_size < v0_size || time->nanoseconds >= 1000000000u) return MINI_ERR_INVALID;
-
-    /* Setting MiniShell UTC is always an in-session operation.  A platform
-     * that owns a writable RTC can additionally provide utc_store(); hosts
-     * such as Linux simply re-anchor the MiniShell clock in memory. */
-    return minishell_services_utc_sync(time->unix_seconds, time->nanoseconds,
-                                       port->utc_store != NULL);
-}
-
-static mini_result_t effective_location(int32_t *out_latitude_e7, int32_t *out_longitude_e7,
-                                        uint32_t *out_source, uint64_t *out_updated_us)
-{
-    if ((s_time_api.capabilities & MINI_TIMELOC_CAP_LOCATION) == 0u) return MINI_ERR_UNSUPPORTED;
     if (s_state.live_valid) {
         *out_latitude_e7 = s_state.live_latitude_e7;
         *out_longitude_e7 = s_state.live_longitude_e7;
@@ -123,17 +87,91 @@ static mini_result_t effective_location(int32_t *out_latitude_e7, int32_t *out_l
     return MINI_ERR_NOT_READY;
 }
 
+static uint64_t tl_monotonic_us(void) { return monotonic_now(); }
+
+static mini_result_t tl_sleep_ms(uint32_t milliseconds)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    if (!s_available || port->sleep_ms == NULL) return MINI_ERR_UNSUPPORTED;
+    return port->sleep_ms(port->ctx, milliseconds);
+}
+
+static mini_result_t tl_utc_get(mini_utc_time_t *out_time)
+{
+    const uint32_t v0_size = MINI_FIELD_END(mini_utc_time_t, nanoseconds);
+    int64_t seconds;
+    uint32_t nanoseconds;
+
+    if ((s_time_api.capabilities & MINI_TIMELOC_CAP_UTC) == 0u) return MINI_ERR_UNSUPPORTED;
+    if (out_time == NULL || out_time->struct_size < v0_size) return MINI_ERR_INVALID;
+
+    state_lock();
+    if (!s_state.utc_valid) {
+        state_unlock();
+        return MINI_ERR_NOT_READY;
+    }
+    /* Read the monotonic instant while the anchor is stable. Otherwise a GPS
+     * update could install a newer anchor between these two observations and
+     * make unsigned elapsed-time subtraction wrap. */
+    utc_at_locked(monotonic_now(), &seconds, &nanoseconds);
+    state_unlock();
+
+    out_time->unix_seconds = seconds;
+    out_time->nanoseconds = nanoseconds;
+    return MINI_OK;
+}
+
+mini_result_t minishell_services_utc_sync(int64_t seconds, uint32_t nanoseconds, bool persist)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    uint64_t mono_us;
+
+    if ((s_time_api.capabilities & MINI_TIMELOC_CAP_UTC) == 0u) return MINI_ERR_UNSUPPORTED;
+    if (nanoseconds >= 1000000000u) return MINI_ERR_INVALID;
+    if (persist) {
+        if (port->utc_store == NULL) return MINI_ERR_UNSUPPORTED;
+        mini_result_t result = port->utc_store(port->ctx, seconds, nanoseconds);
+        if (result != MINI_OK) return result;
+    }
+
+    mono_us = monotonic_now();
+    state_lock();
+    set_utc_anchor_locked(seconds, nanoseconds, mono_us);
+    state_unlock();
+    return MINI_OK;
+}
+
+static mini_result_t tl_utc_set(const mini_utc_time_t *time)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    const uint32_t v0_size = MINI_FIELD_END(mini_utc_time_t, nanoseconds);
+    if ((s_time_api.capabilities & MINI_TIMELOC_CAP_SET_UTC) == 0u) return MINI_ERR_UNSUPPORTED;
+    if (time == NULL || time->struct_size < v0_size || time->nanoseconds >= 1000000000u) return MINI_ERR_INVALID;
+
+    /* Setting MiniShell UTC is always an in-session operation.  A platform
+     * that owns a writable RTC can additionally provide utc_store(); hosts
+     * such as Linux simply re-anchor the MiniShell clock in memory. */
+    return minishell_services_utc_sync(time->unix_seconds, time->nanoseconds,
+                                       port->utc_store != NULL);
+}
+
 static mini_result_t tl_location_get(mini_location_t *out_location)
 {
     const uint32_t v0_size = MINI_FIELD_END(mini_location_t, updated_monotonic_us);
-    if ((s_time_api.capabilities & MINI_TIMELOC_CAP_LOCATION) == 0u) return MINI_ERR_UNSUPPORTED;
-    if (out_location == NULL || out_location->struct_size < v0_size) return MINI_ERR_INVALID;
     int32_t lat;
     int32_t lon;
     uint32_t source;
     uint64_t updated;
-    mini_result_t result = effective_location(&lat, &lon, &source, &updated);
+    mini_result_t result;
+
+    if ((s_time_api.capabilities & MINI_TIMELOC_CAP_LOCATION) == 0u) return MINI_ERR_UNSUPPORTED;
+    if (out_location == NULL || out_location->struct_size < v0_size) return MINI_ERR_INVALID;
+
+    state_lock();
+    result = effective_location_locked(&lat, &lon, &source, &updated);
+    state_unlock();
     if (result != MINI_OK) return result;
+
     out_location->latitude_e7 = lat;
     out_location->longitude_e7 = lon;
     out_location->source = source;
@@ -145,11 +183,18 @@ static mini_result_t tl_location_get(mini_location_t *out_location)
 static mini_result_t tl_default_get(mini_geo_point_t *out_location)
 {
     const uint32_t v0_size = MINI_FIELD_END(mini_geo_point_t, longitude_e7);
+
     if ((s_time_api.capabilities & MINI_TIMELOC_CAP_DEFAULT_LOCATION) == 0u) return MINI_ERR_UNSUPPORTED;
     if (out_location == NULL || out_location->struct_size < v0_size) return MINI_ERR_INVALID;
-    if (!s_state.default_valid) return MINI_ERR_NOT_READY;
+
+    state_lock();
+    if (!s_state.default_valid) {
+        state_unlock();
+        return MINI_ERR_NOT_READY;
+    }
     out_location->latitude_e7 = s_state.default_latitude_e7;
     out_location->longitude_e7 = s_state.default_longitude_e7;
+    state_unlock();
     return MINI_OK;
 }
 
@@ -157,58 +202,83 @@ static mini_result_t tl_default_set(const mini_geo_point_t *location)
 {
     const minishell_services_port_t *port = minishell_services_port();
     const uint32_t v0_size = MINI_FIELD_END(mini_geo_point_t, longitude_e7);
+    mini_result_t result;
+
     if ((s_time_api.capabilities & MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION) == 0u) return MINI_ERR_UNSUPPORTED;
     if (location == NULL || location->struct_size < v0_size || !valid_geo(location->latitude_e7, location->longitude_e7)) return MINI_ERR_INVALID;
     if (port->default_location_store == NULL) return MINI_ERR_UNSUPPORTED;
-    mini_result_t result = port->default_location_store(port->ctx, location->latitude_e7, location->longitude_e7);
+
+    result = port->default_location_store(port->ctx, location->latitude_e7, location->longitude_e7);
     if (result != MINI_OK) return result;
+
+    state_lock();
     s_state.default_valid = true;
     s_state.default_latitude_e7 = location->latitude_e7;
     s_state.default_longitude_e7 = location->longitude_e7;
+    state_unlock();
     return MINI_OK;
 }
 
 static mini_result_t tl_default_clear(void)
 {
     const minishell_services_port_t *port = minishell_services_port();
+    mini_result_t result;
+
     if ((s_time_api.capabilities & MINI_TIMELOC_CAP_SET_DEFAULT_LOCATION) == 0u) return MINI_ERR_UNSUPPORTED;
     if (port->default_location_clear == NULL) return MINI_ERR_UNSUPPORTED;
-    mini_result_t result = port->default_location_clear(port->ctx);
+
+    result = port->default_location_clear(port->ctx);
     if (result != MINI_OK) return result;
+
+    state_lock();
     s_state.default_valid = false;
     s_state.default_latitude_e7 = 0;
     s_state.default_longitude_e7 = 0;
+    state_unlock();
     return MINI_OK;
 }
 
 mini_result_t minishell_services_live_location_update(int32_t latitude_e7, int32_t longitude_e7)
 {
+    uint64_t updated;
+
     if ((s_time_api.capabilities & MINI_TIMELOC_CAP_LOCATION) == 0u) return MINI_ERR_UNSUPPORTED;
     if (!valid_geo(latitude_e7, longitude_e7)) return MINI_ERR_INVALID;
+
+    updated = monotonic_now();
+    state_lock();
     s_state.live_valid = true;
     s_state.live_latitude_e7 = latitude_e7;
     s_state.live_longitude_e7 = longitude_e7;
-    s_state.live_updated_monotonic_us = monotonic_now();
+    s_state.live_updated_monotonic_us = updated;
+    state_unlock();
     return MINI_OK;
 }
 
 void minishell_services_live_location_clear(void)
 {
+    state_lock();
     s_state.live_valid = false;
     s_state.live_latitude_e7 = 0;
     s_state.live_longitude_e7 = 0;
     s_state.live_updated_monotonic_us = 0u;
+    state_unlock();
 }
 
 static mini_result_t tl_snapshot_get(mini_time_location_snapshot_t *out_snapshot)
 {
     const uint32_t v0_size = MINI_FIELD_END(mini_time_location_snapshot_t, location_updated_monotonic_us);
+    int32_t lat;
+    int32_t lon;
+    uint32_t source;
+    uint64_t updated;
+    uint64_t now;
+
     if (!s_available) return MINI_ERR_UNSUPPORTED;
     if (out_snapshot == NULL || out_snapshot->struct_size < v0_size) return MINI_ERR_INVALID;
-    uint64_t now = monotonic_now();
+
     out_snapshot->reserved_header = 0u;
     out_snapshot->valid_fields = 0u;
-    out_snapshot->monotonic_us = now;
     out_snapshot->utc_unix_seconds = 0;
     out_snapshot->utc_nanoseconds = 0u;
     out_snapshot->reserved0 = 0u;
@@ -217,27 +287,34 @@ static mini_result_t tl_snapshot_get(mini_time_location_snapshot_t *out_snapshot
     out_snapshot->location_source = 0u;
     out_snapshot->reserved1 = 0u;
     out_snapshot->location_updated_monotonic_us = 0u;
+
+    state_lock();
+    now = monotonic_now();
+    out_snapshot->monotonic_us = now;
     if ((s_time_api.capabilities & MINI_TIMELOC_CAP_UTC) != 0u && s_state.utc_valid) {
-        utc_at(now, &out_snapshot->utc_unix_seconds, &out_snapshot->utc_nanoseconds);
+        utc_at_locked(now, &out_snapshot->utc_unix_seconds, &out_snapshot->utc_nanoseconds);
         out_snapshot->valid_fields |= MINI_TIMELOC_SNAPSHOT_UTC_VALID;
     }
-    int32_t lat;
-    int32_t lon;
-    uint32_t source;
-    uint64_t updated;
-    if (effective_location(&lat, &lon, &source, &updated) == MINI_OK) {
+    if (effective_location_locked(&lat, &lon, &source, &updated) == MINI_OK) {
         out_snapshot->latitude_e7 = lat;
         out_snapshot->longitude_e7 = lon;
         out_snapshot->location_source = source;
         out_snapshot->location_updated_monotonic_us = updated;
         out_snapshot->valid_fields |= MINI_TIMELOC_SNAPSHOT_LOCATION_VALID;
     }
+    state_unlock();
     return MINI_OK;
 }
 
 void minishell_time_location_service_configure(void)
 {
     const minishell_services_port_t *port = minishell_services_port();
+    uint64_t caps;
+
+    /* Platform lifecycle guarantees resident producers are stopped while the
+     * service table is being replaced. Reset the lock defensively before the
+     * new state becomes visible. */
+    atomic_flag_clear_explicit(&s_state_lock, memory_order_release);
     memset(&s_state, 0, sizeof(s_state));
     memset(&s_time_api, 0, sizeof(s_time_api));
     s_available = port->monotonic_us != NULL && port->sleep_ms != NULL;
@@ -256,7 +333,7 @@ void minishell_time_location_service_configure(void)
         return;
     }
 
-    uint64_t caps = port->time_location_capabilities;
+    caps = port->time_location_capabilities;
     if ((caps & MINI_TIMELOC_CAP_UTC) != 0u) {
         /* MiniShell UTC can always be re-anchored for the current session.
          * A backend-provided utc_store() additionally makes the set durable. */
@@ -273,7 +350,7 @@ void minishell_time_location_service_configure(void)
         int64_t seconds = 0;
         uint32_t nanoseconds = 0u;
         if (port->utc_load(port->ctx, &seconds, &nanoseconds) == MINI_OK && nanoseconds < 1000000000u) {
-            set_utc_anchor(seconds, nanoseconds, monotonic_now());
+            set_utc_anchor_locked(seconds, nanoseconds, monotonic_now());
         }
     }
     if ((caps & MINI_TIMELOC_CAP_DEFAULT_LOCATION) != 0u && port->default_location_load != NULL) {
