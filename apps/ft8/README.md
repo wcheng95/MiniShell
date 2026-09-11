@@ -26,6 +26,35 @@ M$> ft8 --profile adv
 
 Current development policy is **Linux backend first**, using ADV presentation whenever UI is involved. Cardputer ADV supplies ADV as its composition default.
 
+## GPS, UTC, and station grid
+
+MiniFT8-V3 does **not** own GPS hardware. GPS UART, NMEA parsing, baud detection, UTC synchronization, and RTC persistence are MiniShell platform responsibilities exposed through the Time/Location API.
+
+On Cardputer ADV, MiniShell reuses the Mini-FT8 V2 PORTA GPS connection:
+
+```text
+UART1
+RX = GPIO1 / G1
+TX = GPIO2 / G2
+baud = 115200 or 9600, auto-detected and remembered by MiniShell
+```
+
+FT8 consumes only platform-independent Time/Location state:
+
+```text
+ADV GPS hardware
+    -> MiniShell GPS provider
+    -> MiniShell Time/Location
+       -> UTC
+       -> live latitude/longitude
+    -> MiniFT8-V3
+       -> 4-character Maidenhead working grid
+```
+
+A valid live GPS location temporarily replaces the working FT8 grid used by AutoSeq and outgoing messages. The configured grid loaded from `station.txt` remains the persistent/manual grid and is **not** overwritten by GPS. If live GPS location disappears, FT8 restores the manual grid.
+
+This preserves the useful Mini-FT8 V2 behavior while removing its hardware coupling: V3 never opens the GPS UART, parses NMEA, manages GPS baud, or writes an RTC directly.
+
 ## Production RX architecture
 
 RX-7 completes the decode-RX path through the normal application:
@@ -81,7 +110,7 @@ UTC/time establishes initial slot_id + sample_offset
 sample count owns progress afterward
 ```
 
-Production `app_controller` obtains the initial MiniShell time reference. `rx_audio_adapter` does not own UTC; `Ft8Engine` never reads a clock.
+Production `app_controller` obtains the initial MiniShell time reference. On ADV that UTC may be maintained from GPS/RTC beneath MiniShell. `rx_audio_adapter` does not own UTC; `Ft8Engine` never reads a clock.
 
 For a 15-second FT8 slot at the engine boundary:
 
