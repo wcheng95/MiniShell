@@ -80,5 +80,3 @@ cmake --build build-unit-asan
 ASAN_OPTIONS=detect_leaks=1 \
   ctest --test-dir build-unit-asan --output-on-failure
 ```
-
-Historical Tab5 ELF/hardware validation material is preserved in `archive/tab5-legacy`, not in active `main`.
