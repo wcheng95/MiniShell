@@ -133,28 +133,28 @@ The dependency checker includes guards against reintroducing screen/model policy
 
 ## 5. C3 — COMPLETE — ADV runtime external applications
 
-Runtime external ELF loading is an active architecture target, not a future experiment.
+Runtime external ELF loading is an active architecture target and has now been hardware-validated by K1.
 
 ADV application resolution is fixed as:
 
 ```text
 1. compiled-in application
-2. /flash/<app>.elf
-3. /sd/<app>.elf
+2. /flash/apps/<app>.elf
+3. /sd/apps/<app>.elf
 ```
 
-The same external ELF must work unchanged from `/flash` or `/sd`. If both external copies exist, `/flash` wins.
+The same external ELF must work unchanged from `/flash/apps` or `/sd/apps`. If both external copies exist, the flash copy wins.
 
 For Keyer:
 
 ```text
-/flash/keyer.elf
-/sd/keyer.elf
+/flash/apps/keyer.elf
+/sd/apps/keyer.elf
 ```
 
 are both valid installations.
 
-`/sd/keyer.elf` is convenient for development/removable distribution; copying that exact binary to `/flash/keyer.elf` must work without rebuilding it.
+`/sd/apps/keyer.elf` is convenient for development/removable distribution; copying that exact binary to `/flash/apps/keyer.elf` must work without rebuilding it.
 
 Loader details remain resident/private to MiniShell and the ADV backend. External ELF work does not freeze a long-term cross-release binary ABI yet.
 
@@ -260,7 +260,7 @@ RX-7 production decoded UI              PASS
 Cardputer ADV ESP-IDF build             PASS
 ```
 
-C3-C4 are architecture/documentation changes and do not alter runtime behavior.
+C3-C4 established the architecture later validated by K1 and the configuration ownership rule used by Keyer.
 
 ## 8. Result
 
@@ -274,4 +274,4 @@ C3 runtime ELF direction       COMPLETE
 C4 configuration ownership     COMPLETE
 ```
 
-Next work may proceed into the Keyer plan, beginning with review/finalization of its remaining design questions and then the external-ELF/Digital-I/O implementation stages.
+Next work proceeds through the Keyer plan. K0 and K1 are complete; K2 MiniShell Digital I/O is next.
