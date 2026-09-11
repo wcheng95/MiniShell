@@ -75,7 +75,7 @@ mini_result_t result = api->digital_io->open(&config, &line);
 
 An application may not open the same line twice concurrently through the service. A duplicate open returns `MINI_ERR_EXISTS`.
 
-The backend may reject a line with `MINI_ERR_ACCESS` when the line is reserved by resident MiniShell/platform hardware or is unsuitable for the requested mode.
+The backend may reject a line with `MINI_ERR_ACCESS` when the line is not exposed for application use, is owned by resident MiniShell/platform hardware, or is unsuitable for the requested mode.
 
 ## Read
 
@@ -115,13 +115,13 @@ api->digital_io->close(line);
 
 Handles are opaque. Using a closed or invalid handle returns `MINI_ERR_BAD_HANDLE`.
 
-Digital I/O handles are foreground-application resources. MiniShell automatically closes any lines still open when the application exits, including abnormal/application-forgotten cleanup paths that still return through MiniShell lifecycle handling.
+Digital I/O handles are foreground-application resources. MiniShell automatically closes any lines still open when the application exits, including application-forgotten cleanup paths that still return through MiniShell lifecycle handling.
 
 This cleanup rule is important for hardware safety and resource ownership, but applications should still explicitly close lines when normal control flow no longer needs them.
 
 ## Ownership
 
-The service owns public-handle lifetime and exclusivity. The platform backend owns physical-line realization and platform reservations.
+The service owns public-handle lifetime and exclusivity. The platform backend owns physical-line realization and determines which physical lines are application-accessible.
 
 Application-domain interpretation remains above MiniShell:
 
@@ -166,11 +166,26 @@ This provider exists to validate portable application logic and MiniShell semant
 
 ## Cardputer ADV provider
 
-ADV maps numeric line IDs to ESP32-S3 GPIO numbers privately below MiniShell.
+ADV maps numeric line IDs to ESP32-S3 GPIO numbers privately below MiniShell, but it does **not** expose arbitrary ESP32-S3 GPIOs to applications.
 
-The provider supports all four V1 modes and rejects resident MiniShell-owned lines. The initial implementation reserves the shared keyboard/I2C and SD-card bus pins from application Digital I/O use.
+V1 uses an explicit allow-list of external application-facing lines:
 
-Actual application hardware assignments remain application configuration. Keyer therefore may use deployment-specific line numbers without adding Keyer concepts to MiniShell.
+```text
+G1
+G2
+G3
+G4
+G5
+G6
+G13
+G15
+```
+
+These are the non-shared signals available on the Cardputer ADV HY2.0-4P and EXT connectors. Shared I2C/keyboard and SD pins are not exposed through Digital I/O, and neither are built-in LCD, audio, IR, battery, or other internal lines.
+
+This allow-list is deliberate: resident MiniShell hardware ownership must not be defeatable by an external application guessing a GPIO number.
+
+The planned first Keyer assignments G13/G15 for inputs and G3/G6 for KeyOut all remain within the allowed set. Their Keyer meaning remains application configuration rather than MiniShell policy.
 
 ## K2 verification
 
@@ -189,3 +204,5 @@ automatic app-exit cleanup
 ```
 
 The cleanup check deliberately leaves one line open, exits the probe, then runs the probe again. The second run must successfully reopen the same line.
+
+ADV CI verifies that the same public service and the ESP32-S3 GPIO provider compile into the maintained Cardputer ADV firmware. Actual paddle and radio-keying electrical validation belongs to Keyer K4, where real application-owned GPIO assignments are exercised.
