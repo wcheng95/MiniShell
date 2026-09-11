@@ -21,7 +21,7 @@ def main() -> int:
 
         process = subprocess.run(
             [minishell],
-            input="run service_probe\nexit\n",
+            input="run service_probe\nrun service_probe\nexit\n",
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -34,7 +34,7 @@ def main() -> int:
         if process.returncode != 0:
             print(output, end="")
             return 1
-        if "service_probe: PASS" not in output:
+        if output.count("service_probe: PASS") != 2:
             print(output, end="")
             return 1
         if "service_probe: FAIL" in output:
