@@ -90,6 +90,14 @@ static mini_result_t parse_key_out(const char *value, keyer_key_out_mode_t *out)
     return MINI_OK;
 }
 
+static mini_result_t parse_sidetone_enabled(const char *value, bool *out)
+{
+    if (text_equal_ci(value, "On")) *out = true;
+    else if (text_equal_ci(value, "Off")) *out = false;
+    else return MINI_ERR_INVALID;
+    return MINI_OK;
+}
+
 static mini_result_t parse_line(char *line, keyer_config_t *config)
 {
     char *equals;
@@ -117,6 +125,15 @@ static mini_result_t parse_line(char *line, keyer_config_t *config)
         config->wpm = (uint8_t)number;
         return MINI_OK;
     }
+    if (text_equal_ci(key, "sidetone")) {
+        return parse_sidetone_enabled(value, &config->sidetone_enabled);
+    }
+    if (text_equal_ci(key, "sidetone_hz")) {
+        if (!parse_u32(value, &number) || number < KEYER_SIDETONE_MIN_HZ ||
+            number > KEYER_SIDETONE_MAX_HZ) return MINI_ERR_INVALID;
+        config->sidetone_hz = (uint16_t)number;
+        return MINI_OK;
+    }
     if (text_equal_ci(key, "key_in")) return parse_key_in(value, &config->key_in_mode);
     if (text_equal_ci(key, "paddle")) return parse_paddle(value, &config->paddle_mode);
     if (text_equal_ci(key, "key_out")) return parse_key_out(value, &config->key_out_mode);
@@ -142,7 +159,7 @@ static mini_result_t parse_line(char *line, keyer_config_t *config)
         return MINI_OK;
     }
 
-    /* Forward-compatible: unknown settings are ignored by this K4 parser. */
+    /* Forward-compatible: unknown settings are ignored by this parser. */
     return MINI_OK;
 }
 
@@ -172,6 +189,8 @@ void config_service_defaults(keyer_config_t *config)
     if (config == NULL) return;
 
     config->wpm = 20u;
+    config->sidetone_enabled = true;
+    config->sidetone_hz = KEYER_SIDETONE_DEFAULT_HZ;
     config->paddle_mode = KEYER_ENGINE_PADDLE_IAMBIC_A;
     config->key_in_mode = KEYER_KEY_IN_PADDLE;
     config->key_out_mode = KEYER_KEY_OUT_SK;
