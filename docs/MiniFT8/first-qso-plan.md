@@ -23,26 +23,29 @@ QMX USB UAC
     -> Linux Audio provider
     -> MiniShell Audio API
     -> rx_audio_adapter
-    -> RxFrontend
-    -> RxSlotFramer
-    -> Ft8Engine
-    -> RxResultBuilder
-    -> app_controller
-    -> AutoSeq / UI
+    -> app_controller-coordinated RX stages
+       -> RxFrontend
+       -> RxSlotFramer
+       -> controller callback -> Ft8Engine -> RxResultBuilder
+       -> AutoSeq / UI
 
 TX
 app_controller
-    -> TxLifecycle
-    -> radio_service
-    -> QMX CAT adapter
-    -> MiniShell serial byte-stream API
-    -> Linux tty/CDC provider
-    -> QMX
+    +-> TxLifecycle        (slot/parity eligibility only)
+    `-> radio_service      (radio execution only)
+            -> QMX CAT adapter
+            -> MiniShell serial byte-stream API
+            -> Linux tty/CDC provider
+            -> QMX
 ```
+
+`TxLifecycle` and `radio_service` are siblings coordinated by `app_controller`; `TxLifecycle` never calls radio execution directly.
 
 MiniFT8 application code must remain platform-independent. Linux device APIs, ALSA/USB details, tty details, and later ADV USB-host details stay below MiniShell providers.
 
 `app_controller` remains the sole production coordinator. `auto_seq`, `tx_lifecycle`, `rx_audio_adapter`, and the QMX adapter must not develop side channels to each other.
+
+The normative ownership/call graph is frozen in `fq-0-boundary.md`.
 
 ## In scope
 
@@ -71,7 +74,9 @@ ADIF is intentionally deferred. The RxTxLog is expected to retain enough factual
 
 # FQ-0 — Freeze the boundary
 
-Before implementation, preserve these ownership rules:
+Normative details: `fq-0-boundary.md`.
+
+Preserve these ownership rules:
 
 ```text
 MiniShell Time/Location
@@ -106,6 +111,8 @@ app_controller
 ```
 
 MiniShell serial transport must not know QMX CAT commands. The QMX adapter must not know Linux tty APIs.
+
+`TxLifecycle`, `AutoSeq`, and `radio_service` are peer modules under `app_controller`; they must not call each other directly.
 
 # FQ-1 — Real FT8 timing
 
@@ -432,12 +439,13 @@ Replace AS-7's simulated TX completion with real execution while preserving exis
 At an eligible real UTC slot boundary:
 
 ```text
-TxLifecycle boundary
-    -> app_controller snapshots AutoSeqTxIntent
-    -> radio_service prepares QMX
-    -> QMX TX starts
-    -> CAT tone sequence executes
-    -> QMX returns to RX
+app_controller
+    +-> TxLifecycle validates the boundary
+    +-> snapshots AutoSeqTxIntent
+    `-> radio_service prepares/executes QMX
+            -> QMX TX starts
+            -> CAT tone sequence executes
+            -> QMX returns to RX
     -> TX completion advances AutoSeq
 ```
 
