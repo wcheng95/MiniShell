@@ -4,18 +4,25 @@
 
 #include "driver/gpio.h"
 
-static bool line_reserved(uint32_t line_id)
+static bool line_available_to_apps(uint32_t line_id)
 {
-    /* Resident MiniShell-owned lines currently known on Cardputer ADV. Keep
-     * application Digital I/O away from shared I2C and SD buses. Additional
-     * resident owners may extend this deny-list as they are introduced. */
+    /* Cardputer ADV Digital I/O is deliberately restricted to GPIOs exposed
+     * as application-facing connector signals that are not already owned by
+     * resident MiniShell peripherals. Shared I2C/SD pins and all built-in
+     * LCD/audio/keyboard/IR/battery pins are excluded by construction.
+     *
+     * HY2.0-4P: G1, G2
+     * EXT 2.54-14P application signals: G3, G4, G5, G6, G13, G15
+     */
     switch (line_id) {
-    case 8u:  /* I2C SDA: keyboard/shared bus */
-    case 9u:  /* I2C SCL: keyboard/shared bus */
-    case 12u: /* SD CS */
-    case 14u: /* SD MOSI */
-    case 39u: /* SD MISO */
-    case 40u: /* SD SCK */
+    case 1u:
+    case 2u:
+    case 3u:
+    case 4u:
+    case 5u:
+    case 6u:
+    case 13u:
+    case 15u:
         return true;
     default:
         return false;
@@ -27,6 +34,7 @@ static gpio_num_t handle_gpio(minishell_backend_digital_t line)
     if (line == MINISHELL_BACKEND_DIGITAL_INVALID) return GPIO_NUM_NC;
     uintptr_t raw = line - 1u;
     if (raw > (uintptr_t)GPIO_NUM_MAX) return GPIO_NUM_NC;
+    if (!line_available_to_apps((uint32_t)raw)) return GPIO_NUM_NC;
     return (gpio_num_t)raw;
 }
 
@@ -39,7 +47,7 @@ static mini_result_t digital_open(void *ctx, uint32_t line_id, uint32_t mode,
         return MINI_ERR_INVALID;
     }
     *out_line = MINISHELL_BACKEND_DIGITAL_INVALID;
-    if (line_reserved(line_id)) return MINI_ERR_ACCESS;
+    if (!line_available_to_apps(line_id)) return MINI_ERR_ACCESS;
 
     gpio_num_t gpio = (gpio_num_t)line_id;
     if (!GPIO_IS_VALID_GPIO(gpio)) return MINI_ERR_INVALID;
