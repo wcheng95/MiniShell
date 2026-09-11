@@ -1,6 +1,6 @@
 # MiniShell Time/Location API
 
-Status: **implemented and exercised on the Linux reference backend.**
+Status: **implemented on Linux and Cardputer ADV.**
 
 ## Purpose
 
@@ -96,6 +96,23 @@ At MiniShell startup, Linux system UTC is assumed correct and is used to establi
 
 `date`/`utc_set()` may re-anchor MiniShell UTC for the current process when a few seconds of correction are needed. This does **not** change Linux system time and does **not** persist an offset. Restarting MiniShell reads Linux UTC again.
 
+### Cardputer ADV behavior
+
+Cardputer ADV uses the backend-owned HYM8563-compatible RTC at I2C address `0x51` when present. The shared ADV I2C bus currently defaults to:
+
+```text
+SDA  GPIO8
+SCL  GPIO9
+```
+
+The pin pair is owned by `adv_i2c`, not by the RTC driver, because the RTC and other ADV I2C devices share one bus. `adv_i2c_configure_pins()` provides the configuration seam; the current platform bring-up uses the G8/G9 defaults.
+
+At startup, a valid RTC establishes the UTC anchor. `date`/`utc_set()` writes the RTC and then re-anchors the in-memory MiniShell clock. The RTC is second-resolution, so persisted fractional nanoseconds are not retained across reboot.
+
+The RTC backend intentionally supports calendar years 2000 through 2099. If the RTC is detected but reports invalid/voltage-low clock state, UTC remains not-ready until corrected with `date`. If no RTC is detected, the existing deterministic ADV development fallback remains available and `date` correction is session-only.
+
+RTC ownership is independent of `/flash`; loss of the internal filesystem does not disable UTC. Persistent default location still depends on `/flash`.
+
 ### Embedded behavior
 
 A backend that owns a writable RTC may use the same `utc_set()` request to update its persistent RTC as part of its normal policy.
@@ -189,13 +206,16 @@ Apps request state/changes through this service instead of touching a platform c
 
 ## Current verification
 
-Linux integration tests cover:
+Host service tests cover:
 
 - monotonic advancement and sleep;
 - UTC availability;
-- session-only UTC correction and progression;
+- UTC correction, persistence-provider calls, and progression;
+- persistence-write failure behavior;
 - default-location set/get/clear persistence behavior;
 - public service discovery.
+
+ADV firmware CI builds the platform RTC integration together with the shared I2C owner. Hardware verification should confirm RTC bootstrap, persistent `date` update, and reboot retention on the actual Cardputer/RTC module.
 
 `date` is a portable application using the same UTC operations.
 
