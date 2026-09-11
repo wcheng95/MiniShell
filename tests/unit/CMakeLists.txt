@@ -44,9 +44,22 @@ target_include_directories(minishell_unit_tests PRIVATE
 
 target_compile_options(minishell_unit_tests PRIVATE -Wall -Wextra -Werror)
 
+add_executable(keyer_engine_k3_unit
+    ../keyer_engine_k3_test.c
+    ../../apps/keyer/src/keyer_engine/keyer_engine.c
+    ../../apps/keyer/src/keyer_engine/keyer_decoder.c
+)
+target_include_directories(keyer_engine_k3_unit PRIVATE
+    ../../apps/keyer/src/keyer_engine
+)
+target_compile_options(keyer_engine_k3_unit PRIVATE
+    -Wall -Wextra -Werror -Wpedantic
+)
+
 enable_testing()
 foreach(group system console memory filesystem time_location display input audio)
     add_test(NAME api_${group}_unit COMMAND minishell_unit_tests ${group})
 endforeach()
 add_test(NAME nano_editor_unit COMMAND minishell_unit_tests nano_buffer)
 add_test(NAME cp_copy_unit COMMAND minishell_unit_tests cp_copy)
+add_test(NAME keyer_engine_k3_unit COMMAND keyer_engine_k3_unit)
