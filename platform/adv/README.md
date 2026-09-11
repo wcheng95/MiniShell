@@ -2,28 +2,28 @@
 
 This directory is the ESP-IDF firmware composition for the Cardputer ADV backend.
 
-## Current stage: stable static baseline; runtime ELF next
+## Current stage: runtime ELF proven; Keyer next
 
-A1 proved the portable MiniShell runtime on real Cardputer ADV hardware. A2 added the real Cardputer display/keyboard plus System and Memory providers. A3 added Filesystem and Time/Location. P2 packaged the real MiniFT8 `ft8` application into the ADV static registry using the same MiniFT8 sources as Linux. That static path remains the validated baseline.
+A1 proved the portable MiniShell runtime on real Cardputer ADV hardware. A2 added the real Cardputer display/keyboard plus System and Memory providers. A3 added Filesystem and Time/Location. P2 packaged the real MiniFT8 `ft8` application into the ADV static registry using the same MiniFT8 sources as Linux. K1 then hardware-validated runtime external ELF discovery, load, MiniShell API use, return, unload, repeated execution, and flash-over-SD precedence.
 
-The active post-V1 direction is runtime external application loading. The established ADV application resolution order is:
+The established ADV application resolution order is:
 
 ```text
 1. compiled-in application
-2. /flash/<app>.elf
-3. /sd/<app>.elf
+2. /flash/apps/<app>.elf
+3. /sd/apps/<app>.elf
 ```
 
-The first field-usable external target is `keyer.elf`, valid in either external location:
+The first field-usable external target is `keyer.elf`, valid in either external application directory:
 
 ```text
-/flash/keyer.elf
-/sd/keyer.elf
+/flash/apps/keyer.elf
+/sd/apps/keyer.elf
 ```
 
-The same binary must run unchanged from either location. If both external copies exist, `/flash/keyer.elf` wins. `/sd/keyer.elf` remains convenient for development/removable distribution and can later be copied to `/flash/keyer.elf`.
+The same binary must run unchanged from either location. If both external copies exist, `/flash/apps/keyer.elf` wins. `/sd/apps/keyer.elf` remains convenient for development/removable distribution and can later be copied to `/flash/apps/keyer.elf`.
 
-The ELF loader is a private MiniShell/ADV runtime mechanism. Portable Keyer code must use only the public MiniShell API; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or loader interfaces. Static applications remain available during loader bring-up and transition/testing and retain first resolution priority.
+The ELF loader is a private MiniShell/ADV runtime mechanism. Portable Keyer code must use only the public MiniShell API; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or loader interfaces. Static applications remain available and retain first resolution priority.
 
 The current ADV storage baseline uses FATFS for both internal `/flash` and optional `/sd`. The `usbmsc` utility adds ADV-only USB Mass Storage handoff so either or both FAT media can be exposed temporarily to a host PC without violating filesystem ownership.
 
@@ -51,8 +51,8 @@ minishell_run()
       |      ft8 -> same MiniFT8 sources, ADV presentation default
       |
       `-- external ELF fallback
-             /flash/<app>.elf
-             /sd/<app>.elf
+             /flash/apps/<app>.elf
+             /sd/apps/<app>.elf
              first field target: keyer.elf
 ```
 
@@ -82,9 +82,9 @@ usbmsc
 
 The filesystem utilities and `nano` are the existing portable MiniShell applications; ADV only supplies composition wrappers and the platform services they consume. `usbmsc` is different: it is intentionally platform-specific because it temporarily transfers raw storage ownership and the ESP32-S3 USB device peripheral.
 
-MiniFT8 remains deliberately compiled into the firmware for the current baseline. New external-app work starts with `keyer.elf`; converting existing static apps to ELF is not required before the loader and Keyer path are proven.
+MiniFT8 remains deliberately compiled into the firmware for the current baseline. External-app work now proceeds with `keyer.elf`; converting existing static apps to ELF is not required.
 
-Because compiled-in applications have first priority, the initial ELF loader proof should use a non-colliding name such as `elfhello` rather than `hello`. That ensures a successful launch actually exercises the ELF path.
+Because compiled-in applications have first priority, ELF loader tests use a non-colliding name such as `elfhello` rather than `hello`. That ensures a successful launch actually exercises the ELF path.
 
 `df` remains out of the ADV registry for now because the current public `Filesystem.space()` implementation is quota-based and ADV intentionally has no global storage quota across `/flash` and `/sd`. Proper per-volume capacity reporting should be defined separately rather than reporting misleading numbers.
 
@@ -197,6 +197,15 @@ Canonical ADV storage policy:
 /sd       FATFS on removable MicroSD, optional
 NVS       not used
 ```
+
+External application binaries are discovered only under:
+
+```text
+/flash/apps
+/sd/apps
+```
+
+The volume roots remain ordinary filesystem namespaces; a root-level `/flash/foo.elf` or `/sd/foo.elf` is not an installed application.
 
 The internal FATFS volume uses the existing `flash` data partition and mounts at `/flash`. The MiniShell-visible path and 2 MiB partition size are unchanged.
 
@@ -328,7 +337,7 @@ The resident MiniShell runtime/shell uses an 8 KiB ESP-IDF main-task stack with 
 
 ADV CI reports the ESP-IDF size summary and allocated ELF sections on every firmware build so static `.data`/`.bss` growth remains visible. Hardware free-heap measurements remain the authority for boot-time allocations made by mounted filesystems, drivers, and tasks.
 
-The ADV config guard also enforces the ESP32-S3 target and the RAM-efficient FATFS shared-cache configuration.
+The ADV config guard also enforces the ESP32-S3 target, executable-SRAM requirement for runtime ELF, and the RAM-efficient FATFS shared-cache configuration.
 
 ### ADV RAM squeeze phases
 
@@ -386,10 +395,10 @@ Software checks:
 
 ```text
 Linux build/tests                         PASS required
-ADV static registry baseline              PASS required
+ADV static/external registry tests        PASS required
 ESP-IDF firmware build                    PASS required
+K1 runtime elfhello build                 PASS required
 FT8 Reference                             gated by FT8-sensitive changes
-future ADV ELF loader tests               required when implementation begins
 ```
 
 Real ADV baseline validated:
@@ -405,6 +414,9 @@ usbmsc sd                    PASS
 usbmsc flash                 PASS
 usbmsc all                   PASS
 filesystem remount           PASS
+runtime ELF load/run/unload  PASS
+repeated ELF execution       PASS
+flash-over-SD precedence     PASS
 ```
 
-The next ADV runtime milestone is external application discovery/load/run/return/unload using a non-colliding probe such as `elfhello.elf`. It must prove the established resolution policy, including identical external ELF execution from `/flash` and `/sd` with `/flash` taking priority. The field-usable target immediately after loader proof is `keyer.elf`, valid from either external location.
+K1 is complete. External applications are discovered only under `/flash/apps` and `/sd/apps`; the next Keyer stage is K2 MiniShell Digital I/O, followed by the field-usable `keyer.elf` target.
