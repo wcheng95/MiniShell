@@ -106,24 +106,24 @@ Physical packaging/loading is backend-private:
 ```text
 Linux/Mint          runtime .so + dlopen/dlsym/dlclose
 Cardputer ADV V1    compiled-in registry baseline
-Cardputer ADV next  runtime external .elf
+Cardputer ADV       runtime external .elf supported
 ```
 
 ADV application resolution is:
 
 ```text
 1. compiled-in application
-2. /flash/<app>.elf
-3. /sd/<app>.elf
+2. /flash/apps/<app>.elf
+3. /sd/apps/<app>.elf
 ```
 
-The same external ELF must work unchanged from `/flash` or `/sd`; `/flash` wins when both external copies exist.
+The same external ELF must work unchanged from `/flash/apps` or `/sd/apps`; the flash copy wins when both external copies exist.
 
 The first planned field-usable external ADV application is Keyer:
 
 ```text
-/flash/keyer.elf
-/sd/keyer.elf
+/flash/apps/keyer.elf
+/sd/apps/keyer.elf
 ```
 
 The user model remains `apps`, `run <app>`, direct `<app>`, application return, then `M$>`.
@@ -192,6 +192,13 @@ Applications see one logical storage namespace:
 ```text
 /flash
 /sd
+```
+
+External ADV application binaries live under:
+
+```text
+/flash/apps/
+/sd/apps/
 ```
 
 Configuration ownership is:
@@ -280,7 +287,7 @@ See `docs/MiniFT8/README.md` and `docs/project/architecture-cleanup.md`.
 
 ## Keyer direction
 
-Keyer is the next application and the first practical ADV runtime-ELF milestone. Its plan covers:
+Keyer is the next application. K1 has already hardware-validated ADV runtime ELF loading; the next stage is generic MiniShell Digital I/O. The Keyer plan covers:
 
 ```text
 runtime ELF loading
