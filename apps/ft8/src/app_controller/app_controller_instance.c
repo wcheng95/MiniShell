@@ -1,3 +1,4 @@
+#define FT8_APP_CONTROLLER_INTERNAL 1
 #include "app_controller_internal.h"
 
 #include <limits.h>
