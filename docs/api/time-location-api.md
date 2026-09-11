@@ -98,7 +98,7 @@ At MiniShell startup, Linux system UTC is assumed correct and is used to establi
 
 ### Cardputer ADV behavior
 
-Cardputer ADV uses the backend-owned HYM8563-compatible RTC at I2C address `0x51` when present. The shared ADV I2C bus currently defaults to:
+Cardputer ADV uses the backend-owned DS3231 RTC at I2C address `0x68` when present. The shared ADV I2C bus currently defaults to:
 
 ```text
 SDA  GPIO8
@@ -109,7 +109,7 @@ The pin pair is owned by `adv_i2c`, not by the RTC driver, because the RTC and o
 
 At startup, a valid RTC establishes the UTC anchor. `date`/`utc_set()` writes the RTC and then re-anchors the in-memory MiniShell clock. The RTC is second-resolution, so persisted fractional nanoseconds are not retained across reboot.
 
-The RTC backend intentionally supports calendar years 2000 through 2099. If the RTC is detected but reports invalid/voltage-low clock state, UTC remains not-ready until corrected with `date`. If no RTC is detected, the existing deterministic ADV development fallback remains available and `date` correction is session-only.
+The current MiniShell DS3231 backend accepts calendar years 2000 through 2099. If the RTC is detected but its oscillator-stop flag indicates invalid timekeeping state, UTC remains not-ready until corrected with `date`. If no RTC is detected, the existing deterministic ADV development fallback remains available and `date` correction is session-only.
 
 RTC ownership is independent of `/flash`; loss of the internal filesystem does not disable UTC. Persistent default location still depends on `/flash`.
 
