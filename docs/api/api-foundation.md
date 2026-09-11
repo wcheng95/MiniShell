@@ -15,10 +15,12 @@ Therefore:
 - backward binary compatibility is **not** currently guaranteed;
 - applications built from the MiniShell tree are expected to be rebuilt against the matching API when the API changes;
 - Linux `.so` packaging does not, by itself, imply a stable MiniShell binary ABI;
-- Cardputer ADV V1 may compile MiniShell and applications together statically;
+- Cardputer ADV supports both compiled-in applications and runtime-loaded external `.elf` applications;
 - a formal MiniShell ABI may be introduced later if independently built `.so` or `.elf` applications need to remain compatible across MiniShell releases.
 
 Compatibility should be frozen deliberately, not accidentally.
+
+The current public header defines API generation **v3**. K2 introduced Digital I/O and intentionally advanced the generation from v2 to v3. Existing external ELF applications built against v2 must therefore be rebuilt before use with a v3 MiniShell firmware.
 
 ## Public dependency direction
 
@@ -43,6 +45,7 @@ Time/Location   monotonic time, UTC, location
 Display         application-owned presentation surface
 Input           normalized logical input events
 Audio           independent RX/TX streams
+Digital I/O     generic discrete-line open/read/write/close
 ```
 
 Output ownership is intentionally explicit:
@@ -55,7 +58,7 @@ System.write()    diagnostics, probes, debugging
 
 This distinction is materially important on embedded backends. For example, on Cardputer ADV, Console joins the resident 20x7 shell surface while System remains on the USB/debug sink; a diagnostic message therefore cannot overwrite an application's Display UI.
 
-See `docs/api/console-api.md` for the Console contract.
+See `docs/api/console-api.md` for the Console contract and `docs/api/digital-io-api.md` for the Digital I/O contract.
 
 ## API design rules
 
