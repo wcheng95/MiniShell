@@ -55,6 +55,7 @@ typedef struct {
                           int soft_resample,
                           unsigned int latency);
     int (*pcm_prepare)(snd_pcm_t *pcm);
+    int (*pcm_start)(snd_pcm_t *pcm);
     int (*pcm_wait)(snd_pcm_t *pcm, int timeout);
     snd_pcm_sframes_t (*pcm_readi)(snd_pcm_t *pcm, void *buffer,
                                    snd_pcm_uframes_t size);
@@ -245,6 +246,7 @@ static bool alsa_load(void)
     LOAD_ALSA(pcm_close);
     LOAD_ALSA(pcm_set_params);
     LOAD_ALSA(pcm_prepare);
+    LOAD_ALSA(pcm_start);
     LOAD_ALSA(pcm_wait);
     LOAD_ALSA(pcm_readi);
     LOAD_ALSA(pcm_recover);
@@ -347,6 +349,7 @@ static mini_result_t audio_rx_start(void *ctx, minishell_backend_audio_t audio)
 #ifdef MINISHELL_LINUX_HAVE_ALSA
     if (valid_alsa_handle(audio)) {
         if (s_alsa.pcm_prepare(s_alsa.pcm) < 0) return MINI_ERR_IO;
+        if (s_alsa.pcm_start(s_alsa.pcm) < 0) return MINI_ERR_IO;
         s_alsa.started = true;
         s_alsa.decimation_phase = 0u;
         return MINI_OK;
