@@ -98,15 +98,24 @@ Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id)
         return FT8_ENGINE_ERR_INVALID;
     if (!engine->initialized)
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
-    if (engine->window_active)
+
+    /* MiniFT8-V2 decodes at 12.64 s, resets only the waterfall, and then
+     * continues feeding the tail of that same 15-second slot. Therefore an
+     * engine may still be active when the next slot begins. That transition is
+     * valid only after the previous slot has already been decoded. */
+    if (engine->window_active &&
+        (!engine->has_completed_window || slot_id == engine->slot_id)) {
         return FT8_ENGINE_ERR_STATE;
+    }
 
     if (engine->has_completed_window)
         ft8_hash_store_age_slot(&engine->hash_store);
 
+    /* Like V2 monitor_reset(): clear waterfall state but preserve FFT history. */
     ft8_monitor_begin_window(&engine->monitor);
     engine->slot_id = slot_id;
     engine->window_active = 1;
+    engine->has_completed_window = 0;
     return FT8_ENGINE_OK;
 }
 
@@ -119,6 +128,7 @@ Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine)
 
     ft8_monitor_reset_stream(&engine->monitor);
     engine->window_active = 0;
+    engine->has_completed_window = 0;
     return FT8_ENGINE_OK;
 }
 
@@ -263,7 +273,7 @@ Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
         return FT8_ENGINE_ERR_INVALID;
     if (!engine->initialized)
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
-    if (!engine->window_active)
+    if (!engine->window_active || engine->has_completed_window)
         return FT8_ENGINE_ERR_STATE;
 
     ft8_protocol_slot_init(out_slot,
@@ -313,7 +323,10 @@ Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
         }
     }
 
-    engine->window_active = 0;
+    /* Match MiniFT8-V2 monitor_reset(): decoding consumes the current
+     * waterfall, then the waterfall starts over immediately while FFT history
+     * remains intact. Tail audio from 12.64 s to 15.0 s is still processed. */
+    ft8_monitor_begin_window(&engine->monitor);
     engine->has_completed_window = 1;
 
     if (out_slot->message_count == 0u)
