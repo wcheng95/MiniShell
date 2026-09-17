@@ -14,6 +14,10 @@ extern "C" {
     (RX_SLOT_FRAMER_SAMPLE_RATE_HZ * RX_SLOT_FRAMER_SLOT_SECONDS)
 #define RX_SLOT_FRAMER_BLOCK_SAMPLES 960u
 
+/* MiniFT8-V2 live RX decodes after all 79 FT8 symbols have arrived:
+ * 79 * 960 samples / 6000 Hz = 12.64 seconds. */
+#define RX_SLOT_FRAMER_DECODE_BLOCKS 79u
+
 typedef enum {
     RX_SLOT_FRAMER_OK = 0,
     RX_SLOT_FRAMER_ERR_INVALID = -1,
@@ -26,6 +30,8 @@ typedef enum {
 typedef enum {
     RX_SLOT_FRAMER_EVENT_BEGIN_WINDOW = 0,
     RX_SLOT_FRAMER_EVENT_ENGINE_BLOCK = 1,
+    /* Historical name: for live FT8 this is the V2-compatible decode-ready
+     * event emitted immediately after block 79, not at the 15 s boundary. */
     RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW = 2,
     RX_SLOT_FRAMER_EVENT_STREAM_RESET = 3
 } RxSlotFramerEventType;
@@ -54,6 +60,8 @@ typedef struct {
     int waiting_for_full_boundary;
     int window_active;
 
+    uint32_t slot_block_count;
+    int decode_emitted;
     size_t block_fill;
     float block[RX_SLOT_FRAMER_BLOCK_SAMPLES];
 } RxSlotFramer;
@@ -75,8 +83,10 @@ void rx_slot_framer_destroy(RxSlotFramer *framer);
 /*
  * Consume a continuous 6 kHz mono-float stream. Input chunk boundaries have no
  * framing meaning. The framer emits complete 960-sample engine blocks only.
- * The 720-sample remainder at a 15-second slot boundary is discarded rather
- * than carried into the next slot.
+ * A V2-compatible FINALIZE_WINDOW/decode-ready event follows block 79
+ * (12.64 s). Audio continues through the rest of the 15-second slot. The
+ * 720-sample remainder at the slot boundary is discarded rather than carried
+ * into the next slot.
  */
 RxSlotFramerStatus rx_slot_framer_process(RxSlotFramer *framer,
                                           const float *samples,
