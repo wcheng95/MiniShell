@@ -68,7 +68,11 @@ Ft8EngineStatus ft8_engine_init(Ft8Engine *engine,
                                 size_t workspace_bytes);
 void ft8_engine_destroy(Ft8Engine *engine);
 
-/* Begin one complete FT8 decode window. slot_id is ordinary caller-owned identity. */
+/*
+ * Begin a UTC FT8 slot. After a V2-compatible early decode, the previous slot
+ * may still be active while its 12.64..15.00 s tail is consumed; beginning the
+ * next slot resets only waterfall state and preserves FFT sample history.
+ */
 Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id);
 
 /* Reset sample/DSP continuity without discarding persistent protocol knowledge. */
@@ -80,8 +84,11 @@ Ft8EngineStatus ft8_engine_process_block(
     const float samples[FT8_ENGINE_BLOCK_SIZE]);
 
 /*
- * Decode the current completed window into caller-supplied protocol-message
- * storage. Valid payloads are deduplicated by exact 10-byte payload identity.
+ * Decode the current waterfall into caller-supplied protocol-message storage.
+ * MiniFT8-V2 live RX calls this after 79 FT8 symbol blocks (12.64 s), not at
+ * the 15-second slot boundary. On return the waterfall is reset but FFT sample
+ * history and the active stream are preserved so tail audio can still be
+ * processed. Valid payloads are deduplicated by exact 10-byte payload identity.
  * A successful no-decode window returns FT8_ENGINE_NO_MESSAGES.
  */
 Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
