@@ -180,11 +180,13 @@ static bool write_v2_adif_log(AppController *app, const AutoSeqLogEvent *event)
     char path[256];
     char date[9];
     char time_on[7];
-    char rst_sent[16];
-    char rst_rcvd[16];
+    char rst_sent_buf[32] = "";
+    char rst_rcvd_buf[32] = "";
+    char my_grid4[5] = "";
     char line[512];
     const char *freq;
     const char *mode = "FT8";
+    size_t my_grid_len;
     int n;
 
     if (app == NULL || event == NULL || event->adif_eligible == 0u ||
@@ -206,26 +208,39 @@ static bool write_v2_adif_log(AppController *app, const AutoSeqLogEvent *event)
         return false;
     }
 
-    n = snprintf(rst_sent, sizeof(rst_sent), "%d", (int)event->snr_tx);
-    if (n < 0 || (size_t)n >= sizeof(rst_sent)) return false;
-    n = snprintf(rst_rcvd, sizeof(rst_rcvd), "%d", (int)event->snr_rx);
-    if (n < 0 || (size_t)n >= sizeof(rst_rcvd)) return false;
+    /* V2 omits unknown -99 reports instead of writing an ADIF -99 value. */
+    if (event->snr_tx != AUTO_SEQ_SNR_UNKNOWN) {
+        n = snprintf(rst_sent_buf, sizeof(rst_sent_buf), "<rst_sent:%d>%d ",
+                     snprintf(NULL, 0, "%d", (int)event->snr_tx),
+                     (int)event->snr_tx);
+        if (n < 0 || (size_t)n >= sizeof(rst_sent_buf)) return false;
+    }
+    if (event->snr_rx != AUTO_SEQ_SNR_UNKNOWN) {
+        n = snprintf(rst_rcvd_buf, sizeof(rst_rcvd_buf), "<rst_rcvd:%d>%d ",
+                     snprintf(NULL, 0, "%d", (int)event->snr_rx),
+                     (int)event->snr_rx);
+        if (n < 0 || (size_t)n >= sizeof(rst_rcvd_buf)) return false;
+    }
+
+    my_grid_len = strlen(app->config.grid);
+    if (my_grid_len > 4u) my_grid_len = 4u;
+    memcpy(my_grid4, app->config.grid, my_grid_len);
+    my_grid4[my_grid_len] = '\0';
 
     freq = band_frequency_mhz(app->config.band_index);
     n = snprintf(line, sizeof(line),
                  "<call:%zu>%s <gridsquare:%zu>%s <mode:%zu>%s"
                  "<qso_date:8>%s <time_on:6>%s <freq:%zu>%s "
                  "<station_callsign:%zu>%s <my_gridsquare:%zu>%s "
-                 "<rst_sent:%zu>%s <rst_rcvd:%zu>%s <comment:0> <eor>\n",
+                 "%s%s<comment:0> <eor>\n",
                  strlen(event->dxcall), event->dxcall,
                  strlen(event->dxgrid), event->dxgrid,
                  strlen(mode), mode,
                  date, time_on,
                  strlen(freq), freq,
                  strlen(app->config.callsign), app->config.callsign,
-                 strlen(app->config.grid), app->config.grid,
-                 strlen(rst_sent), rst_sent,
-                 strlen(rst_rcvd), rst_rcvd);
+                 my_grid_len, my_grid4,
+                 rst_sent_buf, rst_rcvd_buf);
     if (n < 0 || (size_t)n >= sizeof(line)) return false;
 
     return fs_append_line(app->api->fs, path, line);
