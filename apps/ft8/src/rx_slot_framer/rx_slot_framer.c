@@ -40,6 +40,8 @@ static RxSlotFramerStatus advance_slot(RxSlotFramer *framer)
 
     framer->slot_id++;
     framer->sample_offset = 0u;
+    framer->slot_block_count = 0u;
+    framer->decode_emitted = 0;
     return RX_SLOT_FRAMER_OK;
 }
 
@@ -146,20 +148,31 @@ RxSlotFramerStatus rx_slot_framer_process(RxSlotFramer *framer,
                     RX_SLOT_FRAMER_BLOCK_SAMPLES);
                 if (status != RX_SLOT_FRAMER_OK)
                     return status;
+
                 framer->block_fill = 0u;
+                ++framer->slot_block_count;
+
+                /* MiniFT8-V2 live RX decodes as soon as all 79 FT8 symbol
+                 * blocks are present (12.64 s), then resets only the
+                 * waterfall and keeps consuming the rest of the slot. */
+                if (!framer->decode_emitted &&
+                    framer->slot_block_count >= RX_SLOT_FRAMER_DECODE_BLOCKS) {
+                    status = emit_event(framer, emit, emit_ctx,
+                                        RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW,
+                                        framer->slot_id, NULL, 0u);
+                    if (status != RX_SLOT_FRAMER_OK)
+                        return status;
+                    framer->decode_emitted = 1;
+                }
             }
 
             if (framer->sample_offset == RX_SLOT_FRAMER_SLOT_SAMPLES) {
                 RxSlotFramerStatus status;
 
-                /* Never mix a partial engine block across FT8 slot boundaries. */
+                /* V2 keeps consuming audio after decode. Do the same here;
+                 * at the UTC boundary only discard the incomplete 720-sample
+                 * block and advance to the next slot. */
                 framer->block_fill = 0u;
-
-                status = emit_event(framer, emit, emit_ctx,
-                                    RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW,
-                                    framer->slot_id, NULL, 0u);
-                if (status != RX_SLOT_FRAMER_OK)
-                    return status;
                 framer->window_active = 0;
 
                 status = advance_slot(framer);
@@ -191,6 +204,8 @@ RxSlotFramerStatus rx_slot_framer_reset_stream(RxSlotFramer *framer,
     framer->sample_offset = sample_offset;
     framer->waiting_for_full_boundary = (sample_offset != 0u);
     framer->window_active = 0;
+    framer->slot_block_count = 0u;
+    framer->decode_emitted = 0;
     framer->block_fill = 0u;
 
     status = emit_event(framer, emit, emit_ctx,
