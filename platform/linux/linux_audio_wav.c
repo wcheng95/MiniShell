@@ -2,9 +2,23 @@
 #include <stdint.h>
 #include <string.h>
 
+#if defined(__has_include)
+#  if __has_include(<alsa/asoundlib.h>)
+#    define MINISHELL_LINUX_HAVE_ALSA 1
+#  endif
+#endif
+
+#ifdef MINISHELL_LINUX_HAVE_ALSA
+#include <dlfcn.h>
+#include <errno.h>
+#include <limits.h>
+#include <alsa/asoundlib.h>
+#endif
+
 #include "linux_audio_wav.h"
 
 #define WAV_AUDIO_HANDLE ((minishell_backend_audio_t)1u)
+#define ALSA_AUDIO_HANDLE ((minishell_backend_audio_t)2u)
 
 typedef struct {
     void *ctx;
@@ -22,6 +36,40 @@ typedef struct {
 } wav_state_t;
 
 static wav_state_t s_wav;
+
+#ifdef MINISHELL_LINUX_HAVE_ALSA
+typedef struct {
+    void *library;
+    snd_pcm_t *pcm;
+    bool started;
+    uint8_t decimation_phase;
+
+    int (*pcm_open)(snd_pcm_t **pcm, const char *name,
+                    snd_pcm_stream_t stream, int mode);
+    int (*pcm_close)(snd_pcm_t *pcm);
+    int (*pcm_set_params)(snd_pcm_t *pcm,
+                          snd_pcm_format_t format,
+                          snd_pcm_access_t access,
+                          unsigned int channels,
+                          unsigned int rate,
+                          int soft_resample,
+                          unsigned int latency);
+    int (*pcm_prepare)(snd_pcm_t *pcm);
+    int (*pcm_wait)(snd_pcm_t *pcm, int timeout);
+    snd_pcm_sframes_t (*pcm_readi)(snd_pcm_t *pcm, void *buffer,
+                                   snd_pcm_uframes_t size);
+    int (*pcm_recover)(snd_pcm_t *pcm, int err, int silent);
+    int (*pcm_drop)(snd_pcm_t *pcm);
+} alsa_state_t;
+
+static alsa_state_t s_alsa;
+
+#define ALSA_NATIVE_RATE 48000u
+#define ALSA_NATIVE_CHANNELS 2u
+#define ALSA_DECIMATION 4u
+#define ALSA_NATIVE_FRAME_BYTES 6u
+#define ALSA_NATIVE_CHUNK_FRAMES 256u
+#endif
 
 static uint16_t read_u16_le(const uint8_t *p)
 {
@@ -159,17 +207,113 @@ static mini_result_t parse_wav(minishell_backend_file_t file,
     return MINI_OK;
 }
 
-static bool valid_handle(minishell_backend_audio_t audio)
+static bool valid_wav_handle(minishell_backend_audio_t audio)
 {
     return audio == WAV_AUDIO_HANDLE && s_wav.file != MINISHELL_BACKEND_FILE_INVALID;
 }
 
-static mini_result_t wav_rx_open(void *ctx, const char *endpoint,
-                                 uint32_t sample_rate_hz, uint32_t sample_format,
-                                 uint32_t channels,
-                                 minishell_backend_audio_t *out_audio)
+#ifdef MINISHELL_LINUX_HAVE_ALSA
+static bool valid_alsa_handle(minishell_backend_audio_t audio)
+{
+    return audio == ALSA_AUDIO_HANDLE && s_alsa.pcm != NULL;
+}
+
+static bool is_alsa_endpoint(const char *endpoint)
+{
+    return endpoint != NULL && strncmp(endpoint, "alsa:", 5u) == 0 && endpoint[5] != '\0';
+}
+
+static bool alsa_load(void)
+{
+    if (s_alsa.library != NULL) return true;
+
+    void *library = dlopen("libasound.so.2", RTLD_NOW | RTLD_LOCAL);
+    if (library == NULL) return false;
+
+#define LOAD_ALSA(name)                                                        \
+    do {                                                                       \
+        *(void **)(&s_alsa.name) = dlsym(library, "snd_" #name);              \
+        if (s_alsa.name == NULL) {                                             \
+            dlclose(library);                                                  \
+            memset(&s_alsa, 0, sizeof(s_alsa));                               \
+            return false;                                                      \
+        }                                                                      \
+    } while (0)
+
+    LOAD_ALSA(pcm_open);
+    LOAD_ALSA(pcm_close);
+    LOAD_ALSA(pcm_set_params);
+    LOAD_ALSA(pcm_prepare);
+    LOAD_ALSA(pcm_wait);
+    LOAD_ALSA(pcm_readi);
+    LOAD_ALSA(pcm_recover);
+    LOAD_ALSA(pcm_drop);
+#undef LOAD_ALSA
+
+    s_alsa.library = library;
+    return true;
+}
+
+static int16_t s24_to_s16(const uint8_t *p)
+{
+    int32_t value = (int32_t)p[0] |
+                    ((int32_t)p[1] << 8) |
+                    ((int32_t)p[2] << 16);
+    if ((value & 0x00800000) != 0) value |= (int32_t)0xff000000;
+    return (int16_t)(value >> 8);
+}
+
+static mini_result_t alsa_rx_open(const char *endpoint,
+                                  uint32_t sample_rate_hz,
+                                  uint32_t sample_format,
+                                  uint32_t channels,
+                                  minishell_backend_audio_t *out_audio)
+{
+    if (out_audio == NULL) return MINI_ERR_INVALID;
+    *out_audio = MINISHELL_BACKEND_AUDIO_INVALID;
+    if (!is_alsa_endpoint(endpoint)) return MINI_ERR_NOT_FOUND;
+    if (s_alsa.pcm != NULL) return MINI_ERR_TOO_MANY_OPEN;
+    if (sample_rate_hz != 12000u || sample_format != MINI_AUDIO_SAMPLE_S16 || channels != 2u) {
+        return MINI_ERR_UNSUPPORTED;
+    }
+    if (!alsa_load()) return MINI_ERR_UNSUPPORTED;
+
+    snd_pcm_t *pcm = NULL;
+    if (s_alsa.pcm_open(&pcm, endpoint + 5u, SND_PCM_STREAM_CAPTURE, 0) < 0) {
+        return MINI_ERR_IO;
+    }
+
+    if (s_alsa.pcm_set_params(pcm,
+                              SND_PCM_FORMAT_S24_3LE,
+                              SND_PCM_ACCESS_RW_INTERLEAVED,
+                              ALSA_NATIVE_CHANNELS,
+                              ALSA_NATIVE_RATE,
+                              0,
+                              100000u) < 0) {
+        (void)s_alsa.pcm_close(pcm);
+        return MINI_ERR_UNSUPPORTED;
+    }
+
+    s_alsa.pcm = pcm;
+    s_alsa.started = false;
+    s_alsa.decimation_phase = 0u;
+    *out_audio = ALSA_AUDIO_HANDLE;
+    return MINI_OK;
+}
+#endif
+
+static mini_result_t audio_rx_open(void *ctx, const char *endpoint,
+                                   uint32_t sample_rate_hz, uint32_t sample_format,
+                                   uint32_t channels,
+                                   minishell_backend_audio_t *out_audio)
 {
     (void)ctx;
+#ifdef MINISHELL_LINUX_HAVE_ALSA
+    if (is_alsa_endpoint(endpoint)) {
+        return alsa_rx_open(endpoint, sample_rate_hz, sample_format, channels, out_audio);
+    }
+#endif
+
     if (out_audio == NULL) return MINI_ERR_INVALID;
     *out_audio = MINISHELL_BACKEND_AUDIO_INVALID;
     if (endpoint == NULL) return MINI_ERR_NOT_FOUND;
@@ -196,23 +340,83 @@ static mini_result_t wav_rx_open(void *ctx, const char *endpoint,
     return MINI_OK;
 }
 
-static mini_result_t wav_rx_start(void *ctx, minishell_backend_audio_t audio)
+static mini_result_t audio_rx_start(void *ctx, minishell_backend_audio_t audio)
 {
     (void)ctx;
-    if (!valid_handle(audio)) return MINI_ERR_BAD_HANDLE;
+#ifdef MINISHELL_LINUX_HAVE_ALSA
+    if (valid_alsa_handle(audio)) {
+        if (s_alsa.pcm_prepare(s_alsa.pcm) < 0) return MINI_ERR_IO;
+        s_alsa.started = true;
+        s_alsa.decimation_phase = 0u;
+        return MINI_OK;
+    }
+#endif
+    if (!valid_wav_handle(audio)) return MINI_ERR_BAD_HANDLE;
     s_wav.started = true;
     return MINI_OK;
 }
 
-static mini_result_t wav_rx_read(void *ctx, minishell_backend_audio_t audio,
-                                 void *frames, uint32_t frame_capacity,
-                                 uint32_t *out_frames, uint32_t timeout_ms)
+static mini_result_t audio_rx_read(void *ctx, minishell_backend_audio_t audio,
+                                   void *frames, uint32_t frame_capacity,
+                                   uint32_t *out_frames, uint32_t timeout_ms)
 {
     (void)ctx;
-    (void)timeout_ms;
-    if (!valid_handle(audio)) return MINI_ERR_BAD_HANDLE;
     if (out_frames == NULL) return MINI_ERR_INVALID;
     *out_frames = 0u;
+
+#ifdef MINISHELL_LINUX_HAVE_ALSA
+    if (valid_alsa_handle(audio)) {
+        uint8_t native[ALSA_NATIVE_CHUNK_FRAMES * ALSA_NATIVE_FRAME_BYTES];
+        int16_t *dst = (int16_t *)frames;
+        uint32_t produced = 0u;
+
+        if (!s_alsa.started) return MINI_ERR_NOT_READY;
+        if (frame_capacity == 0u) return MINI_OK;
+        if (frames == NULL) return MINI_ERR_INVALID;
+
+        int wait_ms = timeout_ms > (uint32_t)INT_MAX ? INT_MAX : (int)timeout_ms;
+        int ready = s_alsa.pcm_wait(s_alsa.pcm, wait_ms);
+        if (ready == 0) return MINI_OK;
+        if (ready < 0) {
+            if (s_alsa.pcm_recover(s_alsa.pcm, ready, 1) < 0) return MINI_ERR_IO;
+            return MINI_OK;
+        }
+
+        while (produced < frame_capacity) {
+            uint32_t remaining = frame_capacity - produced;
+            snd_pcm_uframes_t want = (snd_pcm_uframes_t)remaining * ALSA_DECIMATION;
+            if (want > ALSA_NATIVE_CHUNK_FRAMES) want = ALSA_NATIVE_CHUNK_FRAMES;
+
+            snd_pcm_sframes_t got = s_alsa.pcm_readi(s_alsa.pcm, native, want);
+            if (got == -EAGAIN) break;
+            if (got < 0) {
+                if (s_alsa.pcm_recover(s_alsa.pcm, (int)got, 1) < 0) return MINI_ERR_IO;
+                continue;
+            }
+            if (got == 0) break;
+
+            for (snd_pcm_sframes_t i = 0; i < got; ++i) {
+                const uint8_t *src = native + (size_t)i * ALSA_NATIVE_FRAME_BYTES;
+                if (s_alsa.decimation_phase == 0u) {
+                    if (produced >= frame_capacity) break;
+                    dst[produced * 2u + 0u] = s24_to_s16(src + 0u);
+                    dst[produced * 2u + 1u] = s24_to_s16(src + 3u);
+                    ++produced;
+                }
+                s_alsa.decimation_phase =
+                    (uint8_t)((s_alsa.decimation_phase + 1u) % ALSA_DECIMATION);
+            }
+
+            if ((snd_pcm_uframes_t)got < want) break;
+        }
+
+        *out_frames = produced;
+        return MINI_OK;
+    }
+#endif
+
+    if (!valid_wav_handle(audio)) return MINI_ERR_BAD_HANDLE;
+    (void)timeout_ms;
     if (!s_wav.started) return MINI_ERR_NOT_READY;
     if (frame_capacity == 0u) return MINI_OK;
     if (frames == NULL) return MINI_ERR_INVALID;
@@ -244,18 +448,34 @@ static mini_result_t wav_rx_read(void *ctx, minishell_backend_audio_t audio,
     return MINI_OK;
 }
 
-static mini_result_t wav_rx_stop(void *ctx, minishell_backend_audio_t audio)
+static mini_result_t audio_rx_stop(void *ctx, minishell_backend_audio_t audio)
 {
     (void)ctx;
-    if (!valid_handle(audio)) return MINI_ERR_BAD_HANDLE;
+#ifdef MINISHELL_LINUX_HAVE_ALSA
+    if (valid_alsa_handle(audio)) {
+        if (s_alsa.pcm_drop(s_alsa.pcm) < 0) return MINI_ERR_IO;
+        s_alsa.started = false;
+        return MINI_OK;
+    }
+#endif
+    if (!valid_wav_handle(audio)) return MINI_ERR_BAD_HANDLE;
     s_wav.started = false;
     return MINI_OK;
 }
 
-static mini_result_t wav_rx_close(void *ctx, minishell_backend_audio_t audio)
+static mini_result_t audio_rx_close(void *ctx, minishell_backend_audio_t audio)
 {
     (void)ctx;
-    if (!valid_handle(audio)) return MINI_ERR_BAD_HANDLE;
+#ifdef MINISHELL_LINUX_HAVE_ALSA
+    if (valid_alsa_handle(audio)) {
+        int result = s_alsa.pcm_close(s_alsa.pcm);
+        s_alsa.pcm = NULL;
+        s_alsa.started = false;
+        s_alsa.decimation_phase = 0u;
+        return result < 0 ? MINI_ERR_IO : MINI_OK;
+    }
+#endif
+    if (!valid_wav_handle(audio)) return MINI_ERR_BAD_HANDLE;
     mini_result_t result = s_wav.fs_close(s_wav.ctx, s_wav.file);
     if (result == MINI_OK) {
         s_wav.file = MINISHELL_BACKEND_FILE_INVALID;
@@ -270,6 +490,9 @@ void linux_audio_wav_configure(minishell_services_port_t *port)
 {
     memset(&s_wav, 0, sizeof(s_wav));
     s_wav.file = MINISHELL_BACKEND_FILE_INVALID;
+#ifdef MINISHELL_LINUX_HAVE_ALSA
+    memset(&s_alsa, 0, sizeof(s_alsa));
+#endif
     if (port == NULL || port->fs_open == NULL || port->fs_close == NULL ||
         port->fs_read == NULL || port->fs_seek == NULL) {
         return;
@@ -282,9 +505,9 @@ void linux_audio_wav_configure(minishell_services_port_t *port)
     s_wav.fs_seek = port->fs_seek;
 
     port->audio_capabilities |= MINI_AUDIO_CAP_RX;
-    port->audio_rx_open = wav_rx_open;
-    port->audio_rx_start = wav_rx_start;
-    port->audio_rx_read = wav_rx_read;
-    port->audio_rx_stop = wav_rx_stop;
-    port->audio_rx_close = wav_rx_close;
+    port->audio_rx_open = audio_rx_open;
+    port->audio_rx_start = audio_rx_start;
+    port->audio_rx_read = audio_rx_read;
+    port->audio_rx_stop = audio_rx_stop;
+    port->audio_rx_close = audio_rx_close;
 }
