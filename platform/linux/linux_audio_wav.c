@@ -69,6 +69,7 @@ static alsa_state_t s_alsa;
 #define ALSA_DECIMATION 4u
 #define ALSA_NATIVE_FRAME_BYTES 6u
 #define ALSA_NATIVE_CHUNK_FRAMES 256u
+#define ALSA_TARGET_LATENCY_US 10000u
 #endif
 
 static uint16_t read_u16_le(const uint8_t *p)
@@ -289,7 +290,7 @@ static mini_result_t alsa_rx_open(const char *endpoint,
                               ALSA_NATIVE_CHANNELS,
                               ALSA_NATIVE_RATE,
                               0,
-                              100000u) < 0) {
+                              ALSA_TARGET_LATENCY_US) < 0) {
         (void)s_alsa.pcm_close(pcm);
         return MINI_ERR_UNSUPPORTED;
     }
@@ -453,7 +454,7 @@ static mini_result_t audio_rx_stop(void *ctx, minishell_backend_audio_t audio)
     (void)ctx;
 #ifdef MINISHELL_LINUX_HAVE_ALSA
     if (valid_alsa_handle(audio)) {
-        if (s_alsa.pcm_drop(s_alsa.pcm) < 0) return MINI_ERR_IO;
+        (void)s_alsa.pcm_drop(s_alsa.pcm);
         s_alsa.started = false;
         return MINI_OK;
     }
@@ -468,11 +469,11 @@ static mini_result_t audio_rx_close(void *ctx, minishell_backend_audio_t audio)
     (void)ctx;
 #ifdef MINISHELL_LINUX_HAVE_ALSA
     if (valid_alsa_handle(audio)) {
-        int result = s_alsa.pcm_close(s_alsa.pcm);
+        (void)s_alsa.pcm_close(s_alsa.pcm);
         s_alsa.pcm = NULL;
         s_alsa.started = false;
         s_alsa.decimation_phase = 0u;
-        return result < 0 ? MINI_ERR_IO : MINI_OK;
+        return MINI_OK;
     }
 #endif
     if (!valid_wav_handle(audio)) return MINI_ERR_BAD_HANDLE;
