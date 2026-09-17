@@ -4,6 +4,14 @@ This directory is the durable supervisor <-> Codex engineering handoff for MiniS
 
 Roles are defined in repository-root `AGENTS.md`.
 
+## Active task
+
+```text
+T001-architecture-boundary-audit.md   READY
+```
+
+No feature implementation should proceed until T001 is reviewed by the supervisor and the architect decides how to handle any findings.
+
 ## Rule
 
 One task = one file:
