@@ -7,14 +7,30 @@ Canonical priority:
 3. service contracts under `docs/api/`
 4. architecture/design-principle docs
 5. runtime/application placement docs
-6. application docs (`docs/MiniFT8/`, `docs/keyer/`, etc.)
-7. project audit/progress records
-
-Current public API covers App, System, Console, Memory, Filesystem, Time/Location, Display, Input, Audio, and Digital I/O.
+6. application current-state docs
+7. detailed stage/history docs
+8. project audit/progress records
 
 MiniShell's public contract is currently an **API**, not a frozen long-term binary ABI. Breaking API changes are allowed while the architecture is still being established. Backward source or binary compatibility will be introduced deliberately only when independently built applications make it necessary.
 
-Current service contracts:
+## Public API
+
+Current public API services:
+
+```text
+App
+System
+Console
+Memory
+Filesystem
+Time/Location
+Display
+Input
+Audio
+Digital I/O
+```
+
+Canonical service contracts:
 
 ```text
 docs/api/api-foundation.md
@@ -30,6 +46,8 @@ docs/api/audio-api.md
 docs/api/digital-io-api.md
 ```
 
+## Architecture
+
 Canonical architecture rules:
 
 ```text
@@ -39,29 +57,75 @@ docs/architecture/resident-vs-app.md
 docs/architecture/configuration.md
 ```
 
-Configuration ownership is:
+Configuration ownership:
 
 ```text
 /flash/config.txt          MiniShell-owned resident/platform configuration
 /flash/<app>/setting.txt   application-owned configuration/deployment settings
 ```
 
-Hardware-specific application settings are allowed. An application such as Keyer may own GPIO-number settings and request generic MiniShell Digital I/O operations; MiniShell must not interpret Keyer-domain meaning.
+Hardware-specific application settings are allowed. Application meaning remains outside MiniShell; applications request generic services such as Audio or Digital I/O.
 
-Application and exploratory notes:
+## MiniFT8
 
-```text
-docs/MiniFT8/
-docs/keyer/      # Keyer porting + ADV external-ELF field-application plan
-docs/js8/       # JS8 DSP research and future JS8Chat project
-```
-
-Completed architecture cleanup record:
+Read in this order:
 
 ```text
-docs/project/architecture-cleanup.md   # C0-C4 complete
+docs/MiniFT8/README.md       current production status and contracts
+docs/MiniFT8/development.md  current engineering baseline and next work
+docs/MiniFT8/ui.md           canonical UI behavior
+docs/MiniFT8/architecture.md ownership/dependency architecture
 ```
 
-ADV application resolution is compiled-in first, then `/flash/apps/<app>.elf`, then `/sd/apps/<app>.elf`.
+Current MiniFT8 baseline includes working continuous Linux/QMX live RX, V2-compatible 12.64-second decoding, AutoSeq AS-0..AS-8, daily ADIF logging, and Field Day Cabrillo logging through MiniShell APIs.
 
-The maintained MiniShell targets are Linux Mint on `pc-1` and Cardputer ADV.
+The many `rx-*` and `as-*` documents under `docs/MiniFT8/` are retained as implementation history, design rationale, and regression anchors. They are subordinate to the four current-state documents above when old planning language conflicts with current behavior.
+
+## Keyer
+
+Canonical entry point:
+
+```text
+docs/keyer/README.md
+```
+
+Keyer K1 runtime ELF, K2 Digital I/O, K3 portable engine, and K4 physical GPIO KeyIn/KeyOut are complete. K5 sidetone is the next Keyer stage.
+
+## Other application/research areas
+
+```text
+docs/js8/       JS8 DSP research and future JS8Chat project
+```
+
+## Project records
+
+Current repo-wide status:
+
+```text
+docs/project/progress.md
+```
+
+Completed architecture cleanup:
+
+```text
+docs/project/architecture-cleanup.md
+```
+
+## Runtime targets
+
+Maintained MiniShell targets are:
+
+```text
+Linux Mint
+Cardputer ADV / ESP32-S3
+```
+
+ADV application resolution remains:
+
+```text
+compiled-in
+/flash/apps/<app>.elf
+/sd/apps/<app>.elf
+```
+
+with earlier entries taking precedence.
