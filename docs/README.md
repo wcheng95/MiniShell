@@ -13,6 +13,22 @@ Canonical priority:
 
 MiniShell's public contract is currently an **API**, not a frozen long-term binary ABI. Breaking API changes are allowed while the architecture is still being established. Backward source or binary compatibility will be introduced deliberately only when independently built applications make it necessary.
 
+## Engineering workflow
+
+Repository engineering roles and the supervisor <-> Codex handoff are defined by:
+
+```text
+AGENTS.md
+```
+
+Codex task packets and implementation notes live under:
+
+```text
+docs/project/codex/
+```
+
+The architect/tester/coordinator owns product intent, architecture decisions, hardware testing, and final merge decisions. ChatGPT acts as supervisor: it turns architecture into bounded tasks, reviews Codex diffs/PRs, diagnoses failures, and maintains current-state documentation. Codex acts as engineer and implements only the selected repository task packet.
+
 ## Public API
 
 Current public API services:
