@@ -44,6 +44,7 @@ struct AppRxState {
     bool engine_initialized;
     bool frontend_initialized;
     bool framer_initialized;
+    bool timing_pending;
     bool builder_initialized;
     bool audio_initialized;
     bool active;
@@ -273,6 +274,29 @@ static bool utc_to_slot_reference(const mini_time_location_api_t *time_location,
     return *out_sample_offset < RX_SLOT_FRAMER_SLOT_SAMPLES;
 }
 
+static bool backdate_slot_reference(int64_t *slot_id,
+                                    uint32_t *sample_offset,
+                                    size_t sample_count)
+{
+    if (slot_id == NULL || sample_offset == NULL ||
+        *sample_offset >= RX_SLOT_FRAMER_SLOT_SAMPLES) {
+        return false;
+    }
+
+    while (sample_count > 0u) {
+        if (sample_count <= (size_t)*sample_offset) {
+            *sample_offset -= (uint32_t)sample_count;
+            return true;
+        }
+
+        sample_count -= (size_t)*sample_offset;
+        if (*slot_id == INT64_MIN) return false;
+        --(*slot_id);
+        *sample_offset = RX_SLOT_FRAMER_SLOT_SAMPLES;
+    }
+    return true;
+}
+
 static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
 {
     AppRxState *rx = (AppRxState *)ctx;
@@ -371,8 +395,8 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
     void *workspace;
     uintptr_t raw;
     uintptr_t aligned;
-    int64_t slot_id;
-    uint32_t sample_offset;
+    int64_t slot_id = 0;
+    uint32_t sample_offset = 0u;
 
     if (app == NULL || app->api == NULL || config == NULL || config->endpoint == NULL ||
         app->rx != NULL || app->api->memory == NULL || app->api->memory->alloc == NULL ||
@@ -384,8 +408,6 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
         slot_id = config->slot_id;
         sample_offset = config->sample_offset;
         if (sample_offset >= RX_SLOT_FRAMER_SLOT_SAMPLES) return false;
-    } else if (!utc_to_slot_reference(app->api->time_location, &slot_id, &sample_offset)) {
-        return false;
     }
 
     if (sizeof(*rx) > UINT32_MAX ||
@@ -419,8 +441,13 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
     if (rx_frontend_init(&rx->frontend, &frontend_config) != RX_FRONTEND_OK) goto fail;
     rx->frontend_initialized = true;
 
-    if (rx_slot_framer_init(&rx->framer, slot_id, sample_offset) != RX_SLOT_FRAMER_OK) goto fail;
-    rx->framer_initialized = true;
+    if (config->has_explicit_timing) {
+        if (rx_slot_framer_init(&rx->framer, slot_id, sample_offset) != RX_SLOT_FRAMER_OK) goto fail;
+        rx->framer_initialized = true;
+        rx->timing_pending = false;
+    } else {
+        rx->timing_pending = true;
+    }
 
     builder_config = rx_result_builder_default_config();
     (void)snprintf(builder_config.local_callsign,
@@ -478,9 +505,30 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
                             &out_count) != RX_FRONTEND_OK) {
         return false;
     }
+
+    if (rx->timing_pending && out_count > 0u) {
+        int64_t first_slot_id;
+        uint32_t first_sample_offset;
+
+        if (!utc_to_slot_reference(app->api->time_location,
+                                   &first_slot_id,
+                                   &first_sample_offset) ||
+            !backdate_slot_reference(&first_slot_id,
+                                     &first_sample_offset,
+                                     out_count) ||
+            rx_slot_framer_init(&rx->framer,
+                                first_slot_id,
+                                first_sample_offset) != RX_SLOT_FRAMER_OK) {
+            return false;
+        }
+        rx->framer_initialized = true;
+        rx->timing_pending = false;
+    }
+
     if (out_count > 0u &&
-        rx_slot_framer_process(&rx->framer, rx->frontend_samples, out_count,
-                               rx_emit_event, rx) != RX_SLOT_FRAMER_OK) {
+        (!rx->framer_initialized ||
+         rx_slot_framer_process(&rx->framer, rx->frontend_samples, out_count,
+                                rx_emit_event, rx) != RX_SLOT_FRAMER_OK)) {
         return false;
     }
 
