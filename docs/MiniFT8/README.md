@@ -1,139 +1,137 @@
 # MiniFT8-V3
 
-MiniFT8-V3 is the portable FT8 application hosted by MiniShell. Its MiniShell runtime application name is:
+MiniFT8-V3 is the portable FT8 application hosted by MiniShell. Its runtime application name is:
 
 ```text
 ft8
 ```
 
-Other digital protocols are separate future MiniShell applications rather than modes inside `ft8`.
-
-## Boundary
-
-```text
-MiniFT8 application core
-        |
-        v
-MiniShell public API
-        |
-        v
-MiniShell backend/provider
-        |
-        v
-Linux / future NuttX / ADV hardware / mocks
-```
-
-MiniFT8 application code must not depend directly on Linux, NuttX, ESP-IDF, board APIs, USB/UART/I2S, or test mocks.
-
-## Current development policy
-
-```text
-backend       Linux
-presentation  ADV when UI is involved
-```
-
-Linux remains the production/reference development target until a genuine embedded-backend dependency needs to be exercised.
-
-## Current RX path
-
-RX-7 completes the decode-RX milestone through the normal `ft8` application:
-
-```text
-MiniShell Audio
-12 kHz / S16 / 2-channel
-    -> rx_audio_adapter
-    -> RxFrontend
-       6 kHz mono float
-    -> RxSlotFramer
-       exact 960-sample Ft8Engine blocks
-    -> Ft8Engine
-       monitor/waterfall
-       candidate search
-       likelihood/LDPC/CRC
-       Ft8HashStore
-       typed protocol codec
-       exact-payload dedupe
-    -> Ft8ProtocolSlot
-    -> RxResultBuilder
-    -> RxBatch
-    -> app_controller
-    -> UiModel
-    -> ADV 20x7 presentation
-```
-
-`app_controller` remains MiniFT8's sole production application coordinator.
-
-Current RX default:
-
-```text
-time_osr = 2
-freq_osr = 2
-```
-
-The low-memory/V2-compatible reference remains `2x1`.
-
-Real production fixture result using `tests/kfs16b12k.wav`:
-
-```text
-Linux  16 decoded messages
-ADV    16 decoded messages
-CQ      8 messages
-```
-
-## Current gate
-
-```text
-RX-0        COMPLETE
-RX-1A..1G  COMPLETE
-RX-2        IMPLEMENTED / manual pc-1 test pending
-RX-3        COMPLETE
-RX-4        COMPLETE
-RX-5        COMPLETE
-RX-6        COMPLETE
-RX-7        COMPLETE
-
-AS-0        COMPLETE — plan/reference freeze/boundary audit
-AS-1        NEXT — station identity + factual SNR + RX-selection boundary
-AS-2..AS-8 PLANNED — V2-equivalent compact AutoSeq port and closure
-```
-
-AutoSeq is now the selected next major block. The port changes boundary, ownership, and data representation first while preserving current MiniFT8-V2 AutoSeq behavior pinned at:
+MiniFT8-V2 remains the behavioral reference for preserved FT8/QSO behavior:
 
 ```text
 wcheng95/Mini-FT8
 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
 ```
 
-See `as-plan.md` and `as-boundary-audit.md`.
+V3 keeps V2 behavior where practical, but all platform access goes through the MiniShell public API.
 
-## RX ownership
+## Current status
+
+The Linux/QMX receive path is now working continuously across consecutive FT8 slots.
 
 ```text
-MiniShell
-    owns Audio provider/device/backend resource
-
-rx_audio_adapter
-    owns MiniFT8's public RX Audio stream handle lifecycle
-
-RxFrontend
-    owns 12 kHz S16 two-channel -> 6 kHz mono-float adaptation
-
-RxSlotFramer
-    owns sample-count slot timing and one bounded 960-sample accumulator
-
-Ft8Engine
-    owns FT8 DSP/protocol/hash state
-
-RxResultBuilder
-    owns factual application projection into RxBatch
-
-app_controller
-    owns production application coordination/policy
+RX core + protocol decode        COMPLETE
+MiniShell Audio integration      COMPLETE
+live QMX ALSA capture            COMPLETE
+12.64 s V2-compatible decode     COMPLETE
+continuous multi-slot RX         COMPLETE
+AutoSeq AS-0..AS-8              COMPLETE
+V2-style ADIF logging            COMPLETE
+V2-style Field Day Cabrillo      COMPLETE
+physical TX / CAT / Audio TX     NOT YET PORTED
 ```
 
-## AutoSeq ownership
+The current development target remains Linux first, using the ADV presentation when UI behavior matters.
 
-Planned V3 boundary:
+## Working live QMX path
+
+QMX native USB audio:
+
+```text
+48000 Hz
+24-bit packed little-endian
+2 channels
+```
+
+MiniShell Linux converts this to the public Audio contract:
+
+```text
+12000 Hz
+signed 16-bit PCM
+2 ordered channels
+```
+
+MiniFT8 then runs:
+
+```text
+QMX USB-UAC
+    -> Linux ALSA capture worker
+       continuous buffered capture
+    -> MiniShell Audio
+       12 kHz / S16 / 2-channel
+    -> rx_audio_adapter
+    -> RxFrontend
+       stereo -> mono
+       12 kHz -> 6 kHz
+    -> RxSlotFramer
+       UTC establishes initial slot phase
+       sample count owns progression
+       960 samples/block
+    -> Ft8Engine
+       monitor / waterfall
+       candidate search
+       LDPC / CRC
+       message codec / hash store
+    -> RxResultBuilder
+    -> RxBatch
+    -> app_controller
+    -> AutoSeq + UiModel
+```
+
+The Linux capture worker is important: decoding is synchronous and can consume enough CPU time to overflow a small ALSA hardware buffer. Capture therefore runs independently and feeds MiniFT8 through a canonical-audio ring buffer. This matches the V2 architectural property that USB audio acquisition continues while decoding runs.
+
+## FT8 slot timing
+
+MiniFT8-V3 now follows the V2 live cadence.
+
+At 6 kHz:
+
+```text
+FT8 symbol period        160 ms
+engine block             960 samples
+FT8 symbols              79
+V2 decode point          79 * 960 = 75840 samples = 12.64 s
+full slot                90000 samples = 15.00 s
+complete 960 blocks      93
+slot-end remainder       720 samples
+```
+
+Live behavior:
+
+```text
+UTC slot boundary
+    -> begin waterfall
+    -> process one 960-sample block at a time
+    -> decode immediately after block 79 / 12.64 s
+    -> reset waterfall only
+       preserve FFT sample history
+    -> continue consuming audio through 15.0 s
+    -> discard the final partial 720-sample block
+    -> begin next slot
+```
+
+The first partial slot after stream start or discontinuity is discarded. `Ft8Engine` never reads wall-clock time directly.
+
+## Linux QMX command
+
+```text
+M$> ft8 --profile adv --rx alsa:hw:2,0
+```
+
+The exact ALSA device index can vary by host.
+
+`audio_probe` is retained as a useful MiniShell Audio diagnostic. A healthy QMX result is approximately:
+
+```text
+rate       ~12000 Hz
+L/R        identical for current QMX firmware
+peak       nonzero
+mean_abs   nonzero
+```
+
+## AutoSeq
+
+The V2-equivalent structural AutoSeq port is complete through AS-8.
 
 ```text
 RxBatch / RxMessage
@@ -142,183 +140,154 @@ RxBatch / RxMessage
 app_controller
         |
         v
-     auto_seq
-     /      \
-QsoView    TxIntent / policy events
-   |              |
-   v              v
-UiModel/T     app_controller
-screen        future TX/logging
+AutoSeq
+   |       \
+   |        -> semantic TxIntent / log eligibility
+   v
+QsoView -> UiModel -> T UIScreen
 ```
 
-`auto_seq` will own the fixed QSO queue, state progression, retry/priority policy, active/inactive behavior, and V2-equivalent scheduling policy. It will not call MiniShell, DSP/hash code, UI code, file/logging I/O, Audio, Control, or platform APIs.
+AutoSeq owns QSO queue/state/retry/priority/inactive-reactivation policy. It remains pure C with fixed-size storage and no MiniShell, UI, DSP, filesystem, Audio, or platform dependency.
 
-The current `qso_scheduler` is only a prototype settings holder and will be removed when `auto_seq` becomes the real owner.
+The controller remains the sole coordinator.
 
-## Locked transport / timing contracts
+## Logging
 
-MiniShell Audio transport:
+Logging is triggered at the same AutoSeq TX-start eligibility point used by V2.
+
+### ADIF
+
+Daily file:
 
 ```text
-12000 Hz
-signed 16-bit PCM
-2 ordered channels
+/flash/ft8/YYYYMMDD.txt
 ```
 
-MiniFT8 engine-native stream:
+V2 behavior retained:
 
 ```text
-6000 Hz
-mono float
-960 samples per Ft8Engine block
+mode             FT8
+UTC date/time    MiniShell Time/Location API
+frequency        selected FT8 dial frequency
+station call     station.txt callsign
+my grid          first four grid characters
+unknown -99 RST  omitted
+write ACK         only after successful filesystem write
 ```
 
-For one 15-second FT8 slot:
+V3 currently has no V2-style configurable comment/radio metadata, so the ADIF comment field is empty rather than inventing new configuration.
+
+### Field Day Cabrillo
+
+File:
 
 ```text
-90000 total 6 kHz samples
-89280 samples in 93 complete 960-sample blocks
-720 slot-end samples discarded
+/flash/ft8/fieldday.txt
 ```
 
-The first partial slot after stream start/discontinuity is also discarded. Time establishes only the initial slot reference; sample count owns progression afterward. `Ft8Engine` never reads a clock.
-
-## Golden anchors
-
-Pinned original RX structural baseline:
+The V2 Cabrillo structure is retained, including:
 
 ```text
-5bd3ef98f72388a850bebad04bd7300b90edb63c
+START-OF-LOG: 3.0
+CREATED-BY: Mini-FT8
+CONTEST: ARRL-FIELD-DAY
+...
+QSO: ...
+END-OF-LOG:
 ```
 
-Hard FT8 structural anchors:
+New QSO records are inserted before `END-OF-LOG:` and acknowledged independently from ADIF writes.
+
+### RX/TX trace log
+
+V2 also has optional `RTYYMMDD.txt` traffic logging controlled by `rxtx_log`. V3 does not yet expose that setting, so this optional diagnostic log has not been enabled silently.
+
+## UI
+
+Canonical ADV layout remains:
 
 ```text
-2x1 active-waterfall FNV-1a-64  18BE1E838FD9C6AF
-unique CQ payload                 000000206016500A1988
-canonical CQ text                 CQ W1XYZ FN42
+20 x 7 text
 ```
 
-Production 2x2 tuning is intentionally newer than that original structural boundary; both the production 2x2 and low-memory/reference 2x1 paths remain tested.
-
-RX-6 public-Audio proof:
+Top row is exactly 20 characters:
 
 ```text
-M$> RX6 frames=180000 slot=12345 blocks=93 messages=1 text="CQ W1XYZ FN42"
-ft8_rx_probe: PASS
+[screen:2] [band:2] [UTC HH:MM:SS] [page/total:3] [counter:1]
 ```
 
-RX-7 production-application proof:
+Top-level letter keys switch UIScreens case-insensitively. Current reserved screen keys are:
 
 ```text
-M$> ft8 --profile adv --rx /flash/rx7.wav --rx-slot 12345
-RX 20 HH:MM:SS 1/1 <0-E>
-1 CQ W1XYZ FN42
+R T O S V Q
 ```
 
-## Presentation
+Switching screens always enters the destination at top level. Page navigation wraps. UIScreen selection and TX/RX state are independent.
 
-MiniFT8 currently has two application presentation profiles:
+See `ui.md` for the canonical UI contract.
+
+## Configuration
+
+MiniFT8 owns:
 
 ```text
-DESKTOP   30 x 8
-ADV       20 x 7
+/flash/ft8/station.txt
 ```
 
-Linux can launch either:
+Current fields include station callsign/grid, profile, band, Skip TX1, retry count, CQ type/free text, general free text, and Field Day exchange.
+
+MiniShell owns platform configuration separately under `/flash/config.txt`.
+
+## Ownership summary
 
 ```text
-M$> ft8 --profile desktop
-M$> ft8 --profile adv
+MiniShell Audio
+    owns public stream/device lifecycle and platform transport
+
+rx_audio_adapter
+    owns MiniFT8 Audio handle lifecycle
+
+RxFrontend
+    owns 12 kHz S16 stereo -> 6 kHz mono float
+
+RxSlotFramer
+    owns sample-count slot framing and decode-ready timing
+
+Ft8Engine
+    owns FT8 DSP/protocol/hash state
+
+RxResultBuilder
+    owns factual decode projection
+
+AutoSeq
+    owns QSO policy/state only
+
+app_controller
+    owns application coordination, MiniShell API calls, logging and TX lifecycle
 ```
 
-The ADV status line follows the locked 20-character UI definition and RX/TX entries page six at a time with wraparound.
+## Canonical documents
 
-## ADV memory reference
-
-After the production 2x2 `kfs.wav` decode on ADV:
+Read these first:
 
 ```text
-heap free       111.3 KiB
-largest block    53.0 KiB
-app allocation  228.5 KiB
-allocation count 2
-RX               OFF
+README.md          current application status and contracts
+development.md     completed stages, current baseline and next work
+ui.md              canonical MiniFT8-V3 UI behavior
+architecture.md    application ownership/dependency architecture
 ```
 
-The corresponding shell baseline after the ADV RAM-squeeze work is about 342 KiB free. This makes compact fixed AutoSeq storage important, but AutoSeq should remain much smaller than the DSP workspace.
-
-## Canonical documentation
-
-Current plan and development gate:
-
-```text
-development.md
-```
-
-AutoSeq:
-
-```text
-as-plan.md
-as-boundary-audit.md
-```
-
-RX:
-
-```text
-rx.md
-rx-golden.md
-rx-1b-design.md
-rx-1c-monitor.md
-rx-1d-decoder.md
-rx-1e-hash-store.md
-rx-1f-message-codec.md
-rx-1g-engine.md
-rx-2-host-decoder.md
-rx-3-frontend.md
-rx-4-slot-framer.md
-rx-5-pure-assembly.md
-rx-6-minishell-audio.md
-rx-7-decoded-ui.md
-rx-tuning.md
-```
-
-Other major documents:
-
-```text
-architecture.md
-ui.md
-v1-validation.md
-```
-
-## Current source shape
-
-```text
-apps/ft8/
-├── main/
-├── include/ft8/
-└── src/
-    ├── app_controller/
-    ├── config_service/
-    ├── presentation_profile/
-    ├── qso_scheduler/        # prototype; replaced by auto_seq in AS-2
-    ├── storage_service/
-    ├── ui_shell/
-    ├── ft8_engine/
-    ├── rx_audio_adapter/
-    ├── rx_frontend/
-    ├── rx_slot_framer/
-    └── rx_result_builder/
-```
+Detailed RX and AS stage documents remain in this directory as implementation history and regression rationale. They are subordinate to the current contracts above when wording conflicts.
 
 ## Next
 
-Start AS-1 with three explicit boundary-completion tasks before QSO state-machine code:
+The next major production boundary is real TX integration while preserving the existing semantic layers:
 
 ```text
-AS-1a  station callsign/grid ownership and RxResultBuilder injection
-AS-1b  factual RX SNR carried into RxMessage
-AS-1c  absolute RX-message selection AppAction resolved by app_controller
+AutoSeq TxIntent
+    -> app_controller
+    -> MiniShell Control / Audio TX
+    -> QMX CAT + USB audio TX
 ```
 
-Then AS-2 can port the V2 AutoSeq core into a fixed-size C `auto_seq` module without violating existing ownership boundaries.
+The existing simulated TX lifecycle and logging eligibility should remain the behavioral reference while physical TX is added.
