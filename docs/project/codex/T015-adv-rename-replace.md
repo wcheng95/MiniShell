@@ -1,6 +1,6 @@
 # T015 — Fix ADV rename replacement semantics
 
-Status: TESTING
+Status: COMPLETE
 
 ## Bug
 
@@ -354,4 +354,11 @@ T015 is now TESTING. Do not merge until the architect repeats the four reported 
 
 ## Architect hardware result
 
-Record the ADV O-screen validation here before COMPLETE.
+PASS on Cardputer ADV. After flashing T015 with an existing `/flash/ft8/station.txt`, the originally failing setting paths:
+
+- `O -> 2`
+- `O -> 3`
+- `O -> 5 -> 3`
+- `O -> 5 -> 4`
+
+no longer caused `ft8: application error` / return code 7. FT8 remained running through all four setting changes, confirming the ADV rename-replacement fix on real FAT-backed flash. T015 is accepted for merge.
