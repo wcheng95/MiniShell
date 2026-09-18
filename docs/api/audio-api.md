@@ -29,3 +29,27 @@ old queued frames are flushed before normal delivery resumes. WAV playback does
 not emit discontinuity. This additive result does not change public layouts or
 `MINISHELL_API_VERSION`; callers treating unknown nonzero results as errors
 continue to fail safely.
+
+## TX write wait budget and partial progress
+
+For `write(stream, frames, frame_count, out_frames, timeout_ms)`, the public
+service initializes `out_frames` to zero before calling the provider. Providers
+must report at most `frame_count`; successful over-reporting is rejected as IO.
+
+- `MINI_WAIT_NONE`: do not intentionally wait for additional transport capacity.
+- Finite `timeout_ms`: the caller's maximum permitted transport wait budget for
+  the entire write call.
+- `MINI_WAIT_FOREVER`: unbounded transport waiting is permitted.
+
+Scheduler, interrupt, and call overhead are not a hard-real-time guarantee.
+Providers must not knowingly substitute unbounded blocking for a finite budget.
+If at least one frame is accepted, return `MINI_OK` with the accepted count;
+partial progress is legal and the caller may submit the remainder. If no frame
+can be accepted within a finite budget (including `MINI_WAIT_NONE`), return
+`MINI_ERR_TIMEOUT` with zero frames. Other transport failures return their normal
+error; `out_frames` must not claim unaccepted/uncommitted progress.
+
+These are intended provider requirements, not evidence that every current
+backend complies. T009 records ADV's resolved codec path and supplies a hardware
+latency probe; it does not change that provider or Keyer scheduling. Public
+struct layouts and API version remain unchanged.

@@ -26,6 +26,10 @@ typedef struct {
     char tx_endpoint[64];
     int16_t tx_frames[32];
     uint32_t tx_frame_count;
+    uint32_t tx_timeout_ms;
+    uint32_t tx_limit;
+    mini_result_t tx_result;
+    bool tx_overreport;
 } fake_audio_state_t;
 
 static fake_audio_state_t s_audio;
@@ -164,6 +168,14 @@ static mini_result_t fake_tx_write(void *ctx, minishell_backend_audio_t audio,
     if (!s_audio.tx_open || audio != FAKE_TX_HANDLE) return MINI_ERR_BAD_HANDLE;
     if (!s_audio.tx_started) return MINI_ERR_NOT_READY;
     ++s_audio.tx_write_calls;
+    if (*out_frames != 0u) return MINI_ERR_INVALID;
+    s_audio.tx_timeout_ms = timeout_ms;
+    if (s_audio.tx_result != MINI_OK) return s_audio.tx_result;
+    if (s_audio.tx_overreport) {
+        *out_frames = frame_count + 1u;
+        return MINI_OK;
+    }
+    if (s_audio.tx_limit && frame_count > s_audio.tx_limit) frame_count = s_audio.tx_limit;
     if (s_audio.tx_frame_count + frame_count > 16u) return MINI_ERR_NO_SPACE;
 
     memcpy(&s_audio.tx_frames[s_audio.tx_frame_count * 2u], frames,
@@ -313,6 +325,28 @@ bool test_audio(void)
     TEST_EQ(s_audio.tx_frames[1], 20);
     TEST_EQ(s_audio.tx_frames[2], 30);
     TEST_EQ(s_audio.tx_frames[3], 40);
+
+    s_audio.tx_limit = 1u;
+    frames = 99u;
+    TEST_EQ(audio->tx->write(tx, tx_source, 2u, &frames, 20u), MINI_OK);
+    TEST_EQ(frames, 1u);
+    TEST_EQ(s_audio.tx_timeout_ms, 20u);
+    s_audio.tx_result = MINI_ERR_TIMEOUT;
+    frames = 99u;
+    TEST_EQ(audio->tx->write(tx, tx_source, 2u, &frames, MINI_WAIT_NONE), MINI_ERR_TIMEOUT);
+    TEST_EQ(frames, 0u);
+    TEST_EQ(s_audio.tx_timeout_ms, MINI_WAIT_NONE);
+    s_audio.tx_result = MINI_OK;
+    TEST_EQ(audio->tx->write(tx, tx_source, 2u, &frames, MINI_WAIT_FOREVER), MINI_OK);
+    TEST_EQ(frames, 1u);
+    TEST_EQ(s_audio.tx_timeout_ms, MINI_WAIT_FOREVER);
+    TEST_EQ(s_audio.tx_start_calls, 1u);
+    s_audio.tx_overreport = true;
+    TEST_EQ(audio->tx->write(tx, tx_source, 2u, &frames, 7u), MINI_ERR_IO);
+    TEST_EQ(frames, 0u);
+    TEST_EQ(s_audio.tx_timeout_ms, 7u);
+    s_audio.tx_overreport = false;
+    s_audio.tx_limit = 0u;
 
     TEST_EQ(audio->tx->abort(tx), MINI_OK);
     TEST_EQ(s_audio.tx_abort_calls, 1u);

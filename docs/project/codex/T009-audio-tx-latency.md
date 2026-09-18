@@ -1,6 +1,6 @@
 # T009 — Define Audio TX blocking contract and measure ADV latency
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -297,41 +297,215 @@ After acceptance/merge, delete local and remote T009 branch.
 
 ## Acceptance criteria
 
-- [ ] Audio TX timeout/partial-progress semantics are documented.
-- [ ] service unit tests enforce timeout forwarding, partial progress, timeout, and over-report rejection.
-- [ ] Keyer sidetone's 20 ms request/partial-write behavior remains covered.
-- [ ] current ADV codec/I2S implementation path is inspected from local resolved dependencies and recorded.
-- [ ] external `audio_tx_probe.elf` uses public MiniShell APIs only.
-- [ ] probe measures both 20 ms and nonblocking phases.
-- [ ] probe builds locally with allowed import table.
-- [ ] no speaker-provider or Keyer scheduling redesign is mixed in.
-- [ ] architecture checks pass.
-- [ ] normal local suites recorded.
+- [x] Audio TX timeout/partial-progress semantics are documented.
+- [x] service unit tests enforce timeout forwarding, partial progress, timeout, and over-report rejection.
+- [x] Keyer sidetone's 20 ms request/partial-write behavior remains covered.
+- [x] current ADV codec/I2S implementation path is inspected from local resolved dependencies and recorded.
+- [x] external `audio_tx_probe.elf` uses public MiniShell APIs only.
+- [x] probe measures both 20 ms and nonblocking phases.
+- [x] probe builds locally with allowed import table.
+- [x] no speaker-provider or Keyer scheduling redesign is mixed in.
+- [x] architecture checks pass.
+- [x] normal local suites recorded.
 - [ ] ADV hardware measurement is recorded before COMPLETE.
-- [ ] evidence clearly states whether current ADV provider honors the documented timeout contract.
+- [x] evidence clearly states whether current ADV provider honors the documented timeout contract.
 - [ ] next design choice, if any, is based on that evidence.
 
 ## Codex implementation notes
 
 ### Implementation summary
 
+Documented the intended public TX wait/partial-progress contract, strengthened
+service and Keyer tests, and built an external public-API-only diagnostic probe.
+Inspected the actual locally resolved ADV codec/I2S sources. No provider,
+service pacing, Keyer loop/block-size, public-layout, or API-version changes.
+No task deviations. Status REVIEW; hardware data remains pending, so this is
+not a COMPLETE or hardware-latency claim.
+
 ### Audio TX contract
+
+Documentation defines zero-initialized output, count bounds, nonblocking/finite/
+unbounded transport wait budgets, partial accepted progress as OK, no-progress
+budget exhaustion as TIMEOUT, and truthful progress on failures. Service tests
+exercise exact 20/0/FOREVER/7 ms forwarding, partial progress, timeout followed by
+successful same-stream use, and rejection of over-reporting. Keyer tests require
+exactly 20 ms on each call, 48 frames completed in three partial calls, and one-call
+termination for TIMEOUT, IO, or zero-progress OK (mapped to IO).
 
 ### Resolved ADV codec/I2S implementation evidence
 
+Local build metadata: `platform/adv/build/project_description.json` resolves
+`espressif__esp_codec_dev` to
+`/home/wei/projects/MiniShell/platform/adv/managed_components/espressif__esp_codec_dev`
+and IDF to `/home/wei/projects/esp-idf`. `platform/adv/dependencies.lock` and the
+component's `idf_component.yml:10` identify **esp_codec_dev 1.6.2**. The IDF lock
+entry and `git -C /home/wei/projects/esp-idf describe --tags --always` identify
+**v5.5.4**.
+
+Inspected call chain:
+
+1. `platform/adv/adv_audio_speaker.cpp`, `speaker_write()`: explicitly discards
+   `timeout_ms`, calls `esp_codec_dev_write()` for the entire mono S16 byte count.
+   `prepare_codec()` selects `audio_codec_new_i2s_data()` with the ADV I2S handles.
+2. Resolved component `esp_codec_dev.c:317`, `esp_codec_dev_write()`: optional
+   software-volume processing, then `data_if->write(data_if, data, len)` at line 332.
+3. Resolved component `interface/audio_codec_data_if.h:30`: write callback has
+   only interface/data/size arguments, no timeout or accepted-byte output.
+4. Resolved component `platform/audio_codec_data_i2s.c:720`, `_i2s_data_write()`:
+   the IDF >=5 path calls `i2s_channel_write(..., DEFAULT_WAIT_TIMEOUT)` at line 739.
+   Line 25 defines that timeout as **1000 ms**. The older-IDF alternative uses
+   `i2s_write(..., portMAX_DELAY)` but is NOT the resolved 5.5.4 build path.
+5. `/home/wei/projects/esp-idf/components/esp_driver_i2s/i2s_common.c:1347`,
+   `i2s_channel_write()`: uses `pdMS_TO_TICKS(timeout_ms)` for the channel binary
+   semaphore (line 1361) and DMA queue waits (line 1370), with the timeout reused
+   on each queue acquisition rather than a single elapsed-call deadline.
+
+The resolved codec path therefore does **not** honor the 20 ms/WAIT_NONE public
+budgets: it substitutes 1000 ms. This is source-level noncompliance, not a claim
+that hardware was observed stalling for 1000 ms. Its public write API and data
+callback cannot forward MiniShell's per-call timeout unchanged without changing
+or replacing/bypassing that codec data path. The adapter also hides accepted-byte
+counts and maps driver failure generically; T009 does not repair it. No worker,
+direct-I2S, or scheduling redesign is selected here.
+
 ### Probe design
+
+Public `speaker`, 48000 Hz/S16/mono, 48 silent frames per call. Two independently
+opened phases request 20 ms and WAIT_NONE, each with 100 warm-up calls then 5000
+measured calls. Fixed stack/static storage, no heap, no platform access. Timing
+surrounds only the public write call. Reports calls/accepted frames, OK/TIMEOUT/
+other, partial and zero-OK counts, min/integer mean/max, and all five requested
+strict-greater-than thresholds. TIMEOUT continues; other errors report a partial
+phase and abort/close. No latency pass/fail criterion is introduced.
+
+Integer formatting/division is self-contained. Initial import inspection exposed
+compiler-generated memcpy/memset; static constants and explicit volatile stats
+initialization removed those imports. Final ELF imports only mini_api_get.
+The host regression checks exact statistics across both phases and fatal-error
+cleanup. It is synthetic test evidence, not an ADV measurement.
 
 ### Files changed
 
+- `docs/api/audio-api.md`: intended TX write contract.
+- `tests/unit/test_audio.c`: forwarding, partial progress, timeout, bounds tests.
+- `tests/keyer_k5_sidetone_test.c`: exact timeout, full partial-write completion,
+  and bounded error/zero-progress handling.
+- `platform/adv/elf_apps/audio_tx_probe/`: external project/CMake, pinned component
+  manifest, defaults, generated-file ignores, public probe, host regression,
+  and build/install/run README. No production registry entry.
+- This task packet: dependency evidence, commands, test results and REVIEW status.
+
 ### Local tests/build results
+
+Base: `e95d7c0d5b3880e1ab4c3fe6b9dfe175f7141f9b`.
+
+- `git status --short`: clean at start on existing T009 branch.
+- `cmake -S . -B build-linux`: PASS.
+- `cmake --build build-linux -j"$(nproc)"`: PASS.
+- `ctest --test-dir build-linux -R 'audio|keyer_k5' --output-on-failure`: 2/3 PASS;
+  only documented `linux_audio` stale expected-output failure. Keyer K5 lives
+  in the separate unit suite and passes there.
+- `python3 tests/app_dependency_boundary.py . ft8`: PASS.
+- `python3 tests/app_dependency_boundary.py . keyer`: PASS.
+- `python3 tests/ft8_platform_boundary.py .`: PASS.
+- `cmake -S tests/unit -B /tmp/T009-build-unit`: PASS.
+- `cmake --build /tmp/T009-build-unit -j"$(nproc)"`: PASS.
+- `ctest --test-dir /tmp/T009-build-unit --output-on-failure`: PASS, 14/14.
+- External `idf.py ... elf` command below: PASS after permitting initial component
+  registry access (sandbox network resolution initially failed).
+- Final readelf relocation/dynamic-symbol inspection: PASS, exactly one named
+  undefined symbol and one `R_XTENSA_JMP_SLOT`, both `mini_api_get`.
+- Host probe statistics/cleanup compile/run command below: PASS.
+- `git diff --check`: PASS.
+- `ctest --test-dir build-linux --output-on-failure`: 26/28 PASS, only accepted
+  `linux_audio` and `linux_ft8` baseline failures. Neither was changed.
+
+ELF artifact: `platform/adv/elf_apps/audio_tx_probe/build/audio_tx_probe.app.elf`,
+3256 bytes. SHA-256:
+`138ee9b5ed156018b778a2cfa7ed0718818aa598184cbda405ccff403730dbca`.
+The generated binary/dependencies are not committed; rebuild with commands below.
 
 ### Probe build/install/run commands
 
+Build on the inspected development machine:
+
+```bash
+cd /home/wei/projects/MiniShell
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv/elf_apps/audio_tx_probe elf
+xtensa-esp32s3-elf-readelf -rW platform/adv/elf_apps/audio_tx_probe/build/audio_tx_probe.app.elf
+xtensa-esp32s3-elf-readelf --dyn-syms -W platform/adv/elf_apps/audio_tx_probe/build/audio_tx_probe.app.elf
+```
+
+The `.rela.plt` table must have exactly one `R_XTENSA_JMP_SLOT`: `mini_api_get`.
+It must also be the only named undefined dynamic symbol. The ESP ELF packaging
+can produce a readelf “no .dynamic section in the dynamic segment” diagnostic;
+inspect the displayed relocation/dynamic-symbol tables, not that diagnostic alone.
+The build pins `espressif/elf_loader` 1.3.3; first resolution may need registry access.
+
+Host statistics/cleanup regression:
+
+```bash
+cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Iinclude \
+  platform/adv/elf_apps/audio_tx_probe/probe_host_test.c -o /tmp/T009-probe-host-test
+/tmp/T009-probe-host-test
+```
+
+Install with the ADV microSD mounted on this host (enter its actual mount path):
+
+```bash
+cd /home/wei/projects/MiniShell
+read -r -p 'ADV microSD mount path: ' T009_SD_MOUNT
+mountpoint -q "$T009_SD_MOUNT" && \
+  mkdir -p "$T009_SD_MOUNT/apps" && \
+  cp platform/adv/elf_apps/audio_tx_probe/build/audio_tx_probe.app.elf \
+     "$T009_SD_MOUNT/apps/audio_tx_probe.elf" && \
+  sync "$T009_SD_MOUNT/apps/audio_tx_probe.elf"
+```
+
+Safely eject the card and insert it into ADV running the current MiniShell
+speaker-capable firmware. No probe firmware flashing is needed. In MiniShell:
+
+```text
+ls /sd/apps
+cp /sd/apps/audio_tx_probe.elf /flash/apps/audio_tx_probe.elf
+audio_tx_probe
+```
+
+The explicit copy updates `/flash/apps`, which takes precedence over `/sd/apps`.
+The file name is `audio_tx_probe.elf` on device; the build artifact is
+`audio_tx_probe.app.elf`. Retain both complete phase reports and any error lines,
+then paste them into the T009 architect hardware-result section. The probe returns
+to MiniShell. After collecting evidence it can be removed with:
+
+```text
+rm /flash/apps/audio_tx_probe.elf
+rm /sd/apps/audio_tx_probe.elf
+```
+
 ### Hardware measurement still required
+
+Architect/user must install and run the ELF on Cardputer ADV and supply both
+complete phase reports. No ADV device was used here. Supervisor may move this
+task to TESTING after diff review; do not merge to main or mark COMPLETE until
+hardware output is supplied and reviewed. Keep the hardware-measurement and
+next-design-choice acceptance items pending.
 
 ### Known limitations / risks
 
+The existing ADV timeout noncompliance remains deliberately unfixed. Timing
+measures the synchronous public call and includes ordinary scheduling overhead;
+no stricter Keyer responsiveness budget is assumed. A stuck provider call cannot
+be interrupted by this synchronous probe. Copying the probe to the SD card and
+running it are user hardware steps, not actions performed by this implementation.
+The next bounded provider fix, if any, belongs to the architect/supervisor after
+reviewing source evidence and measured output.
+
 ### Commit
+
+One bounded implementation commit on `codex/T009-audio-tx-latency` containing
+this report; its pushed SHA is returned in the handoff. No PR or Actions wait.
+Branch deletion remains deferred until acceptance and merge.
 
 ## Supervisor review
 

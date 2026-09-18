@@ -22,6 +22,9 @@ static uint32_t s_close_calls;
 static uint32_t s_nonzero_this_apply;
 static char s_endpoint[16];
 static mini_audio_format_t s_format;
+static mini_result_t s_result;
+static bool s_zero;
+static uint32_t s_accepted;
 
 static mini_result_t fake_open(const char *endpoint, const mini_audio_format_t *format,
                                mini_audio_stream_t *out_stream)
@@ -50,8 +53,11 @@ static mini_result_t fake_write(mini_audio_stream_t stream, const void *frames,
     CHECK(stream == 7u);
     CHECK(frames != NULL);
     CHECK(out_frames != NULL);
-    CHECK(timeout_ms > 0u);
+    CHECK(timeout_ms == 20u);
     ++s_write_calls;
+    CHECK(s_write_calls < 100u); /* catches a zero-progress spin */
+    *out_frames = 0u;
+    if (s_result != MINI_OK || s_zero) return s_result;
 
     /* Deliberately accept partial writes so sidetone_apply() must finish the block. */
     uint32_t accepted = frame_count > 17u ? 17u : frame_count;
@@ -59,6 +65,7 @@ static mini_result_t fake_write(mini_audio_stream_t stream, const void *frames,
     for (uint32_t i = 0u; i < accepted; ++i) {
         if (samples[i] != 0) ++s_nonzero_this_apply;
     }
+    s_accepted += accepted;
     *out_frames = accepted;
     return MINI_OK;
 }
@@ -140,7 +147,8 @@ int main(void)
     s_nonzero_this_apply = 0u;
     CHECK(sidetone_apply(&sidetone, true) == MINI_OK);
     CHECK(s_nonzero_this_apply > 0u);
-    CHECK(s_write_calls >= 3u);  /* 48 frames completed through partial writes. */
+    CHECK(s_accepted == 48u);
+    CHECK(s_write_calls == 3u);  /* 48 frames completed through partial writes. */
 
     for (uint32_t i = 0u; i < 5u; ++i) {
         CHECK(sidetone_apply(&sidetone, true) == MINI_OK);
@@ -157,6 +165,16 @@ int main(void)
     CHECK(sidetone_apply(&sidetone, false) == MINI_OK);
     CHECK(s_nonzero_this_apply == 0u);
 
+    const mini_result_t errors[] = {MINI_ERR_TIMEOUT, MINI_ERR_IO, MINI_OK};
+    for (unsigned i = 0; i < 3; ++i) {
+        s_result = errors[i];
+        s_zero = i == 2;
+        uint32_t before = s_write_calls;
+        CHECK(sidetone_apply(&sidetone, false) == (s_zero ? MINI_ERR_IO : s_result));
+        CHECK(s_write_calls == before + 1u);
+    }
+    s_result = MINI_OK;
+    s_zero = false;
     sidetone_close(&sidetone);
     CHECK(!sidetone_streaming(&sidetone));
     CHECK(s_stop_calls == 1u);
