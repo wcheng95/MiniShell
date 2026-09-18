@@ -1,6 +1,6 @@
 # T011 — Narrow Linux runtime exports
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Objective
 
@@ -318,8 +318,10 @@ handoff; this section is part of that commit.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff and local evidence.
+PASS. Reviewed `faa836a70cd3950d85f62e55337e99343c681658` against `main`. Linux no longer uses broad executable exports; the runtime explicitly exports `mini_api_get` only through the GNU linker export-dynamic-symbol mechanism. The negative module imports `filesystem_handles_reset` without a private header and fails at `dlopen(RTLD_NOW)`, while the normal hello module still resolves `mini_api_get` and runs. Dynamic-symbol checks confirm representative private service/backend families are absent from executable exports.
+
+Local export regression, architecture checks, unit suite 14/14, and full Linux 28/30 results are accepted with only the two known baseline failures. Commit was fast-forwarded directly to `main`.
 
 ## Architect test result
 
-No hardware validation is expected for this Linux-only runtime-boundary task.
+ACCEPTED. No hardware validation required.
