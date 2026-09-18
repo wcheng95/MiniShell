@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -1104,8 +1104,30 @@ Scope/behavior:
 
 ## Supervisor review
 
-AMENDMENT AUTHORIZED. Do not begin hardware testing until the USB-PHY ownership
-amendment above is implemented and re-reviewed.
+PASS for hardware testing on `2f7f50937326954a151da7bdcff342027a312744`.
+
+The original UAC implementation plus the USB ownership amendment were reviewed against
+current `main`. The amended ordering is accepted:
+
+```text
+USB Serial/JTAG suspend
+-> temporary UART0 GPIO4/5 diagnostics
+-> USB Host/UAC/CDC ownership
+-> device/class cleanup
+-> confirmed usb_host_uninstall()
+-> temporary UART cleanup
+-> USB Serial/JTAG restore
+```
+
+Partial prepare failures retain the console lease until cleanup completes. Teardown
+failures do not restore USB Serial/JTAG while the USB host/classes are still owned.
+The private handoff helper tests repeated entry/exit and suspend/UART-cleanup/restore
+failures; the source-boundary test ties those transitions to the production
+prepare/release order. Shared MiniFT8, usbmsc, public APIs and FT8 DSP remain unchanged.
+
+Linux CTest 41/41, units 14/14, architecture checks and the real ADV build are accepted.
+T017 is now TESTING. Do not merge until live QMX UAC decode, repeated lifecycle,
+console handoff, ring diagnostics and usbmsc-after-FT8 are confirmed on hardware.
 
 The prior implementation remains otherwise acceptable in structure: UAC/CDC stay
 platform-private; canonical conversion/ring/discontinuity ownership is correct;
