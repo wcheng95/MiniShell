@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T018-linux-ft8-live-defaults.md   READY
 ```
 
-T017 is COMPLETE. Cardputer ADV now runs live QMX USB-host UAC RX through MiniShell Audio and decodes real on-air FT8 at 240 MHz with `time_osr=2, freq_osr=1`; lifecycle and post-FT8 `usbmsc` validation pass.
+T018 makes Linux bare `ft8` the operator-ready live QMX command: ADV presentation plus the existing `alsa:hw:2,0` UAC/ALSA RX stream by default, while explicit profile/RX overrides and hardware-independent tests remain intact.
 
-Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> hardware validation when required -> fast-forward `main` -> delete the temporary branch.
+Workflow: composition defaults -> deterministic regression updates -> supervisor diff review -> live pc-1/QMX validation -> fast-forward `main` -> delete T018 branch.
 
 ## Rule
 
