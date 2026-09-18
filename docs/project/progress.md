@@ -10,6 +10,7 @@
 - K1 runtime ELF, K2 Digital I/O, K3 Keyer engine, and K4 GPIO KeyIn/KeyOut are complete.
 - MiniFT8 AutoSeq AS-0..AS-8 is complete.
 - MiniFT8 live Linux/QMX RX is working continuously across consecutive FT8 slots.
+- MiniFT8 live Cardputer ADV/QMX USB-host RX now decodes real on-air FT8 at 240 MHz with the V2-compatible `time_osr=2, freq_osr=1` engine profile; T017 lifecycle acceptance is still in progress.
 - MiniFT8 V2-style ADIF and Field Day Cabrillo logging are implemented through MiniShell APIs.
 
 ## Current MiniFT8 baseline
@@ -17,10 +18,11 @@
 ```text
 QMX USB-UAC 48 kHz / S24_3LE / stereo
         |
-        v
-Linux ALSA capture worker
+        +--> Linux ALSA capture worker
         |
-        v
+        `--> ADV ESP-IDF USB-host UAC worker
+                    |
+                    v
 MiniShell Audio ring
 12 kHz / S16 / stereo
         |
@@ -58,20 +60,24 @@ Live FT8 timing follows the pinned MiniFT8-V2 behavior:
 
 Linux capture continues independently while synchronous FT8 decoding runs, preventing ALSA/UAC overrun from breaking later-slot alignment.
 
-Working command:
+Working commands:
 
 ```text
-M$> ft8 --profile adv --rx alsa:hw:2,0
+Linux: M$> ft8 --profile adv --rx alsa:hw:2,0
+ADV:   M$> ft8
 ```
+
+The packaged ADV application defaults bare `ft8` to `uac:qmx`. Real hardware now passes USB-host/UAC bring-up and live on-air decode at 240 MHz. The accepted ADV engine profile remains `time_osr=2, freq_osr=1`. A temporary `freq_osr=2` experiment remained alive but reduced free/largest heap to about 58.8/31.0 KiB and produced no decode, so it is not the production baseline.
 
 Current MiniFT8 status:
 
 ```text
 RX-0..RX-7   COMPLETE
 RX-8         COMPLETE — live QMX ALSA, V2 timing, continuous capture
+T017         TESTING — ADV QMX USB-host RX live decode PASS; lifecycle/usbmsc checks remain
 AS-0..AS-8   COMPLETE
 LOG-1        COMPLETE — daily ADIF + Field Day Cabrillo
-physical TX  NEXT MAJOR PRODUCTION BOUNDARY
+physical TX  NEXT MAJOR PRODUCTION BOUNDARY after T017 acceptance
 ```
 
 Canonical MiniFT8 entry points:
@@ -171,7 +177,7 @@ portable services/core
 Linux / ADV backends
 ```
 
-The Linux QMX work reinforced this rule: ALSA/UAC mechanics remain platform-side; MiniFT8 sees only canonical MiniShell Audio.
+The Linux and ADV QMX work reinforce this rule: ALSA and ESP-IDF USB-host/UAC mechanics remain platform-side; MiniFT8 sees only canonical MiniShell Audio.
 
 ## Testing
 
