@@ -208,6 +208,41 @@ peak       nonzero
 mean_abs   nonzero
 ```
 
+## Linux QMX CAT
+
+T019 validates the control transport boundary on real pc-1/QMX hardware:
+
+```text
+MiniFT8 radio_qmx
+    -> MD6; FR0; FT0; FA...........;
+    -> MiniShell Serial/CDC
+    -> Linux tty / QMX USB CDC
+```
+
+MiniShell owns only raw Serial/CDC bytes and lifecycle. MiniFT8 owns QMX CAT syntax
+and radio semantics.
+
+Current operator form:
+
+```text
+M$> ft8 --cat serial:<QMX-CDC-path>
+```
+
+The receive-safe startup synchronization changes QMX to the selected MiniFT8
+mode/VFO/dial frequency while live FT8 RX continues. Hardware validation also
+confirms clean repeated close/reopen and no RF keying.
+
+T019 deliberately does not emit:
+
+```text
+TX;
+RX;
+TA...;
+TM...;
+```
+
+Physical transmit remains future work.
+
 ## AutoSeq
 
 The V2-equivalent structural AutoSeq port is complete through AS-8.
@@ -371,8 +406,9 @@ The next major production boundary is real TX integration on Linux/QMX, with the
 ```text
 AutoSeq TxIntent
     -> app_controller
-    -> MiniShell Control / Audio TX
-    -> QMX CAT + USB audio TX
+    -> MiniFT8 radio_qmx -> MiniShell Serial/CDC
+    -> MiniFT8 waveform -> MiniShell Audio TX
+    -> QMX
 ```
 
 The existing simulated TX lifecycle and logging eligibility should remain the behavioral reference while physical TX is added.
