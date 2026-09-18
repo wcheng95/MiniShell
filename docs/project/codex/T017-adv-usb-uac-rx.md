@@ -627,10 +627,10 @@ Record representative decoded lines and timing.
 1. quit FT8 normally to `M$>`;
 2. repeat `ft8` live RX at least 3 times;
 3. verify no obvious heap/resource leak;
-4. unplug/replug QMX once if practical:
-   - no crash;
-   - discontinuity is reported/recovered;
-   - live decode resumes after replug if provider reconnect support is implemented;
+4. QMX unplug/replug after an already-successful enumeration is **not a T017
+   acceptance requirement**. Real QMX/V2 behavior shows that the device may not
+   re-emulate/re-enumerate correctly without its own reset/power cycle. V3 must
+   not crash the system, but live recovery from this hardware state is deferred.
 5. after quitting FT8, run `usbmsc flash`;
 6. confirm MSC works and returns cleanly to MiniShell.
 
@@ -2588,6 +2588,37 @@ Interpretation:
 Do not change the T017 production profile away from `freq_osr=1` based on this
 experiment. Any future `freq_osr=2` investigation should be a separate measured
 performance/decoder task, not part of T017 acceptance.
+
+
+## Architect hardware finding — QMX post-enumeration replug is not required
+
+After successful live operation, unplugging QMX and reconnecting it can leave FT8
+waiting/frozen during USB enumeration. Representative diagnostics:
+
+```text
+W (...) ENUM: [0:0] Unexpected (8) device response length (expected 16)
+E (...) ENUM: Device returned less bytes than requested
+E (...) ENUM: [0:0] CHECK_SHORT_DEV_DESC FAILED
+```
+
+The architect reports the same practical limitation in MiniFT8-V2: QMX emulates the
+USB device successfully for the initial connection but does not reliably emulate a
+fresh device again after disconnect/reconnect without its own reset/power cycle.
+
+T017 therefore distinguishes two cases:
+
+```text
+REQUIRED:
+start ft8 with QMX absent -> later first attachment -> enumerate/start RX
+
+NOT REQUIRED:
+successful QMX session -> unplug -> reconnect same QMX -> recover live RX
+```
+
+The second case is accepted as a QMX hardware/firmware re-enumeration limitation,
+not a MiniFT8-V3 acceptance failure. V3 must not intentionally require a post-session
+replug path beyond V2 behavior. A future device-recovery task may revisit it only if
+QMX firmware/hardware provides a reliable re-enumeration mechanism.
 
 ## Architect hardware result
 
