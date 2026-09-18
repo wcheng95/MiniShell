@@ -1,6 +1,6 @@
 # T012 — Strengthen architecture enforcement
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Objective
 
@@ -520,8 +520,10 @@ returned in the handoff; these notes are part of that implementation commit.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff and local evidence.
+PASS. Reviewed `e966f9eb4af8435190205a93df1f0de235e38da3` against `main`. The change is enforcement-only and centralizes FT8/Keyer architecture policy in one rule catalog. Local include resolution now handles quoted/angle/relative forms, ambiguity fails closed, private-header ownership is preserved across alternate spellings, and generic platform/purity checks cover both FT8 and Keyer. The former FT8 checker is a policy-free compatibility wrapper.
+
+Negative self-tests exercise the new rule classes, and root CTest now runs both applications' dependency/platform checks plus checker self-tests. Focused architecture CTest 6/6, unit suite 14/14, and full Linux 33/35 results are accepted with only the two known baseline failures. Commit was fast-forwarded directly to `main`.
 
 ## Architect test result
 
-No hardware validation is required for this test-only architecture-enforcement task.
+ACCEPTED. No hardware validation required.
