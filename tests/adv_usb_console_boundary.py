@@ -42,8 +42,25 @@ assert ('set_property(SOURCE "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_
 assert "adv_console_resume_after_usb" not in provider
 ordered(console.split("int adv_console_suspend_for_usb(void)", 1)[1],
         "if (s_host_console.suspended) return -1;", "usb_serial_jtag_driver_uninstall()")
-assert "uart_set_pin(UART_NUM_0, GPIO_NUM_4, GPIO_NUM_5," in console
-assert ".baud_rate = 115200" in console
+uart_begin = console.split("static int debug_uart_begin(void)", 1)[1].split(
+    "static int debug_uart_end(void)", 1)[0]
+uart_end = console.split("static int debug_uart_end(void)", 1)[1].split(
+    "int adv_console_prepare(void)", 1)[0]
+ordered(uart_begin, "s_uart_pins = true;",
+        "uart_set_pin(UART_NUM_0, GPIO_NUM_3, GPIO_NUM_6,",
+        "UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) return -1;",
+        "TX=GPIO3 RX=GPIO6 115200")
+for setting in (".baud_rate = 115200", ".data_bits = UART_DATA_8_BITS",
+                ".parity = UART_PARITY_DISABLE", ".stop_bits = UART_STOP_BITS_1",
+                ".flow_ctrl = UART_HW_FLOWCTRL_DISABLE"):
+    assert setting in uart_begin
+ordered(uart_end, "uart_driver_delete(UART_NUM_0) != ESP_OK",
+        "return -1;", "s_uart_installed = false;", "if (s_uart_pins)",
+        "esp_err_t tx = gpio_reset_pin(GPIO_NUM_3);",
+        "esp_err_t rx = gpio_reset_pin(GPIO_NUM_6);",
+        "if (tx != ESP_OK || rx != ESP_OK)", "return -1;", "s_uart_pins = false;")
+assert "GPIO_NUM_4" not in console and "GPIO_NUM_5" not in console
+assert "TX=GPIO4" not in console and "RX=GPIO5" not in console
 assert "s_previous_log = esp_log_set_vprintf(uart_log)" in console
 assert "esp_log_set_vprintf(s_previous_log)" in console
 assert "uart_read_bytes" not in console  # No competing FT8 input policy.

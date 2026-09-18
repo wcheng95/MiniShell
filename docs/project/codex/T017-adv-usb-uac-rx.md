@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -2112,6 +2112,71 @@ Next observations:
 4. If UAC is streaming with clean continuity but no decodes, next add narrow
    platform/engine diagnostics (sample amplitude + slot/candidate count) rather
    than changing DSP parameters blindly.
+
+## Engineer handoff — GPIO3/GPIO6 debug-UART remap
+
+### Implementation summary and files changed
+
+Only the temporary FT8 debug-UART pin mapping changed. In
+`platform/adv/adv_console.c`, UART0 now uses TX GPIO3 / RX GPIO6, retaining
+115200 baud, 8 data bits, no parity, 1 stop bit and no flow control. The
+diagnostic banner names the new pins. Cleanup resets GPIO3 and GPIO6 instead
+of GPIO4 and GPIO5.
+
+`tests/adv_usb_console_boundary.py` now checks the new mapping/banner, explicit
+8N1 settings, pin ownership recorded before potentially partial setup, UART
+deletion before resetting both pins, and retention of cleanup state when a
+reset fails. This task packet records REVIEW status and the local evidence.
+
+### Behavior and invariants preserved
+
+The existing console lease invokes the same cleanup after clean exit and
+recoverable prepare failure. GPIO ownership is recorded before `uart_set_pin`,
+so partial pin setup is also unwound; both resets must succeed before the lease
+can restore USB Serial/JTAG. An incomplete USB teardown still retains the
+diagnostic UART and blocks premature console restoration. No changes to
+Keyer, Digital I/O, MiniFT8, public APIs, USB ownership, usbmsc, UAC buffering,
+task scheduling, or the ADV FT8 memory profile. The GPIO3/GPIO6 remap decision
+supersedes earlier GPIO4/GPIO5 wiring instructions and historical transcripts.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux -DFT8_RX1G_REFERENCE_WAV=/tmp/T017-profile-golden.wav
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T017-build-unit
+cmake --build /tmp/T017-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T017-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+Linux full CTest **45/45 PASS**, including the updated source check, existing
+console lease repeated-entry/failure/retry regression, architecture self-tests,
+and both pinned golden decode profiles. Unit suite **14/14 PASS**, all three
+standalone architecture checks PASS, and the real ESP32-S3 ADV firmware build
+PASS. The golden fixture is the unchanged pinned WAV extracted in the previous
+handoff. No production changes beyond the pin mapping/reset/banner.
+
+### Hardware/manual validation still required; known limitations
+
+Hardware testing remains paused; no flashing or hardware validation performed.
+The architect still needs to verify GPIO3 TX diagnostics at 115200 8N1,
+repeated FT8 entry/exit, recovery after prepare failure, and subsequent Keyer
+reacquisition of GPIO3/GPIO6. Source checks and host lease tests do not verify
+physical pin routing or electrical state on the board. No implementation
+deviations from this amendment.
+
+### Commit reference
+
+One implementation commit titled `T017: remap temporary debug UART to GPIO3/6`
+on `codex/T017-adv-usb-uac-rx`; exact pushed SHA returned in chat. No PR or
+GitHub Actions wait.
 
 ## Architect hardware result
 

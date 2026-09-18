@@ -57,13 +57,13 @@ static int debug_uart_begin(void)
     s_uart_installed = true;
     if (uart_param_config(UART_NUM_0, &config) != ESP_OK) return -1;
     s_uart_pins = true;
-    if (uart_set_pin(UART_NUM_0, GPIO_NUM_4, GPIO_NUM_5,
+    if (uart_set_pin(UART_NUM_0, GPIO_NUM_3, GPIO_NUM_6,
                      UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) return -1;
     _lock_acquire_recursive(&s_output_lock);
     s_uart_active = true;
     s_previous_log = esp_log_set_vprintf(uart_log);
     _lock_release_recursive(&s_output_lock);
-    adv_console_debug_write("ADV: USB Host diagnostics on UART0 TX=GPIO4 RX=GPIO5 115200\n");
+    adv_console_debug_write("ADV: USB Host diagnostics on UART0 TX=GPIO3 RX=GPIO6 115200\n");
     return 0;
 }
 
@@ -83,8 +83,8 @@ static int debug_uart_end(void)
         if (was_active) (void)esp_log_set_vprintf(s_previous_log);
     }
     if (s_uart_pins) {
-        esp_err_t tx = gpio_reset_pin(GPIO_NUM_4);
-        esp_err_t rx = gpio_reset_pin(GPIO_NUM_5);
+        esp_err_t tx = gpio_reset_pin(GPIO_NUM_3);
+        esp_err_t rx = gpio_reset_pin(GPIO_NUM_6);
         if (tx != ESP_OK || rx != ESP_OK) {
             _lock_release_recursive(&s_output_lock);
             return -1;
