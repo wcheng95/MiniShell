@@ -7,10 +7,10 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T022-linux-qmx-first-qso.md   READY
 ```
 
-T021 is COMPLETE. Pure V2-compatible FT8 TX encoding now produces immutable 79-tone plans from AutoSeq intents, verified against 25 pinned V2 payload/tone vectors. T020 RF validation and RxTxLog remain inherited T022 requirements.
+T022 integrates real Linux/QMX FT8 transmission: slot-anchored T021 tones over T020 CAT, RX stop/restart and UTC re-anchor, AutoSeq completion only after successful physical TX, and mandatory V2-compatible RxTxLog evidence for the first QSO.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
