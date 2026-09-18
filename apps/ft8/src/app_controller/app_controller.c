@@ -206,7 +206,7 @@ static bool app_save_config(AppController *app)
 static bool app_sync_auto_seq_config(AppController *app)
 {
     if (app == NULL) return false;
-    if (!auto_seq_set_station(&app->auto_seq, app->config.callsign, app->config.grid))
+    if (!auto_seq_set_station(&app->auto_seq, app->config.callsign, app->effective_grid))
         return false;
 
     auto_seq_set_skip_tx1(&app->auto_seq, app->config.skip_tx1);
@@ -386,6 +386,8 @@ bool app_controller_init(AppController *app, const mini_api_t *api,
     default:
         return false;
     }
+
+    (void)snprintf(app->effective_grid, sizeof(app->effective_grid), "%s", app->config.grid);
 
     if (!auto_seq_init(&app->auto_seq, NULL) || !app_sync_auto_seq_config(app))
         return false;

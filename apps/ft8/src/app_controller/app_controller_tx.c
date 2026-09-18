@@ -222,9 +222,9 @@ static bool write_v2_adif_log(AppController *app, const AutoSeqLogEvent *event)
         if (n < 0 || (size_t)n >= sizeof(rst_rcvd_buf)) return false;
     }
 
-    my_grid_len = strlen(app->config.grid);
+    my_grid_len = strlen(app->effective_grid);
     if (my_grid_len > 4u) my_grid_len = 4u;
-    memcpy(my_grid4, app->config.grid, my_grid_len);
+    memcpy(my_grid4, app->effective_grid, my_grid_len);
     my_grid4[my_grid_len] = '\0';
 
     freq = band_frequency_mhz(app->config.band_index);

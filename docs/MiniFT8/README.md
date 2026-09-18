@@ -236,6 +236,8 @@ MiniFT8 owns:
 
 Current fields include station callsign/grid, profile, band, Skip TX1, retry count, CQ type/free text, general free text, and Field Day exchange.
 
+The grid stored in `station.txt` remains the persistent station grid. A live MiniShell location may override the controller's runtime effective grid for AutoSeq/logging during the session, but it does not mutate or persist over the configured grid.
+
 MiniShell owns platform configuration separately under `/flash/config.txt`.
 
 ## Ownership summary

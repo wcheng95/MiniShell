@@ -30,7 +30,8 @@ struct AppController {
     AutoSeq auto_seq;
     StorageService storage;
     char station_path[256];
-    char manual_grid[FT8_CONFIG_GRID_CAP];
+    /* Persistent grid stays in config.grid; live GPS affects only this runtime fact. */
+    char effective_grid[FT8_CONFIG_GRID_CAP];
     uint64_t last_live_location_update_us;
     bool gps_grid_active;
     AppRxState *rx;
