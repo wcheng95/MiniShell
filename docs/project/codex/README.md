@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T013-ft8-reference-pin.md   READY
+none
 ```
 
-T013 addresses F11: align the FT8 reference workflow to the canonical MiniFT8-V2 commit, record golden-WAV provenance, and add a drift regression so workflow/docs cannot silently diverge again.
+Accepted cleanup now includes T013/F11 MiniFT8 reference provenance: the workflow, AGENTS, and canonical MiniFT8 docs agree on the V2 reference commit, the unchanged golden-WAV provenance is recorded, and a root CTest guards against future pin drift.
 
-Workflow: local provenance/checker tests -> pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T013 branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> merge/fast-forward to `main` -> delete the temporary branch.
 
 ## Rule
 
