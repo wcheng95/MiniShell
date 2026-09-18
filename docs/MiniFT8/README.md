@@ -171,11 +171,22 @@ The first partial slot after stream start or discontinuity is discarded. `Ft8Eng
 
 ## Live QMX commands
 
-Linux:
+Linux/pc-1:
 
 ```text
-M$> ft8 --profile adv --rx alsa:hw:2,0
+M$> ft8
 ```
+
+T018 validates the Linux composition defaults:
+
+```text
+presentation  ADV
+RX endpoint   alsa:hw:2,0
+```
+
+Explicit `--profile` and `--rx` still override these defaults. The deterministic
+WAV override was validated with `/sd/kfs16b12k.wav`, and explicit
+`--profile desktop` remains functional.
 
 Cardputer ADV:
 
