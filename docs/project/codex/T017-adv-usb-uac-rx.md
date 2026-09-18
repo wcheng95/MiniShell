@@ -862,6 +862,51 @@ Rules:
 - if USB Host teardown is incomplete, do not restore USB Serial/JTAG until the PHY is actually released;
 - after clean FT8 exit, USB Serial/JTAG must return before control is considered back at the normal shell state.
 
+## Architect FT8 debug-terminal decision
+
+While `ft8` owns the ESP32-S3 USB PHY for USB Host, use the same temporary debug UART wiring as MiniFT8-V2:
+
+```text
+UART debug during ft8
+TX = GPIO4
+RX = GPIO5
+baud = 115200
+```
+
+Ownership/state model:
+
+```text
+M$> normal shell
+    USB Serial/JTAG console active
+    GPIO4/5 debug UART inactive
+
+enter ft8 with uac:qmx
+    suspend/uninstall USB Serial/JTAG
+    enable temporary GPIO4/5 UART debug terminal
+    install USB Host
+    run QMX UAC/CDC
+    Cardputer display/keyboard remain the authoritative FT8 UI/input
+
+exit ft8
+    stop UAC/CDC
+    uninstall USB Host and confirm PHY released
+    disable temporary GPIO4/5 UART debug terminal
+    restore USB Serial/JTAG console
+    return to M$>
+```
+
+Scope/behavior:
+
+- reuse the proven V2 UART0/custom-console wiring where practical;
+- GPIO4/5 is a debug/diagnostic terminal during the FT8 USB-host window;
+- preserve Cardputer display/keyboard as the normal local FT8 UI/input path;
+- do not require GPIO4/5 UART for FT8 correctness;
+- do not expose UART/ESP-IDF details to MiniFT8 application code;
+- route ADV diagnostics that would otherwise disappear with USB Serial/JTAG to this temporary UART while host mode owns USB;
+- if practical, permit RX input on GPIO5 for diagnostic shell/control only where ownership is unambiguous, but do not create a second competing FT8 UI policy;
+- restore the pre-FT8 console state on every clean exit and on recoverable prepare failure;
+- if USB Host teardown has not released the PHY, keep USB Serial/JTAG suspended, but the GPIO4/5 debug path may remain available to report the cleanup failure.
+
 ## Supervisor review
 
 BLOCKED before hardware testing on USB PHY ownership.
