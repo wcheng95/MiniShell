@@ -1,6 +1,6 @@
 # T019 — Linux QMX CAT over MiniShell Serial/CDC
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -641,6 +641,77 @@ on `codex/T019-linux-qmx-cat`; exact pushed SHA returned in chat.
 
 Supervisor reviews the actual `main..<commit>` diff, including the public API and
 the exact QMX byte sequences, before pc-1 hardware validation.
+
+
+## Supervisor review — Linux Serial + receive-only QMX CAT
+
+PASS for real pc-1/QMX testing on
+`3553a0b087e095ec5b5621a50b70050b22194e54`.
+
+Reviewed both the single implementation delta from
+`11b90d1941d871ee788e8068e3421d2f4c901b85` and the full
+`main..3553a0b0` branch delta.
+
+Accepted boundaries and implementation:
+
+- `mini_api_t.serial` is appended after existing services; API generation stays v3;
+- new applications gate access with `mini_api_t.struct_size` and service
+  `struct_size`, so older/short API tables remain safe;
+- MiniShell Serial owns only raw byte-stream lifecycle, handles, validation,
+  timeouts, and automatic app-end cleanup;
+- Linux provider accepts `serial:<absolute tty path>`, uses nonblocking
+  poll/deadline I/O, raw 115200/8N1, and restores the previous termios state on close;
+- no Linux fd, termios, poll, or tty dependency enters `apps/ft8/`;
+- MiniFT8 `radio_control/radio_qmx` owns QMX protocol strings and command ordering;
+- the startup sequence is exactly:
+  ```text
+  MD6;
+  FR0;
+  FT0;
+  FA%011lu;
+  ```
+- 20 m is exactly `FA00014074000;`;
+- all seven FT8 band frequencies now share `config_service_band_dial_hz()`, and
+  existing ADIF/Cabrillo formatting remains regression-tested;
+- CAT cleanup runs on normal quit and on later RX-start failure;
+- omitting `--cat` leaves the accepted T018 bare-`ft8` path unchanged.
+
+Explicit transmit-safety review:
+
+```text
+TX;     NOT emitted
+RX;     NOT emitted
+TA...   NOT emitted
+TM...   NOT emitted
+```
+
+The production QMX CAT module contains only receive-safe startup synchronization.
+
+Accepted local evidence:
+
+```text
+Linux CTest          49/49 PASS
+unit suite           15/15 PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+The PTY integration test also proves exact CAT bytes through the real MiniShell
+Serial/Linux provider path, repeated close/reopen, cleanup after RX failure, and
+no CAT bytes when `--cat` is omitted.
+
+No blocking findings. T019 returns to TESTING for real QMX CDC acceptance only.
+
+Recommended pc-1 validation:
+
+1. prefer the stable `/dev/serial/by-id/...` QMX path if Linux provides one;
+2. otherwise use the identified `/dev/ttyACM*` node;
+3. manually move QMX off the configured FT8 dial;
+4. run `ft8 --cat serial:<QMX-CDC-path>`;
+5. verify the radio returns to the selected FT8 dial without transmitting;
+6. verify live FT8 decode continues;
+7. quit and repeat once to prove clean tty release.
 
 ## Architect test result
 
