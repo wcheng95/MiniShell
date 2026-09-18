@@ -117,8 +117,10 @@ The application edge translates between MiniShell service types and MiniFT8-owne
 | `storage_service` | configuration/text persistence helpers through MiniShell Filesystem |
 | `log_service` | ADIF/Cabrillo serialization, date/time/frequency/path policy and copy-on-write file mutation through injected MiniShell APIs |
 | `presentation_profile` | presentation/layout profile facts |
+| `radio_control` | MiniFT8 control-only radio abstraction and lifecycle |
+| `radio_qmx` | QMX CAT command construction/ordering over MiniShell serial/CDC |
 
-MiniShell owns application-visible filesystem handles, display semantics, input events, time/location, memory, audio stream lifecycle, and platform resources. A future MiniShell Control service will likewise own application-visible radio-control transport/resource lifecycle.
+MiniShell owns application-visible filesystem handles, display semantics, input events, time/location, memory, audio stream lifecycle, serial/CDC byte-stream lifecycle, and platform resources. Radio/CAT protocol semantics remain application-owned.
 
 ## 4. Independent RX Audio / TX Audio / Control resources
 
@@ -129,8 +131,11 @@ A station is composed from three independent logical resources:
 ```text
 RX Audio
 TX Audio
-Control
+Control transport
 ```
+
+For QMX, the control transport is USB CDC/ACM. MiniShell owns that byte stream;
+MiniFT8's radio adapter owns QMX CAT command syntax and radio semantics.
 
 They may refer to the same physical device, different devices, or be absent independently.
 
@@ -242,69 +247,78 @@ FT8 message
 
 MiniShell must not know FT8 symbol counts, tone spacing, CPFSK, I/Q meaning, or QSO policy.
 
-## 6. Control boundary
+## 6. Control transport and CAT ownership
 
-Control is architecturally defined but is **not yet an implemented MiniShell public service**.
+MiniShell owns the **transport**, not the radio protocol.
 
-The future MiniShell Control API exposes generic radio-control concepts, not FT8 concepts.
+For QMX, MiniShell exposes an application-visible serial/CDC byte stream. The
+platform/backend owns:
 
-Conceptual V1 operations are:
+- opening and closing the CDC/serial endpoint;
+- platform resource ownership and cleanup;
+- raw byte reads/writes and timeout semantics;
+- Linux tty/CDC mechanics or ADV USB-host CDC mechanics;
+- mapping an opaque endpoint string to the platform transport.
 
-```text
-control_status()
-control_get_caps() -> ControlCaps
-control_set_frequency(dial_hz)
-control_set_mode(RadioMode)
-control_tx_begin(reference_rf_hz)
-control_tx_set_frequency(rf_hz)
-control_tx_end()
-```
+MiniShell does **not** know CAT command syntax, FT8, QMX mode numbers, VFO policy,
+tone-offset commands, or TX sequencing.
 
-Conceptual capabilities are:
+MiniFT8 owns a radio-control adapter above that byte stream:
 
 ```text
-ControlCaps
-    can_set_frequency
-    can_set_mode
-    can_tx_begin_end
-    can_tx_frequency_control
-    tx_frequency_min_interval_us
+app_controller / FT8 policy
+        |
+        v
+MiniFT8 radio_control
+        |
+        v
+MiniFT8 radio_qmx
+        |  owns: MD6; FR0; FT0; FA...; TX; RX; TA...;
+        v
+MiniShell Serial/CDC byte stream
+        |
+        v
+Linux tty / ADV USB-host CDC
 ```
 
-`control_tx_set_frequency()` uses desired absolute RF frequency. MiniFT8 must never send a device-specific `TA` value, `FO` index, CAT command string, or FT8 symbol through the API.
+This follows the same boundary as Audio:
+
+```text
+transport bytes/lifecycle     MiniShell
+meaning/protocol of bytes     MiniFT8 radio adapter
+```
+
+The application-side radio abstraction is **control-only**. It does not own RX
+Audio or TX Audio and must not recreate a monolithic physical-radio object.
 
 MiniFT8 owns:
 
+- selected-band/radio intent;
 - FT8 slot and symbol timing;
 - TX audio offset;
-- mapping FT8 symbols to desired RF frequency;
+- mapping FT8 symbols/tone offsets to radio-control requests;
+- QMX CAT command construction and ordering;
 - tune policy.
 
-A MiniShell Control backend will own:
-
-- CAT syntax;
-- physical control transport;
-- device-specific RX/TX sequencing;
-- retry/caching details;
-- translating requested RF frequency into the device mechanism;
-- required restoration of radio state after TX.
-
-Tune is application policy, not a dedicated MiniShell Control primitive.
+The MiniShell serial/CDC service owns only the byte transport and resource lifecycle.
 
 ## 7. TX realization remains capability-driven
 
-Physical TX realization remains future work. The intended boundary is for `app_controller` to choose a realization from capabilities after a protocol TX signal plan is available; the current production lifecycle is simulated.
+Physical TX realization remains future work. The intended boundary is for
+`app_controller` to choose a realization after a protocol TX signal plan is
+available; the current production lifecycle is simulated.
 
-Control-frequency radio:
+QMX control-frequency path:
 
 ```text
-FT8 symbols
-    -> MiniFT8 desired RF frequency/timing
-    -> MiniShell Control
-    -> device control backend
+FT8 policy / desired radio action
+    -> MiniFT8 radio_control / radio_qmx
+    -> CAT bytes
+    -> MiniShell Serial/CDC
+    -> QMX
 ```
 
-Audio-modulated radio:
+Audio-modulated path:
 
 ```text
 FT8 symbols
@@ -314,7 +328,8 @@ FT8 symbols
     -> audio backend
 ```
 
-The decision is based on independent capabilities, never a switch on one monolithic physical-radio identity.
+RX Audio, TX Audio, and control transport remain independent resources even when
+they terminate on the same physical QMX.
 
 ## 8. Storage boundary
 
@@ -421,8 +436,9 @@ The ADV `freq_osr=2` comparison is not part of the production profile: it remain
 alive but consumed roughly 103 KiB more application memory and did not decode during
 the hardware comparison. The accepted ADV profile remains `freq_osr=1`.
 
-Physical QMX TX realization, generic MiniShell Control/CAT, and physical CAT/control
-integration remain future work. The diagrams for those boundaries describe intended
+Physical QMX TX realization remains future work. The next control slice adds the
+MiniShell serial/CDC byte-stream service plus MiniFT8-owned QMX CAT frequency/mode
+synchronization; CAT TX commands remain a later step. The diagrams for those boundaries describe intended
 ownership, not implemented transmitter functionality. A future I/Q source would use
 the same Audio API with an application-owned I/Q processing path.
 
@@ -434,7 +450,7 @@ the same Audio API with an application-owned I/Q processing path.
 4. RX Audio, TX Audio, and Control are independent resources; physical device identity never couples them at the application boundary.
 5. MiniShell Audio owns transport, stream lifecycle, buffering, and native-format conversion; MiniFT8 owns channel meaning and DSP conversion.
 6. The `ft8` application owns FT8 protocol semantics, timing, modulation, waveform synthesis, and QSO policy. Other protocols are separate applications.
-7. MiniShell Control, when implemented, owns generic device/radio control realization but never FT8 symbols or tune policy.
+7. MiniShell owns serial/CDC transport bytes and lifecycle only; MiniFT8 radio adapters own CAT syntax and radio-control semantics.
 8. `storage_service` owns config/text persistence helpers and `log_service` owns log serialization/persistence policy; MiniShell Filesystem remains the filesystem/resource owner.
 9. Mocks and simulations stay below MiniShell unless the thing being tested is a pure MiniFT8 module with an explicit MiniFT8-level test interface.
 10. Keep one authoritative owner for mutable state/resource policy.
