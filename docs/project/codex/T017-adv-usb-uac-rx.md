@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -2466,6 +2466,60 @@ No implementation deviations from the current amendment.
 
 One commit titled `T017: block capture startup wait and pin ADV to 240 MHz` on
 `codex/T017-adv-usb-uac-rx`; pushed SHA returned in chat. No PR or Actions wait.
+
+
+## Supervisor review — one-tick wait / 240 MHz amendment
+
+PASS for hardware testing on
+`1851e8d3c7300cd043e236166ff31d83b0a7ee00`.
+
+Reviewed both the bounded amendment diff from
+`9c5f73f6ae1f200b118f368a62e751034dfdd560` and the full
+`main..1851e8d3` branch delta. The amendment changes only the intended production
+points plus regression coverage and task evidence:
+
+- `uac_capture` replaces the pre-start/no-device
+  `vTaskDelay(pdMS_TO_TICKS(5))` with `vTaskDelay(1)`, which is guaranteed
+  positive at the current 100 Hz FreeRTOS tick rate and therefore actually blocks
+  the priority-4 worker;
+- the static 4096-byte worker stack, priority 4 and unpinned affinity are unchanged;
+- ADV defaults now select 240 MHz;
+- `adv_config_guard.c` rejects stale/non-240 MHz generated configuration;
+- the source regression guards both the nonzero worker wait and the committed
+  240 MHz default.
+
+Accepted engineer evidence:
+
+```text
+Linux CTest          45/45 PASS
+unit suite           14/14 PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+
+resolved:
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+CONFIG_FREERTOS_HZ=100
+CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048
+```
+
+No unrelated FT8 DSP/timing/decoder/UI, CAT/TX, public API, UAC ring/FIFO,
+console-lease, task-priority, core-affinity, or global tick-rate change was found.
+
+T017 returns to TESTING.
+
+Immediate hardware sequence:
+
+1. boot/run `ft8` at 240 MHz **with QMX disconnected**;
+2. confirm the FT8 UI starts and remains responsive rather than waiting at `M$>`;
+3. then attach QMX without restarting FT8;
+4. confirm `capture task create success`, QMX UAC RX open, Resume Interface,
+   strict `48000/24/2 -> 12000/S16/2`, and CDC best-effort open;
+5. repeat once with QMX already connected to verify startup no longer depends on
+   enumeration timing;
+6. after full bring-up, continue with the already-defined complete-slot
+   transport/ring-statistics test before any decoder/DSP change.
 
 ## Architect hardware result
 
