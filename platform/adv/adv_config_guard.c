@@ -4,6 +4,10 @@
 #error "ADV requires ESP32-S3 target"
 #endif
 
+#if !defined(CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240) || CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ != 240
+#error "ADV requires a 240 MHz CPU; regenerate sdkconfig from sdkconfig.defaults"
+#endif
+
 #if !defined(CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE) || CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE < 2048
 #error "ADV QMX enumeration requires CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE >= 2048; regenerate sdkconfig from sdkconfig.defaults"
 #endif

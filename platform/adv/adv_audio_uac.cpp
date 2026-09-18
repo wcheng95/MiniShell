@@ -187,7 +187,8 @@ void capture_task(void *)
             ESP_LOGI(tag, "QMX 0483:a34c UAC RX interface %u opened", item.interface);
         }
         if (unplugged) continue;
-        if (!device || !started) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
+        // A millisecond delay can truncate to zero and starve foreground startup.
+        if (!device || !started) { vTaskDelay(1); continue; }
         portENTER_CRITICAL(&lock);
         bool reset = ring->reset_required;
         uint32_t epoch = ring->epoch;

@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -2376,6 +2376,96 @@ The important regression criterion is that `capture task create success` must no
 longer depend on USB enumeration timing at 240 MHz. Once full bring-up is restored,
 resume the already-defined transport/ring-statistics test over complete FT8 slots
 before any decoder/DSP change.
+
+## Engineer handoff — blocking capture wait and reproducible 240 MHz
+
+### Implementation summary / files changed
+
+- `platform/adv/adv_audio_uac.cpp`: changed only the capture worker's
+  `!device || !started` wait from `vTaskDelay(pdMS_TO_TICKS(5))` to
+  `vTaskDelay(1)`, with a comment explaining the foreground starvation risk.
+  The explicit tick count cannot truncate to zero at the configured 100 Hz.
+- `platform/adv/sdkconfig.defaults`: selected
+  `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y`. IDF derives the numeric 240 MHz value
+  from this choice.
+- `platform/adv/adv_config_guard.c`: reject a missing 240 MHz choice or a
+  numeric frequency other than 240, preventing a stale sdkconfig from silently
+  building at 160 MHz.
+- `tests/adv_usb_console_boundary.py`: require the one-tick pre-start/no-device
+  wait, reject the former 5 ms conversion in the capture worker, and require
+  the committed 240 MHz choice.
+- This task packet: REVIEW status and handoff evidence.
+
+### Behavior / invariants preserved
+
+The local ESP-IDF kernel only enters the delayed state for a positive tick
+count. The new wait lets the lower-priority foreground complete open/start
+without depending on enumeration introducing a blocking interval. No explicit
+wait-for-device was added: open/start still succeed without a connected QMX,
+and an empty disconnected read still returns `MINI_ERR_NOT_READY`. The worker
+continues checking its existing connection queue after each wait.
+
+The 4096-byte static worker stack/TCB, priority 4, unpinned affinity, all other
+task scheduling, 2048-frame lazy ring, FIFO 91/18/91, UAC/CDC versions,
+conversion/discontinuity behavior, console lease and GPIO3/6 diagnostics,
+control-transfer maximum 2048, and ADV freq_osr=1 remain unchanged. No shared
+FT8 DSP, timing, decoder, UI, CAT, TX, public API, or global tick-rate change.
+
+### Tests run and results / resolved configuration
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T017-build-unit
+cmake --build /tmp/T017-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T017-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+idf.py -C platform/adv -B /tmp/T017-wait-defaults-build \
+  -D SDKCONFIG=/tmp/T017-wait-defaults-sdkconfig reconfigure
+git diff --check
+```
+
+Linux full CTest **45/45 PASS** (including the existing configured pinned golden
+profiles and architecture self-tests); units **14/14 PASS**; all three standalone
+architecture checks PASS; real ADV build PASS; whitespace check PASS. No broad
+scheduler tests or mock FreeRTOS added.
+
+Both the real build's `platform/adv/sdkconfig`/generated header and the separate
+configuration generated from a previously absent `/tmp/T017-wait-defaults-sdkconfig`
+resolve to:
+
+```text
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+CONFIG_FREERTOS_HZ=100
+CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048
+```
+
+Also compiled the actual guard with `cc -fsyntax-only` against temporary copies
+of the resolved header: 240 MHz passes; changing the frequency/choice to 160 MHz
+fails with `ADV requires a 240 MHz CPU`. Firmware size remains **0xb8e30**,
+with **0x5371d0 (88%)** app-partition space free.
+
+### Hardware/manual validation still required / known limitations
+
+No flashing or hardware testing performed. After supervisor review, verify
+disconnected startup presents a responsive FT8 UI, followed by late QMX attach
+and streaming without restarting FT8. Repeat with QMX already connected and
+confirm `capture task create success` no longer depends on enumeration timing
+at 240 MHz. Then collect the existing transport/ring counters over complete
+slots. Host/source checks establish the positive wait and preserve lifecycle
+code; they do not establish real board scheduling or live decode success.
+No implementation deviations from the current amendment.
+
+### Commit reference
+
+One commit titled `T017: block capture startup wait and pin ADV to 240 MHz` on
+`codex/T017-adv-usb-uac-rx`; pushed SHA returned in chat. No PR or Actions wait.
 
 ## Architect hardware result
 

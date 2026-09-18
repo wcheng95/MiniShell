@@ -34,6 +34,10 @@ ordered(release, 'xSemaphoreTake(capture_done',
         'while (eTaskGetState(capture_handle) != eSuspended)',
         'vTaskDelete(capture_handle)', 'capture_handle = nullptr;')
 capture = provider.split('void capture_task(void *)', 1)[1].split('bool release()', 1)[0]
+assert 'if (!device || !started) { vTaskDelay(1); continue; }' in capture
+assert 'pdMS_TO_TICKS(5)' not in capture
+defaults = (root / 'platform/adv/sdkconfig.defaults').read_text()
+assert 'CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y' in defaults.splitlines()
 assert 'vTaskDelete(nullptr)' not in capture
 ordered(capture, 'xSemaphoreGive(capture_done)', 'for (;;) vTaskSuspend(nullptr);')
 composition = (root / 'platform/adv/main/CMakeLists.txt').read_text()
