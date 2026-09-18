@@ -239,13 +239,16 @@ Store already-converted MiniShell canonical frames in the ring:
 
 not 48 kHz / 24-bit native frames.
 
-Initial target:
+Revised architect target after the first ADV memory measurement:
 
 ```text
-16384 canonical frames
-= 65536 bytes
-= about 1.365 seconds at 12 kHz
+4096 canonical frames
+= 16384 bytes
+= about 341 ms at 12 kHz
 ```
+
+This is intentionally smaller than the original 64 KiB proposal. Hardware ring
+high-water is the authority; increase only if synchronous decode backlog requires it.
 
 Use a power-of-two ring and fixed/static storage where practical.
 
@@ -1172,8 +1175,9 @@ too close to the FT8 workspace requirement to survive those preceding allocation
 Required amendment:
 
 1. Remove the permanent static `adv_uac_buffer_t ring` allocation from .bss.
-2. Keep only a nullable provider-owned pointer/state in permanent storage.
-3. In `rx_open("uac:qmx")`, after the application/FT8 workspace already exists
+2. Change the canonical ring capacity to 4096 frames / 16384 bytes.
+3. Keep only a nullable provider-owned pointer/state in permanent storage.
+4. In `rx_open("uac:qmx")`, after the application/FT8 workspace already exists
    but **before** `adv_console_begin_usb_host()`, allocate one
    `adv_uac_buffer_t` dynamically from internal 8-bit-capable heap.
 4. Log before/after allocation while USB Serial/JTAG is still active:
@@ -1198,8 +1202,9 @@ Required amendment:
     - return MINI_ERR_NO_MEMORY or the nearest existing appropriate backend result;
     - leave USB ownership untouched.
 11. WAV and other non-UAC endpoints must allocate no UAC ring.
-12. Do not reduce the 16384-frame ring yet. First restore the intended allocation
-    order, then measure real ring high-water during synchronous decode.
+12. Keep the revised 4096-frame ring for the next hardware test. Record high-water
+    occupancy during synchronous decode. If high-water approaches capacity or an
+    overflow occurs, increase only from measured need.
 13. Add/adjust host tests for:
     - lazy allocation state;
     - allocation failure with no USB/console handoff;
@@ -1209,7 +1214,8 @@ Required amendment:
     - repeated open/close does not leak.
 14. Re-run Linux full CTest, unit suite, architecture checks and real ADV build.
 15. Record new firmware .bss size; the expected result is approximately 64 KiB
-    recovered from static .bss relative to the current T017 build.
+    recovered from static .bss relative to the current T017 build, while the
+    runtime UAC ring allocation is about 16 KiB.
 
 Expected runtime allocation order:
 
@@ -1221,7 +1227,7 @@ ft8 startup
     AppController / AppRxState
     FT8 monitor workspace (~206 KiB contiguous)
     Audio.open("uac:qmx")
-        allocate 64 KiB canonical UAC ring
+        allocate 16 KiB canonical UAC ring
         then suspend USB Serial/JTAG
         then install USB Host/UAC/CDC
 
@@ -1272,8 +1278,8 @@ Preferred correction if the hardware numbers confirm this diagnosis:
   engine workspace has already been allocated;
 - free the ring on clean Audio close;
 - retain it if teardown fails and cleanup obligation remains;
-- keep ring size 16384 initially; do not reduce buffering until hardware high-water
-  measurements justify it;
+- use 4096 canonical frames / 16384 bytes for the next hardware test;
+- measure high-water during synchronous decode and increase only with evidence;
 - WAV/shell/non-UAC operation must pay no 64 KiB UAC ring cost;
 - preserve all conversion/epoch/discontinuity semantics and existing host tests;
 - add allocation failure coverage and diagnostics showing requested ring bytes plus
