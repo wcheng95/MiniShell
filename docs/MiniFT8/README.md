@@ -17,12 +17,13 @@ V3 keeps V2 behavior where practical, but all platform access goes through the M
 
 ## Current status
 
-The Linux/QMX receive path is now working continuously across consecutive FT8 slots.
+Both production receive paths are now proven: Linux/QMX runs continuously across consecutive FT8 slots, and Cardputer ADV/QMX USB-host RX decodes real on-air FT8 at 240 MHz.
 
 ```text
 RX core + protocol decode        COMPLETE
 MiniShell Audio integration      COMPLETE
 live QMX ALSA capture            COMPLETE
+ADV QMX USB-host UAC RX          LIVE DECODE PASS / T017 TESTING
 12.64 s V2-compatible decode     COMPLETE
 continuous multi-slot RX         COMPLETE
 AutoSeq AS-0..AS-8              COMPLETE
@@ -31,7 +32,7 @@ V2-style Field Day Cabrillo      COMPLETE
 physical TX / CAT / Audio TX     NOT YET PORTED
 ```
 
-The current development target remains Linux first, using the ADV presentation when UI behavior matters.
+Linux remains the deterministic regression/reference environment. ADV is now the active hardware-integration target when work depends on ESP32-S3 USB, memory, display/input, or other embedded-only behavior.
 
 ## Working live QMX path
 
@@ -43,7 +44,7 @@ QMX native USB audio:
 2 channels
 ```
 
-MiniShell Linux converts this to the public Audio contract:
+Linux and ADV each convert this to the same public Audio contract:
 
 ```text
 12000 Hz
@@ -56,6 +57,7 @@ MiniFT8 then runs:
 ```text
 QMX USB-UAC
     -> Linux ALSA capture worker
+       or ADV ESP-IDF USB-host UAC worker
        continuous buffered capture
     -> MiniShell Audio
        12 kHz / S16 / 2-channel
@@ -79,6 +81,54 @@ QMX USB-UAC
 ```
 
 The Linux capture worker is important: decoding is synchronous and can consume enough CPU time to overflow a small ALSA hardware buffer. Capture therefore runs independently and feeds MiniFT8 through a canonical-audio ring buffer. This matches the V2 architectural property that USB audio acquisition continues while decoding runs.
+
+## ADV hardware milestone
+
+T017 has crossed the main MiniFT8-V3 embedded RX milestone:
+
+```text
+Cardputer ADV / ESP32-S3 @ 240 MHz
+    -> QMX USB Host
+    -> UAC 48 kHz / 24-bit / stereo
+    -> ADV canonical Audio 12 kHz / S16 / stereo
+    -> MiniFT8-V3
+    -> real on-air FT8 messages decoded
+```
+
+The validated ADV engine profile is the pinned-V2-compatible:
+
+```text
+time_osr = 2
+freq_osr = 1
+```
+
+Representative live V -> Memory at `freq_osr=1`:
+
+```text
+Heap free      142.2K
+Largest         82.0K
+App allocated  129.2K
+Alloc count          3
+Largest/free       57%
+RX                  ON
+```
+
+A temporary `freq_osr=2` comparison survived allocation but used about 103 KiB
+more application memory:
+
+```text
+Heap free       58.8K
+Largest         31.0K
+App allocated  232.2K
+Alloc count          3
+Largest/free       52%
+RX                  ON
+```
+
+No live messages decoded in that comparison, so `freq_osr=2` is not retained.
+T017 remains in hardware TESTING only for the remaining lifecycle checks:
+disconnected start/late QMX attach, repeated `ft8` entry/exit, provider ring/error
+statistics, and `usbmsc` after FT8 teardown.
 
 ## FT8 slot timing
 
@@ -112,11 +162,22 @@ UTC slot boundary
 
 The first partial slot after stream start or discontinuity is discarded. `Ft8Engine` never reads wall-clock time directly.
 
-## Linux QMX command
+## Live QMX commands
+
+Linux:
 
 ```text
 M$> ft8 --profile adv --rx alsa:hw:2,0
 ```
+
+Cardputer ADV:
+
+```text
+M$> ft8
+```
+
+The packaged ADV application defaults to `uac:qmx`; QMX physical presence is not
+supposed to be required for FT8 startup.
 
 The exact ALSA device index can vary by host.
 
@@ -287,7 +348,7 @@ Detailed RX and AS stage documents remain in this directory as implementation hi
 
 ## Next
 
-The next major production boundary is real TX integration while preserving the existing semantic layers:
+After the remaining T017 lifecycle checks are accepted, the next major production boundary is real TX integration while preserving the existing semantic layers:
 
 ```text
 AutoSeq TxIntent
