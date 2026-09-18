@@ -4,6 +4,10 @@
 #error "ADV requires ESP32-S3 target"
 #endif
 
+#if !defined(CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE) || CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE < 2048
+#error "ADV QMX enumeration requires CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE >= 2048; regenerate sdkconfig from sdkconfig.defaults"
+#endif
+
 #if !CONFIG_FATFS_LFN_HEAP
 #error "ADV requires CONFIG_FATFS_LFN_HEAP=y; regenerate sdkconfig from sdkconfig.defaults"
 #endif

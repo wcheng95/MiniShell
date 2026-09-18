@@ -31,6 +31,9 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 # CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
 
+# QMX's composite configuration descriptor exceeds IDF's 256-byte default.
+CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048
+
 # Both ADV storage volumes use FATFS: /flash is internal SPI flash through the
 # ESP-IDF wear-levelling layer and /sd is removable FATFS over SDSPI. MiniShell's
 # Filesystem contract allows names up to MINI_FS_NAME_MAX (255), so enable long

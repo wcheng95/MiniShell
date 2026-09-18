@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -1601,8 +1601,8 @@ QMX is a composite USB device, and enumeration stops before class/device startup
 because the host control-transfer buffer is too small for its full configuration
 descriptor.
 
-Current MiniShell ADV `sdkconfig.defaults` does not set
-`CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE`; ESP-IDF therefore uses its small
+At the failing hardware build, MiniShell ADV `sdkconfig.defaults` did not set
+`CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE`; ESP-IDF therefore used its small
 default. The pinned MiniFT8-V2 reference explicitly used:
 
 ```text
@@ -1632,6 +1632,76 @@ Architect decision:
 Memory note: this raises the per-device default-control transfer buffer from the
 ESP-IDF default to 2048 bytes. For the single QMX device this is a small runtime
 cost compared with the already measured FT8/UAC memory budget.
+
+## Codex QMX enumeration configuration handoff
+
+### Implementation summary / files changed
+
+Added `CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048` to
+`platform/adv/sdkconfig.defaults`, matching the pinned MiniFT8-V2 `sdkconfig` at
+`491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`. Added a guard in the already-built
+`platform/adv/adv_config_guard.c` that rejects missing values or values below 2048
+with an explicit QMX/config-regeneration error. This report is the only other
+tracked change.
+
+### Behavior / invariants preserved
+
+Only the ADV USB Host control-transfer limit changes. Task priorities, core
+affinities, shared MiniFT8, UAC ring/allocation, console handoff and USB lifecycle
+are unchanged. The superseded freeze breadcrumbs were not implemented. No task
+scope deviations.
+
+### Configuration and local validation
+
+The existing ignored `platform/adv/sdkconfig` still contained an explicit 256-byte
+value, which would override a new default. Saved it to
+`/tmp/T017-enum-sdkconfig-before`, removed only that assignment, then ran
+`idf.py -C platform/adv reconfigure build`. Verified the regenerated sdkconfig is
+byte-identical to the saved copy except for **256 -> 2048**. Both sdkconfig and
+`build/config/sdkconfig.h` resolve to 2048. Generated configuration remains ignored;
+only defaults and the guard are committed.
+
+Exact local build/test gate:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T017-build-unit
+cmake --build /tmp/T017-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T017-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv reconfigure build
+git diff --check
+```
+
+Results: Linux **42/42 PASS**, units **14/14 PASS**, architecture checks/checker
+self-tests **PASS**, real IDF **v5.5.4 ADV rebuild PASS**, whitespace check **PASS**.
+Also compiled the actual guard with `cc -fsyntax-only -I <temporary-config-dir>
+platform/adv/adv_config_guard.c`, using copies of the generated header with only
+this option varied: **undefined, 256, 2047 rejected** with the new diagnostic;
+**2048 and 4096 accepted**. No test-only configuration was used for firmware.
+
+Firmware size remains **0xb8aa0 bytes**, app partition free **0x537560 bytes (88%)**.
+`.dram0.bss` remains **0x3010**, `.dram0.data` remains **0x4b68**. The larger
+per-device control-transfer buffer has a runtime heap cost, not a new static ring.
+
+### Hardware/manual validation still required / risks
+
+**Hardware testing has not resumed.** Await supervisor review before checking QMX
+configuration-descriptor enumeration, UAC interface open and 48000/24/2 startup,
+CDC status, Cardputer responsiveness and the remaining live decode/lifecycle tests.
+The local build proves the intended limit is effective; successful real-device
+enumeration and runtime heap headroom remain unverified. Any residual freeze after
+enumeration must be investigated separately from measured evidence.
+
+### Commit reference
+
+Bounded enumeration-config commit on `codex/T017-adv-usb-uac-rx`; exact pushed SHA
+returned in the handoff. Status: REVIEW. No PR, no Actions wait, no hardware testing.
 
 ## Hardware finding — no-QMX freeze after UAC install
 
