@@ -1,6 +1,6 @@
 # T012 — Strengthen architecture enforcement
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -343,25 +343,25 @@ No hardware validation and no GitHub Actions wait are required.
 
 ## Acceptance criteria
 
-- [ ] one authoritative FT8/Keyer application rule catalog exists;
-- [ ] quoted and angle local includes are enforced;
-- [ ] normalized relative local includes are enforced;
-- [ ] ambiguous local headers fail closed;
-- [ ] private headers cannot escape via alternate include syntax/path;
-- [ ] FT8 platform/purity rules still apply;
-- [ ] equivalent Keyer platform/purity rules now apply;
-- [ ] pure FT8/Keyer modules cannot include MiniShell API outside their allow-list;
-- [ ] representative native platform calls are rejected;
-- [ ] negative fixtures prove each new enforcement class;
-- [ ] both app dependency checks run in root CTest;
-- [ ] both app platform checks run in root CTest;
-- [ ] checker self-tests run in root CTest;
-- [ ] real current FT8 and Keyer trees pass;
-- [ ] no production behavior/source changes;
-- [ ] unit suite passes;
-- [ ] full Linux suite result recorded;
-- [ ] limitations of textual/static enforcement are documented;
-- [ ] no unrelated cleanup.
+- [x] one authoritative FT8/Keyer application rule catalog exists;
+- [x] quoted and angle local includes are enforced;
+- [x] normalized relative local includes are enforced;
+- [x] ambiguous local headers fail closed;
+- [x] private headers cannot escape via alternate include syntax/path;
+- [x] FT8 platform/purity rules still apply;
+- [x] equivalent Keyer platform/purity rules now apply;
+- [x] pure FT8/Keyer modules cannot include MiniShell API outside their allow-list;
+- [x] representative native platform calls are rejected;
+- [x] negative fixtures prove each new enforcement class;
+- [x] both app dependency checks run in root CTest;
+- [x] both app platform checks run in root CTest;
+- [x] checker self-tests run in root CTest;
+- [x] real current FT8 and Keyer trees pass;
+- [x] no production behavior/source changes;
+- [x] unit suite passes;
+- [x] full Linux suite result recorded;
+- [x] limitations of textual/static enforcement are documented;
+- [x] no unrelated cleanup.
 
 ## Branch workflow
 
@@ -388,23 +388,135 @@ Supervisor reviews `main..<SHA>`. If clean, fast-forward/merge to `main`, then d
 
 ### Implementation summary
 
+Implemented T012 entirely in test/enforcement code and root CTest registration.
+Both application trees pass the strengthened checkers. No production source,
+public API, module dependency direction, loader, or runtime behavior changed.
+No task deviations; two narrowly scoped permitted host/vendor exceptions are
+recorded below. No hardware/manual validation is required.
+
 ### Shared rule model
+
+`tests/architecture_rules.py` is the authoritative FT8/Keyer catalog: module
+ownership, enforced roots, local dependencies, private headers, lifecycle
+patterns, include roots, direct MiniShell API users, and AutoSeq no-heap policy.
+The existing dependency catalog is preserved. The old FT8-only checker's host
+`tools -> ft8_engine` rule is consolidated here as well. Both generic engines
+consume this catalog; the compatibility wrapper has no independent policy.
+Verified actual MiniShell API includes match the exact FT8 and Keyer module sets
+specified in this task. Pure engine/shared types gain no API permission.
 
 ### Include resolution / fail-closed behavior
 
+Both quoted and angle forms are parsed, including whitespace around `# include`.
+Resolution tries the quoted source-relative path, exact app-relative path,
+declared include roots, then unique basename fallback for bare header names.
+Paths are normalized and checked for application-root escape. Ambiguous candidates
+are reported rather than ignored. Resolved local headers must have owners;
+private ownership and dependency direction apply to every spelling. `.hpp` is
+indexed alongside `.h`. Standard C header names do not enter basename fallback.
+Unowned sources under enforced roots fail; the platform checker also rejects
+source files outside any catalogued module. Comments are stripped while retaining
+diagnostic line numbers and include literals.
+
 ### Platform/purity enforcement
+
+`app_platform_boundary.py` checks both apps for the listed Linux/POSIX/ALSA and
+ESP/FreeRTOS/board headers, explicit native symbol families, platform tokens,
+and disallowed direct MiniShell API includes. Relative/normalized header
+components are checked too. Native identifiers in comments/string literals do
+not count. The existing AutoSeq allocation-call prohibition is retained without
+adding heap constraints elsewhere.
+
+Two exact exceptions in the shared catalog reflect allowed task categories:
+
+- Host-only `apps/ft8/tools/ft8_decode.c`: only the `fopen` symbol is allowed.
+- Vendor `apps/ft8/src/ft8_engine/vendor/kissfft/kiss_fft.h`: only `sys/types.h`,
+  used in its optional `FIXED_POINT` branch, is allowed.
+
+Neither directory is excluded from scanning; other calls/headers, ownership,
+dependency and purity checks remain active. No production architecture violation
+was found.
 
 ### Negative fixtures
 
+Dependency self-test: 49 isolated-tree cases across FT8 and Keyer, covering
+forbidden module edges through quoted/angle and app-relative/`../` paths,
+private headers through bare/angle/exact/relative paths, duplicate ambiguous
+basenames, root escape, unowned local headers, unowned enforced-root sources,
+and all existing FT8 lifecycle pattern classes. Positive cases exercise both
+apps, owner-relative precedence, declared canonical roots, unique basename
+fallback, standard headers, and owner access to private state.
+
+Platform self-test: 143 cases across both apps, covering each forbidden header
+and prefix in both include forms, pure FT8/Keyer API leakage, normalized API
+spelling, relative platform headers, each native-symbol family, existing platform
+tokens, and each AutoSeq heap-call family. Positive fixtures cover comments,
+string literals and standard C headers. Additional assertions verify every
+allowed API edge module and the exact host/vendor exception behavior, including
+rejection of other calls/headers in those same files.
+
 ### CTest integration
+
+Root CTest now registers `architecture_app_ft8`, `architecture_app_keyer`,
+`architecture_app_selftest`, `architecture_platform_ft8`,
+`architecture_platform_keyer`, and `architecture_platform_selftest`.
+The former `ft8_platform_boundary` CTest entry is replaced to avoid duplicate
+work. Its script remains a compatibility wrapper running both generic FT8 checks
+and was also executed directly.
 
 ### Files changed
 
+- `tests/architecture_rules.py`: shared application rule catalog.
+- `tests/app_dependency_boundary.py`: include resolution and expanded self-tests.
+- `tests/app_platform_boundary.py`: generic platform/purity checker and self-tests.
+- `tests/ft8_platform_boundary.py`: policy-free compatibility wrapper.
+- `CMakeLists.txt`: six architecture test registrations only.
+- `docs/project/codex/T012-architecture-enforcement.md`: review status and evidence.
+
 ### Local tests run and results
+
+```bash
+git status --short
+python3 tests/app_dependency_boundary.py --self-test
+python3 tests/app_dependency_boundary.py . ft8
+python3 tests/app_dependency_boundary.py . keyer
+python3 tests/app_platform_boundary.py --self-test
+python3 tests/app_platform_boundary.py . ft8
+python3 tests/app_platform_boundary.py . keyer
+python3 tests/ft8_platform_boundary.py .
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+ctest --test-dir build-linux -R 'architecture|platform_boundary|dependency_boundary' --output-on-failure
+cmake -S tests/unit -B /tmp/T012-build-unit
+cmake --build /tmp/T012-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T012-build-unit --output-on-failure
+git diff --check
+ctest --test-dir build-linux --output-on-failure
+```
+
+All checker invocations, both configure/builds, and diff whitespace checks passed.
+Focused architecture CTest: **6/6 passed**. Unit suite: **14/14 passed**.
+Full Linux CTest: **33/35 passed**. Only the accepted baseline failures remain:
+`linux_audio` expects a frames/hash substring without the intervening diagnostic
+fields (both probe executions report PASS); `linux_ft8` times out on its stale
+rotated-queue expectation for `N5CH     RPLY 0/3`. Neither test was changed.
 
 ### Known limitations / risks
 
+These are textual source checks, not a compiler/preprocessor or a security
+boundary. They scan conditional source branches, resolve literal includes using
+the catalog rather than a compilation database, and do not expand macros or
+prove arbitrary transitive call graphs, runtime ownership, or macro-generated
+native calls. The native list is deliberately explicit and bounded. Future
+module/include-root changes need catalog review. No new broad exemption exists.
+The accepted Linux baseline failures remain outside T012 scope. No hardware
+validation, PR, or GitHub Actions wait is needed or performed.
+
 ### Commit
+
+One bounded commit on `codex/T012-architecture-enforcement`, titled
+`T012: strengthen application architecture enforcement`. The pushed SHA is
+returned in the handoff; these notes are part of that implementation commit.
 
 ## Supervisor review
 

@@ -590,9 +590,23 @@ add_test(
             $<TARGET_FILE_DIR:ft8>
 )
 
+foreach(app ft8 keyer)
+    add_test(
+        NAME architecture_app_${app}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/app_dependency_boundary.py
+                ${CMAKE_SOURCE_DIR} ${app}
+    )
+    add_test(
+        NAME architecture_platform_${app}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/app_platform_boundary.py
+                ${CMAKE_SOURCE_DIR} ${app}
+    )
+endforeach()
 add_test(
-    NAME ft8_platform_boundary
-    COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/ft8_platform_boundary.py
-            ${CMAKE_SOURCE_DIR}
+    NAME architecture_app_selftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/app_dependency_boundary.py --self-test
+)
+add_test(
+    NAME architecture_platform_selftest
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/app_platform_boundary.py --self-test
 )

@@ -7,99 +7,24 @@ import re
 import sys
 import tempfile
 
-SOURCE_SUFFIXES = {".c", ".h", ".cc", ".cpp", ".hpp"}
-INCLUDE_RE = re.compile(r'^\s*#\s*include\s*"([^"]+)"')
+from architecture_rules import APP_RULES
 
-# Application-local dependency rules. Add another entry when a new application
-# needs the same architectural enforcement; keep the checker itself generic.
-APP_RULES = {
-    "ft8": {
-        "enforced_roots": {"main", "include", "src"},
-        "module_paths": {
-            "main": ("main",),
-            "shared": ("include",),
-            "app_controller": ("src/app_controller",),
-            "auto_seq": ("src/auto_seq",),
-            "config_service": ("src/config_service",),
-            "presentation_profile": ("src/presentation_profile",),
-            "rx_audio_adapter": ("src/rx_audio_adapter",),
-            "rx_frontend": ("src/rx_frontend",),
-            "rx_result_builder": ("src/rx_result_builder",),
-            "rx_slot_framer": ("src/rx_slot_framer",),
-            "storage_service": ("src/storage_service",),
-            "log_service": ("src/log_service",),
-            "tx_lifecycle": ("src/tx_lifecycle",),
-            "ui_shell": ("src/ui_shell",),
-            "ft8_engine": ("src/ft8_engine",),
-        },
-        "private_headers": {
-            "src/app_controller/app_controller_internal.h": "app_controller",
-        },
-        "forbidden_source_patterns": {
-            "main/ft8_main.c": (
-                (r"\bui\s*\.\s*(?:screen|submenu)\b",
-                 "ft8_main must not inspect UiShell screen/submenu state"),
-                (r"\b(?:SCREEN_|UI_SUBMENU_)",
-                 "ft8_main must not encode UIScreen/submenu policy"),
-                (r"\bmodel\s*\.\s*[A-Za-z_]",
-                 "ft8_main must not inspect individual UiModel fields"),
-            ),
-        },
-        "allowed": {
-            "main": {"main", "shared", "app_controller", "presentation_profile", "ui_shell"},
-            "shared": {"shared"},
-            "app_controller": {
-                "app_controller", "shared", "auto_seq", "config_service",
-                "presentation_profile", "rx_audio_adapter", "rx_frontend",
-                "rx_result_builder", "rx_slot_framer", "storage_service", "log_service",
-                "tx_lifecycle", "ui_shell", "ft8_engine",
-            },
-            "auto_seq": {"auto_seq"},
-            "config_service": {"config_service"},
-            "presentation_profile": {"presentation_profile"},
-            "rx_audio_adapter": {"rx_audio_adapter"},
-            "rx_frontend": {"rx_frontend"},
-            "rx_result_builder": {"rx_result_builder", "ft8_engine"},
-            "rx_slot_framer": {"rx_slot_framer"},
-            "storage_service": {"storage_service"},
-            "log_service": {"log_service"},
-            "tx_lifecycle": {"tx_lifecycle"},
-            "ui_shell": {"ui_shell", "shared", "presentation_profile"},
-            "ft8_engine": {"ft8_engine"},
-        },
-    },
-    "keyer": {
-        "enforced_roots": {"main", "include", "src"},
-        "module_paths": {
-            "main": ("main",),
-            "shared": ("include",),
-            "app_controller": ("src/app_controller",),
-            "config_service": ("src/config_service",),
-            "keyer_engine": ("src/keyer_engine",),
-            "keyin": ("src/keyin",),
-            "keyout": ("src/keyout",),
-            "sidetone": ("src/sidetone",),
-        },
-        "private_headers": {},
-        "forbidden_source_patterns": {},
-        "allowed": {
-            "main": {"main", "app_controller"},
-            # keyer_types currently reuses the portable engine's paddle-mode
-            # type. This is a type dependency only; orchestration remains in
-            # app_controller.
-            "shared": {"shared", "keyer_engine"},
-            "app_controller": {
-                "app_controller", "shared", "config_service",
-                "keyer_engine", "keyin", "keyout", "sidetone",
-            },
-            "config_service": {"config_service", "shared"},
-            "keyer_engine": {"keyer_engine"},
-            "keyin": {"keyin", "shared"},
-            "keyout": {"keyout", "shared"},
-            "sidetone": {"sidetone"},
-        },
-    },
-}
+SOURCE_SUFFIXES = {".c", ".h", ".cc", ".cpp", ".hpp"}
+INCLUDE_RE = re.compile(r'^\s*#\s*include\s*([<"])([^>"]+)[>"]')
+# Standard C names must not accidentally resolve through basename fallback.
+STANDARD_HEADERS = set(
+    "assert complex ctype errno fenv float inttypes iso646 limits locale math "
+    "setjmp signal stdalign stdarg stdatomic stdbool stddef stdint stdio stdlib "
+    "stdnoreturn string tgmath threads time uchar wchar wctype".split()
+)
+
+
+def strip_comments(text):
+    # Preserve string literals (including include names) and diagnostic line numbers.
+    return re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|/\*.*?\*/',
+                  lambda m: "\n" * m[0].count("\n") + " "
+                  if m[0].startswith(("//", "/*")) else m[0],
+                  text, flags=re.S)
 
 
 def module_for_path(app_root: pathlib.Path, path: pathlib.Path, rule: dict) -> str | None:
@@ -116,35 +41,49 @@ def module_for_path(app_root: pathlib.Path, path: pathlib.Path, rule: dict) -> s
     return matches[0][1]
 
 
-def build_header_index(app_root: pathlib.Path) -> dict[str, list[pathlib.Path]]:
-    index: dict[str, list[pathlib.Path]] = {}
-    for path in app_root.rglob("*.h"):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(app_root).as_posix()
-        index.setdefault(rel, []).append(path)
-        index.setdefault(path.name, []).append(path)
-        if rel.startswith("include/"):
-            index.setdefault(rel[len("include/"):], []).append(path)
+def build_header_index(app_root):
+    index = {}
+    for path in app_root.rglob("*"):
+        if path.is_file() and path.suffix in {".h", ".hpp"}:
+            index.setdefault(path.name, []).append(path.resolve())
     return index
 
 
-def resolve_local_header(include: str,
-                         index: dict[str, list[pathlib.Path]]) -> pathlib.Path | None:
-    candidates = index.get(include, [])
-    unique = {path.resolve() for path in candidates}
-    if len(unique) == 1:
-        return next(iter(unique))
-    if len(unique) > 1:
+def resolve_local_header(include, quoted, source, app_root, rule, index):
+    def normalized(base):
+        candidate = (base / include).resolve()
+        if not candidate.is_relative_to(app_root):
+            raise ValueError(f"local include escapes application root: {include}")
+        return candidate
+
+    if quoted:
+        candidate = normalized(source.parent)
+        if candidate.is_file():
+            return candidate
+    candidate = normalized(app_root)
+    if candidate.is_file():
+        return candidate
+    if include.endswith(".h") and include[:-2] in STANDARD_HEADERS:
+        return None
+    candidates = set()
+    for prefix in rule["include_roots"]:
+        candidate = normalized(app_root / prefix)
+        if candidate.is_file():
+            candidates.add(candidate)
+    if not candidates and "/" not in include:
+        candidates = set(index.get(include, []))
+    if any(not path.is_relative_to(app_root) for path in candidates):
+        raise ValueError(f"local include escapes application root: {include}")
+    if len(candidates) > 1:
         raise ValueError(f"ambiguous local include {include}")
-    return None
+    return next(iter(candidates), None)
 
 
 def check_app(root: pathlib.Path, app_name: str) -> list[str]:
     if app_name not in APP_RULES:
         return [f"unknown app rule set: {app_name}"]
 
-    app_root = root / "apps" / app_name
+    app_root = (root / "apps" / app_name).resolve()
     if not app_root.is_dir():
         return [f"missing application source tree: {app_root}"]
 
@@ -167,7 +106,7 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
             continue
         checked_files += 1
 
-        text = path.read_text(encoding="utf-8")
+        text = strip_comments(path.read_text(encoding="utf-8"))
         rel_text = rel.as_posix()
         for pattern, reason in rule.get("forbidden_source_patterns", {}).get(rel_text, ()):
             if re.search(pattern, text):
@@ -180,9 +119,10 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
             if not match:
                 continue
 
-            include = match.group(1)
+            include = match.group(2)
             try:
-                target = resolve_local_header(include, header_index)
+                target = resolve_local_header(include, match.group(1) == '"',
+                                              path, app_root, rule, header_index)
             except ValueError as exc:
                 violations.append(
                     f"{path.relative_to(root)}:{line_number}: {exc}"
@@ -222,71 +162,79 @@ def check_app(root: pathlib.Path, app_name: str) -> list[str]:
 
 
 def self_test() -> int:
+    cases = 0
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
-        app = root / "apps" / "ft8"
-        (app / "main").mkdir(parents=True)
-        (app / "src" / "app_controller").mkdir(parents=True)
-        (app / "src" / "config_service").mkdir(parents=True)
-        (app / "src" / "ui_shell").mkdir(parents=True)
-        (app / "include" / "ft8").mkdir(parents=True)
+        for name in ("ft8", "keyer"):
+            app = root / "apps" / name
 
-        (app / "include" / "ft8" / "app_types.h").write_text(
-            "#pragma once\n", encoding="utf-8"
-        )
-        (app / "src" / "app_controller" / "app_controller_internal.h").write_text(
-            "#pragma once\n", encoding="utf-8"
-        )
-        (app / "src" / "config_service" / "config_service.h").write_text(
-            "#pragma once\n", encoding="utf-8"
-        )
-        (app / "src" / "ui_shell" / "ui_shell.h").write_text(
-            '#pragma once\n#include "ft8/app_types.h"\n', encoding="utf-8"
-        )
-        (app / "main" / "probe.c").write_text(
-            '#include "ui_shell.h"\n#include "config_service.h"\n', encoding="utf-8"
-        )
+            def write(rel, text="#pragma once\n"):
+                path = app / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+                return path
 
-        violations = check_app(root, "ft8")
-        if not any("main -> config_service" in item for item in violations):
-            print("app_dependency_boundary self-test: FAIL (forbidden edge not detected)")
-            return 1
+            write("src/app_controller/app_controller.h")
+            write("src/config_service/config_service.h")
+            probe = write("main/probe.c", "")
 
-        (app / "main" / "probe.c").write_text(
-            '#include "app_controller_internal.h"\n', encoding="utf-8"
-        )
-        violations = check_app(root, "ft8")
-        if not any("private header" in item for item in violations):
-            print("app_dependency_boundary self-test: FAIL (private header not protected)")
-            return 1
+            def expect(source, reason=None):
+                nonlocal cases
+                probe.write_text(source, encoding="utf-8")
+                errors = check_app(root, name)
+                assert (any(reason in e for e in errors) if reason else not errors), (source, errors)
+                cases += 1
 
-        (app / "main" / "probe.c").write_text(
-            '#include "ui_shell.h"\n#include "ft8/app_types.h"\n', encoding="utf-8"
-        )
-        violations = check_app(root, "ft8")
-        if violations:
-            print("app_dependency_boundary self-test: FAIL")
-            for violation in violations:
-                print(f"  {violation}")
-            return 1
-
-        ft8_main = app / "main" / "ft8_main.c"
-        ft8_main.write_text("void f(void) { ui.screen = 0; }\n", encoding="utf-8")
-        violations = check_app(root, "ft8")
-        if not any("forbidden lifecycle coupling" in item for item in violations):
-            print("app_dependency_boundary self-test: FAIL (lifecycle coupling not detected)")
-            return 1
-        ft8_main.write_text("void f(void) { (void)0; }\n", encoding="utf-8")
-
-        rogue = app / "src" / "rogue"
-        rogue.mkdir()
-        (rogue / "rogue.c").write_text("int rogue(void) { return 0; }\n", encoding="utf-8")
-        violations = check_app(root, "ft8")
-        if not any("source/header has no module owner" in item for item in violations):
-            print("app_dependency_boundary self-test: FAIL (unowned module not detected)")
-            return 1
-
-    print("app_dependency_boundary self-test: PASS")
+            # Owner-relative, app-relative, declared roots and basename fallback.
+            for header in ("config_service.h", "src/config_service/config_service.h",
+                           "../src/config_service/./config_service.h"):
+                for opening, closing in (("\"", "\""), ("<", ">")):
+                    if header.startswith("..") and opening == "<":
+                        continue
+                    expect(f"#include {opening}{header}{closing}\n", "main -> config_service")
+            for header in ("app_controller.h", "src/app_controller/app_controller.h",
+                           "../src/app_controller/./app_controller.h"):
+                expect(f'#include "{header}"\n')
+            write("src/app_controller/nested/canonical.hpp")
+            expect('#include <nested/canonical.hpp>\n')
+            write("src/app_controller/nested/fallback.hpp")
+            expect('#include <fallback.hpp>\n')
+            write("src/app_controller/collision.h")
+            write("src/config_service/collision.h")
+            expect('#include <collision.h>\n', "ambiguous local include")
+            expect('#include "collision.h"\n', "ambiguous local include")
+            # Same-directory selection takes precedence over global ambiguity.
+            write("main/collision.h")
+            expect('#include "./collision.h"\n')
+            expect('#include "../../outside.h"\n', "escapes application root")
+            expect('#include <../outside.h>\n', "escapes application root")
+            write("misc/unowned.h")
+            expect('#include "misc/unowned.h"\n', "has no module owner")
+            rogue = write("src/rogue/rogue.c", "int rogue;\n")
+            expect("", "source/header has no module owner")
+            rogue.unlink()
+            # Common standard header names in unrelated nested paths do not
+            # turn ordinary standard includes into local dependencies.
+            write("src/config_service/nested/stdio.h")
+            expect('#include <stdio.h>\n#include <stdint.h>\n')
+            if name == "ft8":
+                write("src/app_controller/app_controller_internal.h")
+                for header in ("app_controller_internal.h",
+                               "src/app_controller/app_controller_internal.h",
+                               "../src/app_controller/app_controller_internal.h"):
+                    expect(f'#include "{header}"\n', "private header")
+                expect('#include <app_controller_internal.h>\n', "private header")
+                expect('#include <src/app_controller/app_controller_internal.h>\n', "private header")
+                write("src/app_controller/owner.c", '#include "./app_controller_internal.h"\n')
+                expect("")
+                lifecycle = write("main/ft8_main.c", "")
+                for source in ("ui.screen = 0;", "ui.submenu = 0;", "SCREEN_MAIN;",
+                               "UI_SUBMENU_TX;", "model.field = 0;"):
+                    lifecycle.write_text(source)
+                    expect("", "forbidden lifecycle coupling")
+                lifecycle.write_text("")
+            expect('#include <app_controller.h>\n')
+    print(f"app_dependency_boundary self-test: PASS ({cases} cases)")
     return 0
 
 
