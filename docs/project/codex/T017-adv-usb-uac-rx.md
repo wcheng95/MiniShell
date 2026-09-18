@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: TESTING
+Status: READY
 
 ## Objective
 
@@ -1789,6 +1789,57 @@ This confirms:
 Next discriminator: while FT8 is waiting with QMX disconnected, press physical Cardputer
 `Q`. If FT8 exits and USB Serial/JTAG returns, the local UI/input path is healthy
 before QMX enumeration and the later freeze is QMX-triggered.
+
+## Hardware finding — probable capture-task allocation failure after UAC install
+
+With QMX already connected, real ADV now gets past ring allocation, USB Host install,
+the 2048-byte control-transfer configuration, and UAC host install, but then returns
+immediately to `M$>` with no further GPIO4 output:
+
+```text
+ADV: USB Host diagnostics on UART0 TX=GPIO4 RX=GPIO5 115200
+I (...) adv_uac: USB Host installed FIFO 91/18/91; heap 77060 largest 31744
+I (...) uac-host: Install Succeed, Version: 1.3.3
+<returns to M$>>
+```
+
+Production `prepare()` has only one fatal operation after successful
+`uac_host_install()`:
+
+```c
+capture_running =
+    xTaskCreate(capture_task, "uac_capture", 4096, nullptr, 4, nullptr) == pdPASS;
+return capture_running;
+```
+
+Therefore the leading hypothesis is dynamic capture-task creation failure after USB/UAC
+enumeration allocations fragment/deplete internal heap. This explains the immediate
+provider-open failure and clean unwind with no later GPIO4 log.
+
+Architect-approved narrow amendment:
+
+1. Make only the private ADV `uac_capture` worker use a statically allocated FreeRTOS
+   task stack + StaticTask_t control block, following the proven V2 principle that the
+   FT8 streaming worker must not depend on a late fragmented heap allocation.
+2. Keep its current stack size (4096 bytes), priority (4), and current core/affinity
+   behavior unchanged for this amendment. Do not combine this with scheduling/core
+   changes yet.
+3. Add one GPIO4 diagnostic around creation:
+   - capture task create begin with heap free/largest;
+   - capture task create success/failure.
+4. On static-task creation failure, preserve the existing prepare-failure unwind.
+5. Keep Host, CDC, UAC class tasks and all USB ownership unchanged.
+6. Keep the 2048-frame lazy canonical ring unchanged.
+7. Add/adjust host/source regression so the capture worker cannot silently regress
+   back to late dynamic `xTaskCreate`.
+8. Re-run Linux full CTest, units, architecture checks, and real ADV build.
+9. Record .bss increase attributable to the 4096-byte static capture stack + TCB.
+10. Resume hardware with QMX connected. The next required GPIO4 milestone is:
+    `capture task create success`, followed by UAC RX enumeration/open.
+
+The static 4 KiB capture stack does consume permanent internal DRAM, but this is far
+smaller than the 64 KiB ring that was removed from .bss. It trades a small predictable
+resident cost for reliable task creation after FT8/UAC heap fragmentation.
 
 ## Architect hardware result
 
