@@ -65,17 +65,17 @@ Codex fills this section before handoff.
 
 ### Invariants preserved
 
-### Tests run
+### Local tests run
 
 ### Manual/hardware validation still required
 
 ### Known limitations / risks
 
-### Commit / PR
+### Commit
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual diff/PR.
+Supervisor fills this after reviewing the actual `main..<commit>` diff and local test evidence. Pull requests are not required unless the task explicitly requests one.
 
 ## Architect test result
 
