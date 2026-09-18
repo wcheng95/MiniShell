@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T020-linux-qmx-cat-tx.md   READY
+T020-linux-qmx-cat-tx.md   TESTING
 ```
 
 T020 extends the validated MiniFT8-owned QMX CAT path with receive-safe/fail-safe TX primitives: `MD6; TX;`, `TAxxxx.xx;`, and `RX;`, plus a bounded diagnostic tone. FT8 encoding/symbol scheduling, AutoSeq physical TX, and Audio TX remain out of scope.
