@@ -149,6 +149,7 @@ RX-8        COMPLETE — live QMX ALSA + V2 timing + continuous capture
 T017        COMPLETE — ADV QMX USB-host RX + lifecycle + post-FT8 usbmsc
 T018        COMPLETE — Linux bare ft8 live-QMX/ADV defaults
 T019        COMPLETE — Linux Serial/CDC + receive-safe QMX CAT sync
+T020        COMPLETE — QMX CAT TX primitives; RF validation deferred to T022
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -258,6 +259,25 @@ and logging. Real hardware validation confirms frequency/mode/VFO synchronizatio
 continued FT8 RX decode, no RF keying, and clean repeated CDC close/reopen.
 
 No transmit CAT commands are part of T019.
+
+## CAT TX primitive baseline
+
+T020 adds the MiniFT8-owned QMX transmit control primitives:
+
+```text
+begin TX    MD6; TX;
+tone        TA%04d.%02d;
+end TX      RX;
+```
+
+The V2 floor/round/clamp tone formatting behavior is preserved, and cleanup
+tracks uncertain TX attempts conservatively so Serial close first makes a
+best-effort `RX;` restoration.
+
+The standalone 1500 Hz RF tone test was intentionally skipped by the architect.
+Therefore T020 is software/review complete but is **not yet hardware-validated**.
+Real QMX keying, tone control, RX restoration, and post-TX receive recovery are
+deferred to the integrated T022 Linux/QMX transmit test.
 
 ## AutoSeq ownership
 
