@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T013-ft8-reference-pin.md   READY
 ```
 
-Accepted cleanup now includes T012/F09 architecture enforcement: one FT8/Keyer rule catalog, fail-closed local include checks, platform/purity checks for both apps, negative self-tests, and normal root CTest registration.
+T013 addresses F11: align the FT8 reference workflow to the canonical MiniFT8-V2 commit, record golden-WAV provenance, and add a drift regression so workflow/docs cannot silently diverge again.
 
-Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> merge/fast-forward to `main` -> delete the temporary branch.
+Workflow: local provenance/checker tests -> pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T013 branch.
 
 ## Rule
 
