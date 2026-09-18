@@ -10,7 +10,7 @@
 - K1 runtime ELF, K2 Digital I/O, K3 Keyer engine, and K4 GPIO KeyIn/KeyOut are complete.
 - MiniFT8 AutoSeq AS-0..AS-8 is complete.
 - MiniFT8 live Linux/QMX RX is working continuously across consecutive FT8 slots.
-- MiniFT8 live Cardputer ADV/QMX USB-host RX now decodes real on-air FT8 at 240 MHz with the V2-compatible `time_osr=2, freq_osr=1` engine profile; T017 lifecycle acceptance is still in progress.
+- MiniFT8 live Cardputer ADV/QMX USB-host RX is fully hardware-validated at 240 MHz with the V2-compatible `time_osr=2, freq_osr=1` engine profile: live decode, consecutive slots, initial late attach, repeated FT8 lifecycle, provider continuity, and post-FT8 `usbmsc` all pass.
 - MiniFT8 V2-style ADIF and Field Day Cabrillo logging are implemented through MiniShell APIs.
 
 ## Current MiniFT8 baseline
@@ -76,10 +76,10 @@ Current MiniFT8 status:
 ```text
 RX-0..RX-7   COMPLETE
 RX-8         COMPLETE — live QMX ALSA, V2 timing, continuous capture
-T017         TESTING — ADV QMX USB-host RX live decode PASS; lifecycle/usbmsc checks remain
+T017         COMPLETE — ADV QMX USB-host RX live decode + lifecycle + usbmsc hardware validation
 AS-0..AS-8   COMPLETE
 LOG-1        COMPLETE — daily ADIF + Field Day Cabrillo
-physical TX  NEXT MAJOR PRODUCTION BOUNDARY after T017 acceptance
+physical TX  NEXT MAJOR PRODUCTION BOUNDARY
 ```
 
 Canonical MiniFT8 entry points:
