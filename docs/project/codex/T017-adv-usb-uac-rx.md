@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -730,6 +730,10 @@ Do not merge before live ADV QMX decode is confirmed.
 
 ## Codex implementation notes
 
+The following records initial implementation commit
+`454368fe570e1f2df2efa1505242c50a0f0c4b6d`. The amendment report below supersedes
+its console-ownership behavior and supplies the current local regression results.
+
 ### Implementation summary / reference mapping
 
 Implemented the bounded ADV QMX UAC RX provider on
@@ -745,7 +749,7 @@ Resolved UAC **1.3.3**, CDC-ACM **2.2.0**, current IDF **v5.5.4**. Exact constra
 are in the ADV manifest. The generated dependency lock remains ignored according
 to existing repository policy.
 
-The architect approved the sole scope extension: reporting UAC 1.3.3's otherwise
+The architect approved the initial scope extension: reporting UAC 1.3.3's otherwise
 silent native RX losses. `patch_uac_rx.py` checks the complete registry
 `uac_host.c` SHA-256 against its published CHECKSUMS.json value:
 
@@ -901,6 +905,122 @@ accepted runtime behavior. No other task-scope deviations were introduced.
 Single T017 implementation commit on `codex/T017-adv-usb-uac-rx`; exact pushed SHA
 is returned in the Codex handoff. Status is REVIEW for supervisor diff review and
 subsequent hardware testing. No PR and no GitHub Actions wait.
+
+## Codex USB ownership amendment handoff
+
+### Implementation summary
+
+Implemented only the authorized USB-PHY/temporary-UART amendment, continuing the
+existing branch. UAC preparation now obtains a private console lease: it calls
+`adv_console_suspend_for_usb()`, prepares UART0 TX=GPIO4 / RX=GPIO5 at 115200,
+then installs USB Host. The wiring matches `sdkconfig` at the pinned V2 reference
+`491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`; MiniShell's normal build-time console
+selection remains USB Serial/JTAG.
+
+The temporary UART uses 8N1, no flow control, 256-byte RX and 2048-byte TX buffers.
+It requires no connected terminal for FT8 operation. GPIO5 is configured but has
+no input consumer; Cardputer keyboard/display remain the only FT8 input/UI policy.
+
+`esp_log_set_vprintf()` routes ESP-IDF/ADV logs to UART while the host lease is
+active; the prior log sink is saved and restored. MiniShell System/debug output
+through `adv_console_debug_write()` shares the UART route. The one direct ADV
+filesystem error diagnostic now uses that route too; filesystem operations are
+unchanged. Output and UART deletion are serialized with a recursive lock, including
+callbacks already in flight when the log sink changes. The UART formatting buffer
+is fixed at 512 bytes (long ESP log calls truncate to 511 output bytes).
+
+### Failure unwind and preserved invariants
+
+- The console lease records successful suspension and even partial UART setup.
+  A failed USB suspension restores the existing VFS driver mode and does not claim
+  the lease. UART setup failure releases only UART resources this owner acquired,
+  then restores USB Serial/JTAG; it never deletes an already-owned foreign UART0.
+- The provider joins capture/CDC workers, retries retained device closes,
+  uninstalls CDC/UAC clients, drains host events and confirms successful
+  `usb_host_uninstall()` before allowing console restoration. A device close error
+  retains its handle instead of losing the resource needed for the next retry.
+- If device/class/host teardown fails, the provider returns IO, retains its
+  reservation/console lease and leaves UART diagnostics active. It does not restore
+  USB Serial/JTAG over the owned PHY. Failed cleanup on a later open also returns
+  IO. Existing cleanup retry paths remain available.
+- Once Host and both class drivers are gone, cleanup drains/deletes the UART,
+  restores its previous ESP log sink, releases GPIO4/5 and reinstalls Serial/JTAG.
+  Failed UART cleanup or Serial/JTAG restoration retains the corresponding lease
+  state for retry. Clean repeated entry/exit acquires/releases both owners anew.
+- If failed cleanup returns to the local shell, that shell skips unavailable USB
+  input. A retained UAC lease rejects a competing console suspension, preventing
+  `usbmsc` from starting TinyUSB over a still-owned PHY. The MSC implementation and
+  its normal handoff sequence are unchanged.
+- No UART/USB logic entered MiniFT8 or public APIs. UAC format, converter, ring,
+  discontinuity patch, WAV dispatch and packaged FT8 default are unchanged.
+
+### Files changed
+
+- `platform/adv/adv_console.c`: temporary UART, diagnostic routing, saved log sink,
+  Serial/JTAG handoff/recovery and retained-lease protection.
+- `platform/adv/adv_usb_console_handoff.h`: private, host-testable lease transitions.
+- `platform/adv/adv_audio_uac.cpp`: acquire/release integration, retained device
+  handles and diagnostics for cleanup errors.
+- `platform/adv/adv_internal.h`: private console-handoff declarations.
+- `platform/adv/adv_filesystem.c`: route its error diagnostic through ADV debug.
+- `tests/adv_usb_console_handoff_test.c`, `tests/adv_usb_console_boundary.py`, root
+  `CMakeLists.txt`: lifecycle/failure and integration regressions.
+- This task report. No `adv_usbmsc.c`, shared FT8, SDK configuration, component
+  version or managed-driver-patch change.
+
+### Tests run and results
+
+Re-ran the full local gate:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T017-build-unit
+cmake --build /tmp/T017-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T017-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+Results: Linux **41/41 PASS**, portable units **14/14 PASS**, architecture checks
+and checker self-tests **PASS**, real ESP-IDF **v5.5.4 ADV build PASS**,
+whitespace check **PASS**. UAC 1.3.3 and CDC 2.2.0 remain resolved.
+
+The new lease test injects suspend, UART setup, UART cleanup and console-restore
+failures; verifies partial-prepare unwind, repeated teardown retries with a busy
+PHY, no early UART shutdown/USB restoration, idempotent release and three complete
+entry/exit cycles. The source regression connects those tested transitions to the
+provider's actual prepare/release ordering, verifies the retained-host MSC guard,
+GPIO4/5/115200 selection, saved/restored log sink and absence of UART input policy.
+These are local software checks, not simulated claims of real QMX enumeration.
+
+Firmware is **0xb8a20 bytes** with **0x5375e0 bytes (88%)** app partition free.
+Compared with the initial T017 map, `.dram0.bss` increased from 0x13018 to 0x13030
+(**24 bytes**); `.dram0.data` remains 0x4b68. UART driver buffers/locks add temporary
+heap demand; actual free heap/largest block remains unmeasured.
+
+### Hardware/manual validation still required / risks
+
+**Hardware testing has not begun.** Await supervisor re-review before any flash,
+serial terminal or QMX acceptance session. Still to validate: USB disconnect and
+re-enumeration, GPIO4 diagnostics, repeated FT8 entry/quit, failure recovery, live
+QMX decode/ring occupancy, heap stability, and the unchanged MSC sequence after
+clean Host release. ESP log formatting is bounded and may truncate long diagnostic
+calls; large diagnostic bursts can wait for UART TX capacity. ROM/panic output is
+not reconfigured as a runtime UART console. UART input is intentionally unused.
+The pre-existing UAC live-audio hardware acceptance also remains pending.
+
+### Commit reference
+
+New amendment commit on `codex/T017-adv-usb-uac-rx`, based on the existing
+implementation and updated task packet. Its exact pushed SHA is returned in the
+handoff. Status: REVIEW. No PR, no Actions wait, no hardware testing. No deviation
+from the newly authorized amendment.
 
 ## Architect USB ownership decision
 

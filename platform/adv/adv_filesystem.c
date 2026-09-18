@@ -282,7 +282,9 @@ static int native_stat(const char *path)
 
 static void rename_report(const char *operation, const char *backup, int error)
 {
-    fprintf(stderr, "ADV filesystem: %s: %s (errno %d)\n", operation, backup, error);
+    char line[PATH_MAX + 96];
+    (void)snprintf(line, sizeof(line), "ADV filesystem: %s: %s (errno %d)\n", operation, backup, error);
+    adv_console_debug_write(line);
 }
 
 static mini_result_t fs_rename(void *ctx, const char *old_path,

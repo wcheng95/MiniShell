@@ -29,7 +29,31 @@ std::atomic<bool> reserved{false}, started{false}, connected{false};
 std::atomic<bool> quit{false}, host_quit{false}, unplugged{false}, cdc_unplugged{false};
 std::atomic<bool> host_installed{false};
 bool uac_installed, cdc_installed, capture_running, host_running, cdc_running;
+// Worker-owned until joined; retain failed closes for foreground cleanup retry.
+uac_host_device_handle_t capture_device;
+cdc_acm_dev_hdl_t cdc_device;
 std::atomic<unsigned> read_errors{0}, transfer_errors{0};
+
+bool close_capture()
+{
+    if (!capture_device) return true;
+    if (uac_host_device_close(capture_device) != ESP_OK) {
+        ESP_LOGE(tag, "UAC close incomplete; handle retained");
+        return false;
+    }
+    capture_device = nullptr;
+    return true;
+}
+bool close_cdc()
+{
+    if (!cdc_device) return true;
+    if (cdc_acm_host_close(cdc_device) != ESP_OK) {
+        ESP_LOGE(tag, "CDC close incomplete; handle retained");
+        return false;
+    }
+    cdc_device = nullptr;
+    return true;
+}
 
 void loss()
 {
@@ -85,12 +109,11 @@ void cdc_event(const cdc_acm_host_dev_event_data_t *event, void *)
 }
 void cdc_task(void *)
 {
-    cdc_acm_dev_hdl_t device = nullptr;
+    cdc_acm_dev_hdl_t &device = cdc_device;
     while (!quit) {
         if (cdc_unplugged.exchange(false) && device) {
-            cdc_acm_host_close(device);
-            device = nullptr;
-            ESP_LOGI(tag, "CDC disconnected");
+            if (close_cdc()) ESP_LOGI(tag, "CDC disconnected");
+            else cdc_unplugged = true;
         }
         if (!device) {
             cdc_acm_host_device_config_t config = {};
@@ -103,18 +126,21 @@ void cdc_task(void *)
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
-    if (device) cdc_acm_host_close(device);
+    close_cdc();
     xSemaphoreGive(cdc_done);
     vTaskDelete(nullptr);
 }
 void capture_task(void *)
 {
-    uac_host_device_handle_t device = nullptr;
+    uac_host_device_handle_t &device = capture_device;
     bool streaming = false;
     while (!quit) {
         if (unplugged.exchange(false) && device) {
-            uac_host_device_close(device);
-            device = nullptr;
+            if (!close_capture()) {
+                unplugged = true;
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
             streaming = false;
         }
         Connection item;
@@ -129,12 +155,12 @@ void capture_task(void *)
             if (uac_host_device_open(&config, &device) != ESP_OK) continue;
             uac_host_dev_info_t info = {};
             if (uac_host_get_device_info(device, &info) != ESP_OK || info.VID != vid || info.PID != pid) {
-                uac_host_device_close(device);
-                device = nullptr;
+                if (!close_capture()) unplugged = true;
                 continue;
             }
             ESP_LOGI(tag, "QMX 0483:a34c UAC RX interface %u opened", item.interface);
         }
+        if (unplugged) continue;
         if (!device || !started) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
         portENTER_CRITICAL(&lock);
         bool reset = ring.reset_required;
@@ -189,7 +215,7 @@ void capture_task(void *)
     connected = false;
     if (device) {
         if (streaming) uac_host_device_stop(device);
-        uac_host_device_close(device);
+        close_capture();
     }
     xSemaphoreGive(capture_done);
     vTaskDelete(nullptr);
@@ -201,12 +227,19 @@ bool release()
     quit = true;
     if (capture_running) { xSemaphoreTake(capture_done, portMAX_DELAY); capture_running = false; }
     if (cdc_running) { xSemaphoreTake(cdc_done, portMAX_DELAY); cdc_running = false; }
+    if (!close_capture() || !close_cdc()) return false;
     if (cdc_installed) {
-        if (cdc_acm_host_uninstall() != ESP_OK) return false;
+        if (cdc_acm_host_uninstall() != ESP_OK) {
+            ESP_LOGE(tag, "CDC uninstall incomplete; USB console remains suspended");
+            return false;
+        }
         cdc_installed = false;
     }
     if (uac_installed) {
-        if (uac_host_uninstall() != ESP_OK) return false;
+        if (uac_host_uninstall() != ESP_OK) {
+            ESP_LOGE(tag, "UAC uninstall incomplete; USB console remains suspended");
+            return false;
+        }
         uac_installed = false;
     }
     host_quit = true;
@@ -220,7 +253,8 @@ bool release()
     if (capture_done) { vSemaphoreDelete(capture_done); capture_done = nullptr; }
     if (cdc_done) { vSemaphoreDelete(cdc_done); cdc_done = nullptr; }
     if (host_done) { vSemaphoreDelete(host_done); host_done = nullptr; }
-    return true;
+    // No restoration until both class clients and the host PHY are gone.
+    return adv_console_end_usb_host(host_installed || uac_installed || cdc_installed) == 0;
 }
 bool prepare()
 {
@@ -230,6 +264,7 @@ bool prepare()
     host_done = xSemaphoreCreateBinary();
     cdc_done = xSemaphoreCreateBinary();
     if (!connections || !capture_done || !host_done || !cdc_done) return false;
+    if (adv_console_begin_usb_host() != 0) return false;
     usb_host_config_t host = {};
     host.intr_flags = ESP_INTR_FLAG_LEVEL1;
     host.fifo_settings_custom.rx_fifo_lines = 91;
@@ -274,7 +309,8 @@ mini_result_t rx_open(void *ctx, const char *endpoint, uint32_t rate, uint32_t f
     if (reserved.exchange(true)) {
         // A previous close may have retained infrastructure after a teardown
         // error. Retry cleanup, but never steal an active stream.
-        if (started || !release()) return MINI_ERR_TOO_MANY_OPEN;
+        if (started) return MINI_ERR_TOO_MANY_OPEN;
+        if (!release()) return MINI_ERR_IO;
     }
     memset(&ring, 0, sizeof(ring));
     read_errors = transfer_errors = 0;
