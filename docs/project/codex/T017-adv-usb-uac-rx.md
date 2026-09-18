@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: BLOCKED
+Status: READY
 
 ## Objective
 
@@ -364,26 +364,101 @@ service task.
 If CDC support creates an unexpected component/API conflict, keep UAC as the mandatory
 deliverable, record CDC as deferred, and do not contaminate Audio ownership to force it.
 
-## USB console and usbmsc coexistence
+## USB PHY ownership, debug console and usbmsc coexistence
 
-The existing ADV USB Serial/JTAG console must remain usable according to the current
-board behavior.
+This section is an architect decision and is mandatory for the T017 amendment.
 
-The OTG host lifecycle must be fully released when the UAC stream closes so the
-existing TinyUSB device-mode MSC workflow still works afterward.
+The ESP32-S3 internal USB PHY has exactly one MiniShell owner at a time.
+
+Canonical ownership state:
+
+```text
+normal M$> shell
+    USB Serial/JTAG console active
+    GPIO4/5 debug UART inactive
+    USB Host inactive
+    TinyUSB MSC inactive
+
+enter ft8 using uac:qmx
+    suspend/uninstall USB Serial/JTAG
+    enable temporary V2-style debug UART
+        TX = GPIO4
+        RX = GPIO5
+        baud = 115200
+    install USB Host
+    run QMX UAC + optional CDC
+    Cardputer display/keyboard remain the authoritative FT8 UI/input
+
+clean ft8 exit
+    stop capture
+    close UAC device
+    close CDC device
+    uninstall CDC/UAC class drivers
+    drain USB host events
+    usb_host_uninstall()
+    CONFIRM PHY RELEASED
+    disable temporary GPIO4/5 debug UART
+    restore USB Serial/JTAG console
+    return to normal M$>
+
+usbmsc from M$>
+    keep existing usbmsc ownership handoff unchanged:
+    suspend USB Serial/JTAG
+    run TinyUSB MSC device mode
+    stop MSC
+    restore USB Serial/JTAG
+    return M$>
+```
+
+Required implementation rules:
+
+1. Reuse `adv_console_suspend_for_usb()` before `usb_host_install()`.
+2. Do not call `usb_host_install()` while USB Serial/JTAG is still installed.
+3. Add a private ADV temporary debug-UART owner using the proven MiniFT8-V2 console
+   wiring:
+   - UART TX GPIO4
+   - UART RX GPIO5
+   - 115200 baud.
+4. The GPIO4/5 UART is a diagnostics/debug terminal during the FT8 USB-host window.
+   It is not a new public MiniShell service and not part of MiniFT8 application
+   logic.
+5. Route ADV/System/debug diagnostics that would otherwise disappear while USB
+   Serial/JTAG is suspended to GPIO4/5 during this window.
+6. Cardputer Display/Input remain the authoritative FT8 UI/control path.
+7. GPIO5 RX may accept debug-terminal input only if it can be done without creating
+   competing FT8 UI/application policy. Diagnostic output is mandatory; UART input
+   is optional for T017.
+8. Restore USB Serial/JTAG only after UAC/CDC are gone and
+   `usb_host_uninstall()` has actually released the PHY.
+9. If USB Host teardown is incomplete:
+   - do NOT re-enable USB Serial/JTAG;
+   - keep/report diagnostics through GPIO4/5 where possible;
+   - return an error and preserve enough state for a later cleanup retry.
+10. If prepare fails after USB Serial/JTAG was suspended, unwind whatever host/class
+    ownership was acquired; restore USB Serial/JTAG only when the PHY is confirmed
+    free.
+11. Repeated `ft8 -> quit -> ft8` must suspend/restore both console owners cleanly.
+12. Do not attempt UAC-host and TinyUSB MSC device mode simultaneously.
+13. Do not change `usbmsc`'s already validated handoff behavior.
 
 Hardware acceptance therefore includes:
 
 ```text
-ft8 live UAC
--> quit to M$>
--> usbmsc flash
+normal M$> visible over USB Serial/JTAG
+-> run ft8
+-> USB Serial/JTAG disconnects
+-> GPIO4 TX shows T017/UAC diagnostics at 115200
+-> Cardputer display/keyboard run FT8
+-> q
+-> UAC/CDC stop
+-> USB Host fully uninstalls
+-> USB Serial/JTAG enumerates again
+-> M$> available again over USB
+-> run usbmsc flash
 -> PC sees storage
 -> eject
 -> Q returns to M$>
 ```
-
-Do not attempt simultaneous UAC-host and MSC-device mode.
 
 ## ADV default FT8 RX
 
@@ -909,7 +984,14 @@ Scope/behavior:
 
 ## Supervisor review
 
-BLOCKED before hardware testing on USB PHY ownership.
+AMENDMENT AUTHORIZED. Do not begin hardware testing until the USB-PHY ownership
+amendment above is implemented and re-reviewed.
+
+The prior implementation remains otherwise acceptable in structure: UAC/CDC stay
+platform-private; canonical conversion/ring/discontinuity ownership is correct;
+WAV delegation and ADV ft8 packaging are preserved. The required delta is the
+explicit console/PHY handoff plus temporary V2-style GPIO4/5 debug UART described
+above.
 
 The implementation is otherwise well-shaped: UAC/CDC remain platform-private, the provider emits canonical 12 kHz/S16/stereo, the 16K-frame ring/epoch logic preserves continuity facts, WAV delegation is retained, bare ADV ft8 injects uac:qmx only at composition, Linux 39/39 and units 14/14 pass, and the real ADV build succeeds.
 
