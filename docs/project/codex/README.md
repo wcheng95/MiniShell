@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T011-linux-export-boundary.md   READY
 ```
 
-Accepted cleanup now includes T010: ADV Audio TX forwards caller timeout/progress to I2S. Hardware validation shows the 20 ms Keyer-shaped path remains healthy and `MINI_WAIT_NONE` now behaves nonblocking.
+T011 addresses F08: Linux runtime modules should dynamically resolve only the public `mini_api_get` entry point, not private MiniShell service/backend implementation symbols.
 
-Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> required hardware validation -> merge/fast-forward to `main` -> delete the temporary branch.
+Workflow: local build/test -> pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T011 branch.
 
 ## Rule
 
