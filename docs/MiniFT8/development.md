@@ -161,12 +161,36 @@ freq_osr       1
 Live memory at `freq_osr=1` is approximately 142.2 KiB free / 82.0 KiB largest
 block with 129.2 KiB attributed to the FT8 application. A temporary
 `freq_osr=2` test remained alive but increased application allocation to about
-232.2 KiB, leaving 58.8 KiB free / 31.0 KiB largest, and produced no decode.
-Therefore `freq_osr=1` remains the accepted ADV profile.
+232.2 KiB, leaving 58.8 KiB free / 31.0 KiB largest. No messages were observed
+during that short comparison, but decode duration/candidate load were not measured;
+the extra CPU cost may be material on ESP32-S3. Therefore the result is inconclusive
+for decode quality/performance and `freq_osr=1` remains the accepted ADV profile.
 
-T017 still needs only lifecycle acceptance: disconnected startup + late attach,
-three consecutive slots, repeated entry/exit, provider continuity/ring statistics,
-and `usbmsc` after USB-host teardown.
+T017 still needs only lifecycle acceptance: initial disconnected startup + late first
+attach, three consecutive slots, repeated entry/exit, provider continuity/ring
+statistics, and `usbmsc` after USB-host teardown. Post-session QMX unplug/replug
+recovery is not required because real QMX hardware can fail a second enumeration,
+matching the practical V2 limitation.
+
+### Deferred freq_osr=2 performance work
+
+The `freq_osr=2` experiment established memory feasibility but did not measure
+decoder execution time. It approximately doubles the monitor-frequency workspace
+dimension and materially increases both RAM and compute. The architect estimates
+ESP32-S3 decode may take roughly 3-4 seconds at that setting.
+
+Any revisit should measure at minimum:
+
+```text
+decode wall time
+candidate count / LDPC work
+ring high-water while decode is synchronous
+overflow/discontinuity count
+heap free / largest block
+number/quality of decoded signals versus freq_osr=1
+```
+
+This is intentionally outside T017.
 
 ## RX timing contract
 
