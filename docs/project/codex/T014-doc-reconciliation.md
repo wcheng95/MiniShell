@@ -1,6 +1,6 @@
 # T014 — Reconcile canonical architecture and status documentation
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Objective
 
@@ -627,8 +627,10 @@ returned in the handoff; this report is part of that commit.
 
 ## Supervisor review
 
-Supervisor reviews the actual documentation diff against current production source and accepted task evidence.
+PASS. Reviewed `1c76e490cb390efde306476c2d70307be4d294c2` against `main`. The change is documentation-only and reconciles current canonical status with production source and accepted T002-T013 evidence. ADV external paths now consistently use `/flash/apps` and `/sd/apps`; Digital I/O is documented as a current public v3 service; runtime ELF loading is described as implemented/hardware-validated; MiniFT8 ownership reflects current RX/AutoSeq/log_service modules; Keyer K5 is accurately labeled implemented / transport hardware-validated without claiming K6/K7; and Memory diagnostics are documented as controller model-build snapshots rather than screen-owned polling.
+
+Historical audit/task records remain untouched. Focused architecture/reference checks 7/7, unit suite 14/14, and full Linux 34/36 results are accepted with only the two known baseline failures. Commit was fast-forwarded directly to `main`.
 
 ## Architect test result
 
-No hardware validation is required for this documentation-only task.
+ACCEPTED. No hardware validation required.
