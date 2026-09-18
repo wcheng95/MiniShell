@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T019-linux-qmx-cat.md   READY
+T019-linux-qmx-cat.md   TESTING
 ```
 
 T019 adds a MiniShell-owned Serial/CDC byte-stream boundary on Linux and a MiniFT8-owned QMX CAT adapter. This first slice is receive-safe only: explicit CAT endpoint, mode/VFO/frequency synchronization, no TX/RX/TA commands.
