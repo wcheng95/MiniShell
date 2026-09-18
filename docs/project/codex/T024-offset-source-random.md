@@ -1,6 +1,6 @@
 # T024 — station.txt offset source / Random TX offset
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -846,6 +846,85 @@ Review exact diff, particularly:
 - no mutation of AutoSeq received offset facts;
 - plan/RT/CAT consistency;
 - no T022 timing/RX cleanup regressions.
+
+
+## Supervisor review — offset source accepted for hardware testing
+
+PASS on `385416a5ed028faae0199bbe062151d0368500a3`.
+
+Reviewed the single implementation commit from T024 task head
+`176d7a8e7cc80e5b019243872b005e6311637969`.
+
+Accepted configuration contract:
+
+```text
+offset_src=0  Random
+offset_src=1  Fixed
+offset_src=2  RX
+offset=1500   fixed offset value
+```
+
+The numeric source meanings match pinned V2. Missing keys default to Random/1500.
+Both fields are now serialized, so T023 CQ/POTA saves preserve the architect's
+manual `offset_src=0` setting.
+
+Accepted ownership:
+
+```text
+AutoSeq intent/reference offset
+    -> app-owned tx_offset policy
+    -> resolved local intent
+    -> unchanged T021 encoder
+    -> immutable plan base_hz
+    -> T022 RT/CAT physical path
+```
+
+AutoSeq queue facts are not modified by source resolution.
+
+Random implementation review:
+
+- pure application module;
+- xorshift32 state is per AppController;
+- no heap;
+- no libc/global/platform PRNG;
+- seed uses only controller-observed MiniShell monotonic/UTC values plus a fixed
+  nonzero mixing constant;
+- zero state is repaired deterministically;
+- mapping is exactly `500 + random % 2001`;
+- Random range is therefore 500..2500 inclusive.
+
+Accepted source behavior:
+
+- Random: CQ/POTA, QSO/retry and free text resolve a new base per eligible physical
+  attempt;
+- Fixed: exactly configured 300..2700 Hz;
+- RX: valid 300..2700 factual offset is used for QSO intents only;
+- RX CQ/POTA/free text and invalid RX offsets fall back to Random;
+- Fixed and valid RX do not consume PRNG state;
+- no-CAT AS-7 simulation remains deterministic and does not consume PRNG state.
+
+Physical integration ordering is correct: resolution occurs once after
+slot/parity/freshness eligibility and before the T021 snapshot. The resulting
+value is copied into `app->tx.last_intent.offset_hz`, becomes
+`Ft8TxPlan.base_hz`, is written to the RT T record, and feeds every QMX TA tone.
+It is not re-rolled during the 79-symbol message.
+
+Accepted evidence:
+
+```text
+Linux CTest          55/55 PASS
+portable units       15/15 PASS
+ASan/UBSan focused   PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+No T022 scheduler/RX/CAT behavior, T023 UI behavior, AutoSeq state machine, or
+T021 encoder implementation was modified.
+
+No blocking software finding. T024 is TESTING for real pc-1/QMX Random-offset
+validation.
 
 ## Architect test result
 
