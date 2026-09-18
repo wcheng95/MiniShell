@@ -148,6 +148,7 @@ RX-7        COMPLETE — decoded application/UI path
 RX-8        COMPLETE — live QMX ALSA + V2 timing + continuous capture
 T017        COMPLETE — ADV QMX USB-host RX + lifecycle + post-FT8 usbmsc
 T018        COMPLETE — Linux bare ft8 live-QMX/ADV defaults
+T019        COMPLETE — Linux Serial/CDC + receive-safe QMX CAT sync
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -229,6 +230,34 @@ Slot:
 ```
 
 `Ft8Engine` does not own or read a clock.
+
+## Linux CAT baseline
+
+T019 proves the CAT ownership split on real pc-1/QMX hardware:
+
+```text
+app_controller
+    -> MiniFT8 radio_control / radio_qmx
+       owns QMX CAT semantics
+    -> MiniShell Serial/CDC
+       owns raw byte transport/lifecycle
+    -> QMX USB CDC
+```
+
+Receive-safe startup commands:
+
+```text
+MD6;
+FR0;
+FT0;
+FA%011u;
+```
+
+The selected-band dial frequency is now a single MiniFT8-owned source used by CAT
+and logging. Real hardware validation confirms frequency/mode/VFO synchronization,
+continued FT8 RX decode, no RF keying, and clean repeated CDC close/reopen.
+
+No transmit CAT commands are part of T019.
 
 ## AutoSeq ownership
 
@@ -380,11 +409,11 @@ AutoSeq TxIntent
         v
 app_controller
         |
-        +-> MiniShell Control / CAT
-        `-> MiniShell Audio TX
-                |
-                v
-              QMX
+        +-> MiniFT8 radio_qmx -> MiniShell Serial/CDC
+        `-> MiniFT8 waveform -> MiniShell Audio TX
+                                  |
+                                  v
+                                 QMX
 ```
 
 Keep the current UTC slot/parity gate, logging trigger, retry progression, and V2
