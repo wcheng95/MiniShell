@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T011-linux-export-boundary.md   READY
+none
 ```
 
-T011 addresses F08: Linux runtime modules should dynamically resolve only the public `mini_api_get` entry point, not private MiniShell service/backend implementation symbols.
+Accepted cleanup now includes T011/F08 Linux runtime export-boundary enforcement: external modules resolve `mini_api_get` but private MiniShell implementation symbols are not dynamically exported.
 
-Workflow: local build/test -> pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T011 branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> merge/fast-forward to `main` -> delete the temporary branch.
 
 ## Rule
 
