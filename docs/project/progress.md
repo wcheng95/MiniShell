@@ -92,7 +92,7 @@ LOG-1        COMPLETE — daily ADIF + Field Day Cabrillo
 T022         COMPLETE — integrated Linux/QMX physical FT8 TX + RX recovery + RxTxLog
 T023         COMPLETE — CQ/CQ POTA + beacon OFF/EVEN/ODD, hardware validated
 T024         COMPLETE — V2-compatible Random/Fixed/RX TX offset, hardware validated
-WinBook      RX DECODE PASS — pc-1 binaries run; QMX CAT/TX still unresolved
+WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 ```
 
 Canonical MiniFT8 entry points:
