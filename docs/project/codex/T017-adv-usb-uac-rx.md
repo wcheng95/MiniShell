@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: TESTING
+Status: BLOCKED
 
 ## Objective
 
@@ -1150,6 +1150,55 @@ Required amendment:
 8. Re-run Linux 39/39, units 14/14, architecture checks, and the real ADV build.
 
 After this amendment, return a new implementation SHA for supervisor re-review. Do not begin hardware acceptance on 454368fe570e1f2df2efa1505242c50a0f0c4b6d.
+
+## Hardware finding — first T017 run
+
+First real ADV run failed before USB-host ownership:
+
+```text
+ft8: failed to start RX audio
+app: ft8 returned 8
+GPIO4 debug UART: no output
+```
+
+Interpretation: result 8 covers `app_controller_start_rx()`, and that function allocates
+the FT8 engine/workspace before calling the Audio provider's `open()`. Therefore no
+GPIO4 banner strongly indicates execution never reached `adv_console_begin_usb_host()`
+or `usb_host_install()`.
+
+Memory pressure is the primary hypothesis. The production FT8 baseline
+time_osr=2/freq_osr=2 monitor requires approximately 206 KiB of one contiguous
+workspace (waterfall alone is 161076 bytes). T017 added approximately 64 KiB static
+DRAM for the 16384-frame canonical UAC ring before FT8 starts. The pre-T017 ADV
+largest-block baseline was about 280 KiB, so the static ring plus foreground app stack
+can plausibly make the FT8 workspace allocation fail before Audio open.
+
+Required confirmation before changing USB code:
+
+```text
+M$> free
+```
+
+Record free heap and largest block immediately before launching FT8.
+
+Preferred correction if the hardware numbers confirm this diagnosis:
+
+- do not keep the 16384-frame UAC canonical ring as permanent static .bss;
+- allocate the provider ring lazily only for the `uac:qmx` endpoint, after the FT8
+  engine workspace has already been allocated;
+- free the ring on clean Audio close;
+- retain it if teardown fails and cleanup obligation remains;
+- keep ring size 16384 initially; do not reduce buffering until hardware high-water
+  measurements justify it;
+- WAV/shell/non-UAC operation must pay no 64 KiB UAC ring cost;
+- preserve all conversion/epoch/discontinuity semantics and existing host tests;
+- add allocation failure coverage and diagnostics showing requested ring bytes plus
+  free/largest heap around UAC open;
+- after the correction, repeat the same hardware test before investigating USB PHY
+  or enumeration.
+
+Do not treat the absence of GPIO4 output as evidence of a USB-host failure until the
+pre-Audio FT8 allocation path is ruled out.
 
 ## Architect hardware result
 
