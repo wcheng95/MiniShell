@@ -1,6 +1,6 @@
 # T015 — Fix ADV rename replacement semantics
 
-Status: REVIEW
+Status: TESTING
 
 ## Bug
 
@@ -344,7 +344,13 @@ returned in the handoff; these notes are part of that commit.
 
 ## Supervisor review
 
-Supervisor reviews the actual diff, replacement state machine and failure behavior.
+PASS for hardware testing. Reviewed `ae17ec4f6d3892650e4284b0e32b9e45b9eada52` against current `main`.
+
+The fix is correctly placed in the ADV Filesystem backend. The helper preserves the MiniShell replacement contract without changing FT8, the portable Filesystem service, or the Linux backend. It first attempts native rename, enters fallback only on destination-exists, chooses a collision-safe same-directory backup, moves the committed destination aside, installs the source, then removes the backup. Ordinary pre-commit failures leave the old destination intact or restore it; rollback failure reports IO and retains recovery data instead of deleting it.
+
+The focused host test covers absent/existing destination, candidate collision/race, non-EEXIST errors, backup-move failure, install failure plus rollback, rollback failure, cleanup failure after commit, cross-volume rejection, candidate exhaustion, operand aliases, path-capacity failure, and the unchanged FT8 storage_service safe-save path over an existing station.txt. Local focused 9/9, unit 14/14, full Linux 35/37 with only accepted baseline failures, and the real ADV firmware build are accepted.
+
+T015 is now TESTING. Do not merge until the architect repeats the four reported O-screen setting paths on Cardputer ADV and confirms persistence/no normal-save residue.
 
 ## Architect hardware result
 
