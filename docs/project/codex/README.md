@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T022-linux-qmx-first-qso.md   TESTING
+T022-linux-qmx-first-qso.md      COMPLETE
 T023-cq-beacon-ui.md          COMPLETE
 T024-offset-source-random.md    COMPLETE
 ```
 
-T022 remains TESTING with real on-air TX/RxTxLog proven. T023 and T024 are COMPLETE: CQ/POTA beacon controls and V2-compatible Random/Fixed/RX offset resolution both passed real QMX operator validation. The stacked Linux feature set is ready for WinBook/TW700 portability testing.
+T022-T024 are COMPLETE and accepted for consolidation onto main. pc-1/QMX has real on-air TX, decodability, RX recovery, RxTxLog, CQ/POTA beacon, and Random-offset validation. A completed two-way QSO remains an operational follow-up. WinBook/TW700 runs the pc-1 binaries and decodes QMX audio; WinBook CAT/TX is the next unresolved portability item.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
