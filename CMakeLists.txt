@@ -111,6 +111,7 @@ add_minishell_app(ft8
     apps/ft8/src/config_service/config_service.c
     apps/ft8/src/presentation_profile/presentation_profile.c
     apps/ft8/src/storage_service/storage_service.c
+    apps/ft8/src/log_service/log_service.c
     apps/ft8/src/tx_lifecycle/tx_lifecycle.c
     apps/ft8/src/ui_shell/ui_shell.c
     apps/ft8/src/rx_audio_adapter/rx_audio_adapter.c
@@ -139,6 +140,7 @@ target_include_directories(ft8 PRIVATE
     apps/ft8/src/config_service
     apps/ft8/src/presentation_profile
     apps/ft8/src/storage_service
+    apps/ft8/src/log_service
     apps/ft8/src/tx_lifecycle
     apps/ft8/src/ui_shell
     apps/ft8/src/rx_audio_adapter
@@ -195,6 +197,13 @@ set_target_properties(audio_probe PROPERTIES
 )
 target_compile_options(audio_probe PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(ft8_log_service_unit
+    tests/ft8_log_service_test.c
+    apps/ft8/src/log_service/log_service.c
+)
+target_include_directories(ft8_log_service_unit PRIVATE include apps/ft8/src/log_service)
+target_compile_options(ft8_log_service_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
 add_executable(ft8_storage_service_unit
     tests/ft8_storage_service_test.c
     apps/ft8/src/storage_service/storage_service.c
@@ -217,6 +226,7 @@ target_include_directories(ft8_runtime_grid_ownership_unit PRIVATE
     apps/ft8/src/auto_seq
     apps/ft8/src/config_service
     apps/ft8/src/storage_service
+    apps/ft8/src/log_service
     apps/ft8/src/tx_lifecycle
 )
 target_compile_options(ft8_runtime_grid_ownership_unit PRIVATE
@@ -272,6 +282,7 @@ target_include_directories(ft8_tx_lifecycle_as7_unit PRIVATE
     apps/ft8/src/auto_seq
     apps/ft8/src/config_service
     apps/ft8/src/storage_service
+    apps/ft8/src/log_service
     apps/ft8/src/tx_lifecycle
 )
 target_link_libraries(ft8_tx_lifecycle_as7_unit PRIVATE ft8_auto_seq_core)
@@ -477,6 +488,7 @@ add_test(
             ${CMAKE_SOURCE_DIR}/tests/kfs16b12k.wav
 )
 
+add_test(NAME ft8_log_service_unit COMMAND ft8_log_service_unit)
 add_test(NAME ft8_storage_service_unit COMMAND ft8_storage_service_unit)
 add_test(NAME ft8_runtime_grid_ownership_unit COMMAND ft8_runtime_grid_ownership_unit)
 add_test(NAME ft8_ui_smoke COMMAND ft8_ui_smoke)

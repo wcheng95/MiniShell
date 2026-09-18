@@ -371,6 +371,9 @@ bool app_controller_init(AppController *app, const mini_api_t *api,
     int path_length = snprintf(app->station_path, sizeof(app->station_path), "%s", station_path);
     if (path_length < 0 || (size_t)path_length >= sizeof(app->station_path)) return false;
 
+    if (!log_service_init(&app->log, api->fs, api->time_location, app->station_path))
+        return false;
+
     config_service_defaults(&app->config);
 
     char text[2048];

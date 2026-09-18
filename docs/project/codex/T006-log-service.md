@@ -1,6 +1,6 @@
 # T006 — Extract MiniFT8 logging ownership
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -369,21 +369,21 @@ If the diff is clean and required local tests passed, the supervisor will fast-f
 
 ## Acceptance criteria
 
-- [ ] Dedicated application-private logging owner exists.
-- [ ] app_controller no longer serializes ADIF/Cabrillo or mutates log files directly.
-- [ ] controller still owns TX-start ordering and independent ACK decisions.
-- [ ] AutoSeq remains pure and owns only eligibility/ACK state.
-- [ ] log_service receives immutable station/event facts rather than AppController/ConfigService ownership.
-- [ ] MiniShell FS/Time APIs are the only platform-visible dependencies.
-- [ ] exact ADIF output is preserved.
-- [ ] exact Field Day Cabrillo output is preserved.
-- [ ] T004 effective-grid logging behavior is preserved.
-- [ ] no F07 persistence redesign is mixed in.
-- [ ] focused exact-output tests added.
-- [ ] current TX lifecycle tests pass.
-- [ ] architecture checks pass.
-- [ ] local full build/test results recorded.
-- [ ] no unrelated cleanup.
+- [x] Dedicated application-private logging owner exists.
+- [x] app_controller no longer serializes ADIF/Cabrillo or mutates log files directly.
+- [x] controller still owns TX-start ordering and independent ACK decisions.
+- [x] AutoSeq remains pure and owns only eligibility/ACK state.
+- [x] log_service receives immutable station/event facts rather than AppController/ConfigService ownership.
+- [x] MiniShell FS/Time APIs are the only platform-visible dependencies.
+- [x] exact ADIF output is preserved.
+- [x] exact Field Day Cabrillo output is preserved.
+- [x] T004 effective-grid logging behavior is preserved.
+- [x] no F07 persistence redesign is mixed in.
+- [x] focused exact-output tests added.
+- [x] current TX lifecycle tests pass.
+- [x] architecture checks pass.
+- [x] local full build/test results recorded.
+- [x] no unrelated cleanup.
 
 ## Codex implementation notes
 
@@ -391,21 +391,108 @@ Codex fills this section and changes `Status` from `READY` to `REVIEW`.
 
 ### Implementation summary
 
+Extracted the existing ADIF/Cabrillo implementation into application-private
+`log_service`. Controller TX-start ordering and independent AutoSeq ACKs remain
+in place. No format changes, persistence redesign, or task deviations.
+
 ### Module ownership / dependency design
+
+`LogService` retains only generic Filesystem/Time-Location pointers and a copied
+path prefix, initialized from the station file's parent to preserve existing
+path behavior. It owns UTC formatting, band frequencies, filenames, serialization,
+and file mutation. Missing Time/Location remains a write failure rather than a
+new application-initialization failure.
+
+The controller passes borrowed, immutable `LogStationFacts` and `LogQsoFacts` for
+each eligible write. Facts include the effective runtime grid and explicit
+report-known flags translated from AutoSeq's unknown sentinel. The module has
+no AutoSeq, ConfigService, AppController, or UI dependency, and retains no QSO
+facts or ACK state. Dependency checkers allow controller -> log_service and
+log_service -> public MiniShell API only (apart from standard C headers).
 
 ### Files changed
 
+- `apps/ft8/src/log_service/log_service.h` and `.c`: private logging owner.
+- `apps/ft8/src/app_controller/app_controller_internal.h`: LogService member.
+- `apps/ft8/src/app_controller/app_controller.c`: initialize stable logging context.
+- `apps/ft8/src/app_controller/app_controller_tx.c`: pass facts to logging owner;
+  retain eligibility, ordering, and independent ACKs.
+- `CMakeLists.txt`: production module, focused test, dependent include paths.
+- `tests/ft8_log_service_test.c`: fake public services and exact-output assertions.
+- `tests/ft8_tx_lifecycle_as7_test.c`: observable logging peer and ACK regressions.
+- `tests/app_dependency_boundary.py`, `tests/ft8_platform_boundary.py`: enforce
+  the new module's dependency boundaries.
+- This packet: implementation notes and local evidence.
+
 ### Invariants preserved
+
+All ten extracted private conversion/frequency/Filesystem/Cabrillo helpers were
+compared with the baseline and are byte-for-byte unchanged. Output field order,
+spacing/newlines, filenames, report omission, grid truncation, and FD exchange
+normalization are preserved. Controller captures eligibility before logging,
+ACKs each result independently, and ticks AutoSeq afterward. No heap allocation,
+public API, station format, physical TX, or runtime-grid ownership changes.
+F07 create/append and partial-write/retry semantics are intentionally unchanged.
 
 ### Tests added
 
+`ft8_log_service_unit` checks exact ADIF output with known reports and omitted
+unknown reports, explicit effective-grid truncation, UTC daily filename/time,
+20m/40m frequency mappings, exact new Field Day header/QSO, and insertion of a
+second QSO before the existing end marker. Fake FS verifies flags, partial-write
+loops, seeks, sync/close counts, and independent ADIF/Cabrillo return values.
+Basic sync/close failures preserve existing boolean outcomes without imposing
+new recovery semantics.
+
+Extended `ft8_tx_lifecycle_as7_unit` covers all four independent write-result
+combinations. The logging peer observes pre-tick QSO state, captured eligibility,
+station facts (manual CM87 versus effective CM97), and report-known translation.
+Assertions verify ACK flags, post-write tick, and no duplicate-slot logging.
+Existing TX-start assertions remain unchanged. AutoSeq links no filesystem or
+time dependency; logging is invoked solely by the controller.
+
 ### Local tests run and results
+
+Base: `df965ae2e2b99bfd0bb2c2f9577dd160b6959ed9`.
+
+- `git status --short`: clean before starting.
+- `cmake -S . -B build-linux`: PASS.
+- `cmake --build build-linux -j"$(nproc)"`: PASS; repeated after final test
+  assertions/header contract clarification, also PASS.
+- `ctest --test-dir build-linux -R 'ft8_log|ft8_tx_lifecycle_as7|ft8_runtime_grid' --output-on-failure`:
+  PASS, 3/3; final targeted rerun also 3/3.
+- `python3 tests/app_dependency_boundary.py . ft8`: PASS.
+- `python3 tests/app_dependency_boundary.py . keyer`: PASS.
+- `python3 tests/ft8_platform_boundary.py .`: PASS (54 source/header files).
+- `python3 tests/app_dependency_boundary.py --self-test`: PASS.
+- `cmake -S tests/unit -B /tmp/T006-build-unit`: PASS.
+- `cmake --build /tmp/T006-build-unit -j"$(nproc)"`: PASS.
+- `ctest --test-dir /tmp/T006-build-unit --output-on-failure`: PASS, 14/14.
+- `ctest --test-dir build-linux --output-on-failure`: 22/24 PASS. Only the
+  documented baseline failures remain: `linux_audio` expects the old contiguous
+  frames/hash output; `linux_ft8` expects the stale N5CH queue position. Neither
+  test nor the associated product behavior was changed.
+- `git diff --check`: PASS.
+
+All evidence is local; no GitHub Actions wait or PR is part of this handoff.
 
 ### Hardware/manual validation still required
 
+None expected for this extraction. Supervisor diff review and architect acceptance
+remain outside this implementation handoff.
+
 ### Known limitations / risks
 
+Existing F07 persistence failure/retry limitations remain intentionally deferred
+to T007. The two known baseline tests still fail. Canonical-document reconciliation
+remains with the supervisor after acceptance; no general documentation cleanup
+was included.
+
 ### Commit
+
+One implementation commit on `codex/T006-log-service`, containing this report.
+The pushed commit SHA is returned in the engineer's handoff; the supervisor
+reviews `main..<commit>`. No PR opened.
 
 ## Supervisor review
 

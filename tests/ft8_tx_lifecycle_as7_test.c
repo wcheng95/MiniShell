@@ -16,6 +16,52 @@
     } \
 } while (0)
 
+/* The controller boundary is tested with an observable logging peer. */
+static AppController *logging_app;
+static unsigned adif_calls, cabrillo_calls;
+static bool adif_result, cabrillo_result;
+
+static int observe_log_call(const LogService *service, const LogStationFacts *station,
+                              const LogQsoFacts *facts)
+{
+    QsoContext ctx;
+    CHECK(service == &logging_app->log);
+    CHECK(strcmp(station->callsign, "AG6AQ") == 0);
+    CHECK(strcmp(station->effective_grid, "CM97") == 0);
+    CHECK(strcmp(station->fd_exchange, "1B SCV") == 0);
+    CHECK(station->band_index == 3);
+    CHECK(strcmp(facts->dxcall, "W6ABC") == 0);
+    CHECK(strcmp(facts->fd_rx_exchange, "2A ORG") == 0);
+    CHECK(logging_app->tx.last_log_event_valid);
+    CHECK(facts->snr_tx == logging_app->tx.last_log_event.snr_tx);
+    CHECK(facts->snr_rx == logging_app->tx.last_log_event.snr_rx);
+    CHECK(facts->snr_tx_known == (facts->snr_tx != AUTO_SEQ_SNR_UNKNOWN));
+    CHECK(facts->snr_rx_known == (facts->snr_rx != AUTO_SEQ_SNR_UNKNOWN));
+    CHECK(logging_app->tx.last_intent.message_kind == AUTO_SEQ_MSG_TX4);
+    CHECK(auto_seq_get_active_context(&logging_app->auto_seq, 0, &ctx));
+    CHECK(ctx.state == AUTO_SEQ_STATE_ROGERS && ctx.retry_counter == 0);
+    CHECK((ctx.flags & (AUTO_SEQ_FLAG_LOGGED | AUTO_SEQ_FLAG_CABRILLO_LOGGED)) == 0);
+    return 0;
+}
+
+bool log_service_write_adif(const LogService *service, const LogStationFacts *station,
+                            const LogQsoFacts *facts)
+{
+    if (logging_app == NULL) return false;
+    if (observe_log_call(service, station, facts)) return false;
+    ++adif_calls;
+    return adif_result;
+}
+
+bool log_service_write_cabrillo(const LogService *service, const LogStationFacts *station,
+                                const LogQsoFacts *facts)
+{
+    if (logging_app == NULL) return false;
+    if (observe_log_call(service, station, facts)) return false;
+    ++cabrillo_calls;
+    return cabrillo_result;
+}
+
 static AutoSeqRxEvent event_for(const char *dxcall, AutoSeqMessageKind kind,
                                 int64_t rx_slot)
 {
@@ -291,8 +337,49 @@ static int test_no_catchup_after_missed_slot(void)
     return 0;
 }
 
+static int test_independent_logging_acks(void)
+{
+    for (unsigned results = 0; results < 4; ++results) {
+        AppController app;
+        AutoSeqRxEvent event;
+        QsoContext ctx;
+        bool changed;
+        CHECK(init_app(&app) == 0);
+        strcpy(app.config.callsign, "AG6AQ");
+        strcpy(app.config.grid, "CM87");
+        strcpy(app.effective_grid, "CM97");
+        strcpy(app.config.fd_exchange, "1B SCV");
+        app.config.band_index = 3;
+        CHECK(auto_seq_set_fd_exchange(&app.auto_seq, "1B SCV"));
+        event = event_for("W6ABC", AUTO_SEQ_MSG_TX1, 200);
+        event.flags = AUTO_SEQ_RX_FLAG_CQ | AUTO_SEQ_RX_FLAG_FD;
+        CHECK(auto_seq_on_manual_rx(&app.auto_seq, &event) == AUTO_SEQ_OK);
+        event = event_for("W6ABC", AUTO_SEQ_MSG_TX3, 200);
+        event.flags = AUTO_SEQ_RX_FLAG_TO_ME | AUTO_SEQ_RX_FLAG_FD;
+        strcpy(event.fd_exchange, "2A ORG");
+        CHECK(auto_seq_on_addressed_rx(&app.auto_seq, &event) == AUTO_SEQ_OK);
+        adif_calls = cabrillo_calls = 0;
+        adif_result = (results & 1) != 0;
+        cabrillo_result = (results & 2) != 0;
+        logging_app = &app;
+        CHECK(app_controller_observe_tx_slot(&app, 200, 500, 1000, &changed));
+        CHECK(adif_calls == 0 && cabrillo_calls == 0);
+        CHECK(app_controller_observe_tx_slot(&app, 201, 10, 2000, &changed));
+        CHECK(changed && adif_calls == 1 && cabrillo_calls == 1);
+        CHECK(auto_seq_get_active_context(&app.auto_seq, 0, &ctx));
+        CHECK(!!(ctx.flags & AUTO_SEQ_FLAG_LOGGED) == adif_result);
+        CHECK(!!(ctx.flags & AUTO_SEQ_FLAG_CABRILLO_LOGGED) == cabrillo_result);
+        CHECK(ctx.retry_counter == 1);
+        CHECK(app_controller_observe_tx_slot(&app, 201, 20, 2100, &changed));
+        CHECK(!changed && adif_calls == 1 && cabrillo_calls == 1);
+        logging_app = NULL;
+    }
+    return 0;
+}
+
 int main(void)
 {
+    CHECK(test_independent_logging_acks() == 0);
     CHECK(test_slot_gate() == 0);
     CHECK(test_intent_projection() == 0);
     CHECK(test_controller_qso_completion() == 0);

@@ -56,6 +56,7 @@ ALLOWED_LOCAL_DEPS: dict[str, set[str]] = {
         "auto_seq",
         "config_service",
         "storage_service",
+        "log_service",
         "tx_lifecycle",
         "rx_audio_adapter",
         "rx_frontend",
@@ -67,6 +68,7 @@ ALLOWED_LOCAL_DEPS: dict[str, set[str]] = {
     "config_service": {"config_service"},
     "presentation_profile": {"presentation_profile"},
     "storage_service": {"storage_service"},
+    "log_service": {"log_service"},
     "tx_lifecycle": {"tx_lifecycle"},
     "ui_shell": {"ui_shell", "shared", "presentation_profile"},
     "rx_audio_adapter": {"rx_audio_adapter"},
@@ -83,6 +85,7 @@ MINISHELL_API_ALLOWED_MODULES = {
     "main",
     "app_controller",
     "storage_service",
+    "log_service",
     "rx_audio_adapter",
 }
 

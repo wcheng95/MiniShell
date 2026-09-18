@@ -10,6 +10,7 @@
 #include "auto_seq_tx_intent.h"
 #include "config_service.h"
 #include "storage_service.h"
+#include "log_service.h"
 #include "tx_lifecycle.h"
 
 typedef struct AppRxState AppRxState;
@@ -29,6 +30,7 @@ struct AppController {
     ConfigService config;
     AutoSeq auto_seq;
     StorageService storage;
+    LogService log;
     char station_path[256];
     /* Persistent grid stays in config.grid; live GPS affects only this runtime fact. */
     char effective_grid[FT8_CONFIG_GRID_CAP];
