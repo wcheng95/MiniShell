@@ -61,7 +61,7 @@ target_include_directories(minishell PRIVATE
 )
 
 target_link_libraries(minishell PRIVATE ${CMAKE_DL_LIBS})
-set_target_properties(minishell PROPERTIES ENABLE_EXPORTS ON)
+target_link_options(minishell PRIVATE "-Wl,--export-dynamic-symbol=mini_api_get")
 target_compile_options(minishell PRIVATE -Wall -Wextra -Wpedantic)
 
 function(add_minishell_app target)
@@ -151,6 +151,13 @@ target_include_directories(ft8 PRIVATE
     apps/ft8/src/ft8_engine/vendor/kissfft
 )
 target_link_libraries(ft8 PRIVATE m)
+
+add_library(private_import_probe MODULE tests/apps/private_import_probe.c)
+set_target_properties(private_import_probe PROPERTIES
+    PREFIX ""
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test-apps"
+)
+target_compile_options(private_import_probe PRIVATE -Wall -Wextra -Wpedantic)
 
 add_library(service_probe MODULE tests/apps/service_probe.c)
 target_include_directories(service_probe PRIVATE include)
@@ -449,6 +456,15 @@ endif()
 
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_test(
+    NAME linux_export_boundary
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/linux_export_boundary.py
+            $<TARGET_FILE:minishell>
+            $<TARGET_FILE:private_import_probe>
+            $<TARGET_FILE:hello>
+)
 
 add_test(
     NAME linux_smoke
