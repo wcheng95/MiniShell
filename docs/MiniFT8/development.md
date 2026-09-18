@@ -24,14 +24,14 @@ Stay on Linux until work requires an embedded-only dependency. Preserve V2 behav
 RX core / protocol decode          COMPLETE
 MiniShell Audio RX                 COMPLETE
 QMX live ALSA capture              COMPLETE
-ADV QMX USB-host UAC live decode   PASS — T017 lifecycle testing remains
+ADV QMX USB-host UAC live RX       COMPLETE — hardware validated
 V2 12.64 s decode cadence          COMPLETE
 continuous multi-slot live RX      COMPLETE
 AutoSeq AS-0..AS-8                 COMPLETE
 simulated TX lifecycle             COMPLETE
 ADIF persistent logging            COMPLETE
 Field Day Cabrillo logging         COMPLETE
-physical QMX TX                    NEXT MAJOR BOUNDARY after T017 acceptance
+physical QMX TX                    NEXT MAJOR BOUNDARY
 ```
 
 Working live Linux/QMX command:
@@ -138,7 +138,7 @@ RX-5        COMPLETE — pure RX assembly
 RX-6        COMPLETE — MiniShell Audio + WAV
 RX-7        COMPLETE — decoded application/UI path
 RX-8        COMPLETE — live QMX ALSA + V2 timing + continuous capture
-T017        TESTING — ADV QMX USB-host RX live decode PASS; lifecycle/usbmsc checks remain
+T017        COMPLETE — ADV QMX USB-host RX + lifecycle + post-FT8 usbmsc
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -166,11 +166,11 @@ during that short comparison, but decode duration/candidate load were not measur
 the extra CPU cost may be material on ESP32-S3. Therefore the result is inconclusive
 for decode quality/performance and `freq_osr=1` remains the accepted ADV profile.
 
-T017 still needs only lifecycle acceptance: initial disconnected startup + late first
-attach, three consecutive slots, repeated entry/exit, provider continuity/ring
-statistics, and `usbmsc` after USB-host teardown. Post-session QMX unplug/replug
-recovery is not required because real QMX hardware can fail a second enumeration,
-matching the practical V2 limitation.
+T017 hardware acceptance is complete: initial disconnected startup + late first
+attach, consecutive live decode slots, repeated entry/exit, provider continuity/ring
+statistics, and `usbmsc` after USB-host teardown all pass. Post-session QMX
+unplug/replug recovery is not required because real QMX hardware can fail a second
+enumeration, matching the practical V2 limitation.
 
 ### Deferred freq_osr=2 performance work
 
@@ -361,8 +361,8 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 
 ## Next major boundary
 
-Finish T017's bounded lifecycle checks first; no RX redesign is planned. After that,
-physical TX should reuse the already-stable semantic pipeline rather than bypassing it:
+T017 is complete; no RX redesign is planned. Physical TX should now reuse the
+already-stable semantic pipeline rather than bypassing it:
 
 ```text
 AutoSeq TxIntent
