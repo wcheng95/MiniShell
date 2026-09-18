@@ -33,6 +33,7 @@ def main() -> int:
             [
                 "apps",
                 "cat /sd/source.txt",
+                "cp /sd/source.txt /sd/./source.txt",
                 "cp /sd/source.txt /sd/copy.txt",
                 "cat /sd/copy.txt",
                 "mv /sd/copy.txt /sd/destination.txt",
@@ -57,7 +58,8 @@ def main() -> int:
         required_apps = ["cat", "cp", "mkdir", "mv", "nano", "rm", "rmdir"]
         missing = [name for name in required_apps if f"{name}\n" not in output]
 
-        if process.returncode != 0 or missing or output.count(payload) != 3:
+        if (process.returncode != 0 or missing or output.count(payload) != 3 or
+                "cp: cannot open destination" not in output):
             print(output)
             print(
                 "returncode=",
