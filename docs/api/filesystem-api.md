@@ -170,7 +170,7 @@ When a MiniShell storage quota is active, the service scans regular-file sizes u
 
 Replacing an existing destination with `rename()` removes the replaced destination's size from MiniShell storage usage; the source content was already counted before the namespace change.
 
-To keep accounting deterministic, the current service prevents simultaneous writable handles to the same normalized logical path and blocks rename of a source/destination with an active writable handle.
+To keep path ownership and accounting deterministic, readers may share a normalized logical path, but a writable open is exclusive: it is rejected while any file handle already owns that normalized path. This also prevents destructive write/truncate aliases such as copying a file onto `/path/./to/file`. Rename remains blocked when its source or destination has an active writable handle.
 
 ## Ownership and one-owner rule
 
@@ -200,6 +200,7 @@ Linux and unit tests exercise:
 - rename to a new destination and replacement of an existing regular file;
 - source disappearance and destination-content preservation after replacement;
 - replacement storage-quota accounting;
+- exclusive writable-open ownership of normalized paths, including read/write alias protection;
 - writable-handle protection around rename;
 - path normalization and root escape protection;
 - handle lifecycle/cleanup;
