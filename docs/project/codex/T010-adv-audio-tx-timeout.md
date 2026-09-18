@@ -1,6 +1,6 @@
 # T010 — Make ADV Audio TX honor caller timeout
 
-Status: TESTING
+Status: COMPLETE
 
 ## Objective
 
@@ -538,4 +538,54 @@ Local mapping tests (40 cases), unit suite 14/14, architecture checks, full Linu
 
 ## Architect hardware result
 
-Record the post-fix Cardputer ADV `audio_tx_probe` output here before T010 is COMPLETE.
+Cardputer ADV hardware validation PASS with the existing `audio_tx_probe`.
+
+Post-fix measurements:
+
+```text
+phase A timeout_ms=20
+calls=5000
+frames=240000
+OK=5000
+TIMEOUT=0
+other=0
+partial=0
+zero_OK=0
+min_us=9
+mean_us=998
+max_us=2487
+>1000us=2000
+>2000us=2000
+>5000us=0
+>10000us=0
+>20000us=0
+
+phase B timeout_ms=0 (MINI_WAIT_NONE)
+calls=5000
+frames=2640
+OK=66
+TIMEOUT=4934
+other=0
+partial=22
+zero_OK=0
+min_us=8
+mean_us=8
+max_us=113
+>1000us=0
+>2000us=0
+>5000us=0
+>10000us=0
+>20000us=0
+```
+
+Conclusion:
+
+- The normal 20 ms Keyer-shaped path is unchanged in practice: ~998 us mean, 2487 us max, no timeouts in 5000 calls.
+- `MINI_WAIT_NONE` is now genuinely nonblocking in observed hardware behavior: 4934/5000 calls returned immediate timeout with zero progress; successful/partial calls completed in microseconds; no call exceeded 1 ms.
+- This is the expected contract behavior for a saturated nonblocking writer and directly contrasts with T009, where phase B was indistinguishable from phase A.
+- No Keyer scheduling/thread redesign is needed based on this evidence.
+- The inherited IDF finite-timeout aggregate-deadline and WAIT_FOREVER conversion limitations documented above remain known lower-layer limitations, but the original ADV provider defect of substituting a fixed 1000 ms wait is resolved.
+
+The same codec-open/close `i2s_channel_disable(...): channel has not been enabled yet` diagnostics remain outside the measured write path and are intentionally not part of T010.
+
+Architect acceptance: COMPLETE.
