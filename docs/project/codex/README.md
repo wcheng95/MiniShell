@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T006-log-service.md   READY
+none — branch consolidation / cleanup
 ```
 
 Accepted cleanup now on `main`:
@@ -18,11 +18,12 @@ T002  F03 stale Filesystem handles
 T003  F02 station-load error semantics
 T004  F01 persistent vs runtime grid ownership
 T005  F04 normalized-path writer ownership
+T006  F06 logging ownership extraction
 ```
 
-T006 addresses F06: extract ADIF/Cabrillo representation and file policy from `app_controller` into one application-owned logging module.
+The repository is being consolidated to a single long-lived branch: `main`.
 
-Normal cleanup flow is now **local build/test -> pushed commit -> supervisor diff review -> fast-forward main**. Pull requests are optional and GitHub Actions are non-blocking smoke evidence.
+Normal cleanup flow remains **local build/test -> pushed commit -> supervisor diff review -> fast-forward main**. Temporary task branches should be deleted immediately after their reviewed commit reaches `main`.
 
 ## Rule
 
