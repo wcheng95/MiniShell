@@ -1,6 +1,6 @@
 # T009 — Define Audio TX blocking contract and measure ADV latency
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -509,7 +509,11 @@ Branch deletion remains deferred until acceptance and merge.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff and local evidence. If accepted, status becomes TESTING pending ADV probe output.
+PASS. Reviewed commit `0e5135cc7beb6f0fdbaf54222fcb6e1a8138fcb5` against `main`. The change is evidence-only: it documents the generic TX wait/partial-progress contract, strengthens service/Keyer regressions, adds a public-API-only external ADV probe, and does not alter the speaker provider or Keyer scheduling.
+
+Resolved dependency evidence shows the current ADV path is source-level noncompliant with the documented timeout contract: `speaker_write()` discards MiniShell `timeout_ms`; `esp_codec_dev_write()` reaches the I2S data callback, whose resolved IDF 5.5.x path calls `i2s_channel_write(..., 1000 ms)`. Thus both Keyer's 20 ms request and `MINI_WAIT_NONE` are replaced by a fixed 1000 ms transport wait budget. This establishes contract noncompliance but not normal observed hardware latency.
+
+Local build/tests/import inspection are accepted. T009 is now TESTING pending the two-phase Cardputer ADV probe output. Do not merge to `main` until that output is reviewed.
 
 ## Architect hardware result
 
