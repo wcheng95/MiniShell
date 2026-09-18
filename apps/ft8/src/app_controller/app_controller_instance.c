@@ -87,9 +87,6 @@ AppController *app_controller_create(const mini_api_t *api,
         return NULL;
     }
 
-    /* Preserve the persistent station grid separately. A live GPS grid is a
-     * session/runtime override and must never rewrite station.txt. */
-    copy_grid(app->manual_grid, app->config.grid);
     return app;
 }
 
@@ -130,12 +127,12 @@ bool app_controller_step_location(AppController *app, bool *out_model_changed)
              * runs faster than the NMEA source. */
             if (!app->gps_grid_active ||
                 location.updated_monotonic_us != app->last_live_location_update_us ||
-                strcmp(app->config.grid, live_grid) != 0) {
-                if (strcmp(app->config.grid, live_grid) != 0) {
-                    copy_grid(app->config.grid, live_grid);
+                strcmp(app->effective_grid, live_grid) != 0) {
+                if (strcmp(app->effective_grid, live_grid) != 0) {
+                    copy_grid(app->effective_grid, live_grid);
                     if (!auto_seq_set_station(&app->auto_seq,
                                               app->config.callsign,
-                                              app->config.grid)) {
+                                              app->effective_grid)) {
                         return false;
                     }
                     if (out_model_changed != NULL) *out_model_changed = true;
@@ -147,10 +144,10 @@ bool app_controller_step_location(AppController *app, bool *out_model_changed)
     }
 
     if (!have_live_grid && app->gps_grid_active) {
-        copy_grid(app->config.grid, app->manual_grid);
+        copy_grid(app->effective_grid, app->config.grid);
         if (!auto_seq_set_station(&app->auto_seq,
                                   app->config.callsign,
-                                  app->config.grid)) {
+                                  app->effective_grid)) {
             return false;
         }
         app->gps_grid_active = false;
