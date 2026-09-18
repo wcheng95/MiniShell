@@ -1,6 +1,6 @@
 # T020 — Linux QMX CAT TX primitives
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -356,24 +356,24 @@ Do not implement:
 
 Software/review gate:
 
-- [ ] MiniFT8 QMX adapter implements TX begin;
-- [ ] MiniFT8 QMX adapter implements tone command;
-- [ ] MiniFT8 QMX adapter implements TX end;
-- [ ] begin bytes are exactly `MD6;TX;`;
-- [ ] end byte sequence is exactly `RX;`;
-- [ ] TA formatting matches pinned V2 behavior;
-- [ ] V2 fractional rounding/clamp bug fixes are preserved;
-- [ ] active-TX lifecycle is explicit and fail-safe;
-- [ ] close while active attempts RX restoration before Serial close;
-- [ ] diagnostic test path is bounded and uses production CAT code;
-- [ ] no Audio TX implementation;
-- [ ] no AutoSeq or FT8 encoder integration;
-- [ ] T018/T019 live RX/CAT regressions remain green;
-- [ ] Linux full CTest passes;
-- [ ] portable unit suite passes;
-- [ ] architecture checks pass;
-- [ ] real ADV build passes;
-- [ ] no unrelated cleanup.
+- [x] MiniFT8 QMX adapter implements TX begin;
+- [x] MiniFT8 QMX adapter implements tone command;
+- [x] MiniFT8 QMX adapter implements TX end;
+- [x] begin bytes are exactly `MD6;TX;`;
+- [x] end byte sequence is exactly `RX;`;
+- [x] TA formatting matches pinned V2 behavior;
+- [x] V2 fractional rounding/clamp bug fixes are preserved;
+- [x] active-TX lifecycle is explicit and fail-safe;
+- [x] close while active attempts RX restoration before Serial close;
+- [x] diagnostic test path is bounded and uses production CAT code;
+- [x] no Audio TX implementation;
+- [x] no AutoSeq or FT8 encoder integration;
+- [x] T018/T019 live RX/CAT regressions remain green;
+- [x] Linux full CTest passes;
+- [x] portable unit suite passes;
+- [x] architecture checks pass;
+- [x] real ADV build passes;
+- [x] no unrelated cleanup.
 
 Manual architect acceptance on pc-1/QMX:
 
@@ -451,21 +451,135 @@ Codex:
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Implemented the production `radio_control_begin_tx()`, `set_tone_hz()`, and
+`end_tx()` primitives and the preferred bounded CLI diagnostic:
+
+```text
+ft8 --cat serial:<QMX-node> --cat-test-tone 1500 --cat-test-ms 500
+```
+
+The controller reads the selected station band using the existing storage/config
+services (missing station uses the existing 20 m default), synchronizes CAT, keys,
+sets one tone, sleeps through MiniShell Time/Location, restores RX, and closes.
+It does not create the normal application controller instance or start the
+RX/UI/AutoSeq loop. Invalid bounds, missing paired options, and mixing the
+probe with RX/slot options fail before any CAT operation. Config read/parse
+errors also stop before opening CAT; the diagnostic never persists station data.
+
+`tx_active` records a fully accepted TX command. A separate `rx_required` flag
+records even a failed/short TX attempt, since partial transport progress cannot
+prove that the device remained in RX. Duplicate begin (including uncertain TX)
+is rejected; tone requires confirmed active TX. Failed TA preserves TX state;
+failed RX preserves the cleanup obligation. Close attempts RX before releasing
+Serial even if restoration fails. End on an open, already inactive session is
+an explicit tested no-op. Diagnostic failure after a TX attempt always reaches
+cleanup; a failed explicit end is retried once by close.
+
+Read the pinned V2 `main/radio_control_qmx.cpp`,
+`tests/tx_e2e/test_ta_format.cpp`, and `tests/tx_e2e/tx_state_machine.cpp` at
+`491e757ae6b1e4cfd2b9a6ba10f48b35643849e0` from the local Mini-FT8 checkout.
+Preserved mode/TX ordering, floor/round/clamp formatting and 200/10/200 ms
+write timeouts. Non-finite tone inputs are rejected; finite out-of-range values
+are clamped without undefined float-to-integer casts. The command buffer and
+exact-length check compile under both host and Xtensa warning gates.
+
+No task deviations.
 
 ### Files changed
 
+- `apps/ft8/src/radio_control/radio_control.c` and `radio_control.h`: TX state,
+  operations, and fail-safe close.
+- `apps/ft8/src/radio_control/radio_qmx.c` and `radio_qmx.h`: the sole production
+  CAT formatter, TX commands, timeout and full-write checks.
+- `apps/ft8/src/app_controller/app_controller_cat_test.c` (new) and
+  `app_controller.h`: bounded diagnostic orchestration through MiniShell APIs.
+- `apps/ft8/main/ft8_main.c`: paired diagnostic options, validation, early dispatch
+  and console result.
+- `CMakeLists.txt` and `platform/adv/main/CMakeLists.txt`: shared diagnostic source
+  composition; Linux test registration and math linkage.
+- `tests/ft8_radio_tx_test.c` (new): exact bytes/timeouts, all eight 6.25 Hz offsets
+  at 300/1500/2700 Hz, fractional/clamp edge cases, state/failure/short-write
+  coverage, and controller diagnostic cleanup with mocked MiniShell services.
+- `tests/linux_ft8_cat_tx.py` (new): real CLI/provider PTY sequence, 20 m/40 m
+  selected bands, 500/100/500 ms holds, repeated reopen, invalid bounds, and
+  unchanged persisted station data.
+- `tests/ft8_options_test.c`: diagnostic validation on both Linux and portable
+  composition defaults.
+- `tests/serial_protocol_boundary.py`: enforce CAT literals only in `radio_qmx.c`
+  across MiniFT8, core, and platform source; self-tests inject prohibited TX/RX/TA
+  strings in core, Linux, ADV, controller, and sibling radio-control source.
+- `docs/project/codex/T020-linux-qmx-cat-tx.md`: status, acceptance checks and handoff.
+
 ### Invariants preserved
+
+CAT syntax stays in `radio_qmx`; raw Serial and all public MiniShell APIs are
+unchanged. `app_controller` coordinates the diagnostic. No Audio TX, encoder,
+symbol scheduler, AutoSeq physical TX, ADV Serial/CAT provider, response parser,
+or persistent endpoint was added. Normal RX, DSP, UI, logging, config formats,
+and T018/T019 defaults/startup behavior remain unchanged. ADV only composes the
+shared source; its absent Serial service rejects CAT operation before keying.
 
 ### Local tests run
 
+Final local gate commands and results:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 51/51, including existing T018/T019 regressions and both new tests.
+
+cmake -S tests/unit -B /tmp/T020-build-unit
+cmake --build /tmp/T020-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T020-build-unit --output-on-failure
+# PASS: 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/serial_protocol_boundary.py .
+# PASS: all boundary checks; CAT checker mutation self-tests also pass in CTest.
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real ESP32-S3 firmware; minishell_adv.bin = 0xb9a00 bytes.
+# Smallest app partition 0x5f0000; 0x536600 bytes (88%) free.
+
+git diff --check
+# PASS.
+```
+
+Focused `ft8_radio|ft8_options|linux_ft8_cat` CTest selection passed 6/6 before
+the full gate. Initial compiler failures (missing bool include, standalone
+controller test linkage, and a conservative format-buffer warning) were resolved
+before the final successful full gates. No tests were weakened. Optional external
+RX golden-WAV cache paths remain unconfigured, matching the accepted host setup;
+all 51 configured tests ran. No GitHub Actions wait and no hardware testing.
+
 ### Manual/hardware validation still required
+
+After supervisor review, the architect must run the real QMX CDC diagnostic with
+the prescribed dummy-load/low-power setup, confirm tone/RF and bounded TX-to-RX,
+repeat once, then verify normal live FT8 RX. The manual acceptance checklist above
+remains open. Automated tests use only mock services and PTYs.
 
 ### Known limitations / risks
 
+Serial full-write acceptance is not a radio acknowledgement. RX restoration is
+best effort if the tty disconnects, a command is only partially accepted, or the
+process is killed; this task adds no hardware watchdog or CAT response parsing.
+The requested duration bounds the normal sleep after the tone command, not total
+wall-clock runtime or an RF deadline: transport timeouts and host scheduling add
+latency. The diagnostic reports failure after cleanup when any stage fails.
+No FT8 symbols or real QSO transmission are implemented by this task.
+
 ### Commit
+
+One implementation commit on `codex/T020-linux-qmx-cat-tx`; the commit containing
+these notes is the review reference. The exact pushed SHA is returned in the
+Codex handoff. No PR is opened.
 
 ## Supervisor review
 

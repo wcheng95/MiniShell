@@ -8,9 +8,14 @@ mini_result_t radio_control_close(RadioControl *radio)
 {
     if (!radio) return MINI_ERR_INVALID;
     mini_result_t result = MINI_OK;
-    if (radio->stream) result = radio->serial->close(radio->stream);
+    if (radio->stream) {
+        if (radio->rx_required) result = radio_control_end_tx(radio);
+        mini_result_t closed = radio->serial->close(radio->stream);
+        if (result == MINI_OK) result = closed;
+    }
     radio->stream = MINI_SERIAL_INVALID;
     radio->serial = NULL;
+    radio->tx_active = radio->rx_required = false;
     return result;
 }
 
@@ -31,7 +36,33 @@ mini_result_t radio_control_open_qmx(RadioControl *radio, const mini_api_t *api,
     if (!stream) return MINI_ERR_IO;
     radio->serial = serial;
     radio->stream = stream;
+    radio->tx_active = radio->rx_required = false;
     result = radio_qmx_sync(serial, stream, dial_hz);
     if (result != MINI_OK) (void)radio_control_close(radio);
+    return result;
+}
+
+mini_result_t radio_control_begin_tx(RadioControl *radio)
+{
+    if (!radio || !radio->stream) return MINI_ERR_BAD_HANDLE;
+    if (radio->tx_active || radio->rx_required) return MINI_ERR_NOT_READY;
+    mini_result_t result = radio_qmx_begin_tx(radio->serial, radio->stream, &radio->rx_required);
+    radio->tx_active = result == MINI_OK;
+    return result;
+}
+
+mini_result_t radio_control_set_tone_hz(RadioControl *radio, float tone_hz)
+{
+    if (!radio || !radio->stream) return MINI_ERR_BAD_HANDLE;
+    if (!radio->tx_active) return MINI_ERR_NOT_READY;
+    return radio_qmx_set_tone_hz(radio->serial, radio->stream, tone_hz);
+}
+
+mini_result_t radio_control_end_tx(RadioControl *radio)
+{
+    if (!radio || !radio->stream) return MINI_ERR_BAD_HANDLE;
+    if (!radio->rx_required) return MINI_OK;
+    mini_result_t result = radio_qmx_end_tx(radio->serial, radio->stream);
+    if (result == MINI_OK) radio->tx_active = radio->rx_required = false;
     return result;
 }

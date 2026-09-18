@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -28,6 +29,9 @@ typedef struct {
     ft8_presentation_profile_t presentation;
     const char *rx_endpoint;
     const char *cat_endpoint;
+    bool has_cat_test_tone, has_cat_test_ms;
+    float cat_test_tone;
+    uint32_t cat_test_ms;
     bool has_rx_slot;
     int64_t rx_slot_id;
 } Ft8Options;
@@ -80,11 +84,31 @@ static bool parse_options(int argc, char **argv, Ft8Options *out)
         } else if (strcmp(argv[i], "--cat") == 0) {
             if (++i >= argc || !argv[i][0] || argv[i][0] == '-' || out->cat_endpoint) return false;
             out->cat_endpoint = argv[i];
+        } else if (strcmp(argv[i], "--cat-test-tone") == 0) {
+            if (++i >= argc || out->has_cat_test_tone) return false;
+            char *end;
+            errno = 0;
+            float tone = strtof(argv[i], &end);
+            if (errno || end == argv[i] || *end || !isfinite(tone) || tone < 300.0f || tone > 2700.0f)
+                return false;
+            out->cat_test_tone = tone;
+            out->has_cat_test_tone = true;
+        } else if (strcmp(argv[i], "--cat-test-ms") == 0) {
+            int64_t duration;
+            if (++i >= argc || out->has_cat_test_ms || !parse_i64(argv[i], &duration) ||
+                duration < 100 || duration > 2000) return false;
+            out->cat_test_ms = (uint32_t)duration;
+            out->has_cat_test_ms = true;
         } else {
             return false;
         }
     }
 
+    if (out->has_cat_test_tone || out->has_cat_test_ms) {
+        if (!out->has_cat_test_tone || !out->has_cat_test_ms || !out->cat_endpoint ||
+            out->rx_endpoint || out->has_rx_slot) return false;
+        return true;
+    }
     /* Fixture timing requires an explicit source, never an implicit live default. */
     if (out->has_rx_slot && out->rx_endpoint == NULL) return false;
     if (out->rx_endpoint == NULL) out->rx_endpoint = FT8_DEFAULT_RX_ENDPOINT;
@@ -114,8 +138,16 @@ int main(int argc, char **argv)
     }
 
     if (!parse_options(argc, argv, &options)) {
-        say_console(api, "usage: ft8 [--profile desktop|adv] [--rx endpoint [--rx-slot slot]] [--cat endpoint]\n");
+        say_console(api, "usage: ft8 [--profile desktop|adv] [--rx endpoint [--rx-slot slot]] [--cat endpoint]\n"
+                         "       ft8 --cat endpoint --cat-test-tone 300..2700 --cat-test-ms 100..2000\n");
         return 1;
+    }
+
+    if (options.has_cat_test_tone) {
+        mini_result_t tested = app_controller_cat_test(api, FT8_STATION_PATH, options.cat_endpoint,
+                                                       options.cat_test_tone, options.cat_test_ms);
+        say_console(api, tested == MINI_OK ? "ft8: CAT tone test complete\n" : "ft8: CAT tone test failed\n");
+        return tested == MINI_OK ? 0 : 13;
     }
 
     if (options.rx_endpoint != NULL &&

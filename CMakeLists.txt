@@ -107,6 +107,7 @@ add_minishell_app(ft8
     apps/ft8/main/ft8_ui_adapter.c
     apps/ft8/src/app_controller/app_controller.c
     apps/ft8/src/app_controller/app_controller_instance.c
+    apps/ft8/src/app_controller/app_controller_cat_test.c
     apps/ft8/src/app_controller/app_controller_tx.c
     apps/ft8/src/auto_seq/auto_seq.c
     apps/ft8/src/auto_seq/auto_seq_tx_intent.c
@@ -183,7 +184,19 @@ add_executable(ft8_radio_control_unit tests/ft8_radio_control_test.c
 target_include_directories(ft8_radio_control_unit PRIVATE include
     apps/ft8/src/radio_control apps/ft8/src/config_service)
 target_compile_options(ft8_radio_control_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+target_link_libraries(ft8_radio_control_unit PRIVATE m)
 add_test(NAME ft8_radio_control_unit COMMAND ft8_radio_control_unit)
+
+add_executable(ft8_radio_tx_unit tests/ft8_radio_tx_test.c
+    apps/ft8/src/radio_control/radio_control.c
+    apps/ft8/src/radio_control/radio_qmx.c
+    apps/ft8/src/app_controller/app_controller_cat_test.c
+    apps/ft8/src/storage_service/storage_service.c
+    apps/ft8/src/config_service/config_service.c)
+target_include_directories(ft8_radio_tx_unit PRIVATE $<TARGET_PROPERTY:ft8,INCLUDE_DIRECTORIES>)
+target_compile_options(ft8_radio_tx_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+target_link_libraries(ft8_radio_tx_unit PRIVATE m)
+add_test(NAME ft8_radio_tx_unit COMMAND ft8_radio_tx_unit)
 
 add_executable(linux_serial_unit tests/linux_serial_test.c ${MINISHELL_SERVICE_SOURCES}
     platform/linux/linux_serial.c platform/linux/linux_common.c)
@@ -657,6 +670,9 @@ endforeach()
 add_test(NAME linux_ft8_cat COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/linux_ft8_cat.py $<TARGET_FILE:minishell> $<TARGET_FILE_DIR:ft8>)
 set_tests_properties(linux_ft8_cat PROPERTIES TIMEOUT 30)
+add_test(NAME linux_ft8_cat_tx COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_SOURCE_DIR}/tests/linux_ft8_cat_tx.py $<TARGET_FILE:minishell> $<TARGET_FILE_DIR:ft8>)
+set_tests_properties(linux_ft8_cat_tx PROPERTIES TIMEOUT 20)
 add_test(NAME serial_protocol_boundary COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/serial_protocol_boundary.py ${CMAKE_SOURCE_DIR})
 add_test(

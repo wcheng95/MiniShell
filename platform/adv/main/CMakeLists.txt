@@ -22,6 +22,7 @@ set(MINIFT8_SOURCES
     "${MINISHELL_ROOT}/apps/ft8/main/ft8_ui_adapter.c"
     "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller.c"
     "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller_instance.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller_cat_test.c"
     "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller_tx.c"
     "${MINISHELL_ROOT}/apps/ft8/src/auto_seq/auto_seq.c"
     "${MINISHELL_ROOT}/apps/ft8/src/auto_seq/auto_seq_tx_intent.c"
