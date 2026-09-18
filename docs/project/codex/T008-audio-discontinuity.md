@@ -1,6 +1,6 @@
 # T008 — Surface Audio RX discontinuity
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Objective
 
@@ -513,8 +513,8 @@ deferred until supervisor review and merge/fast-forward to main.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff and local evidence.
+PASS. Reviewed amended commit `975d7290de22909508e96f20a85b30092e0c1dfe` against `main`. The generic discontinuity result remains additive; Linux ALSA recovery now surfaces lost continuity; the buffered epoch handshake preserves producer draining while preventing old-epoch leakage; the second-discontinuity ACK race is covered and fixed by unconditional PENDING publication; MiniFT8 resets frontend phase and re-anchors the existing framer from UTC through STREAM_RESET. Local focused regressions, unit suite 14/14, architecture checks, and full Linux 26/28 results are acceptable with only the two known baseline failures. Commit fast-forwarded to `main`.
 
 ## Architect test result
 
-No hardware validation is required for merge, but a later induced QMX overrun test may be useful as extra evidence.
+ACCEPTED. No hardware validation required for merge. A later induced QMX overrun remains optional extra evidence.
