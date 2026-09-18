@@ -25,7 +25,7 @@ Owns:
 - checking current repository state and relevant reference implementations
 - defining invariants, non-goals, acceptance criteria, and tests
 - preserving MiniShell ownership boundaries
-- reviewing Codex commits/PRs against the task and architecture
+- reviewing Codex commits/diffs against the task and architecture
 - diagnosing test failures with the architect
 - updating canonical documentation after accepted changes
 
@@ -39,7 +39,7 @@ Owns:
 - keeping changes minimal and local to the task
 - adding/updating tests required by the task
 - running the available build/test suite before handoff
-- documenting implementation details and remaining risks in the task file/PR
+- documenting implementation details, local test results, and remaining risks in the task file
 
 Codex does **not** own product architecture. If a task appears to require an architectural change, stop and report the conflict instead of inventing a new boundary.
 
@@ -61,7 +61,7 @@ docs/project/codex/T###-short-name.md
 
 The architect/coordinator tells Codex which task file to execute. Codex must read that task file before coding.
 
-Codex records implementation notes in the same task file or in the PR body as required by the task. The supervisor reviews the resulting commit/PR from GitHub.
+Codex records implementation notes in the same task file. The supervisor reviews the resulting commit diff from GitHub. Pull requests are optional and are not part of the normal cleanup loop.
 
 ## Task lifecycle
 
@@ -81,14 +81,14 @@ Typical flow:
 1. Architect makes/approves an architectural decision.
 2. Supervisor creates a `READY` task packet.
 3. Architect/coordinator asks Codex to implement that task.
-4. Codex works on a dedicated branch and opens a PR unless the task explicitly says otherwise.
-5. Codex records implementation notes and test results.
-6. Supervisor reviews the diff/PR against the task and repository architecture.
-7. Architect tests on real hardware/host as needed.
-8. Supervisor records accepted test evidence and updates canonical docs.
-9. Architect/coordinator decides when to merge/close.
+4. Codex works on a dedicated branch, builds and tests locally, records the exact commands/results, and pushes one reviewable commit.
+5. Supervisor reviews the diff from current `main` to that commit against the task and repository architecture.
+6. If the diff is clean and the required local tests passed, the supervisor fast-forwards `main` to the reviewed commit. No PR is required.
+7. Architect tests on real hardware/host when the task requires hardware evidence.
+8. Supervisor records accepted evidence and updates canonical docs.
+9. Stop and return to the architect only when an architectural decision, behavior choice, or hardware result is required.
 
-## Branch / PR convention
+## Branch / commit convention
 
 Preferred Codex branch:
 
@@ -96,13 +96,9 @@ Preferred Codex branch:
 codex/T###-short-name
 ```
 
-Preferred PR title:
+Normal handoff is a pushed commit SHA, not a PR. Keep one bounded task in the branch and do not mix unrelated cleanup into the reviewed commit.
 
-```text
-T###: short task name
-```
-
-Do not mix unrelated cleanup into a task PR.
+GitHub Actions may run after pushes, but they are asynchronous smoke evidence. For the normal cleanup loop, **local build/test results plus supervisor diff review are the gate**; do not wait for GitHub-hosted CI unless a task explicitly requires it.
 
 ## Implementation rules
 
@@ -139,7 +135,7 @@ Behavior/invariants preserved
 Tests run and results
 Hardware/manual validation still required
 Known limitations or risks
-Commit/PR reference
+Commit reference
 ```
 
 If implementation diverged from the task, call that out explicitly and explain why. Do not hide deviations inside code.
