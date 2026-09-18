@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T007-log-persistence.md   READY
+none
 ```
 
-T007 addresses F07: committed ADIF/Cabrillo files must survive known persistence failures unchanged, using temp-file copy-on-write and rename as the commit point.
+Accepted cleanup now on `main` includes T007/F07 log persistence hardening.
 
-Workflow: local build/test -> one pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T007 branch.
+Workflow remains: one temporary task branch -> local build/tests -> pushed commit -> supervisor diff review -> fast-forward/merge to `main` -> delete the temporary branch.
 
 ## Rule
 
