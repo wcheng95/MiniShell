@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T018-linux-ft8-live-defaults.md   READY
+T018-linux-ft8-live-defaults.md   TESTING
 ```
 
 T018 makes Linux bare `ft8` the operator-ready live QMX command: ADV presentation plus the existing `alsa:hw:2,0` UAC/ALSA RX stream by default, while explicit profile/RX overrides and hardware-independent tests remain intact.
