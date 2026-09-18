@@ -1,6 +1,6 @@
 # T020 — Linux QMX CAT TX primitives
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -585,6 +585,73 @@ Codex handoff. No PR is opened.
 
 Supervisor reviews the actual `main..<commit>` diff, exact CAT bytes, TX state
 machine, and fail-safe RX restoration before real RF validation.
+
+
+## Supervisor review — QMX CAT TX primitives
+
+PASS for bounded pc-1/QMX RF testing on
+`bf0c2499a08dc1157e87aaf902609887794a061b`.
+
+Reviewed the single implementation commit from the T020 task head and the full
+`main..bf0c2499` branch delta.
+
+Accepted production behavior:
+
+- `radio_control_begin_tx()` emits exactly `MD6;TX;`;
+- `radio_control_set_tone_hz()` emits only `TA%04d.%02d;` with the pinned
+  V2 floor/round/clamp behavior;
+- `radio_control_end_tx()` emits exactly `RX;`;
+- normal CAT commands use 200 ms transport timeout and TA uses 10 ms;
+- CAT literals remain confined to `radio_qmx.c`;
+- no Audio TX, FT8 encoder, 79-symbol schedule, AutoSeq physical TX, or ADV CAT
+  provider was introduced.
+
+TX-state review:
+
+- `tx_active` means the complete `TX;` command was accepted;
+- `rx_required` is conservatively set once the TX command is attempted, so a
+  failed/short TX write still forces best-effort `RX;` cleanup;
+- failed TA leaves TX active and therefore still requires RX restoration;
+- failed RX leaves the cleanup obligation set;
+- `radio_control_close()` attempts RX restoration before closing Serial and
+  still releases the Serial handle if restoration fails.
+
+TA formatting review includes the pinned V2 bug fixes:
+
+```text
+1520.8333 -> TA1520.83;
+1543.75   -> TA1543.75;
+1234.9999 -> TA1234.99;
+```
+
+No negative fractional field or three-digit fraction can be emitted. Defensive
+out-of-range finite values clamp to 0.00 or 9999.99; non-finite values are
+rejected.
+
+The diagnostic path is isolated from the normal controller loop and is bounded to
+300..2700 Hz and 100..2000 ms. It reads station band/config only, uses production
+radio-control code, starts no RX/UI/AutoSeq state, persists nothing, and always
+reaches close/restore cleanup after a TX attempt.
+
+Accepted local evidence:
+
+```text
+Linux CTest          51/51 PASS
+unit suite           15/15 PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+The PTY integration proves the exact production byte stream and bounded hold:
+
+```text
+MD6;FR0;FT0;FA00014074000;MD6;TX;TA1500.00;RX;
+```
+
+No blocking findings. T020 returns to TESTING for the real QMX bounded-tone
+validation. RX restoration remains best effort on transport/device failure, as
+documented; no stronger radio acknowledgement is claimed.
 
 ## Architect test result
 
