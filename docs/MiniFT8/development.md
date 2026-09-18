@@ -17,7 +17,7 @@ portability next          WinBook/TW700 + QMX CAT/TX
 embedded validation       ADV only when hardware-specific behavior matters
 ```
 
-The ADV RAM/USB-host feasibility risk is retired by T017. Linux/pc-1 + QMX now has an accepted physical FT8 TX baseline through T022-T024: real CAT keying, on-air decodability, RX recovery, RxTxLog, CQ/POTA beacon operation, and V2-compatible offset-source behavior. A completed two-way QSO has not yet been observed and remains an operational follow-up. The next host-portability target is WinBook/TW700, where the pc-1-built binaries already run and decode QMX audio; CAT/TX remains unresolved.
+The ADV RAM/USB-host feasibility risk is retired by T017. Linux/pc-1 + QMX now has an accepted physical FT8 TX baseline through T022-T024: real CAT keying, on-air decodability, RX recovery, RxTxLog, CQ/POTA beacon operation, and V2-compatible offset-source behavior. A completed two-way QSO has not yet been observed and remains an operational follow-up. WinBook/TW700 portability is now validated with the pc-1-built binaries: QMX ALSA RX/decode and QMX CDC CAT/TX both work. The only host-specific issue found was Linux device permission: the login user must be a member of `dialout` to open `/dev/ttyACM0`.
 
 ## Current production baseline
 
@@ -36,7 +36,7 @@ physical QMX TX                    COMPLETE — pc-1/QMX hardware validated
 CQ/POTA beacon controls             COMPLETE — T023 hardware validated
 Random/Fixed/RX TX offset           COMPLETE — T024 hardware validated
 WinBook/TW700 live RX               PASS — pc-1 binaries + QMX ALSA decode
-WinBook/TW700 QMX CAT/TX            NEXT PORTABILITY DEBUG ITEM
+WinBook/TW700 QMX CAT/TX            PASS — requires user membership in dialout
 ```
 
 Working live Linux/QMX command:
