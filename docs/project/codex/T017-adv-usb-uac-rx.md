@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -2021,6 +2021,37 @@ This handoff is included in the implementation commit titled
 `T017: reserve capture worker and select ADV FT8 memory profile` on
 `codex/T017-adv-usb-uac-rx`; the pushed SHA is returned in chat. No PR opened
 and no GitHub Actions wait requested.
+
+## Supervisor static-worker / ADV memory-profile re-review
+
+PASS for hardware testing on `84eab890a547a60eaed906b57593122686991597`.
+
+Two bounded changes are accepted:
+
+1. `uac_capture` now uses a private 4096-byte static FreeRTOS stack/TCB. The worker
+   signals completion, suspends itself, and the owner deletes the suspended task before
+   the static storage is reused. Priority/affinity and USB ownership semantics are
+   otherwise unchanged. The measured .bss increase is 4440 bytes.
+2. ADV composition defines `FT8_DEFAULT_FREQ_OSR=1` only for the packaged
+   app-controller translation unit. The portable/Linux default remains
+   `FT8_MONITOR_BASELINE_FREQ_OSR=2`. This matches the pinned V2 firmware profile
+   (time_osr=2, freq_osr=1).
+
+The calculated ADV monitor workspace falls from 211288 to 105792 bytes, a reduction
+of 105496 bytes, far larger than the static capture-task cost. Tests exercise both
+the unchanged portable baseline and the ADV profile selection; the reference-engine
+test supports freq_osr=1 decoding when the pinned WAV is configured.
+
+Linux CTest 45/45, units 14/14, architecture checks and the real ADV build are
+accepted. T017 returns to TESTING.
+
+Next hardware milestones:
+- ring allocation succeeds with substantially larger free/largest heap;
+- USB Host and UAC 1.3.3 install;
+- GPIO4 prints `capture task create success`;
+- QMX enumerates past configuration descriptor;
+- UAC RX interface opens and strict 48000/24/2 starts;
+- Cardputer UI/keyboard remains responsive.
 
 ## Architect hardware result
 
