@@ -125,10 +125,16 @@ Largest/free       52%
 RX                  ON
 ```
 
-No live messages decoded in that comparison, so `freq_osr=2` is not retained.
+No live messages were observed in that short comparison, but decode time/candidate
+load were not measured and `freq_osr=2` substantially increases compute as well as
+RAM. It is therefore deferred rather than classified as a decoder failure.
+`freq_osr=1` remains the validated production profile.
+
 T017 remains in hardware TESTING only for the remaining lifecycle checks:
-disconnected start/late QMX attach, repeated `ft8` entry/exit, provider ring/error
-statistics, and `usbmsc` after FT8 teardown.
+initial disconnected start/late first QMX attach, repeated `ft8` entry/exit,
+provider ring/error statistics, and `usbmsc` after FT8 teardown. Recovery from
+unplugging and replugging an already-enumerated QMX is not required: the device can
+fail its own second enumeration, matching the practical V2 limitation.
 
 ## FT8 slot timing
 
