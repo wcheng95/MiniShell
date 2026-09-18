@@ -12,11 +12,15 @@ wcheng95/Mini-FT8
 ## Current development rule
 
 ```text
-backend       Linux first
-presentation  ADV when UI behavior matters
+completion / first QSO   Linux/QMX
+embedded validation      ADV only when hardware-specific behavior matters
 ```
 
-Stay on Linux until work requires an embedded-only dependency. Preserve V2 behavior first, then introduce deliberate V3 differences explicitly.
+The ADV RAM/USB-host feasibility risk is retired by T017. MiniFT8 now returns to
+Linux to finish physical TX and complete the first real MiniFT8-V3 QSO. Keep Linux
+as the deterministic development/regression platform until a completed TX path is
+ready to be carried back to ADV. Preserve V2 behavior first, then introduce
+deliberate V3 differences explicitly.
 
 ## Current production baseline
 
@@ -31,7 +35,7 @@ AutoSeq AS-0..AS-8                 COMPLETE
 simulated TX lifecycle             COMPLETE
 ADIF persistent logging            COMPLETE
 Field Day Cabrillo logging         COMPLETE
-physical QMX TX                    NEXT MAJOR BOUNDARY
+physical QMX TX                    NEXT MAJOR BOUNDARY — Linux first QSO
 ```
 
 Working live Linux/QMX command:
@@ -361,8 +365,9 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 
 ## Next major boundary
 
-T017 is complete; no RX redesign is planned. Physical TX should now reuse the
-already-stable semantic pipeline rather than bypassing it:
+T017 is complete; no RX redesign is planned. The active goal is now the **first
+MiniFT8-V3 QSO on Linux/QMX**. Physical TX should reuse the already-stable semantic
+pipeline rather than bypassing it:
 
 ```text
 AutoSeq TxIntent
@@ -377,4 +382,8 @@ app_controller
               QMX
 ```
 
-Keep the current UTC slot/parity gate, logging trigger, retry progression, and V2 behavior while replacing simulated completion with real transmitter lifecycle evidence.
+Keep the current UTC slot/parity gate, logging trigger, retry progression, and V2
+behavior while replacing simulated completion with real transmitter lifecycle
+evidence. Do not spend the next phase optimizing ADV-specific RAM or TX mechanics;
+finish and validate the complete QSO path on Linux first, then port the proven TX
+boundary back to ADV.
