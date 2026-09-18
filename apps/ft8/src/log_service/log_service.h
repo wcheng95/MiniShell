@@ -37,4 +37,8 @@ bool log_service_write_adif(const LogService *service, const LogStationFacts *st
 bool log_service_write_cabrillo(const LogService *service, const LogStationFacts *station,
                                 const LogQsoFacts *event);
 
+/* Append one canonical RT record and sync/close before returning. */
+bool log_service_write_rt(const LogService *service, bool transmit, int band_index,
+                           const char *text, int8_t snr_db, int16_t offset_hz);
+
 #endif

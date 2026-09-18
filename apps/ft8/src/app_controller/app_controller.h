@@ -38,6 +38,7 @@ bool app_controller_rx_active(const AppController *app);
 /* Public TX progression stays behind the controller facade. TxLifecycle is a
  * private eligibility helper and must not become a dependency of ft8_main. */
 bool app_controller_step_tx(AppController *app, bool *out_model_changed);
+bool app_controller_tx_active(const AppController *app);
 
 /* Build one complete application snapshot; presentation decides what is visible. */
 void app_controller_build_model(const AppController *app, UiModel *model);

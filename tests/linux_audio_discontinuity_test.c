@@ -79,8 +79,16 @@ int main(void)
     assert(port.audio_rx_read(NULL, handle, frames, 4, &got, MINI_WAIT_NONE) == MINI_OK);
     assert(got == 1 && frames[0] == 77 && frames[1] == 77);
     assert(atomic_load(&s_linux_audio_buffered.worker_result) == MINI_OK);
+    deliver(8, MINI_OK, 88); /* queued before TX pause */
+    deliver(9, MINI_OK, 99);
+    assert(port.audio_rx_stop(NULL, handle) == MINI_OK);
+    assert(port.audio_rx_start(NULL, handle) == MINI_OK);
+    deliver(11, MINI_OK, 111); /* ticket 10 was interrupted by stop */
+    assert(port.audio_rx_read(NULL, handle, frames, 4, &got, MINI_WAIT_NONE) == MINI_OK);
+    assert(got == 1 && frames[0] == 111 && frames[1] == 111);
+    assert(atomic_load(&s_linux_audio_buffered.epoch) == LINUX_AUDIO_EPOCH_RUNNING);
     next_result = MINI_ERR_IO;
-    atomic_store_explicit(&completed, 8, memory_order_release);
+    atomic_store_explicit(&completed, 12, memory_order_release);
     uint64_t deadline = linux_audio_monotonic_ms() + 3000;
     while (atomic_load(&s_linux_audio_buffered.worker_result) == MINI_OK) {
         assert(linux_audio_monotonic_ms() < deadline);

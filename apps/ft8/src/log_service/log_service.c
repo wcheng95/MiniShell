@@ -352,3 +352,33 @@ bool log_service_write_cabrillo(const LogService *service, const LogStationFacts
     if (!cabrillo_header(header, sizeof(header), station->callsign, location)) return false;
     return fs_commit_record(service->fs, path, header, qso_line, "END-OF-LOG:\n");
 }
+
+bool log_service_write_rt(const LogService *service, bool transmit, int band_index,
+                           const char *text, int8_t snr_db, int16_t offset_hz)
+{
+    int year;
+    unsigned month, day, hour, minute, second;
+    char name[32], path[256], frequency[16], line[192];
+    if (!service || !text || !*text || strlen(text) >= 64 ||
+        strchr(text, '\n') || strchr(text, '\r') || !service->fs ||
+        !service->fs->open || !service->fs->write || !service->fs->sync || !service->fs->close ||
+        !utc_fields(service->time_location, &year, &month, &day, &hour, &minute, &second) ||
+        year < 0 || year > 9999) return false;
+    band_frequency_mhz(band_index, frequency);
+    if (!*frequency) return false;
+    (void)snprintf(name, sizeof(name), "RT%02d%02u%02u.txt", year % 100, month, day);
+    if (!build_data_path(service, name, path, sizeof(path))) return false;
+    int n = snprintf(line, sizeof(line), "%c [%04d%02u%02u %02u%02u%02u][%s] %s ",
+                     transmit ? 'T' : 'R', year, month, day, hour, minute, second, frequency, text);
+    if (n < 0 || (size_t)n >= sizeof(line)) return false;
+    int tail = transmit ? snprintf(line + n, sizeof(line) - (size_t)n, "%d\n", offset_hz)
+                        : snprintf(line + n, sizeof(line) - (size_t)n, "%d %d\n", snr_db, offset_hz);
+    if (tail < 0 || (size_t)tail >= sizeof(line) - (size_t)n) return false;
+    mini_file_t file = MINI_FILE_INVALID;
+    if (service->fs->open(path, MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_APPEND, &file) != MINI_OK)
+        return false;
+    bool ok = fs_write_all(service->fs, file, line, (size_t)(n + tail));
+    if (ok && service->fs->sync(file) != MINI_OK) ok = false;
+    if (service->fs->close(file) != MINI_OK) ok = false;
+    return ok;
+}

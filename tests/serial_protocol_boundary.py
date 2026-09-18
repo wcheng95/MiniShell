@@ -37,7 +37,10 @@ def self_test():
         adapter.write_text('const char *command = "TX;";')
         assert not check_transport(root)
         for rel in ("core/serial.c", "platform/linux/serial.c", "platform/adv/serial.cpp",
-                    "apps/ft8/src/app_controller/controller.c", "apps/ft8/src/radio_control/control.c"):
+                    "apps/ft8/src/app_controller/controller.c",
+                    "apps/ft8/src/app_controller/app_controller_tx_physical.c",
+                    "apps/ft8/src/app_controller/app_tx_schedule.c",
+                    "apps/ft8/src/log_service/log_service.c", "apps/ft8/src/radio_control/control.c"):
             source = root / rel
             source.parent.mkdir(parents=True, exist_ok=True)
             for command in ('TX;', 'RX;', 'TA%04d.%02d;'):

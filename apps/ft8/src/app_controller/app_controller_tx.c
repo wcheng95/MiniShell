@@ -3,44 +3,6 @@
 #include <limits.h>
 #include <string.h>
 
-static int64_t clamp_monotonic_ms(uint64_t monotonic_us)
-{
-    uint64_t ms = monotonic_us / 1000u;
-    return ms > (uint64_t)INT64_MAX ? INT64_MAX : (int64_t)ms;
-}
-
-static bool utc_slot_position(const mini_time_location_api_t *time_location,
-                              int64_t *out_slot_id,
-                              uint16_t *out_ms_into_slot)
-{
-    mini_utc_time_t utc = {.struct_size = sizeof(utc)};
-    int64_t slot_id;
-    int64_t second_in_slot;
-    uint32_t ms;
-
-    if (time_location == NULL || out_slot_id == NULL || out_ms_into_slot == NULL ||
-        (time_location->capabilities & MINI_TIMELOC_CAP_UTC) == 0u ||
-        time_location->utc_get == NULL ||
-        time_location->utc_get(&utc) != MINI_OK ||
-        utc.nanoseconds >= 1000000000u) {
-        return false;
-    }
-
-    slot_id = utc.unix_seconds / 15;
-    second_in_slot = utc.unix_seconds % 15;
-    if (second_in_slot < 0) {
-        second_in_slot += 15;
-        --slot_id;
-    }
-
-    ms = (uint32_t)second_in_slot * 1000u + utc.nanoseconds / 1000000u;
-    if (ms >= 15000u) return false;
-
-    *out_slot_id = slot_id;
-    *out_ms_into_slot = (uint16_t)ms;
-    return true;
-}
-
 static void remove_pending_cq(AppController *app)
 {
     size_t i;
@@ -63,6 +25,7 @@ bool app_controller_set_beacon_mode(AppController *app, TxBeaconMode mode)
     TxBeaconMode previous;
 
     if (app == NULL) return false;
+    if (app->tx.active) return true;
     previous = tx_lifecycle_get_beacon_mode(&app->tx.lifecycle);
     if (previous == mode) return true;
     if (!tx_lifecycle_set_beacon_mode(&app->tx.lifecycle, mode)) return false;
@@ -86,7 +49,6 @@ bool app_controller_observe_tx_slot(AppController *app,
 {
     TxSlotBoundary boundary;
     AutoSeqTxIntent intent;
-    AutoSeqLogEvent log_event;
     bool has_boundary;
     bool has_intent;
     AutoSeqResult cq_result;
@@ -118,40 +80,8 @@ bool app_controller_observe_tx_slot(AppController *app,
     app->tx.last_tx_slot_id = boundary.slot_id;
     ++app->tx.simulated_tx_count;
 
-    app->tx.last_log_event_valid = 0u;
-    if (auto_seq_prepare_log_event(&app->auto_seq, &log_event)) {
-        bool adif_written = false;
-        bool cabrillo_written = false;
-
-        app->tx.last_log_event = log_event;
-        app->tx.last_log_event_valid = 1u;
-
-        const LogStationFacts station = {
-            .callsign = app->config.callsign,
-            .effective_grid = app->effective_grid,
-            .fd_exchange = app->config.fd_exchange,
-            .band_index = app->config.band_index
-        };
-        const LogQsoFacts facts = {
-            .dxcall = log_event.dxcall,
-            .dxgrid = log_event.dxgrid,
-            .fd_rx_exchange = log_event.fd_rx_exchange,
-            .snr_tx = log_event.snr_tx,
-            .snr_rx = log_event.snr_rx,
-            .snr_tx_known = log_event.snr_tx != AUTO_SEQ_SNR_UNKNOWN,
-            .snr_rx_known = log_event.snr_rx != AUTO_SEQ_SNR_UNKNOWN
-        };
-
-        if (log_event.adif_eligible != 0u)
-            adif_written = log_service_write_adif(&app->log, &station, &facts);
-        if (log_event.cabrillo_fd_eligible != 0u)
-            cabrillo_written = log_service_write_cabrillo(&app->log, &station, &facts);
-
-        /* Preserve V2 no-duplicate behavior: mark each log type only after its
-         * corresponding MiniShell FS write completed successfully. */
-        (void)auto_seq_ack_log_event(&app->auto_seq, &log_event,
-                                     adif_written, cabrillo_written);
-    }
+    app_controller_prepare_tx_log(app);
+    app_controller_commit_tx_log(app);
 
     /* AS-7 transmitter is synchronous simulation: completion immediately ticks policy. */
     if (!auto_seq_tick(&app->auto_seq, now_ms)) return false;
@@ -160,22 +90,41 @@ bool app_controller_observe_tx_slot(AppController *app,
     return true;
 }
 
-bool app_controller_step_tx(AppController *app, bool *out_model_changed)
+void app_controller_prepare_tx_log(AppController *app)
 {
-    const mini_time_location_api_t *time_location;
-    int64_t slot_id;
-    uint16_t ms_into_slot;
-    int64_t now_ms = 0;
+    app->tx.last_log_event_valid = auto_seq_prepare_log_event(&app->auto_seq, &app->tx.last_log_event);
+}
 
-    if (app == NULL || out_model_changed == NULL) return false;
-    *out_model_changed = false;
+void app_controller_commit_tx_log(AppController *app)
+{
+    if (!app->tx.last_log_event_valid) return;
+    const AutoSeqLogEvent *log_event = &app->tx.last_log_event;
+    bool adif_written = false;
+    bool cabrillo_written = false;
 
-    if (app->api == NULL || app->api->time_location == NULL) return true;
-    time_location = app->api->time_location;
-    if (!utc_slot_position(time_location, &slot_id, &ms_into_slot)) return true;
-    if (time_location->monotonic_us != NULL)
-        now_ms = clamp_monotonic_ms(time_location->monotonic_us());
+    const LogStationFacts station = {
+        .callsign = app->config.callsign,
+        .effective_grid = app->effective_grid,
+        .fd_exchange = app->config.fd_exchange,
+        .band_index = app->config.band_index
+    };
+    const LogQsoFacts facts = {
+        .dxcall = log_event->dxcall,
+        .dxgrid = log_event->dxgrid,
+        .fd_rx_exchange = log_event->fd_rx_exchange,
+        .snr_tx = log_event->snr_tx,
+        .snr_rx = log_event->snr_rx,
+        .snr_tx_known = log_event->snr_tx != AUTO_SEQ_SNR_UNKNOWN,
+        .snr_rx_known = log_event->snr_rx != AUTO_SEQ_SNR_UNKNOWN
+    };
 
-    return app_controller_observe_tx_slot(app, slot_id, ms_into_slot,
-                                          now_ms, out_model_changed);
+    if (log_event->adif_eligible != 0u)
+        adif_written = log_service_write_adif(&app->log, &station, &facts);
+    if (log_event->cabrillo_fd_eligible != 0u)
+        cabrillo_written = log_service_write_cabrillo(&app->log, &station, &facts);
+
+    /* Preserve V2 no-duplicate behavior: mark each log type only after its
+     * corresponding MiniShell FS write completed successfully. */
+    (void)auto_seq_ack_log_event(&app->auto_seq, log_event,
+                                 adif_written, cabrillo_written);
 }

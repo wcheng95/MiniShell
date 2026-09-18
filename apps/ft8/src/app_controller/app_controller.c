@@ -55,6 +55,11 @@ struct AppRxState {
     bool audio_initialized;
     bool active;
     bool have_batch;
+    bool live;
+    bool have_applied_batch;
+    int64_t applied_slot;
+    uint64_t applied_generation;
+    uint64_t rt_log_failures;
     uint64_t batch_generation;
 
     /* UI selection is an index into the retained batch, never a retained pointer. */
@@ -347,17 +352,29 @@ static bool app_process_addressed_batch(AppController *app)
 
     if (app == NULL || app->rx == NULL || !app->rx->have_batch) return true;
 
+    if (app->rx->have_applied_batch && app->rx->applied_generation == app->rx->batch_generation) return true;
+    bool log_failed = false;
     for (i = 0u; i < app->rx->batch.message_count; ++i) {
         const RxMessage *message = &app->rx->batch.messages[i];
         AutoSeqRxEvent event;
         AutoSeqResult result;
 
+        if (app->config.rxtx_log && !log_service_write_rt(&app->log, false, app->config.band_index,
+                                                         message->canonical_text, message->snr_db, message->offset_hz)) {
+            ++app->rx->rt_log_failures;
+            log_failed = true;
+        }
         if (!addressed_rx_to_event(&app->rx->batch, message, &event)) continue;
 
         result = auto_seq_on_addressed_rx(&app->auto_seq, &event);
         if (result == AUTO_SEQ_ERR_INVALID) return false;
         /* V2 silently drops a new decode when all 30 entries are active. */
     }
+    app->rx->have_applied_batch = true;
+    app->rx->applied_generation = app->rx->batch_generation;
+    app->rx->applied_slot = app->rx->batch.slot_id;
+    if (log_failed && app->api->system && app->api->system->write)
+        app->api->system->write("ft8: RX RT log failed; receive processing continues\n");
     return true;
 }
 
@@ -436,6 +453,7 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
     }
     memset(rx, 0, sizeof(*rx));
     app->rx = rx;
+    rx->live = !config->has_explicit_timing;
 
     engine_config = ft8_engine_baseline_config();
     engine_config.monitor.freq_osr = FT8_DEFAULT_FREQ_OSR;
@@ -678,6 +696,7 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
     bool config_changed = false;
 
     if (app == NULL || action == NULL) return false;
+    if (app->tx.active) return true; /* Freeze queue/station facts until completion; quit remains available. */
 
     switch (action->type) {
         case APP_ACTION_SELECT_RX_MESSAGE: {
@@ -749,8 +768,10 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
 void app_controller_shutdown(AppController *app)
 {
     if (app == NULL) return;
-    app_rx_destroy(app);
     (void)radio_control_close(&app->radio);
+    app->tx.active = app->tx.pending = false;
+    app_rx_destroy(app);
+    app->tx.rx_paused = false;
 }
 
 mini_result_t app_controller_start_cat(AppController *app, const char *endpoint)
@@ -758,4 +779,32 @@ mini_result_t app_controller_start_cat(AppController *app, const char *endpoint)
     if (!app) return MINI_ERR_INVALID;
     return radio_control_open_qmx(&app->radio, app->api, endpoint,
                                   config_service_band_dial_hz(app->config.band_index));
+}
+
+bool app_controller_pause_rx_for_tx(AppController *app)
+{
+    if (!app->rx || !app->rx->active) return true;
+    if (rx_audio_adapter_stop(&app->rx->audio) != RX_AUDIO_ADAPTER_OK) return false;
+    app->tx.rx_paused = true;
+    app->rx->active = false;
+    rx_frontend_reset_stream(&app->rx->frontend);
+    app->rx->timing_pending = true;
+    return true;
+}
+
+bool app_controller_resume_rx_after_tx(AppController *app)
+{
+    if (!app->tx.rx_paused) return true;
+    if (!app->rx || rx_audio_adapter_start(&app->rx->audio) != RX_AUDIO_ADAPTER_OK) return false;
+    rx_frontend_reset_stream(&app->rx->frontend);
+    app->rx->timing_pending = true;
+    app->rx->active = true;
+    app->tx.rx_paused = false;
+    return true;
+}
+
+bool app_controller_rx_ready_for_tx(const AppController *app, int64_t slot_id)
+{
+    if (!app->rx || !app->rx->active || !app->rx->live) return true;
+    return slot_id != INT64_MIN && app->rx->have_applied_batch && app->rx->applied_slot == slot_id - 1;
 }

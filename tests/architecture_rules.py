@@ -26,6 +26,7 @@ APP_RULES = {
         },
         "private_headers": {
             "src/app_controller/app_controller_internal.h": "app_controller",
+            "src/app_controller/app_tx_schedule.h": "app_controller",
             "src/tx_encoder/tx_channel.h": "tx_encoder",
         },
         "forbidden_source_patterns": {
@@ -45,7 +46,7 @@ APP_RULES = {
                 "app_controller", "shared", "auto_seq", "config_service",
                 "presentation_profile", "rx_audio_adapter", "rx_frontend",
                 "rx_result_builder", "rx_slot_framer", "storage_service", "log_service",
-                "tx_lifecycle", "ui_shell", "ft8_engine", "radio_control",
+                "tx_lifecycle", "ui_shell", "ft8_engine", "radio_control", "tx_encoder",
             },
             "auto_seq": {"auto_seq"},
             "config_service": {"config_service"},

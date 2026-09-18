@@ -79,6 +79,7 @@ void config_service_defaults(ConfigService *config)
 {
     memset(config, 0, sizeof(*config));
     config->skip_tx1 = false;
+    config->rxtx_log = true;
     config->max_retry = 3;
     config->profile_index = 0;
     config->band_index = 3; /* 20m */
@@ -120,6 +121,9 @@ bool config_service_parse(ConfigService *config, const char *text)
             parsed.band_index = clamp_band(atoi(value));
         } else if (strcmp(key, "skip_tx1") == 0) {
             parsed.skip_tx1 = atoi(value) != 0;
+        } else if (strcmp(key, "rxtx_log") == 0) {
+            if (strcmp(value, "0") != 0 && strcmp(value, "1") != 0) return false;
+            parsed.rxtx_log = value[0] == '1';
         } else if (strcmp(key, "max_retry") == 0) {
             int parsed_value = atoi(value);
             parsed.max_retry = parsed_value < 0 ? 0 : parsed_value;
@@ -154,7 +158,8 @@ bool config_service_serialize(const ConfigService *config, char *out, size_t out
                     "cq_type=%u\n"
                     "cq_ft=%s\n"
                     "free_text=%s\n"
-                    "fd_exchange=%s\n",
+                    "fd_exchange=%s\n"
+                    "rxtx_log=%d\n",
                     config->callsign,
                     config->grid,
                     config->profile_index,
@@ -164,7 +169,8 @@ bool config_service_serialize(const ConfigService *config, char *out, size_t out
                     (unsigned)config->cq_type,
                     config->cq_freetext,
                     config->free_text,
-                    config->fd_exchange);
+                    config->fd_exchange,
+                    config->rxtx_log ? 1 : 0);
     return used >= 0 && (size_t)used < out_size;
 }
 

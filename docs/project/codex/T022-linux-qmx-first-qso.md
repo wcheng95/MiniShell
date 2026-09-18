@@ -1,6 +1,6 @@
 # T022 — Linux QMX integrated FT8 TX and first QSO
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -695,32 +695,32 @@ Do not implement:
 
 ## Software acceptance criteria
 
-- [ ] T021 plan is used unchanged for physical TX;
-- [ ] real CAT TX occurs only with open radio control;
-- [ ] simulated no-CAT path remains;
-- [ ] first/late tone selection is slot-anchored;
-- [ ] ongoing tone deadlines are absolute;
-- [ ] overdue multi-symbol gaps skip rather than burst;
-- [ ] TX end occurs at 12.64 s plan end;
-- [ ] AutoSeq advances only after successful physical completion;
-- [ ] failed physical TX does not consume semantic completion/retry;
-- [ ] RX is stopped before keying and restarted/re-anchored after RX;
-- [ ] no TX-period buffered audio is decoded afterward;
-- [ ] previous RX slot freshness guard is implemented;
-- [ ] station identity is loaded from `/flash/ft8/station.txt`, not hardcoded;
-- [ ] `callsign=AG6AQ` and `grid=CM97` propagate through AutoSeq into the first-QSO TX plan;
-- [ ] RxTxLog defaults ON;
-- [ ] RT filename and R/T format match V2 semantics;
-- [ ] all finalized RX messages are RT-logged exactly once;
-- [ ] each physical TX attempt is RT-logged once before keying;
-- [ ] RxTxLog TX failure prevents physical keying;
-- [ ] existing ADIF/Cabrillo behavior remains regression-covered;
-- [ ] Linux full CTest passes;
-- [ ] portable units pass;
-- [ ] architecture checks pass;
-- [ ] ASan/UBSan for new pure/private timing helpers where practical;
-- [ ] real ADV build passes;
-- [ ] no unrelated cleanup.
+- [x] T021 plan is used unchanged for physical TX;
+- [x] real CAT TX occurs only with open radio control;
+- [x] simulated no-CAT path remains;
+- [x] first/late tone selection is slot-anchored;
+- [x] ongoing tone deadlines are absolute;
+- [x] overdue multi-symbol gaps skip rather than burst;
+- [x] TX end occurs at 12.64 s plan end;
+- [x] AutoSeq advances only after successful physical completion;
+- [x] failed physical TX does not consume semantic completion/retry;
+- [x] RX is stopped before keying and restarted/re-anchored after RX;
+- [x] no TX-period buffered audio is decoded afterward;
+- [x] previous RX slot freshness guard is implemented;
+- [x] station identity is loaded from `/flash/ft8/station.txt`, not hardcoded;
+- [x] `callsign=AG6AQ` and `grid=CM97` propagate through AutoSeq into the first-QSO TX plan;
+- [x] RxTxLog defaults ON;
+- [x] RT filename and R/T format match V2 semantics;
+- [x] all finalized RX messages are RT-logged exactly once;
+- [x] each physical TX attempt is RT-logged once before keying;
+- [x] RxTxLog TX failure prevents physical keying;
+- [x] existing ADIF/Cabrillo behavior remains regression-covered;
+- [x] Linux full CTest passes;
+- [x] portable units pass;
+- [x] architecture checks pass;
+- [x] ASan/UBSan for new pure/private timing helpers where practical;
+- [x] real ADV build passes;
+- [x] no unrelated cleanup.
 
 ## Required hardware acceptance — pc-1/QMX
 
@@ -868,27 +868,169 @@ Supervisor reviews the actual diff before the architect keys QMX.
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Implemented the open-CAT physical executor using the unchanged T021 encoder and
+T020 radio controller. No-CAT execution retains AS-7 simulation. The controller
+owns the immutable plan, pending slot, absolute schedule, RX pause and completion
+state; the executor allocates no heap. Main uses a 5 ms input wait while TX is
+active. Queue/configuration actions are ignored and live-grid updates are held during
+active TX so the encoded intent and completion facts cannot change; quit remains
+available. No shared DSP, MiniShell public API, platform transport, or CAT
+formatter changes.
+
+Inspected the pinned V2 `main/main.cpp` and TX timing/TA tests at
+`491e757ae6b1e4cfd2b9a6ba10f48b35643849e0` from the local Mini-FT8 checkout.
+Preserved its absolute-symbol timing and daily R/T format through V3 ownership.
 
 ### Files changed
 
+- `apps/ft8/src/app_controller/app_controller_tx_physical.c`: physical lifecycle,
+  freshness deferral, identity validation, RT prerequisite and failure recovery.
+- `apps/ft8/src/app_controller/app_tx_schedule.c` and `.h`: pure private timing.
+- `apps/ft8/src/app_controller/app_controller_tx.c`: shared log snapshot/commit
+  helpers, retained no-CAT simulation, active-plan protection.
+- `apps/ft8/src/app_controller/app_controller.c`, `.h`,
+  `app_controller_internal.h`, `app_controller_instance.c`: RX lifecycle,
+  generation-aware RX logging/projection, active facade/state and grid protection.
+- `apps/ft8/main/ft8_main.c`: active-TX input polling.
+- `apps/ft8/src/config_service/config_service.c` and `.h`: default-on `rxtx_log`.
+- `apps/ft8/src/log_service/log_service.c` and `.h`: daily direct RT append.
+- `CMakeLists.txt`, `platform/adv/main/CMakeLists.txt`: source/test composition.
+- `tests/ft8_tx_schedule_test.c`, `tests/ft8_physical_tx_test.c`: new regression tests.
+- `tests/linux_audio_discontinuity_test.c`: buffered stop/start reset regression.
+- `tests/linux_ft8_config_load.py`: expected serialization includes the authorized
+  new key; original configuration failure/preservation assertions remain.
+- `tests/architecture_rules.py`, `tests/serial_protocol_boundary.py`: private
+  scheduler ownership, allowed encoder dependency and CAT mutation checks for
+  executor/scheduler/logging paths.
+- This task packet: software evidence and pending hardware handoff.
+
 ### Timing model
+
+UTC and monotonic time are sampled in the candidate step. The anchor is
+`monotonic_us - ms_into_slot * 1000`; all symbols use that anchor. Start retains
+the existing <1000 ms window and rechecks it after RX stop/RT persistence. Begin
+latency is included by resampling monotonic time before the initial tone. Each
+step selects the current absolute 160 ms symbol, skips overdue symbols without
+bursting, and deduplicates unchanged tones. End occurs on the first poll at or
+after 12,640 ms. Backward monotonic time fails safe.
+
+A pending live candidate waits for the preceding slot's applied batch (including
+empty batches). Expiration skips that opportunity without consuming AutoSeq or
+catching up on the wrong parity. Integration proves that an addressed previous-slot
+FD decode changes the pending reply to `W6ABC AG6AQ RR73` before encoding.
 
 ### RX pause/restart model
 
+Stop Audio before keying; preserve the open RX object, mark it inactive, reset
+frontend continuity and mark timing pending. No RX reads occur during TX. Restore
+radio RX before restarting the same stream. The first new samples re-anchor from
+current UTC through the existing framer reset path. The Linux provider regression
+queues old samples, stops/starts its worker, and proves only fresh samples emerge.
+Shutdown restores/closes radio before closing/freeing Audio resources.
+
 ### RxTxLog behavior
+
+Missing `rxtx_log` defaults to ON; explicit 0/1 parses and serializes. Each physical
+plan attempt appends its canonical T line before keying; every finalized unique RX
+message appends an R line before projection, including unaddressed activity. A
+retained batch generation is handled once. Files use the configuration directory,
+`RTYYMMDD.txt`, UTC from MiniShell, three-decimal band MHz and V2-compatible lines.
+Append uses MiniShell WRITE|CREATE|APPEND, complete-write handling, sync and close.
+
+TX RT failure prevents keying. RX RT failure increments a diagnostic counter and
+reports through System.write, then continues decoder/AutoSeq processing without
+retrying/duplicating the retained batch. Disabled logging emits no RT writes.
+Existing ADIF/Cabrillo persistence and independent acknowledgments remain intact;
+physical completion performs them only after successful end and Audio restart,
+then ticks AutoSeq exactly once. Station fixture AG6AQ/CM97 flows through normal
+configuration loading, AutoSeq, encoder and log facts; no production identity is
+hardcoded. Encoder validation also protects free-text attempts from invalid station
+identity by validating an ordinary CQ projection first.
 
 ### Failure/cleanup semantics
 
+Plan, RX stop, RT append, begin, initial/later tone, clock and end failures do not
+consume AutoSeq retries or successful physical counts. If radio restoration is
+owed, immediately attempt end/RX; restart paused Audio even if restoration fails.
+A recoverable failed attempt retains its semantic intent for a later eligible
+slot. Failed restoration/restart returns an application error so normal shutdown
+performs final cleanup. Successful RF end with failed Audio restart is explicitly
+not counted or ticked. Tests inject both errors and short CAT writes.
+
 ### Local tests run
+
+All commands ran locally; no hardware or GitHub Actions wait.
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 54/54, including checker self-tests and existing AS-7/ADIF/Cabrillo tests
+
+cmake -S tests/unit -B /tmp/T022-build-unit
+cmake --build /tmp/T022-build-unit -j8
+ctest --test-dir /tmp/T022-build-unit --output-on-failure
+# PASS: 15/15
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/serial_protocol_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All exit 0; Serial checks include new path mutations
+
+cmake -S . -B /tmp/T022-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+  -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build /tmp/T022-build-sanitize --target ft8_physical_tx_unit ft8_tx_schedule_unit -j8
+ctest --test-dir /tmp/T022-build-sanitize --output-on-failure -R 'ft8_physical_tx|ft8_tx_schedule'
+# PASS: 2/2 with ASan/UBSan and leak detection. Initial sandbox execution hit
+# LeakSanitizer's ptrace restriction; the same tests passed outside the sandbox.
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real ESP32-S3 firmware; minishell_adv.bin 0xbb9e0 bytes, 88% app partition free
+
+git diff --check
+# PASS
+```
+
+Focused timing coverage runs 1/5/10/20 ms polling, late entry, delayed CAT writes,
+large stalls, absolute completion and backward-clock failure. Integration uses
+production controller/encoder/radio/logging with mocked MiniShell services,
+checks exact CAT bytes through the production formatter, immutable plans,
+RX recovery, station fixture identity, failure recovery, completion ACKs and
+no-CAT simulation. RT tests cover exact date/path/lines, both bands, short writes,
+zero writes, append/sync/close errors, default/disabled configuration and batch
+idempotency.
 
 ### Hardware validation still required
 
+Supervisor diff review followed by the architect's pc-1/QMX acceptance above:
+verify AG6AQ/CM97 and RT logging ON, real key/tone/RX timing, correct parity,
+post-TX decoding, full QSO, ADIF, quit/relaunch and retained R/T trace. No RF or
+hardware tests were performed; no successful-QSO claim is made.
+
 ### Known limitations / risks
 
+- Host scheduling and CAT transport latency still need physical measurement;
+  deterministic fake-time tests do not establish real RF timing or reception.
+- Direct append is not transactional: a failed write/sync/close can leave a partial
+  or already-written RT record; TX is nevertheless aborted on that failure.
+- Existing UI CQ controls remain placeholders; existing received-message selection
+  supports reply initiation. No new CQ/parity UI was added.
+- T019 synchronizes the radio dial when opening CAT. Select the intended station
+  band before launch; changing bands in-session does not add radio retuning here.
+- No task-scope deviations or platform/DSP behavior changes. ADV builds this shared
+  code but still has no physical CAT provider.
+
 ### Commit
+
+One implementation commit on `codex/T022-linux-qmx-first-qso`, titled
+`T022: integrate Linux QMX FT8 transmit and RxTxLog`. The full pushed SHA is returned
+in the handoff; this packet is part of that commit. No PR is opened.
 
 ## Supervisor review
 

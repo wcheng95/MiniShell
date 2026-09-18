@@ -13,11 +13,23 @@
 #include "log_service.h"
 #include "tx_lifecycle.h"
 #include "radio_control.h"
+#include "tx_encoder.h"
+#include "app_tx_schedule.h"
 
 typedef struct AppRxState AppRxState;
 
 typedef struct {
     TxLifecycle lifecycle;
+    Ft8TxPlan plan;
+    AppTxSchedule schedule;
+    int64_t pending_slot;
+    uint64_t physical_tx_count;
+    uint64_t failed_tx_count;
+    bool active;
+    bool rx_paused;
+    bool pending;
+    bool have_last_tone;
+    uint8_t last_tone;
     AutoSeqTxIntent last_intent;
     AutoSeqLogEvent last_log_event;
     int64_t last_tx_slot_id;
@@ -46,6 +58,12 @@ struct AppController {
 bool app_controller_init(AppController *app, const mini_api_t *api,
                          const char *data_directory, const char *station_path);
 void app_controller_shutdown(AppController *app);
+
+bool app_controller_pause_rx_for_tx(AppController *app);
+bool app_controller_resume_rx_after_tx(AppController *app);
+bool app_controller_rx_ready_for_tx(const AppController *app, int64_t slot_id);
+void app_controller_prepare_tx_log(AppController *app);
+void app_controller_commit_tx_log(AppController *app);
 
 /* Component model builders stay private; the public facade returns a complete snapshot. */
 void app_controller_build_ui_model(const AppController *app, UiModel *model);

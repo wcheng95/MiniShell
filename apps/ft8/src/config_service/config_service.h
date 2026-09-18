@@ -25,6 +25,7 @@ typedef struct {
     char free_text[FT8_CONFIG_FREETEXT_CAP];
     char fd_exchange[FT8_CONFIG_FD_EXCHANGE_CAP];
     bool skip_tx1;
+    bool rxtx_log;
     int max_retry;
     int profile_index;
     int band_index;

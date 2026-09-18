@@ -109,6 +109,8 @@ add_minishell_app(ft8
     apps/ft8/src/app_controller/app_controller_instance.c
     apps/ft8/src/app_controller/app_controller_cat_test.c
     apps/ft8/src/app_controller/app_controller_tx.c
+    apps/ft8/src/app_controller/app_controller_tx_physical.c
+    apps/ft8/src/app_controller/app_tx_schedule.c
     apps/ft8/src/auto_seq/auto_seq.c
     apps/ft8/src/auto_seq/auto_seq_tx_intent.c
     apps/ft8/src/config_service/config_service.c
@@ -733,3 +735,19 @@ add_test(NAME adv_usb_console_boundary
 add_test(NAME adv_uac_allocation
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_uac_allocation_test.py
             ${CMAKE_CXX_COMPILER})
+
+target_include_directories(ft8_tx_lifecycle_as7_unit PRIVATE apps/ft8/src/tx_encoder)
+target_include_directories(ft8_runtime_grid_ownership_unit PRIVATE apps/ft8/src/tx_encoder apps/ft8/src/auto_seq)
+
+add_executable(ft8_tx_schedule_unit tests/ft8_tx_schedule_test.c
+    apps/ft8/src/app_controller/app_tx_schedule.c)
+target_include_directories(ft8_tx_schedule_unit PRIVATE apps/ft8/src/app_controller
+    apps/ft8/src/tx_encoder apps/ft8/src/auto_seq)
+target_compile_options(ft8_tx_schedule_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME ft8_tx_schedule_unit COMMAND ft8_tx_schedule_unit)
+
+add_executable(ft8_physical_tx_unit tests/ft8_physical_tx_test.c ${FT8_DISCONTINUITY_SOURCES})
+target_include_directories(ft8_physical_tx_unit PRIVATE $<TARGET_PROPERTY:ft8,INCLUDE_DIRECTORIES>)
+target_link_libraries(ft8_physical_tx_unit PRIVATE m)
+target_compile_options(ft8_physical_tx_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME ft8_physical_tx_unit COMMAND ft8_physical_tx_unit)

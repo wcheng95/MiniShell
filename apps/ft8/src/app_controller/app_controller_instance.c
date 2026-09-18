@@ -112,6 +112,7 @@ bool app_controller_step_location(AppController *app, bool *out_model_changed)
     if (out_model_changed != NULL) *out_model_changed = false;
     if (app == NULL || app->api == NULL) return false;
 
+    if (app->tx.active) return true;
     time_location = app->api->time_location;
     if (time_location != NULL &&
         (time_location->capabilities & MINI_TIMELOC_CAP_LOCATION) != 0u &&

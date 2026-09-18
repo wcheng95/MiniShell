@@ -244,7 +244,7 @@ int main(int argc, char **argv)
 
         rx_active = app_controller_rx_active(app);
         if (!ft8_ui_adapter_read_input_timeout(&adapter,
-                                               rx_active ? MINI_WAIT_NONE : 100u,
+                                               app_controller_tx_active(app) ? 5u : (rx_active ? MINI_WAIT_NONE : 100u),
                                                &input, &has_input)) {
             result = 6;
             break;
