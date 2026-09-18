@@ -9,7 +9,7 @@
 - Architecture cleanup C0-C4 is complete.
 - K1 runtime ELF, K2 Digital I/O, K3 Keyer engine, and K4 GPIO KeyIn/KeyOut are complete.
 - MiniFT8 AutoSeq AS-0..AS-8 is complete.
-- MiniFT8 live Linux/QMX RX is working continuously across consecutive FT8 slots.
+- MiniFT8 live Linux/QMX RX is working continuously across consecutive FT8 slots. T018 makes bare Linux `ft8` the validated operator command: ADV presentation plus live `alsa:hw:2,0` QMX RX by default.
 - MiniFT8 live Cardputer ADV/QMX USB-host RX is fully hardware-validated at 240 MHz with the V2-compatible `time_osr=2, freq_osr=1` engine profile: live decode, consecutive slots, initial late attach, repeated FT8 lifecycle, provider continuity, and post-FT8 `usbmsc` all pass.
 - MiniFT8 V2-style ADIF and Field Day Cabrillo logging are implemented through MiniShell APIs.
 - With ADV RAM/USB-host viability now proven, MiniFT8 completion returns to Linux; the first real MiniFT8-V3 QSO is targeted on Linux/QMX. ADV remains a validated embedded deployment target, not the active TX-development platform.
@@ -64,9 +64,13 @@ Linux capture continues independently while synchronous FT8 decoding runs, preve
 Working commands:
 
 ```text
-Linux: M$> ft8 --profile adv --rx alsa:hw:2,0
+Linux: M$> ft8
 ADV:   M$> ft8
 ```
+
+On Linux/pc-1, bare `ft8` composes to the ADV presentation and
+`alsa:hw:2,0`. Explicit `--profile` and `--rx` options remain available for
+desktop presentation, WAV fixtures, or alternate devices.
 
 The packaged ADV application defaults bare `ft8` to `uac:qmx`. Real hardware now passes USB-host/UAC bring-up and live on-air decode at 240 MHz. The accepted ADV engine profile remains `time_osr=2, freq_osr=1`. A temporary `freq_osr=2` experiment remained alive but reduced free/largest heap to about 58.8/31.0 KiB. Decode time/candidate load were not measured, so the lack of observed messages is inconclusive; its higher RAM/compute cost is deferred to a later performance study. It is not the production baseline.
 
@@ -78,6 +82,7 @@ Current MiniFT8 status:
 RX-0..RX-7   COMPLETE
 RX-8         COMPLETE — live QMX ALSA, V2 timing, continuous capture
 T017         COMPLETE — ADV QMX USB-host RX live decode + lifecycle + usbmsc hardware validation
+T018         COMPLETE — Linux bare ft8 -> ADV presentation + live QMX RX defaults
 AS-0..AS-8   COMPLETE
 LOG-1        COMPLETE — daily ADIF + Field Day Cabrillo
 physical TX  NEXT MAJOR PRODUCTION BOUNDARY — Linux/QMX first QSO target
