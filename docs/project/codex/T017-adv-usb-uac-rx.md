@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -1586,6 +1586,23 @@ and capture priority 4. The pinned V2 reference placed the audio stream task on 
 A likely follow-up is to isolate USB/UAC capture work from the MiniShell foreground
 core and/or ensure the successful capture loop yields, but do not make that change
 until this hardware discriminator is recorded.
+
+## Supervisor control-transfer re-review
+
+PASS for hardware testing on `bc35ff129954ce107f2b99fedaba2c42c9fdab2c`.
+
+The amendment is config-only and bounded:
+- `platform/adv/sdkconfig.defaults` now sets
+  `CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048`;
+- `adv_config_guard.c` fails closed below 2048;
+- no UAC runtime, scheduling, buffering, MiniFT8, console-handoff or usbmsc behavior changed.
+
+Linux CTest 42/42, units 14/14, architecture checks, guard checks and the real ADV
+rebuild are accepted. T017 returns to TESTING.
+
+Next hardware success criterion: with GPIO4 diagnostics active, QMX enumeration must
+proceed beyond the previous `CHECK_SHORT_CONFIG_DESC FAILED` point and reach UAC RX
+connected/open plus strict 48000/24/2 stream start.
 
 ## Hardware finding — QMX enumeration blocked by control-transfer limit
 
