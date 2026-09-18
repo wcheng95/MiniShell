@@ -498,6 +498,53 @@ Do not create a catch-up transmission in a later wrong-parity slot.
 
 The no-live-RX deterministic/test path may retain existing behavior.
 
+## Part H — station identity from station.txt
+
+The first-QSO identity must come from the normal MiniFT8 configuration file:
+
+```text
+/flash/ft8/station.txt
+```
+
+For the architect's first-QSO setup it must contain:
+
+```text
+callsign=AG6AQ
+grid=CM97
+```
+
+Requirements:
+
+- `ft8` must load these values through the existing `ConfigService` / storage path;
+- do not hardcode `AG6AQ` or `CM97` in production code;
+- the loaded callsign/grid must be applied to AutoSeq before any CQ/reply intent is produced;
+- T021 TX encoding must therefore generate text using the loaded station identity,
+  e.g. `CQ AG6AQ CM97` for an ordinary CQ;
+- ADIF/RxTxLog station facts must use the same loaded callsign and selected grid;
+- if a valid live GPS grid later overrides the runtime effective grid, preserve the
+  existing V3 live-location policy, but the persistent/manual base identity still
+  comes from `station.txt`;
+- malformed/unreadable station configuration must fail safely rather than transmit
+  with an empty or compiled-in identity.
+
+Add deterministic coverage that loads a station fixture containing:
+
+```text
+callsign=AG6AQ
+grid=CM97
+```
+
+and proves the values propagate through `AppController -> AutoSeqTxIntent ->
+Ft8TxPlan` without substitution.
+
+Hardware acceptance must explicitly verify the active station configuration before
+the first RF transmission:
+
+```text
+callsign  AG6AQ
+grid      CM97
+```
+
 ## Part H — operator behavior
 
 No new physical-radio selection UI is required.
@@ -660,6 +707,8 @@ Do not implement:
 - [ ] RX is stopped before keying and restarted/re-anchored after RX;
 - [ ] no TX-period buffered audio is decoded afterward;
 - [ ] previous RX slot freshness guard is implemented;
+- [ ] station identity is loaded from `/flash/ft8/station.txt`, not hardcoded;
+- [ ] `callsign=AG6AQ` and `grid=CM97` propagate through AutoSeq into the first-QSO TX plan;
 - [ ] RxTxLog defaults ON;
 - [ ] RT filename and R/T format match V2 semantics;
 - [ ] all finalized RX messages are RT-logged exactly once;
@@ -685,9 +734,14 @@ move to the normal antenna for the actual QSO.
 Build the reviewed branch and verify:
 
 ```text
-station.txt contains or defaults to:
+/flash/ft8/station.txt
+
+callsign=AG6AQ
+grid=CM97
 rxtx_log=1
 ```
+
+The callsign/grid lines are required test identity for the first-QSO run; `rxtx_log` may be explicit or supplied by the accepted default-ON behavior.
 
 Identify the QMX CDC node:
 
