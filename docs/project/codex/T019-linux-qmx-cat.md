@@ -1,6 +1,6 @@
 # T019 — Linux QMX CAT over MiniShell Serial/CDC
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -430,15 +430,14 @@ Software/review gate:
 
 Manual architect acceptance on pc-1/QMX:
 
-- [ ] identify the current QMX CDC ACM node;
-- [ ] tune QMX away from the configured MiniFT8 band;
-- [ ] run, for the actual node:
-      `ft8 --cat serial:/dev/ttyACM0`;
-- [ ] QMX changes to FT8 mode/VFO policy and selected-band dial frequency;
-- [ ] no RF transmit/key event occurs;
-- [ ] live FT8 RX still decodes;
-- [ ] `q` returns cleanly to `M$>`;
-- [ ] repeated launch/exit does not leave the tty busy.
+- [x] identify the current QMX CDC ACM node;
+- [x] tune QMX away from the configured MiniFT8 band;
+- [x] run with the actual QMX CDC node using `ft8 --cat serial:<QMX-node>`;
+- [x] QMX changes to FT8 mode/VFO policy and selected-band dial frequency;
+- [x] no RF transmit/key event occurs;
+- [x] live FT8 RX still decodes;
+- [x] `q` returns cleanly to `M$>`;
+- [x] repeated launch/exit does not leave the tty busy.
 
 ## Automated tests
 
@@ -712,6 +711,46 @@ Recommended pc-1 validation:
 5. verify the radio returns to the selected FT8 dial without transmitting;
 6. verify live FT8 decode continues;
 7. quit and repeat once to prove clean tty release.
+
+
+## Final architect acceptance — T019 COMPLETE
+
+Real pc-1/QMX hardware validation passed.
+
+The architect built the reviewed T019 branch, identified the QMX CDC ACM endpoint,
+moved QMX away from the selected FT8 dial, and launched MiniFT8 with explicit CAT:
+
+```text
+M$> ft8 --cat serial:<QMX-CDC-path>
+```
+
+Accepted observed behavior:
+
+```text
+QMX CDC open / CAT byte transport              PASS
+MD6 / FR0 / FT0 startup synchronization        PASS
+selected-band FA frequency synchronization     PASS
+no RF key / no transmit                        PASS
+live QMX FT8 RX continues decoding             PASS
+q returns cleanly to M$>                       PASS
+repeat launch/exit releases and reopens CDC    PASS
+```
+
+This validates the intended ownership boundary on real hardware:
+
+```text
+MiniShell Serial/CDC
+    owns raw CDC transport and lifecycle
+
+MiniFT8 radio_qmx
+    owns QMX CAT syntax and radio semantics
+```
+
+T019 remains receive-safe. No `TX;`, `RX;`, `TA...`, tune, waveform, or
+physical transmit behavior is part of this accepted baseline.
+
+T019 is COMPLETE. The next transmitter work may build on this proven CAT transport
+and application-owned QMX adapter.
 
 ## Architect test result
 
