@@ -20,7 +20,7 @@ private backend/provider boundary
 Linux / NuttX / ESP-IDF / hardware / mocks
 ```
 
-Linux is the current reference implementation, but Linux behavior must not leak into the application core.
+Linux remains the deterministic reference/regression implementation, and Cardputer ADV is now a proven embedded implementation for live QMX USB-host RX. Neither backend may leak platform behavior into the application core.
 
 ### 1.1 Protocol applications
 
@@ -401,9 +401,12 @@ Implemented production baseline:
 MiniShell Audio RX API/service
 Linux deterministic WAV RX provider
 Linux live ALSA/QMX capture worker and ring
+ADV ESP-IDF USB-host/QMX UAC capture worker and canonical ring
 rx_audio_adapter -> rx_frontend -> rx_slot_framer
     -> ft8_engine -> rx_result_builder / RxBatch
 continuous multi-slot live RX with V2-compatible 12.64-second decoding
+real on-air ADV/QMX FT8 decode at ESP32-S3 240 MHz
+ADV engine profile: time_osr=2, freq_osr=1
 AutoSeq AS-0..AS-8 and simulated TX lifecycle
 ADIF and Field Day Cabrillo logging through log_service
 ```
@@ -411,7 +414,12 @@ ADIF and Field Day Cabrillo logging through log_service
 The RX pipeline transports 12 kHz S16 stereo through MiniShell, converts to 6 kHz
 mono float in `rx_frontend`, and frames blocks/slots in `rx_slot_framer` before
 engine decoding. `app_controller` projects results into AutoSeq and UiModel.
-Capture continues in the Linux worker while synchronous decoding runs.
+Capture continues in a platform-owned worker while synchronous decoding runs:
+ALSA on Linux and ESP-IDF USB-host/UAC on ADV.
+
+The ADV `freq_osr=2` comparison is not part of the production profile: it remained
+alive but consumed roughly 103 KiB more application memory and did not decode during
+the hardware comparison. The accepted ADV profile remains `freq_osr=1`.
 
 Physical QMX TX realization, generic MiniShell Control/CAT, and physical CAT/control
 integration remain future work. The diagrams for those boundaries describe intended
