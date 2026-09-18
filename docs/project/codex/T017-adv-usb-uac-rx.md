@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: TESTING
+Status: READY
 
 ## Objective
 
@@ -2251,6 +2251,105 @@ FT8 dial frequency/mode because T017 intentionally sends no CAT commands.
 If transport counters are healthy but no decode appears, add the next narrow probe at
 the platform boundary: total native bytes/reads and canonical sample peak/mean (or a
 small representative sample statistic), not a DSP change.
+
+
+## Architect hardware finding — 240 MHz exposes zero-tick capture-worker wait
+
+Architect hardware test after switching the ESP32-S3 from the previous 160 MHz
+configuration to 240 MHz:
+
+```text
+ADV: USB Host diagnostics on UART0 TX=GPIO3 RX=GPIO6 115200
+I (19574) adv_uac: USB Host installed FIFO 91/18/91; heap 179052 largest 122880
+I (19574) uac-host: Install Succeed, Version: 1.3.3
+I (19574) adv_uac: capture task create begin: static stack=4096 heap=166712 largest=110592
+I (23444) adv_uac: QMX 0483:a34c UAC RX interface 3 opened
+I (23574) adv_uac: CDC ready 0483:a34c interface 0 (no CAT commands)
+```
+
+The foreground remains at the shell presentation and the expected
+`capture task create success`, `Resume Interface 3-1`, and
+`selected 48000/24/2 -> 12000/S16/2` milestones do not appear.
+
+This supersedes the earlier successful 160 MHz bring-up as the active hardware
+finding. The static task itself is not a byte/word sizing error: ESP-IDF 5.5.4's
+Xtensa port defines `StackType_t` as `uint8_t`, and IDF task stack depths are
+bytes.
+
+The reviewed source exposes a concrete scheduling defect:
+
+```text
+ADV application task priority = tskIDLE_PRIORITY + 1
+uac_capture priority          = 4
+ADV sdkconfig.defaults        = no CONFIG_FREERTOS_HZ override
+ESP-IDF 5.5.4 FREERTOS_HZ     = 100 Hz by default
+1 RTOS tick                   = 10 ms
+pdMS_TO_TICKS(5)              = 0
+```
+
+The pre-start capture path currently executes:
+
+```c
+if (!device || !started) {
+    vTaskDelay(pdMS_TO_TICKS(5));
+    continue;
+}
+```
+
+At the default 100 Hz tick rate this is `vTaskDelay(0)`: it does not put the
+priority-4 worker into the delayed/blocking state. The worker can therefore remain
+ready and starve the lower-priority foreground application that is still inside
+`xTaskCreateStatic()`. Enumeration/class work can continue on the other task/core,
+which matches the observed QMX-open and CDC-ready diagnostics while
+`capture task create success` never returns.
+
+The previous 160 MHz success is consistent with a race-dependent startup path; it
+does not make the zero-tick wait valid. 240 MHz is now the architect-required ADV
+CPU baseline.
+
+## Supervisor amendment — guaranteed blocking wait + reproducible 240 MHz ADV
+
+Implement this amendment on the existing T017 branch. Keep it narrow.
+
+1. Make 240 MHz the reproducible Cardputer ADV build default in
+   `platform/adv/sdkconfig.defaults`. Verify the resolved build has
+   `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240` (and the corresponding 240 MHz choice).
+   Add/update the existing ADV configuration guard if useful so a stale generated
+   sdkconfig cannot silently fall back to 160 MHz.
+2. Fix only the capture worker's pre-start/no-device wait so it **always blocks for
+   at least one FreeRTOS tick**. A direct one-tick delay or an equivalent
+   provably-nonzero delay is acceptable. Do not change the global FreeRTOS tick rate
+   merely to make a 5 ms conversion nonzero.
+3. Preserve the capture worker's 4096-byte static stack, priority 4, and current
+   unpinned affinity. Do not tune Host/UAC/CDC priorities or affinities.
+4. Preserve the existing open/start/read/stop/close ownership, 2048-frame canonical
+   ring, USB FIFO 91/18/91, UAC/CDC versions, conversion, discontinuity behavior,
+   console lease, and ADV `freq_osr=1` profile.
+5. Add/update a source regression that prevents the pre-start capture path from
+   returning to a zero-tick `pdMS_TO_TICKS(5)` wait. Do not add broad scheduler
+   tests or mock FreeRTOS.
+6. No FT8 DSP, timing, decoder, UI, CAT, TX, or public MiniShell API changes are
+   authorized by this amendment.
+7. Re-run the established T017 local gates: Linux full CTest, unit suite, the three
+   architecture checks, real ADV build, and `git diff --check`.
+8. Record resolved CPU-frequency evidence and exact files changed in the handoff.
+   Return one pushed reviewable commit SHA; no PR and no Actions wait.
+
+Hardware acceptance after supervisor review:
+
+```text
+capture task create begin
+capture task create success
+QMX 0483:a34c UAC RX interface 3 opened
+uac-host: Resume Interface 3-1
+selected 48000/24/2 -> 12000/S16/2
+CDC ready ...                  # best effort; ordering may vary
+```
+
+The important regression criterion is that `capture task create success` must no
+longer depend on USB enumeration timing at 240 MHz. Once full bring-up is restored,
+resume the already-defined transport/ring-statistics test over complete FT8 slots
+before any decoder/DSP change.
 
 ## Architect hardware result
 
