@@ -41,8 +41,12 @@ physical QMX TX                    NEXT MAJOR BOUNDARY — Linux first QSO
 Working live Linux/QMX command:
 
 ```text
-M$> ft8 --profile adv --rx alsa:hw:2,0
+M$> ft8
 ```
+
+T018 makes the Linux composition defaults `ADV` presentation plus
+`alsa:hw:2,0` RX. Explicit presentation and RX overrides remain available and
+have been validated on pc-1.
 
 ## Validated production path
 
@@ -143,6 +147,7 @@ RX-6        COMPLETE — MiniShell Audio + WAV
 RX-7        COMPLETE — decoded application/UI path
 RX-8        COMPLETE — live QMX ALSA + V2 timing + continuous capture
 T017        COMPLETE — ADV QMX USB-host RX + lifecycle + post-FT8 usbmsc
+T018        COMPLETE — Linux bare ft8 live-QMX/ADV defaults
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
