@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T008-audio-discontinuity.md   READY
+none
 ```
 
-T008 addresses F05: live Audio transport recovery must surface sample discontinuity to the application; MiniFT8 owns the reset/re-anchor policy.
+Accepted cleanup now on `main` includes T008/F05 Audio discontinuity propagation and FT8 stream re-anchor.
 
-Workflow: local build/test -> one pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T008 branch.
+Workflow remains: one temporary task branch -> local build/tests -> pushed commit -> supervisor diff review -> merge/fast-forward to `main` -> delete the temporary branch.
 
 ## Rule
 
