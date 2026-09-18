@@ -7,10 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T001-architecture-boundary-audit.md   READY
+T002-filesystem-handle-lifetime.md   READY
 ```
 
-No feature implementation should proceed until T001 is reviewed by the supervisor and the architect decides how to handle any findings.
+T001 architecture audit was reviewed and merged in PR #33. Its accepted findings define the cleanup backlog; T002 addresses F03 first.
+
+No unrelated feature implementation should proceed while T002 and the accepted Wave-1 integrity cleanup are active.
 
 ## Rule
 
