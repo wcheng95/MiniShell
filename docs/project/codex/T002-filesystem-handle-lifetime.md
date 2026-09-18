@@ -1,6 +1,6 @@
 # T002 — Filesystem stale-handle lifetime
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -246,19 +246,19 @@ If the clean fix appears to require any item above, stop and report the architec
 
 ## Acceptance criteria
 
-- [ ] Closed file handles cannot become valid for an immediately/repeatedly reopened file slot.
-- [ ] Closed directory handles cannot become valid for an immediately/repeatedly reopened directory slot.
-- [ ] New resources receive distinct valid tokens under ordinary repeated reuse.
-- [ ] Stale public operations return `MINI_ERR_BAD_HANDLE`.
-- [ ] Current valid handles still operate normally.
-- [ ] App-end/app-begin stale-handle rejection remains intact.
-- [ ] Public API is unchanged.
-- [ ] Platform backends are unchanged.
-- [ ] No application workaround is introduced.
-- [ ] Unit regression coverage is added at the public Filesystem service boundary.
-- [ ] Existing Filesystem API documentation remains truthful.
-- [ ] Full required tests are run and results recorded.
-- [ ] No unrelated cleanup is included.
+- [x] Closed file handles cannot become valid for an immediately/repeatedly reopened file slot.
+- [x] Closed directory handles cannot become valid for an immediately/repeatedly reopened directory slot.
+- [x] New resources receive distinct valid tokens under ordinary repeated reuse.
+- [x] Stale public operations return `MINI_ERR_BAD_HANDLE`.
+- [x] Current valid handles still operate normally.
+- [x] App-end/app-begin stale-handle rejection remains intact.
+- [x] Public API is unchanged.
+- [x] Platform backends are unchanged.
+- [x] No application workaround is introduced.
+- [x] Unit regression coverage is added at the public Filesystem service boundary.
+- [x] Existing Filesystem API documentation remains truthful.
+- [x] Full required tests are run and results recorded.
+- [x] No unrelated cleanup is included.
 
 ## Automated tests
 
@@ -325,21 +325,153 @@ Codex fills this section and changes `Status` from `READY` to `REVIEW` before ha
 
 ### Implementation summary
 
+Fixed T001 F03 in the portable Filesystem registry. Each successful file/directory
+acquisition now gets a fresh opaque token independent of its slot and native handle.
+Release and teardown remove the live token; later acquisitions cannot recreate it.
+Added public-service regression tests and a small handle-contract clarification.
+
+Branch started from fetched `origin/main` at `508b89d` (T002 active-task packet).
+No unrelated T001 finding was addressed.
+
 ### Handle/token design and wrap behavior
+
+- A shared `uint32_t` acquisition sequence supplies file and directory tokens from
+  1 through `UINT32_MAX`. All 32 bits participate in identity; no bits are reserved
+  for slot indexing. Files and directories share 4,294,967,295 acquisitions per
+  running registry lifetime, without collisions between their live identities.
+- Each private slot stores its complete public token. Lookup checks live backend
+  state and token equality in a bounded scan of at most 32 file or 16 directory
+  slots. No heap allocation, backend identity dependency, or new public API.
+- Close/release clears the slot, as before. App teardown and service reconfiguration
+  clear live entries but **never reset the sequence**. Removing the old per-app
+  generation increment is necessary because identity now advances per acquisition.
+- After issuing `UINT32_MAX`, defined unsigned increment reaches zero, which is a
+  permanent exhausted sentinel. Neither allocator nor free-slot discovery advances
+  beyond it. Subsequent public opens return existing `MINI_ERR_TOO_MANY_OPEN` before
+  invoking backend open, so exhaustion cannot truncate/create a file or alias a stale
+  token. Existing valid handles still work and can close. This deliberately trades
+  availability at complete token-space exhaustion for lifetime correctness.
+- A process/device restart creates a new registry lifetime. Opaque handles are not
+  persistent identifiers and cannot be carried across such a restart.
 
 ### Files changed
 
+- `core/minishell_services/filesystem_handles.c`: acquisition sequence, live-token
+  lookup, occupied-slot protection, and fail-closed exhaustion handling.
+- `core/minishell_services/filesystem_internal.h`: full public-token fields in
+  private slots; remove obsolete per-app generation helper declaration.
+- `core/minishell_services/filesystem_service.c`: remove only the obsolete generation
+  increment in app begin; the existing app-end cleanup call remains. This one-line
+  integration change avoids keeping a meaningless private lifecycle helper.
+- `tests/unit/test_filesystem.c`: public Filesystem lifetime regressions and local
+  directory callbacks (the shared fake port has no directory callbacks).
+- `docs/api/filesystem-api.md`: replace the old implementation-specific
+  “generation-aware slots” wording with fresh acquisition identity and invalidation
+  on slot reuse. No private encoding is exposed.
+- This task packet: acceptance checklist, REVIEW status, and handoff evidence.
+
 ### Invariants preserved
+
+Public `mini_file_t` / `mini_dir_t` remain opaque `uint32_t` values with zero invalid.
+Public signatures, native backend types, 32-file/16-directory capacity, normal
+close/teardown behavior, path normalization, quota accounting, writable-path exclusion,
+and application code are unchanged. Filesystem alone validates public identity;
+Linux/ADV backends still own native resources. Existing cross-app stale-file coverage
+is retained. No application workaround or backend change was introduced.
 
 ### Tests added
 
+All regression operations enter through `mini_api_get()->fs` (`mini_fs_api_t`), not
+private handle helpers:
+
+- 64 sequential file acquisitions alternating two files, with close/reopen reusing
+  the available slot. Every new token must differ from every retained earlier token.
+- Every retired file token is rejected by read/write/seek/sync/close while the next
+  resource is live. Stale sync/close must not reach the backend. The current resource
+  retains the expected data/position and supports normal read/write/seek/sync/close.
+- 64 directory acquisitions alternating two distinct fake native directories. Every
+  older token is rejected by dir_read/dir_close without consuming the live directory's
+  entry or closing its backend. Current handles return the correct entry and EOF.
+- Double close/stale operations immediately after release, for both handle kinds.
+- Unclosed file/directory handles reclaimed at app end, followed by app begin and
+  fresh acquisitions. Old tokens stay invalid and the new resources remain usable.
+- The same reclamation/reacquisition checks across service reconfiguration, including
+  exact backend close counts. This protects the sequence from accidental reset.
+
+The new focused regression was first run against the original production registry:
+it **failed** at `files[i] != files[j]` on the first repeated acquisition. After the
+fix, the same test passes. No existing assertion was weakened or removed.
+
 ### Tests run and results
+
+```sh
+cmake -S tests/unit -B /tmp/T002-build-unit
+cmake --build /tmp/T002-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T002-build-unit --output-on-failure
+ctest --test-dir /tmp/T002-build-unit -R api_filesystem_unit --output-on-failure
+```
+
+Configure/build **PASS** with the unit target's `-Wall -Wextra -Werror` settings;
+full unit suite **14/14 PASS**; explicit Filesystem test **1/1 PASS**. The earlier
+pre-fix focused run failed as described above, establishing the regression.
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+ctest --test-dir build-linux --output-on-failure
+```
+
+Linux configure/build **PASS**. CTest **18/20 PASS** (exit 8); the only failures are
+the same two identified by T001 and this task:
+
+- `linux_audio`: expected contiguous `frames=180140 hash=f05f17c990b748e1`; actual
+  probe output inserts diagnostic fields between those same frame/hash values.
+- `linux_ft8`: timeout at the stale queue-rotation expectation for
+  `N5CH     RPLY 0/3` (`tests/linux_ft8.py:207`); actual page ends with KQ4PUG.
+
+Linux Filesystem/directory/resource and portable-app integrations pass. Neither
+known failing test nor the relevant application behavior was modified. Full baseline
+output was captured locally in `/tmp/T002-linux-ctest.log`.
+
+```sh
+python3 tests/app_dependency_boundary.py . ft8
+python3 tests/app_dependency_boundary.py . keyer
+python3 tests/ft8_platform_boundary.py .
+git diff --check
+```
+
+All **PASS**. Direct checker output:
+
+```text
+app_dependency_boundary: PASS (ft8)
+app_dependency_boundary: PASS (keyer)
+ft8_platform_boundary: PASS (52 source/header files; platform-clean; dependency-clean; AutoSeq heap-free)
+```
 
 ### Manual/hardware validation still required
 
+None required by T002. No hardware validation performed; the change is portable
+service logic and the required host regressions/integrations were run.
+
 ### Known limitations / risks
 
+- Token exhaustion intentionally stops future acquisitions until runtime restart;
+  there is no stale-token wraparound. Tests exercise repeated allocation and lifecycle
+  transitions deterministically, not billions of acquisitions. The terminal counter
+  transition and pre-backend exhaustion guards were reviewed statically.
+- Token lookup is now a bounded linear scan rather than index decoding (maximum 32
+  or 16 slots). No performance claim beyond that fixed bound is made.
+- Existing foreground/synchronous registry assumptions are unchanged; this task does
+  not add concurrency or reentrancy support.
+- The two unrelated baseline failures remain. All other T001 findings are out of
+  scope. No deviation from T002's authorized implementation boundary.
+
 ### Commit / PR
+
+Branch: `codex/T002-filesystem-handle-lifetime`.
+PR title: `T002: fix filesystem stale-handle lifetime`.
+The implementation commit and PR URL are recorded in the PR body/final handoff to
+avoid embedding a self-referential commit hash here.
 
 ## Supervisor review
 

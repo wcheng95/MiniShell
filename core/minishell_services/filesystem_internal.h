@@ -11,7 +11,7 @@
 
 typedef struct {
     minishell_backend_file_t backend;
-    uint16_t generation;
+    mini_file_t public_handle;
     uint32_t flags;
     uint64_t logical_size;
     uint64_t position;
@@ -20,7 +20,7 @@ typedef struct {
 
 typedef struct {
     minishell_backend_dir_t backend;
-    uint16_t generation;
+    mini_dir_t public_handle;
 } filesystem_dir_slot_t;
 
 /* Path helpers: pure MiniShell namespace mechanics. */
@@ -30,9 +30,8 @@ mini_result_t filesystem_path_join_child(const char *parent,
                                          const char *name,
                                          char *out);
 
-/* Handle registry: private logical-handle ownership/generation bookkeeping. */
+/* Handle registry: private logical-handle identity and lifetime bookkeeping. */
 void filesystem_handles_reset(void);
-void filesystem_handles_advance_generation(void);
 uint32_t filesystem_handles_find_free_file(void);
 uint32_t filesystem_handles_find_free_dir(void);
 filesystem_file_slot_t *filesystem_handles_lookup_file(mini_file_t file);
