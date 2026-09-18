@@ -23,7 +23,7 @@ Both production receive paths are now proven: Linux/QMX runs continuously across
 RX core + protocol decode        COMPLETE
 MiniShell Audio integration      COMPLETE
 live QMX ALSA capture            COMPLETE
-ADV QMX USB-host UAC RX          LIVE DECODE PASS / T017 TESTING
+ADV QMX USB-host UAC RX          COMPLETE — hardware validated
 12.64 s V2-compatible decode     COMPLETE
 continuous multi-slot RX         COMPLETE
 AutoSeq AS-0..AS-8              COMPLETE
@@ -130,11 +130,12 @@ load were not measured and `freq_osr=2` substantially increases compute as well 
 RAM. It is therefore deferred rather than classified as a decoder failure.
 `freq_osr=1` remains the validated production profile.
 
-T017 remains in hardware TESTING only for the remaining lifecycle checks:
-initial disconnected start/late first QMX attach, repeated `ft8` entry/exit,
-provider ring/error statistics, and `usbmsc` after FT8 teardown. Recovery from
-unplugging and replugging an already-enumerated QMX is not required: the device can
-fail its own second enumeration, matching the practical V2 limitation.
+T017 hardware acceptance is complete: live decode across consecutive slots,
+initial disconnected start followed by first QMX attachment, repeated
+`ft8 -> quit -> ft8`, provider continuity/ring diagnostics, and post-FT8
+`usbmsc` all pass. Recovery from unplugging and replugging an already-enumerated
+QMX is not required: the device can fail its own second enumeration, matching the
+practical V2 limitation.
 
 ## FT8 slot timing
 
@@ -354,7 +355,7 @@ Detailed RX and AS stage documents remain in this directory as implementation hi
 
 ## Next
 
-After the remaining T017 lifecycle checks are accepted, the next major production boundary is real TX integration while preserving the existing semantic layers:
+The next major production boundary is real TX integration while preserving the existing semantic layers:
 
 ```text
 AutoSeq TxIntent
