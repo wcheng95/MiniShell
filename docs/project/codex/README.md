@@ -7,10 +7,10 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T019-linux-qmx-cat.md   TESTING
+none
 ```
 
-T019 adds a MiniShell-owned Serial/CDC byte-stream boundary on Linux and a MiniFT8-owned QMX CAT adapter. This first slice is receive-safe only: explicit CAT endpoint, mode/VFO/frequency synchronization, no TX/RX/TA commands.
+T019 is COMPLETE. Linux MiniShell Serial/CDC and MiniFT8-owned QMX CAT are hardware-validated on pc-1: mode/VFO/frequency sync works, live FT8 RX continues, repeated CDC lifecycle passes, and no TX command is emitted.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
