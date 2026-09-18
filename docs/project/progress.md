@@ -85,11 +85,14 @@ RX-8         COMPLETE — live QMX ALSA, V2 timing, continuous capture
 T017         COMPLETE — ADV QMX USB-host RX live decode + lifecycle + usbmsc hardware validation
 T018         COMPLETE — Linux bare ft8 -> ADV presentation + live QMX RX defaults
 T019         COMPLETE — Linux Serial/CDC + MiniFT8-owned QMX CAT frequency sync
-T020         COMPLETE — QMX CAT TX primitives; standalone RF validation deferred to T022
+T020         COMPLETE — QMX CAT TX primitives; real RF path validated through T022-T024
 T021         COMPLETE — pure FT8 TX text/payload/79-tone plan, V2-vector verified
 AS-0..AS-8   COMPLETE
 LOG-1        COMPLETE — daily ADIF + Field Day Cabrillo
-physical TX  NEXT MAJOR PRODUCTION BOUNDARY — Linux/QMX first QSO target
+T022         COMPLETE — integrated Linux/QMX physical FT8 TX + RX recovery + RxTxLog
+T023         COMPLETE — CQ/CQ POTA + beacon OFF/EVEN/ODD, hardware validated
+T024         COMPLETE — V2-compatible Random/Fixed/RX TX offset, hardware validated
+WinBook      RX DECODE PASS — pc-1 binaries run; QMX CAT/TX still unresolved
 ```
 
 Canonical MiniFT8 entry points:
@@ -119,7 +122,7 @@ Field Day Cabrillo:
 
 AutoSeq owns pure log eligibility/events and per-format ACK state. `app_controller` coordinates TX-start ordering and passes station/QSO facts to `log_service`, which owns ADIF/Cabrillo serialization, date/frequency/path policy and copy-on-write persistence through injected MiniShell Filesystem and Time/Location APIs (T006/T007). Sync/close precede rename as the commit point; the controller ACKs only successful persistence.
 
-V2's optional `RTYYMMDD.txt` traffic log remains intentionally unported until V3 exposes the corresponding `rxtx_log` setting.
+V2-compatible `RTYYMMDD.txt` RxTxLog is implemented and hardware validated through T022-T024; `rxtx_log` defaults ON and is configurable in `station.txt`.
 
 ## Keyer baseline
 
