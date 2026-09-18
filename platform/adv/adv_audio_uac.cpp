@@ -19,7 +19,7 @@ constexpr minishell_backend_audio_t handle = (minishell_backend_audio_t)0x554143
 constexpr uint16_t vid = 0x0483, pid = 0xA34C;
 const char *tag = "adv_uac";
 minishell_services_port_t base;
-adv_uac_buffer_t ring;
+adv_uac_buffer_t *ring;
 portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 DMA_ATTR uint8_t native_data[2304];
 struct Connection { uint8_t address, interface; };
@@ -33,6 +33,28 @@ bool uac_installed, cdc_installed, capture_running, host_running, cdc_running;
 uac_host_device_handle_t capture_device;
 cdc_acm_dev_hdl_t cdc_device;
 std::atomic<unsigned> read_errors{0}, transfer_errors{0};
+
+// Allocation precedes all console/USB work. Keep the block across stop/start
+// and failed cleanup; only a completed close/failed-open unwind can free it.
+bool allocate_ring()
+{
+    constexpr uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    ESP_LOGI(tag, "ring allocation request bytes=%u heap-free=%u largest-block=%u",
+             (unsigned)sizeof(*ring), (unsigned)heap_caps_get_free_size(caps),
+             (unsigned)heap_caps_get_largest_free_block(caps));
+    ring = static_cast<adv_uac_buffer_t *>(heap_caps_malloc(sizeof(*ring), caps));
+    if (ring) memset(ring, 0, sizeof(*ring));
+    ESP_LOGI(tag, "ring allocation %s bytes=%u heap-free=%u largest-block=%u",
+             ring ? "success" : "failure", (unsigned)sizeof(*ring),
+             (unsigned)heap_caps_get_free_size(caps),
+             (unsigned)heap_caps_get_largest_free_block(caps));
+    return ring != nullptr;
+}
+void free_ring()
+{
+    heap_caps_free(ring);
+    ring = nullptr;
+}
 
 bool close_capture()
 {
@@ -58,7 +80,7 @@ bool close_cdc()
 void loss()
 {
     portENTER_CRITICAL(&lock);
-    adv_uac_loss(&ring);
+    adv_uac_loss(ring);
     portEXIT_CRITICAL(&lock);
 }
 void device_event(uac_host_device_handle_t, uac_host_device_event_t event, void *)
@@ -163,8 +185,8 @@ void capture_task(void *)
         if (unplugged) continue;
         if (!device || !started) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
         portENTER_CRITICAL(&lock);
-        bool reset = ring.reset_required;
-        uint32_t epoch = ring.epoch;
+        bool reset = ring->reset_required;
+        uint32_t epoch = ring->epoch;
         portEXIT_CRITICAL(&lock);
         if (reset && streaming) {
             connected = false;
@@ -189,22 +211,22 @@ void capture_task(void *)
             streaming = true;
             connected = true;
             portENTER_CRITICAL(&lock);
-            if (ring.epoch == epoch) {
-                ring.reset_required = false;
-                ring.used = ring.phase = 0;
+            if (ring->epoch == epoch) {
+                ring->reset_required = false;
+                ring->used = ring->phase = 0;
             }
             portEXIT_CRITICAL(&lock);
             ESP_LOGI(tag, "selected 48000/24/2 -> 12000/S16/2");
         }
         portENTER_CRITICAL(&lock);
-        adv_uac_ticket_t ticket = adv_uac_begin(&ring);
+        adv_uac_ticket_t ticket = adv_uac_begin(ring);
         portEXIT_CRITICAL(&lock);
         uint32_t bytes = 0;
         esp_err_t error = uac_host_device_read(device, native_data, sizeof(native_data),
                                                &bytes, pdMS_TO_TICKS(20));
         if (error == ESP_OK && bytes) {
             portENTER_CRITICAL(&lock);
-            adv_uac_feed(&ring, ticket, native_data, bytes);
+            adv_uac_feed(ring, ticket, native_data, bytes);
             portEXIT_CRITICAL(&lock);
         } else if (error != ESP_OK && error != ESP_ERR_TIMEOUT) {
             ++read_errors;
@@ -311,11 +333,15 @@ mini_result_t rx_open(void *ctx, const char *endpoint, uint32_t rate, uint32_t f
         // error. Retry cleanup, but never steal an active stream.
         if (started) return MINI_ERR_TOO_MANY_OPEN;
         if (!release()) return MINI_ERR_IO;
+        free_ring();
     }
-    memset(&ring, 0, sizeof(ring));
+    if (!allocate_ring()) {
+        reserved = false;
+        return MINI_ERR_NO_MEMORY;
+    }
     read_errors = transfer_errors = 0;
     if (!prepare()) {
-        if (release()) reserved = false;
+        if (release()) { free_ring(); reserved = false; }
         return MINI_ERR_IO;
     }
     *out = handle;
@@ -345,8 +371,8 @@ mini_result_t rx_read(void *ctx, minishell_backend_audio_t audio, void *frames,
     int64_t deadline = esp_timer_get_time() + (int64_t)timeout * 1000;
     for (;;) {
         portENTER_CRITICAL(&lock);
-        bool discontinuity = adv_uac_ack(&ring);
-        uint32_t count = discontinuity ? 0 : adv_uac_take(&ring, (int16_t *)frames, std::min<uint32_t>(capacity, 256u));
+        bool discontinuity = adv_uac_ack(ring);
+        uint32_t count = discontinuity ? 0 : adv_uac_take(ring, (int16_t *)frames, std::min<uint32_t>(capacity, 256u));
         portEXIT_CRITICAL(&lock);
         if (discontinuity) return MINI_ERR_DISCONTINUITY;
         if (count) { *out = count; return MINI_OK; }
@@ -362,8 +388,8 @@ mini_result_t rx_stop(void *ctx, minishell_backend_audio_t audio)
     bool was_started = started;
     bool ok = release();
     portENTER_CRITICAL(&lock);
-    if (was_started) adv_uac_loss(&ring);
-    uint32_t high_water = ring.high_water, overflows = ring.overflows, losses = ring.losses;
+    if (was_started) adv_uac_loss(ring);
+    uint32_t high_water = ring->high_water, overflows = ring->overflows, losses = ring->losses;
     portEXIT_CRITICAL(&lock);
     ESP_LOGI(tag, "high-water=%lu/16384 overflow=%lu discontinuity=%lu read-errors=%u transfer-errors=%u",
              (unsigned long)high_water, (unsigned long)overflows,
@@ -374,7 +400,7 @@ mini_result_t rx_close(void *ctx, minishell_backend_audio_t audio)
 {
     if (audio != handle) return base.audio_rx_close ? base.audio_rx_close(ctx, audio) : MINI_ERR_BAD_HANDLE;
     mini_result_t result = rx_stop(ctx, audio);
-    if (result == MINI_OK) reserved = false;
+    if (result == MINI_OK) { free_ring(); reserved = false; }
     return result;
 }
 } // namespace

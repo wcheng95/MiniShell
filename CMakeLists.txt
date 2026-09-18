@@ -641,3 +641,6 @@ target_compile_options(adv_usb_console_handoff_unit PRIVATE -Wall -Wextra -Werro
 add_test(NAME adv_usb_console_handoff_unit COMMAND adv_usb_console_handoff_unit)
 add_test(NAME adv_usb_console_boundary
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_usb_console_boundary.py)
+add_test(NAME adv_uac_allocation
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_uac_allocation_test.py
+            ${CMAKE_CXX_COMPILER})

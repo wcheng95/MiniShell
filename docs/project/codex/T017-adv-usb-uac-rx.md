@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -239,16 +239,18 @@ Store already-converted MiniShell canonical frames in the ring:
 
 not 48 kHz / 24-bit native frames.
 
-Revised architect target after the first ADV memory measurement:
+Architect-confirmed target for the lazy-allocation amendment:
 
 ```text
-4096 canonical frames
-= 16384 bytes
-= about 341 ms at 12 kHz
+16384 canonical frames
+= 65536 bytes
+= about 1.365 seconds at 12 kHz
 ```
 
-This is intentionally smaller than the original 64 KiB proposal. Hardware ring
-high-water is the authority; increase only if synchronous decode backlog requires it.
+The architect explicitly reconfirmed 16384 frames in chat after concurrent task
+commit `f6c8695` proposed 4096 frames. That confirmation overrides the smaller
+proposal; this amendment changes allocation lifetime only. Capacity changes still
+require measured ring high-water evidence and authorization.
 
 Use a power-of-two ring and fixed/static storage where practical.
 
@@ -1175,9 +1177,8 @@ too close to the FT8 workspace requirement to survive those preceding allocation
 Required amendment:
 
 1. Remove the permanent static `adv_uac_buffer_t ring` allocation from .bss.
-2. Change the canonical ring capacity to 4096 frames / 16384 bytes.
-3. Keep only a nullable provider-owned pointer/state in permanent storage.
-4. In `rx_open("uac:qmx")`, after the application/FT8 workspace already exists
+2. Keep only a nullable provider-owned pointer/state in permanent storage.
+3. In `rx_open("uac:qmx")`, after the application/FT8 workspace already exists
    but **before** `adv_console_begin_usb_host()`, allocate one
    `adv_uac_buffer_t` dynamically from internal 8-bit-capable heap.
 4. Log before/after allocation while USB Serial/JTAG is still active:
@@ -1202,9 +1203,9 @@ Required amendment:
     - return MINI_ERR_NO_MEMORY or the nearest existing appropriate backend result;
     - leave USB ownership untouched.
 11. WAV and other non-UAC endpoints must allocate no UAC ring.
-12. Keep the revised 4096-frame ring for the next hardware test. Record high-water
-    occupancy during synchronous decode. If high-water approaches capacity or an
-    overflow occurs, increase only from measured need.
+12. Keep the architect-reconfirmed 16384-frame ring. Restore the intended allocation
+    order first; measure real ring high-water during synchronous decode before any
+    separately authorized capacity change.
 13. Add/adjust host tests for:
     - lazy allocation state;
     - allocation failure with no USB/console handoff;
@@ -1214,8 +1215,8 @@ Required amendment:
     - repeated open/close does not leak.
 14. Re-run Linux full CTest, unit suite, architecture checks and real ADV build.
 15. Record new firmware .bss size; the expected result is approximately 64 KiB
-    recovered from static .bss relative to the current T017 build, while the
-    runtime UAC ring allocation is about 16 KiB.
+    recovered from static .bss relative to the current T017 build. The runtime
+    allocation remains about 64 KiB, now acquired after the FT8 workspace.
 
 Expected runtime allocation order:
 
@@ -1227,7 +1228,7 @@ ft8 startup
     AppController / AppRxState
     FT8 monitor workspace (~206 KiB contiguous)
     Audio.open("uac:qmx")
-        allocate 16 KiB canonical UAC ring
+        allocate 64 KiB canonical UAC ring
         then suspend USB Serial/JTAG
         then install USB Host/UAC/CDC
 
@@ -1240,6 +1241,108 @@ ft8 clean exit
 
 After this amendment, repeat the exact hardware launch that previously returned 8.
 Only if FT8 reaches the GPIO4 handoff should subsequent USB enumeration debugging begin.
+
+## Codex lazy-ring amendment handoff
+
+### Implementation summary / files changed
+
+Implemented only the architect memory-allocation amendment. The provider keeps a
+nullable `adv_uac_buffer_t *ring` instead of the permanent static object. Only
+`rx_open("uac:qmx")` allocates it, using
+`heap_caps_malloc(sizeof(*ring), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`. Allocation
+and zero-initialization precede `prepare()` and therefore precede all USB console
+suspension, UART setup and USB Host ownership.
+
+Changed files: `platform/adv/adv_audio_uac.cpp`, new
+`tests/adv_uac_allocation_test.py`, root `CMakeLists.txt` (test registration), and
+this task report. The converter/ring helper, UART/console implementation, managed
+UAC patch, USB/class teardown ordering, shared MiniFT8, public API and usbmsc are
+unchanged.
+
+### Behavior / invariants preserved
+
+The 16384-frame capacity is unchanged: 65536 sample-storage bytes, **65572 bytes**
+for the complete object including metadata. Before/after allocation logs report
+requested bytes, internal 8-bit heap free and largest block, and success/failure
+while normal USB Serial/JTAG remains active. Allocation failure leaves an invalid
+output handle, clears the reservation, returns `MINI_ERR_NO_MEMORY`, and never
+enters USB/console prepare.
+
+All conversion, capture, loss/ACK, read and statistics paths use the pointer.
+The ring stays allocated across stop/start to preserve existing epoch behavior and
+the validity of an open handle. Stop still performs its existing hardware teardown;
+only successful close frees the ring after complete class/Host/console cleanup.
+This also keeps post-stop statistics safe to read. Failed close retains ring and
+reservation for retry.
+
+If open's prepare fails, successful ownership unwind frees the ring and clears the
+reservation. If unwind fails, both remain. A later open must complete the retained
+cleanup before freeing the old ring and allocating a freshly zeroed one. Non-UAC
+endpoint delegation occurs before any UAC reservation/allocation; WAV paths
+allocate no UAC ring. No permanent native-buffer or ring-capacity tuning was made.
+
+### Tests run and results
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/adv_uac_allocation_test.py
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T017-build-unit
+cmake --build /tmp/T017-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T017-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+All passed: Linux **42/42**, portable units **14/14**, architecture checks and
+checker self-tests, real IDF **v5.5.4 ADV firmware build**, and whitespace check.
+
+The new host regression compiles the production allocation/free and
+open/start/stop/close functions against injected heap/logging and prepare/release
+operations. It covers initially unallocated state; WAV/default/other endpoint
+bypass; unsupported format; allocation failure before handoff with diagnostics;
+zero-initialization; three leak-free open/close cycles; stop/start retaining the
+same ring and pending epoch; prepare failure with successful/failed unwind;
+failed cleanup retries retaining the same allocation; eventual retry cleanup/free;
+and close failure followed by successful cleanup. The existing console-boundary
+regression continues to check actual class/Host/console release ordering.
+
+### Firmware memory result
+
+From `platform/adv/build/minishell_adv.map`:
+
+| Section | Previous T017 | Lazy ring | Change |
+| --- | ---: | ---: | ---: |
+| `.dram0.bss` | 0x13030 (77872 B) | **0x3010 (12304 B)** | **-65568 B** |
+| `.dram0.data` | 0x4b68 | 0x4b68 | unchanged |
+
+The map now shows the provider ring symbol occupying **4 bytes**, a pointer. The
+recovered static storage equals the 65572-byte object minus that pointer. Firmware
+binary size is **0xb8bc0 bytes**, with **0x537440 bytes (88%)** of the app partition
+free. This proves the permanent ring cost is removed; it does not measure runtime
+heap fragmentation or prove the FT8 startup failure resolved on hardware.
+
+### Hardware/manual validation still required / known risks
+
+**Hardware testing has not resumed.** Await supervisor re-review, then repeat the
+architect's exact failed launch and record shell heap/largest block plus the new
+allocation logs before proceeding to UART/USB enumeration. Internal heap must still
+accommodate the 65572-byte ring after the FT8 workspace and before USB/UART/task
+allocations. Capacity remains 16384 until real decode high-water measurements
+justify a separate change. All pending live decode/teardown/MSC hardware acceptance
+remains pending. The host regression injects USB cleanup outcomes; it does not
+exercise ESP-IDF or real-device teardown.
+
+### Commit reference
+
+New bounded memory-allocation amendment commit on `codex/T017-adv-usb-uac-rx`;
+exact pushed SHA returned in the Codex handoff. Status: REVIEW. No PR, no Actions
+wait, no resumed hardware testing, and no deviations from the amendment.
 
 ## Hardware finding — first T017 run
 
@@ -1278,8 +1381,8 @@ Preferred correction if the hardware numbers confirm this diagnosis:
   engine workspace has already been allocated;
 - free the ring on clean Audio close;
 - retain it if teardown fails and cleanup obligation remains;
-- use 4096 canonical frames / 16384 bytes for the next hardware test;
-- measure high-water during synchronous decode and increase only with evidence;
+- retain the architect-reconfirmed 16384 canonical frames / 65536 sample bytes;
+- measure high-water during synchronous decode before any authorized size change;
 - WAV/shell/non-UAC operation must pay no 64 KiB UAC ring cost;
 - preserve all conversion/epoch/discontinuity semantics and existing host tests;
 - add allocation failure coverage and diagnostics showing requested ring bytes plus
