@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: TESTING
+Status: COMPLETE
 
 ## Objective
 
@@ -641,18 +641,18 @@ unperformed hardware acceptance remains unchecked):
 
 - [x] V2 USB host/UAC mechanics traced and adapted, not blindly copied;
 - [x] QMX UAC endpoint `uac:qmx` exists on ADV;
-- [ ] strict 48k/24-bit/stereo negotiation works;
+- [x] strict 48k/24-bit/stereo negotiation works;
 - [x] native UAC audio becomes MiniShell 12k/S16/stereo;
 - [x] channel order preserved;
 - [x] existing RxFrontend remains owner of mono/6k conversion;
 - [x] continuous producer drains UAC during synchronous decode;
 - [x] ring overflow/USB loss becomes explicit discontinuity;
-- [ ] ADV WAV RX remains usable;
+- [x] ADV WAV RX remains usable;
 - [x] bare ADV `ft8` defaults to live `uac:qmx`;
 - [x] explicit `--rx` overrides default;
-- [ ] live decoded FT8 messages appear on ADV RX screen for >=3 consecutive slots;
-- [ ] FT8 can exit/re-enter repeatedly;
-- [ ] USB host teardown permits subsequent `usbmsc`;
+- [x] live decoded FT8 messages appear on ADV RX screen for >=3 consecutive slots;
+- [x] FT8 can exit/re-enter repeatedly;
+- [x] USB host teardown permits subsequent `usbmsc`;
 - [x] Linux 37/37 baseline remains green;
 - [x] portable unit suite remains green;
 - [x] ADV firmware builds;
@@ -663,8 +663,8 @@ unperformed hardware acceptance remains unchecked):
 
 CDC best-effort acceptance:
 
-- [ ] CDC component installs alongside UAC if compatible;
-- [ ] QMX CDC interface opens and disconnects cleanly;
+- [x] CDC component installs alongside UAC if compatible;
+- [x] QMX CDC interface opens; clean normal FT8 teardown is validated;
 - [x] CDC failure does not break UAC RX;
 - [x] no CAT policy commands are sent in T017.
 
@@ -2619,6 +2619,43 @@ The second case is accepted as a QMX hardware/firmware re-enumeration limitation
 not a MiniFT8-V3 acceptance failure. V3 must not intentionally require a post-session
 replug path beyond V2 behavior. A future device-recovery task may revisit it only if
 QMX firmware/hardware provides a reliable re-enumeration mechanism.
+
+
+## Final architect acceptance — T017 COMPLETE
+
+The architect reports PASS on all remaining required hardware checks:
+
+```text
+live decode for >=3 consecutive FT8 slots                    PASS
+start ft8 with QMX absent, then first attach without restart PASS
+repeated ft8 -> quit -> ft8                                 PASS
+provider ring/error statistics during live operation         PASS
+usbmsc flash after FT8 USB-host teardown                     PASS
+```
+
+The only non-recovering case is unplugging an already-enumerated QMX and plugging
+the same device back in without resetting/power-cycling QMX. This is explicitly
+accepted as the known QMX/V2 re-enumeration limitation and is not a T017 failure.
+
+Final accepted ADV production baseline:
+
+```text
+ESP32-S3 CPU         240 MHz
+QMX RX native        48000 Hz / 24-bit / stereo
+MiniShell Audio      12000 Hz / S16 / stereo
+FT8 engine           time_osr=2 / freq_osr=1
+live on-air decode   PASS
+continuous slots     PASS
+initial late attach  PASS
+repeated lifecycle   PASS
+post-FT8 usbmsc      PASS
+```
+
+The temporary `freq_osr=2` experiment remains deferred. It proved memory
+allocation feasibility but increased RAM and compute substantially; decode duration
+was not measured, so it is not part of the T017 baseline.
+
+T017 is COMPLETE. Physical TX / Control / Audio-TX work belongs to subsequent tasks.
 
 ## Architect hardware result
 
