@@ -195,6 +195,16 @@ set_target_properties(audio_probe PROPERTIES
 )
 target_compile_options(audio_probe PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(ft8_storage_service_unit
+    tests/ft8_storage_service_test.c
+    apps/ft8/src/storage_service/storage_service.c
+)
+target_include_directories(ft8_storage_service_unit PRIVATE
+    include
+    apps/ft8/src/storage_service
+)
+target_compile_options(ft8_storage_service_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
 add_executable(ft8_ui_smoke
     tests/ft8_ui_smoke.c
     apps/ft8/src/presentation_profile/presentation_profile.c
@@ -449,6 +459,7 @@ add_test(
             ${CMAKE_SOURCE_DIR}/tests/kfs16b12k.wav
 )
 
+add_test(NAME ft8_storage_service_unit COMMAND ft8_storage_service_unit)
 add_test(NAME ft8_ui_smoke COMMAND ft8_ui_smoke)
 add_test(NAME linux_terminal_parser_unit COMMAND linux_terminal_parser_unit)
 add_test(NAME ft8_auto_seq_as2_unit COMMAND ft8_auto_seq_as2_unit)
@@ -480,6 +491,14 @@ if(FT8_RX1G_REFERENCE_WAV)
         COMMAND ft8_engine_rx1g_reference "${FT8_RX1G_REFERENCE_WAV}"
     )
 endif()
+
+add_test(
+    NAME linux_ft8_config_load
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/linux_ft8_config_load.py
+            $<TARGET_FILE:minishell>
+            $<TARGET_FILE_DIR:ft8>
+)
 
 add_test(
     NAME linux_ft8
