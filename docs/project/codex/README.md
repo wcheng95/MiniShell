@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T016-linux-baseline-tests.md   READY
+none
 ```
 
-T016 repairs only the two stale Linux regression expectations: structured Audio probe validation and semantic AutoSeq queue-rotation/page assertions. Production behavior must remain unchanged.
+T016 is COMPLETE. The former stale `linux_audio` and `linux_ft8` expectations now validate current deterministic semantics without weakening coverage, and the full root Linux CTest suite is green.
 
-Workflow: reproduce both failures -> test-only repair -> full Linux/unit green -> supervisor diff review -> merge/fast-forward main -> delete T016 branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> hardware validation when required -> merge/fast-forward to `main` -> delete the temporary branch.
 
 ## Rule
 
