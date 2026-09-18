@@ -160,6 +160,12 @@ Ft8ProtocolCodecStatus ft8_protocol_decode(const Ft8DecodedPayload *decoded,
                                            Ft8HashStore *hash_store,
                                            Ft8ProtocolMessage *out_message);
 
+/* Pure typed TX packing. Supports standard calls/CQ, ARRL FD, and free text.
+ * Fields must be uppercase/normalized and terminated within their capacities.
+ * No hash fallback or store mutation. Failure clears the entire output payload. */
+Ft8ProtocolCodecStatus ft8_protocol_encode(const Ft8ProtocolMessage *message,
+                                           uint8_t out_payload[FT8_PAYLOAD_BYTES]);
+
 void ft8_protocol_slot_init(Ft8ProtocolSlot *slot,
                             int64_t slot_id,
                             Ft8ProtocolMessage *message_storage,

@@ -233,6 +233,17 @@ def self_test() -> int:
                     lifecycle.write_text(source)
                     expect("", "forbidden lifecycle coupling")
                 lifecycle.write_text("")
+                encoder = write("src/tx_encoder/tx_encoder.c", "")
+                write("src/auto_seq/auto_seq_tx_intent.h")
+                write("src/ft8_engine/ft8_message_codec.h")
+                for module in ("radio_control", "rx_audio_adapter", "storage_service", "ui_shell"):
+                    write(f"src/{module}/{module}.h")
+                    encoder.write_text(f'#include "{module}.h"\n')
+                    expect("", f"tx_encoder -> {module}")
+                encoder.write_text('#include "auto_seq_tx_intent.h"\n#include "ft8_message_codec.h"\n')
+                expect("")
+                write("src/tx_encoder/tx_channel.h")
+                expect('#include "tx_channel.h"\n', "private header")
             expect('#include <app_controller.h>\n')
     print(f"app_dependency_boundary self-test: PASS ({cases} cases)")
     return 0

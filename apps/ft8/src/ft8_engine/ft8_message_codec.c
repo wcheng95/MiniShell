@@ -828,3 +828,204 @@ Ft8ProtocolSlotAddStatus ft8_protocol_slot_decode_add(Ft8ProtocolSlot *slot,
 
     return ft8_protocol_slot_add_unique(slot, &message);
 }
+
+/* TX packing adapted from MiniFT8-V2 message.c at
+ * 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0. Reuse RX alphabets/section tables;
+ * deliberately reject nonstandard calls instead of V2's implicit hash fallback. */
+static void set_bits_be(uint8_t *bytes, unsigned start, unsigned count, uint32_t value)
+{
+    for (unsigned i = 0; i < count; ++i) {
+        unsigned bit = start + i;
+        if ((value >> (count - i - 1u)) & 1u)
+            bytes[bit / 8u] |= (uint8_t)(0x80u >> (bit % 8u));
+    }
+}
+
+static int32_t pack_basecall(const char *call, size_t length)
+{
+    char c6[6] = {' ', ' ', ' ', ' ', ' ', ' '};
+    if (length < 3u || length > 7u) return -1;
+    if (length > 4u && strncmp(call, "3DA0", 4) == 0) {
+        memcpy(c6, "3D0", 3);
+        memcpy(c6 + 3, call + 4, length - 4);
+    } else if (strncmp(call, "3X", 2) == 0 && call[2] >= 'A' && call[2] <= 'Z') {
+        c6[0] = 'Q';
+        memcpy(c6 + 1, call + 2, length - 2);
+    } else if (length <= 6u && call[2] >= '0' && call[2] <= '9') {
+        memcpy(c6, call, length);
+    } else if (length <= 5u && call[1] >= '0' && call[1] <= '9') {
+        memcpy(c6 + 1, call, length);
+    } else {
+        return -1;
+    }
+    static const CharTable tables[6] = {CHAR_TABLE_ALPHANUM_SPACE, CHAR_TABLE_ALPHANUM,
+        CHAR_TABLE_NUMERIC, CHAR_TABLE_LETTERS_SPACE, CHAR_TABLE_LETTERS_SPACE, CHAR_TABLE_LETTERS_SPACE};
+    static const int radix[6] = {1, 36, 10, 27, 27, 27};
+    int32_t value = 0;
+    for (unsigned i = 0; i < 6; ++i) {
+        int digit = nchar_local(c6[i], tables[i]);
+        if (digit < 0) return -1;
+        value = value * radix[i] + digit;
+    }
+    return value;
+}
+
+static Ft8ProtocolCodecStatus pack_call(const char call[FT8_PROTOCOL_CALL_CAP],
+                                        bool allow_cq, uint32_t *value, char *suffix)
+{
+    if (!memchr(call, '\0', FT8_PROTOCOL_CALL_CAP) || !*call)
+        return FT8_PROTOCOL_CODEC_MALFORMED;
+    *suffix = '\0';
+    size_t length = strlen(call);
+    if (allow_cq && strcmp(call, "CQ") == 0) { *value = 2; return FT8_PROTOCOL_CODEC_OK; }
+    if (allow_cq && strncmp(call, "CQ ", 3) == 0 && length >= 4u && length <= 7u) {
+        unsigned letters = 0, digits = 0, modifier = 0, number = 0;
+        for (size_t i = 3; i < length; ++i) {
+            if (call[i] >= 'A' && call[i] <= 'Z') {
+                ++letters; modifier = modifier * 27u + (unsigned)(call[i] - 'A' + 1);
+            } else if (call[i] >= '0' && call[i] <= '9') {
+                ++digits; number = number * 10u + (unsigned)(call[i] - '0');
+            } else return FT8_PROTOCOL_CODEC_MALFORMED;
+        }
+        if (!digits && letters) *value = 1003u + modifier;
+        else if (digits == 3u && !letters) *value = 3u + number;
+        else return FT8_PROTOCOL_CODEC_MALFORMED;
+        return FT8_PROTOCOL_CODEC_OK;
+    }
+    if (length > 2u && call[length - 2] == '/' &&
+        (call[length - 1] == 'P' || call[length - 1] == 'R')) {
+        *suffix = call[length - 1];
+        length -= 2;
+    }
+    for (size_t i = 0; i < length; ++i)
+        if (!((call[i] >= 'A' && call[i] <= 'Z') || (call[i] >= '0' && call[i] <= '9')))
+            return FT8_PROTOCOL_CODEC_UNSUPPORTED;
+    int32_t base = pack_basecall(call, length);
+    if (base < 0) return FT8_PROTOCOL_CODEC_UNSUPPORTED;
+    *value = FT8_NTOKENS + FT8_MAX22 + (uint32_t)base;
+    return FT8_PROTOCOL_CODEC_OK;
+}
+
+static bool pack_extra(const Ft8ProtocolStandard *standard, uint16_t *out)
+{
+    const char *extra = standard->extra;
+    if (!memchr(extra, '\0', sizeof(standard->extra))) return false;
+    size_t length = strlen(extra);
+    if (standard->extra_kind == FT8_PROTOCOL_FIELD_NONE && !length) {
+        *out = FT8_MAXGRID4 + 1u; return true;
+    }
+    if (standard->extra_kind == FT8_PROTOCOL_FIELD_TOKEN) {
+        if (strcmp(extra, "RRR") == 0) *out = FT8_MAXGRID4 + 2u;
+        else if (strcmp(extra, "RR73") == 0) *out = FT8_MAXGRID4 + 3u;
+        else if (strcmp(extra, "73") == 0) *out = FT8_MAXGRID4 + 4u;
+        else return false;
+        return true;
+    }
+    if (standard->extra_kind == FT8_PROTOCOL_FIELD_GRID) {
+        if (length != 4 || extra[0] < 'A' || extra[0] > 'R' || extra[1] < 'A' || extra[1] > 'R' ||
+            extra[2] < '0' || extra[2] > '9' || extra[3] < '0' || extra[3] > '9') return false;
+        *out = (uint16_t)((((extra[0] - 'A') * 18 + extra[1] - 'A') * 10 +
+                          extra[2] - '0') * 10 + extra[3] - '0');
+        return true;
+    }
+    if (standard->extra_kind != FT8_PROTOCOL_FIELD_REPORT) return false;
+    bool roger = *extra == 'R';
+    if (roger) ++extra;
+    char sign = *extra++;
+    if (sign != '+' && sign != '-') return false;
+    unsigned count = 0;
+    int report = 0;
+    while (*extra >= '0' && *extra <= '9' && count < 2) {
+        report = report * 10 + (*extra++ - '0'); ++count;
+    }
+    if (!count || *extra) return false;
+    if (sign == '-') report = -report;
+    /* Lower values collide with grid/terminal tokens in the pinned V2 packer. */
+    if (report < -30) return false;
+    *out = (uint16_t)((FT8_MAXGRID4 + 35 + report) | (roger ? 0x8000u : 0u));
+    return true;
+}
+
+static Ft8ProtocolCodecStatus encode_standard(const Ft8ProtocolStandard *standard, uint8_t *payload)
+{
+    uint32_t to, de;
+    char suffix_to, suffix_de;
+    Ft8ProtocolCodecStatus status = pack_call(standard->call_to, true, &to, &suffix_to);
+    if (status != FT8_PROTOCOL_CODEC_OK) return status;
+    status = pack_call(standard->call_de, false, &de, &suffix_de);
+    if (status != FT8_PROTOCOL_CODEC_OK) return status;
+    if ((suffix_to == 'P' && suffix_de == 'R') || (suffix_to == 'R' && suffix_de == 'P'))
+        return FT8_PROTOCOL_CODEC_UNSUPPORTED;
+    uint16_t extra;
+    if (!pack_extra(standard, &extra)) return FT8_PROTOCOL_CODEC_MALFORMED;
+    set_bits_be(payload, 0, 29, (to << 1) | (suffix_to != '\0'));
+    set_bits_be(payload, 29, 29, (de << 1) | (suffix_de != '\0'));
+    set_bits_be(payload, 58, 16, extra);
+    set_bits_be(payload, 74, 3, suffix_to == 'P' || suffix_de == 'P' ? 2u : 1u);
+    return FT8_PROTOCOL_CODEC_OK;
+}
+
+static Ft8ProtocolCodecStatus encode_arrl_fd(const Ft8ProtocolArrlFd *fd, uint8_t *payload)
+{
+    uint32_t to, de;
+    char suffix_to, suffix_de;
+    Ft8ProtocolCodecStatus status = pack_call(fd->call_to, false, &to, &suffix_to);
+    if (status != FT8_PROTOCOL_CODEC_OK) return status;
+    status = pack_call(fd->call_de, false, &de, &suffix_de);
+    if (status != FT8_PROTOCOL_CODEC_OK) return status;
+    if (suffix_to || suffix_de) return FT8_PROTOCOL_CODEC_UNSUPPORTED;
+    if (fd->transmitter_count < 1 || fd->transmitter_count > 32 ||
+        fd->class_letter < 'A' || fd->class_letter > 'F' ||
+        !memchr(fd->section, '\0', sizeof(fd->section))) return FT8_PROTOCOL_CODEC_MALFORMED;
+    unsigned section = 0;
+    while (section < FT8_ARRL_SECTIONS_COUNT && strcmp(fd->section, k_arrl_sections[section]) != 0)
+        ++section;
+    if (section == FT8_ARRL_SECTIONS_COUNT) return FT8_PROTOCOL_CODEC_MALFORMED;
+    set_bits_be(payload, 0, 28, to);
+    set_bits_be(payload, 28, 28, de);
+    set_bits_be(payload, 56, 1, fd->has_r);
+    set_bits_be(payload, 57, 4, (fd->transmitter_count - 1u) % 16u);
+    set_bits_be(payload, 61, 3, (unsigned)(fd->class_letter - 'A'));
+    set_bits_be(payload, 64, 7, section);
+    set_bits_be(payload, 71, 3, fd->transmitter_count <= 16 ? 3u : 4u);
+    return FT8_PROTOCOL_CODEC_OK;
+}
+
+static Ft8ProtocolCodecStatus encode_free(const Ft8ProtocolFreeText *text, uint8_t *payload)
+{
+    if (!memchr(text->text, '\0', sizeof(text->text)) || !text->text[0])
+        return FT8_PROTOCOL_CODEC_MALFORMED;
+    size_t length = strlen(text->text);
+    uint8_t b71[9] = {0};
+    for (size_t i = 0; i < 13; ++i) {
+        int digit = nchar_local(i < length ? text->text[i] : ' ', CHAR_TABLE_FULL);
+        if (digit < 0) return FT8_PROTOCOL_CODEC_MALFORMED;
+        unsigned carry = (unsigned)digit;
+        for (int j = 8; j >= 0; --j) {
+            carry += b71[j] * 42u;
+            b71[j] = (uint8_t)carry;
+            carry >>= 8;
+        }
+    }
+    for (unsigned i = 0; i < 9; ++i)
+        payload[i] = (uint8_t)((b71[i] << 1) | (i < 8 ? b71[i + 1] >> 7 : 0));
+    return FT8_PROTOCOL_CODEC_OK;
+}
+
+Ft8ProtocolCodecStatus ft8_protocol_encode(const Ft8ProtocolMessage *message,
+                                           uint8_t out_payload[FT8_PAYLOAD_BYTES])
+{
+    if (!out_payload) return FT8_PROTOCOL_CODEC_ERR_INVALID;
+    memset(out_payload, 0, FT8_PAYLOAD_BYTES);
+    if (!message) return FT8_PROTOCOL_CODEC_ERR_INVALID;
+    uint8_t payload[FT8_PAYLOAD_BYTES] = {0};
+    Ft8ProtocolCodecStatus status;
+    switch (message->type) {
+    case FT8_PROTOCOL_STANDARD: status = encode_standard(&message->data.standard, payload); break;
+    case FT8_PROTOCOL_ARRL_FD: status = encode_arrl_fd(&message->data.arrl_fd, payload); break;
+    case FT8_PROTOCOL_FREE_TEXT: status = encode_free(&message->data.free_text, payload); break;
+    default: status = FT8_PROTOCOL_CODEC_UNSUPPORTED; break;
+    }
+    if (status == FT8_PROTOCOL_CODEC_OK) memcpy(out_payload, payload, sizeof(payload));
+    return status;
+}

@@ -20,11 +20,13 @@ APP_RULES = {
             "log_service": ("src/log_service",),
             "radio_control": ("src/radio_control",),
             "tx_lifecycle": ("src/tx_lifecycle",),
+            "tx_encoder": ("src/tx_encoder",),
             "ui_shell": ("src/ui_shell",),
             "ft8_engine": ("src/ft8_engine",),
         },
         "private_headers": {
             "src/app_controller/app_controller_internal.h": "app_controller",
+            "src/tx_encoder/tx_channel.h": "tx_encoder",
         },
         "forbidden_source_patterns": {
             "main/ft8_main.c": (
@@ -56,6 +58,7 @@ APP_RULES = {
             "log_service": {"log_service", "config_service"},
             "radio_control": {"radio_control"},
             "tx_lifecycle": {"tx_lifecycle"},
+            "tx_encoder": {"tx_encoder", "auto_seq", "ft8_engine"},
             "ui_shell": {"ui_shell", "shared", "presentation_profile"},
             "ft8_engine": {"ft8_engine"},
         },
@@ -105,7 +108,7 @@ APP_RULES["keyer"]["api_modules"] = {
 # The standalone host decoder reads a host WAV; it is not a runtime app.
 # Only its fopen call is exempt, not the tools directory or other platform rules.
 APP_RULES["ft8"]["native_exceptions"] = {"tools/ft8_decode.c": {"fopen"}}
-APP_RULES["ft8"]["no_heap_modules"] = {"auto_seq"}
+APP_RULES["ft8"]["no_heap_modules"] = {"auto_seq", "tx_encoder"}
 for rule in APP_RULES.values():
     rule["include_roots"] = tuple(
         prefix for prefixes in rule["module_paths"].values() for prefix in prefixes

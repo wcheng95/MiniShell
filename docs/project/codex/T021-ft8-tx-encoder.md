@@ -1,6 +1,6 @@
 # T021 — FT8 TX encoder and immutable tone plan
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -358,25 +358,25 @@ Do not implement:
 
 Software gate:
 
-- [ ] current AutoSeq semantic intents project to correct FT8 TX text;
-- [ ] 77-bit payload encoding matches pinned V2 vectors;
-- [ ] FT8 CRC/LDPC/channel tones match pinned V2 vectors;
-- [ ] output is exactly 79 tone indices;
-- [ ] Costas groups are correct;
-- [ ] all tone values are 0..7;
-- [ ] TX1..TX5 covered;
-- [ ] CQ variants covered;
-- [ ] free text covered;
-- [ ] Field Day TX2/TX3 covered;
-- [ ] base offset/parity carried into immutable plan;
-- [ ] no heap;
-- [ ] no MiniShell/platform/radio dependency;
-- [ ] existing RX decode tests remain green;
-- [ ] Linux full CTest passes;
-- [ ] portable unit suite passes;
-- [ ] architecture checks pass;
-- [ ] real ADV build passes;
-- [ ] no unrelated cleanup.
+- [x] current AutoSeq semantic intents project to correct FT8 TX text;
+- [x] 77-bit payload encoding matches pinned V2 vectors;
+- [x] FT8 CRC/LDPC/channel tones match pinned V2 vectors;
+- [x] output is exactly 79 tone indices;
+- [x] Costas groups are correct;
+- [x] all tone values are 0..7;
+- [x] TX1..TX5 covered;
+- [x] CQ variants covered;
+- [x] free text covered;
+- [x] Field Day TX2/TX3 covered;
+- [x] base offset/parity carried into immutable plan;
+- [x] no heap;
+- [x] no MiniShell/platform/radio dependency;
+- [x] existing RX decode tests remain green;
+- [x] Linux full CTest passes;
+- [x] portable unit suite passes;
+- [x] architecture checks pass;
+- [x] real ADV build passes;
+- [x] no unrelated cleanup.
 
 There is **no hardware/manual acceptance step for T021**.
 
@@ -474,21 +474,164 @@ Codex:
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Added pure `ft8_tx_encode(const AutoSeqTxIntent *, Ft8TxPlan *)` and
+`ft8_tx_tone_hz()`. A successful caller-owned plan contains canonical text,
+10 packed payload bytes, all 79 tones, verbatim base offset, parity, and a valid
+flag. It retains no input pointers or mutable singleton state. All failures clear
+the complete output plan; invalid input and unsupported encoding have distinct
+return statuses. Parity is validated as 0/1, without masking or changing it.
+
+Projection covers TX1..TX5, all configured CQ kinds, explicit free text, and
+ARRL FD TX2/TX3. Both FREETEXT and CQ FREETEXT select the explicit 13-character
+free-text payload type. Normalization uses ASCII uppercase and collapsed/trimmed
+whitespace. Valid six-character station grids project to their four-character
+FT8 locator. Report text uses `%+d` semantics; the existing decoder supplies the
+canonical two-digit spelling (for example `R-8` becomes `R-08`). FD flags do not
+alter TX1/TX4/TX5 or impose an exchange requirement on those messages.
+
+Extended the existing pure `ft8_message_codec` with typed TX packing, sharing its
+character alphabets, section table, and protocol constants. Standard calls/CQ,
+free text, and ARRL FD have separate explicit encoding paths. Standard `/P` and
+`/R` bits and V2's standard-prefix mappings are preserved. Hashed/nonstandard
+calls, mixed `/P`/`/R`, and FD suffixes return unsupported rather than producing a
+different message. Invalid grids, reports, exchanges, strings, or message kinds
+produce no valid plan. No QSO free-text fallback exists.
+
+The private FT8 channel encoder reuses `ft8_crc_compute()` for the 82-bit
+zero-extended CRC input, ports the pinned 83-by-12-byte LDPC generator table,
+and emits Gray-mapped data with the three exact Costas groups. It adds no FT4,
+waveform synthesis, scheduling, or radio integration. No task deviations.
 
 ### Files changed
 
+- `apps/ft8/src/tx_encoder/tx_encoder.[ch]`: bounded semantic projection,
+  immutable plan contract and pure tone-frequency mapping.
+- `apps/ft8/src/tx_encoder/tx_channel.[ch]`: private FT8 CRC/LDPC/channel encoder
+  and pinned generator table.
+- `apps/ft8/src/ft8_engine/ft8_message_codec.[ch]`: typed TX payload packing;
+  existing RX functions and tables remain unchanged.
+- `CMakeLists.txt`: Linux production composition, pure encoder library and
+  encoder test registration.
+- `platform/adv/main/CMakeLists.txt`: compile the same pure sources for ADV.
+- `tests/ft8_tx_encoder_test.c`: direct semantic intents, all fixed vectors,
+  CRC/LDPC roundtrip through the existing decoder, Costas/range/length checks,
+  offset/parity/snapshot checks, normalization, malformed input and cleared output.
+- `tests/ft8_tx_vectors/vectors.h`: 25 fixed V2 payload/tone vectors.
+- `tests/ft8_tx_vectors/generate.py`: independent pinned V2 oracle generator,
+  excluded from test runtime.
+- `tests/ft8_tx_vectors/README.md`: exact provenance, regeneration and SHA-256.
+- `tests/architecture_rules.py`: encoder ownership/dependency/no-heap policy
+  and private channel header.
+- `tests/app_dependency_boundary.py` and `tests/app_platform_boundary.py`:
+  new encoder mutation probes for prohibited radio/Audio/storage/UI dependencies,
+  MiniShell API, native time/platform access, and heap calls; module-specific heap
+  diagnostics replace the formerly AutoSeq-only diagnostic wording.
+- `docs/project/codex/T021-ft8-tx-encoder.md`: this review handoff.
+
 ### Reference-vector provenance
+
+Read the task-listed V2 AutoSeq/text, message, channel, constants and TX e2e
+references at `491e757ae6b1e4cfd2b9a6ba10f48b35643849e0` from the local
+`/home/wei/projects/Mini-FT8` checkout. `generate.py` extracts that commit directly,
+not the checkout's working tree. The oracle uses only unchanged V2 source, never
+the new V3 encoder. The six mandated baseline messages and 19 additional cases
+are checked in as exact bytes/tones; test runtime has no reference-repo dependency.
+
+Generation and independent regeneration comparison passed:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_tx_vectors/generate.py /home/wei/projects/Mini-FT8 > tests/ft8_tx_vectors/vectors.h
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_tx_vectors/generate.py /home/wei/projects/Mini-FT8 > /tmp/T021-vectors.h
+cmp tests/ft8_tx_vectors/vectors.h /tmp/T021-vectors.h
+sha256sum tests/ft8_tx_vectors/vectors.h
+# 0561eac9414eb91829f7e91168d0d1b50221542cae17197d33c7ba5afe6c3a51
+```
+
+No existing golden WAV content changed. The required generator table was ported;
+no old library was vendored wholesale.
 
 ### Invariants preserved
 
+No MiniShell/public API, platform, clock, filesystem, UI, radio, CAT, or Audio
+operation enters the encoder. It allocates no heap and creates no AutoSeq state.
+AutoSeq remains semantic policy; app_controller, its simulated TX lifecycle,
+logging, RX DSP/decoder/parity checks, and normal runtime behavior are unchanged.
+The shared codec is reused rather than duplicating its alphabets/section table.
+Architecture checks enforce the new module boundary and no-heap rule. T022 still
+owns scheduler/radio integration and the deferred T020 RF validation.
+
 ### Local tests run
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 52/52, including the new encoder and all existing RX/CAT/runtime tests.
+
+cmake -S tests/unit -B /tmp/T021-build-unit
+cmake --build /tmp/T021-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T021-build-unit --output-on-failure
+# PASS: 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py --self-test
+# PASS: 55 cases.
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py --self-test
+# PASS: 156 cases plus API edges/host exception.
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+# PASS: all three required architecture checks.
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real ESP32-S3 build; both new encoder sources compiled.
+# minishell_adv.bin: 0xb9a10 bytes; 0x5365f0 bytes (88%) partition headroom.
+
+git diff --check
+# PASS.
+```
+
+The focused encoder/codec/decoder selection passed 3/3. Additionally built and
+ran the same pure encoder test with address/undefined-behavior sanitizers:
+
+```bash
+cc -std=c11 -g -O1 -Wall -Wextra -Werror -Wpedantic \
+  -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -Iapps/ft8/src/tx_encoder -Iapps/ft8/src/auto_seq -Iapps/ft8/src/ft8_engine \
+  tests/ft8_tx_encoder_test.c \
+  apps/ft8/src/tx_encoder/tx_encoder.c apps/ft8/src/tx_encoder/tx_channel.c \
+  apps/ft8/src/ft8_engine/ft8_message_codec.c apps/ft8/src/ft8_engine/ft8_hash_store.c \
+  apps/ft8/src/ft8_engine/ft8_ldpc.c apps/ft8/src/ft8_engine/ft8_crc.c \
+  -o /tmp/T021-tx-sanitized
+/tmp/T021-tx-sanitized
+# PASS; rerun outside the sandbox because LeakSanitizer cannot run under ptrace.
+```
+
+Optional external golden-WAV CMake paths remain unconfigured, as in the accepted
+host baseline; all 52 configured tests ran. No hardware was accessed and no GitHub
+Actions wait was used.
 
 ### Known limitations / risks
 
+T021 has no hardware/manual acceptance step. This is only message/plan encoding:
+no TX is started and no physical completion or scheduler behavior is claimed.
+
+Nonstandard/hashed-call TX remains unsupported. Standard reports outside -30..+99
+are rejected because pinned V2 packing would collide with grid/terminal fields or
+truncate the signed decimal text; unknown -99 reports therefore fail explicitly.
+RF offset policy remains the scheduler/caller's responsibility: the encoder copies
+`offset_hz` verbatim. The tone-frequency helper requires a tone index in 0..7, as
+produced by a valid plan. C callers own plan storage and must treat a successful
+snapshot as immutable. Fixed V2 vectors establish reference compatibility, not
+new hardware evidence.
+
 ### Commit
+
+One implementation commit on `codex/T021-ft8-tx-encoder`; the commit containing
+these notes is the review reference. Its exact pushed SHA is returned in the
+Codex handoff. No PR is opened.
 
 ## Supervisor review
 

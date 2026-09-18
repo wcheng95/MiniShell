@@ -118,6 +118,8 @@ add_minishell_app(ft8
     apps/ft8/src/storage_service/storage_service.c
     apps/ft8/src/log_service/log_service.c
     apps/ft8/src/tx_lifecycle/tx_lifecycle.c
+    apps/ft8/src/tx_encoder/tx_encoder.c
+    apps/ft8/src/tx_encoder/tx_channel.c
     apps/ft8/src/ui_shell/ui_shell.c
     apps/ft8/src/rx_audio_adapter/rx_audio_adapter.c
     apps/ft8/src/rx_frontend/rx_frontend.c
@@ -148,6 +150,7 @@ target_include_directories(ft8 PRIVATE
     apps/ft8/src/storage_service
     apps/ft8/src/log_service
     apps/ft8/src/tx_lifecycle
+    apps/ft8/src/tx_encoder
     apps/ft8/src/ui_shell
     apps/ft8/src/rx_audio_adapter
     apps/ft8/src/rx_frontend
@@ -396,6 +399,19 @@ target_include_directories(ft8_protocol_core PUBLIC
 )
 target_compile_options(ft8_protocol_core PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(ft8_protocol_core PUBLIC ft8_hash_store_core)
+
+add_library(ft8_tx_encoder_core STATIC
+    apps/ft8/src/tx_encoder/tx_encoder.c
+    apps/ft8/src/tx_encoder/tx_channel.c
+    apps/ft8/src/ft8_engine/ft8_crc.c)
+target_include_directories(ft8_tx_encoder_core PUBLIC
+    apps/ft8/src/tx_encoder apps/ft8/src/auto_seq)
+target_link_libraries(ft8_tx_encoder_core PUBLIC ft8_protocol_core)
+target_compile_options(ft8_tx_encoder_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_executable(ft8_tx_encoder_unit tests/ft8_tx_encoder_test.c)
+target_link_libraries(ft8_tx_encoder_unit PRIVATE ft8_tx_encoder_core ft8_decoder_core)
+target_compile_options(ft8_tx_encoder_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME ft8_tx_encoder_unit COMMAND ft8_tx_encoder_unit)
 
 add_library(ft8_engine_core STATIC
     apps/ft8/src/ft8_engine/ft8_engine.c
