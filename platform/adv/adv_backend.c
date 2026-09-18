@@ -121,6 +121,8 @@ void minishell_platform_services_prepare(minishell_services_port_t *out_port)
         adv_audio_wav_configure(out_port);
     }
 
+    adv_audio_uac_configure(out_port);
+
     /* The Cardputer speaker is a physical Audio TX endpoint and does not depend
      * on Filesystem availability. It is opened lazily by the foreground app. */
     adv_audio_speaker_configure(out_port);

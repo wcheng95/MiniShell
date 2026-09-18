@@ -101,6 +101,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_time_location.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_wav.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_speaker.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_uac.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_digital_io.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_usbmsc.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_elf_loader.c"
@@ -141,6 +142,8 @@ idf_component_register(
         esp_driver_usb_serial_jtag
         esp_timer
         esp_tinyusb
+        usb_host_uac
+        usb_host_cdc_acm
         fatfs
         sdmmc
         wear_levelling

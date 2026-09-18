@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -428,6 +428,11 @@ cannot supply the proven version.
 
 Record the actual resolved versions after the build.
 
+Architect-approved scope extension (2026-09-18): include a narrow, reproducible
+build-time patch to UAC 1.3.3 that reports silent RX losses through the existing
+TRANSFER_ERROR callback. The architect explicitly approved this extension before
+implementation. Preserve managed package contents and unrelated driver behavior.
+
 ## Private implementation shape
 
 Likely files:
@@ -551,36 +556,37 @@ Record representative decoded lines and timing.
 
 ## Success criteria
 
-Mandatory T017 completion:
+Mandatory T017 completion (checked items have source/local-test evidence;
+unperformed hardware acceptance remains unchecked):
 
-- [ ] V2 USB host/UAC mechanics traced and adapted, not blindly copied;
-- [ ] QMX UAC endpoint `uac:qmx` exists on ADV;
+- [x] V2 USB host/UAC mechanics traced and adapted, not blindly copied;
+- [x] QMX UAC endpoint `uac:qmx` exists on ADV;
 - [ ] strict 48k/24-bit/stereo negotiation works;
-- [ ] native UAC audio becomes MiniShell 12k/S16/stereo;
-- [ ] channel order preserved;
-- [ ] existing RxFrontend remains owner of mono/6k conversion;
-- [ ] continuous producer drains UAC during synchronous decode;
-- [ ] ring overflow/USB loss becomes explicit discontinuity;
+- [x] native UAC audio becomes MiniShell 12k/S16/stereo;
+- [x] channel order preserved;
+- [x] existing RxFrontend remains owner of mono/6k conversion;
+- [x] continuous producer drains UAC during synchronous decode;
+- [x] ring overflow/USB loss becomes explicit discontinuity;
 - [ ] ADV WAV RX remains usable;
-- [ ] bare ADV `ft8` defaults to live `uac:qmx`;
-- [ ] explicit `--rx` overrides default;
+- [x] bare ADV `ft8` defaults to live `uac:qmx`;
+- [x] explicit `--rx` overrides default;
 - [ ] live decoded FT8 messages appear on ADV RX screen for >=3 consecutive slots;
 - [ ] FT8 can exit/re-enter repeatedly;
 - [ ] USB host teardown permits subsequent `usbmsc`;
-- [ ] Linux 37/37 baseline remains green;
-- [ ] portable unit suite remains green;
-- [ ] ADV firmware builds;
-- [ ] no public API expansion;
-- [ ] no FT8 platform dependency;
-- [ ] no physical TX implementation;
-- [ ] no unrelated cleanup.
+- [x] Linux 37/37 baseline remains green;
+- [x] portable unit suite remains green;
+- [x] ADV firmware builds;
+- [x] no public API expansion;
+- [x] no FT8 platform dependency;
+- [x] no physical TX implementation;
+- [x] no unrelated cleanup.
 
 CDC best-effort acceptance:
 
 - [ ] CDC component installs alongside UAC if compatible;
 - [ ] QMX CDC interface opens and disconnects cleanly;
-- [ ] CDC failure does not break UAC RX;
-- [ ] no CAT policy commands are sent in T017.
+- [x] CDC failure does not break UAC RX;
+- [x] no CAT policy commands are sent in T017.
 
 ## Non-goals
 
@@ -649,31 +655,177 @@ Do not merge before live ADV QMX decode is confirmed.
 
 ## Codex implementation notes
 
-### V2 reference mapping
+### Implementation summary / reference mapping
 
-### Component versions / API compatibility
+Implemented the bounded ADV QMX UAC RX provider on
+`codex/T017-adv-usb-uac-rx`. Inspected all named V2 reference files with
+`git show 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0:<path>` in the local Mini-FT8
+repository. Adapted FIFO 91/18/91, USB/class priorities, strict QMX 0483:a34c
+48000/24/2 profile, 2304-byte DMA buffer, host-event drain and CDC interface 0.
+The backend does not copy V2 resample/DSP, UI, AutoSeq or CAT policy ownership.
+
+### Component versions / approved driver patch
+
+Resolved UAC **1.3.3**, CDC-ACM **2.2.0**, current IDF **v5.5.4**. Exact constraints
+are in the ADV manifest. The generated dependency lock remains ignored according
+to existing repository policy.
+
+The architect approved the sole scope extension: reporting UAC 1.3.3's otherwise
+silent native RX losses. `patch_uac_rx.py` checks the complete registry
+`uac_host.c` SHA-256 against its published CHECKSUMS.json value:
+
+```text
+2d7549c7e4657744b92079c2c226b558e1934e587ab5030d80974f392eedf75e
+```
+
+It then checks the exact RX callback hash and adds TRANSFER_ERROR notification for:
+
+- native ring overflow that drops a transfer;
+- failed individual ISO packets;
+- failed native ring pushes;
+- failed transfer resubmission.
+
+ADV CMake generates `build/t017_uac/uac_host.c` and substitutes that source in the
+existing UAC component target. Managed source is unchanged. Source/hash/anchor
+changes fail configuration instead of silently omitting the patch. Outside this
+callback the generated source is byte-identical; the patch changes notifications
+only, retaining packet movement, negotiation, TX and cancellation behavior.
+A small attributed upstream callback fixture exercises the patch without requiring
+managed dependencies in a Linux checkout. No complete component is vendored.
 
 ### USB host/UAC lifecycle
 
+Host event task priority 5, UAC class task 5, capture worker 4, CDC driver 4 and CDC
+owner 3 all outrank the foreground application (1). Open installs infrastructure
+without requiring QMX. Start enables capture; reads return NOT_READY before first
+connection. Only the QMX VID/PID and strict 48000/24/2 stream are accepted.
+Non-UAC endpoints/handles delegate to the saved WAV callbacks. Backend handle
+0x554143 is distinct from WAV's handle 1; public service handle ownership is
+unchanged.
+
+Stop joins capture/CDC owners, stops/closes UAC, closes CDC, uninstalls both class
+drivers, drains host events and uninstalls the host PHY. Teardown failure returns
+IO and retains reservation/resources for retry. Start re-prepares after a stop;
+a later open retries cleanup left by failed app teardown. Enumeration/replug/MSC
+reuse still need hardware validation.
+
 ### CDC companion result
 
-### Canonical audio conversion
+CDC builds alongside UAC and is best effort. A separate owner attempts QMX interface
+0, closes on disconnect/shutdown and logs readiness. Failure does not gate capture.
+No line coding, DTR or CAT commands are sent. No descriptor fallback is added.
+Runtime enumeration/CDC interoperability remains pending hardware testing.
 
-### Continuous capture / ring / discontinuity
+### Canonical conversion / continuous capture / discontinuity
 
-### ADV default FT8 endpoint
+Private helper converts packed S24 LE to signed S16 by dropping the low byte,
+equivalent to arithmetic shift by 8 without implementation-defined signed shifts.
+Partial native frames and factor-four decimation phase persist across byte chunks.
+Phase-zero selection matches Linux; channel order remains L/R. RxFrontend retains
+mono/6k conversion and all shared FT8 code remains unchanged.
 
-### Tests added
+The producer drains UAC into a static 16384-frame canonical ring (65536 bytes),
+independent of synchronous foreground decode. Critical sections protect producer,
+consumer and callback state. Epoch tickets discard reads started while pending or
+before a newer loss. Every reported loss republishes pending. Consumer ACK requires
+native stop/start (including the driver's ring flush) before accepting a fresh
+epoch. A second error during an in-flight read remains observable after the first
+ACK. Canonical overflow flushes instead of overwriting unread frames.
+
+WAIT_NONE performs no deliberate wait. Finite reads use a monotonic deadline and
+one-tick waits while connected; read batches are capped at 256 canonical frames to
+bound lock duration. Discontinuity returns zero frames. Native read timeout is
+benign; other read failures publish loss. Transfer/read errors, high-water,
+canonical overflows and loss counts are logged at stop.
+
+### ADV default endpoint / preserved behavior
+
+The ADV static wrapper injects `--rx uac:qmx` only when no explicit `--rx` exists,
+using a bounded 32-entry argument array. Explicit WAV options pass through unchanged.
+Linux defaults and shared MiniFT8 frontend/DSP/controller/UI are unchanged. Public
+API, persisted data, ADV WAV implementation, speaker/Keyer, ELF and MSC source are
+unchanged. There is no physical TX or CAT policy implementation.
 
 ### Files changed
 
-### Local Linux/unit/ADV build results
+- Root `CMakeLists.txt`: register the two new host regression tests.
+- ADV `adv_audio_uac.cpp` and `adv_audio_uac_buffer.h`: lifecycle, native capture,
+  canonical conversion, ring, epoch state, diagnostics and WAV delegation.
+- ADV `adv_backend.c` / `adv_internal.h`: provider composition.
+- ADV `main/CMakeLists.txt`, `main/idf_component.yml`, `main/ft8_static.c`:
+  build dependencies, provider registration and packaged default endpoint.
+- ADV `CMakeLists.txt` / `patch_uac_rx.py`: hash-guarded build-local driver patch.
+- `tests/adv_audio_uac_buffer_test.c`: conversion/ring/epoch regressions.
+- `tests/adv_uac_driver_patch_test.py` / `tests/fixtures/adv_uac_rx_1_3_3.c`:
+  executable driver-notification regression and attributed upstream fixture.
+- This task packet: authorized extension and implementation/test handoff.
 
-### Hardware validation still required
+### Tests run and results
+
+Executed locally:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T017-build-unit
+cmake --build /tmp/T017-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T017-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+Linux **39/39 PASS** (retains the 37-test baseline plus two T017 tests), portable
+units **14/14 PASS**, architecture checks and checker self-tests **PASS**.
+Conversion tests cover full-scale/sign boundaries including INT24 min/max and
+negative fractions, independent channels, chunk lengths 1..29, partial frame/phase
+continuity, partial reads, ring/counter wrap, full/no-overwrite, overflow flush,
+pending/in-flight discard, second loss after ACK, reset gating and fresh delivery.
+Driver test compiles and runs the patched upstream callback with ten deterministic
+cases: normal/zero-byte packets, each of four newly reported loss paths, existing
+whole-transfer error, cancellation, removal and inactive interface. It verifies
+loss callbacks reach the canonical epoch and rejects modified/double-patched input.
+The real build also exercises the complete-source hash guard and compiles the
+generated driver (confirmed in the build log).
+
+ADV firmware build **PASS**: binary **0xb7e50** bytes, app partition free
+**0x5381b0** bytes (**88%**). Map comparison against the pre-T017 build:
+`.dram0.bss` 0x2e80 -> 0x13018 (**+65944 bytes**), `.dram0.data` 0x4218 -> 0x4b68
+(**+2384 bytes**). The fixed ring is 65536 bytes and DMA buffer 2304 bytes; component
+and provider state account for additional static use. Runtime heap/largest-block
+measurements require hardware; provider open logs these values. Whitespace check
+passed. Lifecycle, dispatcher and packaged-default runtime validation remain
+hardware/manual work; their build success is not a hardware acceptance claim.
+
+### Hardware/manual validation still required
+
+All three hardware phases above remain pending: USB console coexistence; QMX and
+CDC enumeration; canonical capture; >=3 consecutive decoded slots; high-water and
+no overflow during synchronous decode; repeated quit/relaunch with stable heap;
+unplug/replug with discontinuity and recovered decoding; explicit ADV WAV RX;
+speaker/Keyer/ELF regression and `usbmsc flash` after FT8 shutdown. Record actual
+heap/largest block and ring diagnostics. Do not merge before live decode is confirmed.
 
 ### Known limitations / risks
 
-### Commit
+16384 canonical frames cover approximately 1.365 seconds; decode occupancy has not
+been measured on hardware. Static ring uses internal DRAM while idle, and USB/task
+allocations add runtime heap demand. CDC uses interface 0 only. Native reset needs
+real-device stop/start validation; transient low-level cleanup errors may retain
+USB resources and require another cleanup attempt. Finite read latency is subject
+to FreeRTOS tick granularity. The source hash deliberately requires patch review
+when changing UAC versions. These are review/hardware follow-ups, not claims of
+accepted runtime behavior. No other task-scope deviations were introduced.
+
+### Commit reference
+
+Single T017 implementation commit on `codex/T017-adv-usb-uac-rx`; exact pushed SHA
+is returned in the Codex handoff. Status is REVIEW for supervisor diff review and
+subsequent hardware testing. No PR and no GitHub Actions wait.
 
 ## Supervisor review
 

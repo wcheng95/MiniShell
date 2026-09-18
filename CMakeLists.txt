@@ -626,3 +626,11 @@ target_include_directories(adv_filesystem_rename_unit PRIVATE
 )
 target_compile_options(adv_filesystem_rename_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME adv_filesystem_rename_unit COMMAND adv_filesystem_rename_unit)
+
+add_executable(adv_audio_uac_buffer_unit tests/adv_audio_uac_buffer_test.c)
+target_include_directories(adv_audio_uac_buffer_unit PRIVATE platform/adv)
+target_compile_options(adv_audio_uac_buffer_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME adv_audio_uac_buffer_unit COMMAND adv_audio_uac_buffer_unit)
+add_test(NAME adv_uac_driver_patch
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_uac_driver_patch_test.py
+            ${CMAKE_C_COMPILER})
