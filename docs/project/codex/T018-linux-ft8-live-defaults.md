@@ -416,6 +416,32 @@ Immediate architect validation on pc-1:
 6. verify explicit WAV fixture override;
 7. verify `--profile desktop` still selects DESKTOP when desired.
 
+
+## Architect live Linux result — bare ft8 decodes
+
+On pc-1 with QMX connected, the architect rebuilt the T018 branch and launched:
+
+```text
+M$> ft8
+```
+
+without `--profile` or `--rx`.
+
+Observed result:
+
+- ADV 20x7 presentation selected by default;
+- live QMX RX opened through the Linux default `alsa:hw:2,0` path;
+- real on-air FT8 messages decoded successfully.
+
+This passes the primary T018 hardware/operator acceptance gate: bare Linux `ft8`
+now behaves as the intended live MiniFT8-V3 operator command.
+
+Remaining acceptance before T018 COMPLETE:
+
+1. quit cleanly back to `M$>`;
+2. verify explicit WAV/`--rx-slot` override still works;
+3. verify `--profile desktop` still selects DESKTOP when explicitly requested.
+
 ## Architect test result
 
 Record bare-`ft8` Linux/QMX live validation and final acceptance here.
