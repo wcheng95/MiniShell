@@ -8,9 +8,10 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ```text
 T022-linux-qmx-first-qso.md   TESTING
+T023-cq-beacon-ui.md          READY
 ```
 
-T022 is TESTING. Real pc-1/QMX FT8 TX is now proven on air: other stations spotted/decoded the signal, and RxTxLog is confirmed working. Full completed QSO/AutoSeq end-to-end acceptance remains pending.
+T022 is TESTING with real on-air TX/RxTxLog proven. T023 is stacked on T022 and adds only the missing O->4 operator controls: CQ/CQ POTA and beacon OFF/EVEN/ODD, so the architect can originate CQs and complete normal on-air use.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
