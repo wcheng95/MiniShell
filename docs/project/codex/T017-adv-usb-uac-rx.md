@@ -2521,6 +2521,30 @@ Immediate hardware sequence:
 6. after full bring-up, continue with the already-defined complete-slot
    transport/ring-statistics test before any decoder/DSP change.
 
+
+## Architect hardware result — live decode restored at 240 MHz
+
+Hardware validation after supervisor acceptance of
+`1851e8d3c7300cd043e236166ff31d83b0a7ee00` and regeneration from the updated
+ADV defaults:
+
+- ADV rebuilt/flashed with the 240 MHz CPU configuration;
+- bare `ft8` reaches the live QMX UAC path;
+- FT8 is now decoding real on-air messages on the Cardputer ADV;
+- the one-tick capture wait therefore removes the startup starvation regression
+  without breaking the live USB/UAC -> MiniShell Audio -> FT8 decode path.
+
+This is accepted evidence that the current 240 MHz configuration can complete
+USB/UAC bring-up and deliver live decodable canonical audio.
+
+T017 remains TESTING for the remaining acceptance checks:
+1. confirm live decode over at least 3 consecutive 15-second slots;
+2. verify disconnected startup and late QMX attachment without restarting FT8;
+3. quit and re-enter `ft8` repeatedly;
+4. collect the provider stop diagnostic (high-water, overflow, discontinuity,
+   read-errors, transfer-errors);
+5. after quitting FT8, run `usbmsc flash` and confirm clean return to MiniShell.
+
 ## Architect hardware result
 
 Record QMX enumeration, live decoded messages, consecutive-slot behavior, repeated
