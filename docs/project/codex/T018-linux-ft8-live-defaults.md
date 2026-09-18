@@ -1,6 +1,6 @@
 # T018 — Linux MiniFT8 live QMX defaults
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -360,6 +360,61 @@ One commit titled `T018: default Linux FT8 to live QMX and ADV presentation` on
 ## Supervisor review
 
 Supervisor reviews the actual `main..<commit>` diff before live pc-1 validation.
+
+
+## Supervisor review — Linux live defaults
+
+PASS for live pc-1/QMX testing on
+`7ca82673cdde3518d31a52614fdf78109eed3cdc`.
+
+Reviewed both the bounded implementation delta from the T018 task head and the
+full `main..7ca82673` branch delta.
+
+Accepted production changes:
+
+- Linux `ft8.so` composition defines
+  `FT8_DEFAULT_PRESENTATION=FT8_PRESENTATION_ADV`;
+- Linux composition defines
+  `FT8_DEFAULT_RX_ENDPOINT="alsa:hw:2,0"`;
+- shared `ft8_main.c` adds only a generic default-RX hook whose portable fallback
+  is NULL;
+- the default RX endpoint is applied only after option parsing/validation, so an
+  explicit `--rx` wins;
+- `--rx-slot` still requires an explicit RX source and therefore cannot silently
+  bind deterministic fixture timing to the live QMX default;
+- no Linux/ALSA/QMX identifier was added to FT8 controller, DSP, AutoSeq, UI, or
+  other domain modules;
+- ADV keeps its existing wrapper-supplied `uac:qmx` endpoint and ADV presentation.
+
+Test changes are appropriately hardware-independent: UI/config tests now use an
+explicit tiny canonical WAV, while new parser/composition tests exercise both the
+actual Linux target definitions and the portable no-default fallback.
+
+Accepted local evidence:
+
+```text
+focused T018 tests    4/4 PASS
+Linux CTest          47/47 PASS
+unit suite           14/14 PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+No CAT, TX, waveform, ALSA transport/conversion, FT8 engine profile, public API,
+or ADV behavior changes were found.
+
+T018 returns to TESTING.
+
+Immediate architect validation on pc-1:
+
+1. connect/tune QMX;
+2. launch the current branch build;
+3. run bare `M$> ft8`;
+4. confirm the ADV 20x7 presentation and live on-air decode;
+5. quit cleanly to `M$>`;
+6. verify explicit WAV fixture override;
+7. verify `--profile desktop` still selects DESKTOP when desired.
 
 ## Architect test result
 
