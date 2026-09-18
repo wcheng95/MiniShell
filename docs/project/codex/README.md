@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T010-adv-audio-tx-timeout.md   TESTING
+none
 ```
 
-T010 fixes the ADV speaker provider so public Audio TX caller timeouts and partial progress are honored, without changing Keyer scheduling.
+Accepted cleanup now includes T010: ADV Audio TX forwards caller timeout/progress to I2S. Hardware validation shows the 20 ms Keyer-shaped path remains healthy and `MINI_WAIT_NONE` now behaves nonblocking.
 
-Workflow: local build/test + ADV firmware build -> supervisor diff review PASS -> ADV hardware probe -> acceptance/merge -> delete T010 branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> required hardware validation -> merge/fast-forward to `main` -> delete the temporary branch.
 
 ## Rule
 
