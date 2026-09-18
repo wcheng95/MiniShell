@@ -24,13 +24,14 @@ Stay on Linux until work requires an embedded-only dependency. Preserve V2 behav
 RX core / protocol decode          COMPLETE
 MiniShell Audio RX                 COMPLETE
 QMX live ALSA capture              COMPLETE
+ADV QMX USB-host UAC live decode   PASS — T017 lifecycle testing remains
 V2 12.64 s decode cadence          COMPLETE
 continuous multi-slot live RX      COMPLETE
 AutoSeq AS-0..AS-8                 COMPLETE
 simulated TX lifecycle             COMPLETE
 ADIF persistent logging            COMPLETE
 Field Day Cabrillo logging         COMPLETE
-physical QMX TX                    NEXT MAJOR BOUNDARY
+physical QMX TX                    NEXT MAJOR BOUNDARY after T017 acceptance
 ```
 
 Working live Linux/QMX command:
@@ -45,10 +46,11 @@ M$> ft8 --profile adv --rx alsa:hw:2,0
 QMX USB-UAC
 48 kHz / S24_3LE / stereo
         |
-        v
-Linux ALSA capture worker
+        +--> Linux ALSA capture worker
         |
-        v
+        `--> ADV ESP-IDF USB-host UAC worker
+                    |
+                    v
 canonical MiniShell Audio ring
 12 kHz / S16 / stereo
         |
@@ -85,7 +87,7 @@ app_controller
         `-> simulated TX lifecycle
 ```
 
-`app_controller` remains the sole production coordinator.
+`app_controller` remains the sole production coordinator. The ADV path has now decoded real on-air FT8 on Cardputer ADV at 240 MHz using `time_osr=2, freq_osr=1`.
 
 ## Live RX lessons now locked as architecture
 
@@ -136,10 +138,35 @@ RX-5        COMPLETE — pure RX assembly
 RX-6        COMPLETE — MiniShell Audio + WAV
 RX-7        COMPLETE — decoded application/UI path
 RX-8        COMPLETE — live QMX ALSA + V2 timing + continuous capture
+T017        TESTING — ADV QMX USB-host RX live decode PASS; lifecycle/usbmsc checks remain
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
 ```
+
+## ADV RX hardware result
+
+The main embedded-RX risk is retired: Cardputer ADV can host QMX over USB, convert
+native UAC audio below the MiniShell API, and decode real FT8 messages through the
+unchanged V3 RX pipeline.
+
+Validated production profile:
+
+```text
+ESP32-S3 CPU   240 MHz
+time_osr       2
+freq_osr       1
+```
+
+Live memory at `freq_osr=1` is approximately 142.2 KiB free / 82.0 KiB largest
+block with 129.2 KiB attributed to the FT8 application. A temporary
+`freq_osr=2` test remained alive but increased application allocation to about
+232.2 KiB, leaving 58.8 KiB free / 31.0 KiB largest, and produced no decode.
+Therefore `freq_osr=1` remains the accepted ADV profile.
+
+T017 still needs only lifecycle acceptance: disconnected startup + late attach,
+three consecutive slots, repeated entry/exit, provider continuity/ring statistics,
+and `usbmsc` after USB-host teardown.
 
 ## RX timing contract
 
@@ -288,7 +315,8 @@ Important current proofs:
 known-good canonical WAV decodes through production app
 QMX arecord -> SoX canonical WAV decodes
 MiniShell audio_probe shows ~12 kHz live QMX canonical stream
-live QMX MiniFT8 decodes consecutive slots
+live QMX MiniFT8 decodes consecutive slots on Linux
+live Cardputer ADV/QMX USB-host MiniFT8 decodes real on-air messages at 240 MHz
 Linux and ADV presentation tests remain part of CTest/CI
 ```
 
@@ -309,7 +337,8 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 
 ## Next major boundary
 
-Physical TX should reuse the already-stable semantic pipeline rather than bypassing it:
+Finish T017's bounded lifecycle checks first; no RX redesign is planned. After that,
+physical TX should reuse the already-stable semantic pipeline rather than bypassing it:
 
 ```text
 AutoSeq TxIntent
