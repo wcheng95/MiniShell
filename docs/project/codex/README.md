@@ -10,7 +10,7 @@ Roles are defined in repository-root `AGENTS.md`.
 T022-linux-qmx-first-qso.md   TESTING
 ```
 
-T022 integrates real Linux/QMX FT8 transmission: slot-anchored T021 tones over T020 CAT, RX stop/restart and UTC re-anchor, AutoSeq completion only after successful physical TX, and mandatory V2-compatible RxTxLog evidence for the first QSO.
+T022 is TESTING. Real pc-1/QMX FT8 TX is now proven on air: other stations spotted/decoded the signal, and RxTxLog is confirmed working. Full completed QSO/AutoSeq end-to-end acceptance remains pending.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
