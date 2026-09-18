@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T012-architecture-enforcement.md   READY
+none
 ```
 
-T012 addresses F09: strengthen FT8/Keyer architecture enforcement, close include/platform/purity blind spots, add negative fixtures, and register the checks in normal root CTest.
+Accepted cleanup now includes T012/F09 architecture enforcement: one FT8/Keyer rule catalog, fail-closed local include checks, platform/purity checks for both apps, negative self-tests, and normal root CTest registration.
 
-Workflow: local checker/self-test + Linux/unit suites -> pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T012 branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> merge/fast-forward to `main` -> delete the temporary branch.
 
 ## Rule
 
