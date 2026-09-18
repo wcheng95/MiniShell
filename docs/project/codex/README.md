@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T022-linux-qmx-first-qso.md   READY
+T022-linux-qmx-first-qso.md   TESTING
 ```
 
 T022 integrates real Linux/QMX FT8 transmission: slot-anchored T021 tones over T020 CAT, RX stop/restart and UTC re-anchor, AutoSeq completion only after successful physical TX, and mandatory V2-compatible RxTxLog evidence for the first QSO.
