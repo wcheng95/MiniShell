@@ -2545,6 +2545,50 @@ T017 remains TESTING for the remaining acceptance checks:
    read-errors, transfer-errors);
 5. after quitting FT8, run `usbmsc flash` and confirm clean return to MiniShell.
 
+
+## Architect experiment — freq_osr=2 is memory-feasible but not retained
+
+Architect temporarily changed the packaged ADV FT8 monitor profile from
+`freq_osr=1` to `freq_osr=2` for hardware comparison at 240 MHz.
+
+Observed V -> Memory while RX remained active:
+
+```text
+freq_osr=1:
+Heap free      142.2K
+Largest         82.0K
+App allocated  129.2K
+Alloc count          3
+Largest/free       57%
+RX                  ON
+
+freq_osr=2:
+Heap free       58.8K
+Largest         31.0K
+App allocated  232.2K
+Alloc count          3
+Largest/free       52%
+RX                  ON
+```
+
+The `freq_osr=2` build survived and remained running, demonstrating that the
+larger workspace is technically allocatable on current hardware. However, no live
+FT8 messages decoded during the experiment. The architect is returning to
+`freq_osr=1` for the T017 baseline.
+
+Interpretation:
+- the measured app-allocation increase is approximately 103 KiB, matching the
+  expected ~105.5 KiB workspace delta closely;
+- `freq_osr=2` leaves substantially less heap and contiguous headroom for USB/UAC
+  runtime behavior;
+- there is no current hardware evidence that `freq_osr=2` improves ADV decode;
+- the pinned V2 behavior and accepted ADV profile remain `time_osr=2`,
+  `freq_osr=1`.
+
+Do not change the T017 production profile away from `freq_osr=1` based on this
+experiment. Any future `freq_osr=2` investigation should be a separate measured
+performance/decoder task, not part of T017 acceptance.
+
 ## Architect hardware result
 
 Record QMX enumeration, live decoded messages, consecutive-slot behavior, repeated
