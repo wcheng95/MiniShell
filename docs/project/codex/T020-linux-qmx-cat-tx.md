@@ -1,6 +1,6 @@
 # T020 — Linux QMX CAT TX primitives
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -652,6 +652,40 @@ MD6;FR0;FT0;FA00014074000;MD6;TX;TA1500.00;RX;
 No blocking findings. T020 returns to TESTING for the real QMX bounded-tone
 validation. RX restoration remains best effort on transport/device failure, as
 documented; no stronger radio acknowledgement is claimed.
+
+
+## Architect decision — RF validation deferred to T022
+
+The architect explicitly chose not to perform the standalone T020 RF tone test.
+
+T020 is accepted on the basis of:
+
+- supervisor review of the production CAT TX state machine;
+- exact PTY command-stream integration;
+- Linux CTest 51/51;
+- unit suite 15/15;
+- architecture checks;
+- real ADV build.
+
+This is **not** a claim of real-QMX RF validation for T020.
+
+The deferred hardware items:
+
+```text
+QMX actual TX keying
+TA-controlled RF/tone correctness
+bounded TX -> RX transition on hardware
+post-TX live RX recovery on hardware
+```
+
+will be exercised as part of the first integrated Linux/QMX transmit validation
+in T022. T022 must therefore treat these T020 hardware checks as inherited
+acceptance items and must not claim the CAT TX path hardware-validated before that
+integrated test passes.
+
+Architect decision: proceed to T021 without the standalone T020 RF test.
+T020 implementation/software acceptance is COMPLETE; hardware validation is
+explicitly deferred.
 
 ## Architect test result
 
