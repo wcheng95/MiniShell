@@ -1,6 +1,6 @@
 # T013 — Align MiniFT8 V2 reference provenance
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Objective
 
@@ -371,8 +371,10 @@ in the handoff; these notes are part of that commit.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff and provenance evidence.
+PASS. Reviewed `411849de70a44adf5f4c121bd7980c2ee81542a7` against `main`. The workflow now checks out the canonical MiniFT8-V2 behavioral reference `491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`; the golden WAV path and content remain unchanged, with identical Git blob `04b67efb6d1d2092dfc4d57fd2477e9e381eb46d` at both the old and canonical revisions.
+
+The drift regression validates the workflow repository/ref, all golden-WAV path occurrences, and the canonical reference declarations in AGENTS and MiniFT8 docs, including mutation tests that catch stale/conflicting pins. Local canonical reference validation passed RX-1C through RX-7 without rebaselining any decode/output expectation. Focused provenance/architecture tests, unit suite 14/14, and full Linux 34/36 results are accepted with only the two known baseline failures. Commit was fast-forwarded directly to `main`.
 
 ## Architect test result
 
-No hardware validation is required for this workflow/provenance task.
+ACCEPTED. No hardware validation required.
