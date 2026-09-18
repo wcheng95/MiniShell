@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T015-adv-rename-replace.md   TESTING
+none
 ```
 
-T015 fixes the ADV Filesystem backend so MiniShell rename replacement semantics work on FATFS; this directly addresses FT8 O-screen setting changes exiting with result 7.
+T015 is COMPLETE after Cardputer ADV hardware validation of the four previously failing MiniFT8 setting-save paths. ADV Filesystem rename replacement now satisfies the MiniShell contract on FAT-backed flash.
 
-Workflow: local Linux/unit + ADV firmware build -> supervisor diff review PASS -> ADV UI hardware validation -> acceptance/merge -> delete T015 branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> hardware validation when required -> merge/fast-forward to `main` -> delete the temporary branch.
 
 ## Rule
 
