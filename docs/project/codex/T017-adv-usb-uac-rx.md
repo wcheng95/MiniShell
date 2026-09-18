@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: TESTING
+Status: READY
 
 ## Objective
 
@@ -1586,6 +1586,54 @@ and capture priority 4. The pinned V2 reference placed the audio stream task on 
 A likely follow-up is to isolate USB/UAC capture work from the MiniShell foreground
 core and/or ensure the successful capture loop yields, but do not make that change
 until this hardware discriminator is recorded.
+
+## Hardware finding — no-QMX freeze after UAC install
+
+With QMX disconnected, GPIO4 shows:
+
+```text
+ADV: USB Host diagnostics on UART0 TX=GPIO4 RX=GPIO5 115200
+I (...) adv_uac: USB Host installed FIFO 91/18/91; heap 78908 largest 31744
+I (...) uac-host: Install Succeed, Version: 1.3.3
+```
+
+After the UAC install message the ADV appears frozen: the physical Cardputer keyboard
+does not respond. Because no QMX is present, this occurs before UAC device
+enumeration or audio streaming. Do not attribute it to capture-ring backlog or QMX
+traffic.
+
+Before changing task affinity/scheduling, add a narrow platform-only diagnostic
+amendment to locate the exact stop point. Required GPIO4 breadcrumbs:
+
+```text
+ADV_UAC prepare: CDC driver install begin/result
+ADV_UAC prepare: CDC owner task create result
+ADV_UAC prepare: UAC driver install begin/result
+ADV_UAC prepare: capture task create result
+ADV_UAC prepare: complete
+ADV_UAC start: entered/complete
+ADV_UAC read: first call
+ADV_UAC read: first NOT_READY/other result
+```
+
+Requirements:
+
+1. Keep breadcrumbs in `platform/adv/adv_audio_uac.cpp`; do not modify shared
+   MiniFT8 merely for diagnostics.
+2. Each transition should log once or be rate-limited; do not flood the UART.
+3. Include task-create return status and heap/largest block around any failed create.
+4. Preserve current task priorities/affinities for this diagnostic build.
+5. Do not change UAC/CDC ownership or behavior yet.
+6. Re-run the normal software/build gates.
+7. Return to hardware with QMX disconnected and record the last breadcrumb reached.
+8. Only after that evidence should T017 change task affinity/priorities.
+
+Scheduling remains a plausible later hypothesis: the MiniShell foreground app is
+pinned to core 0 priority 1, while UAC/CDC driver tasks are currently higher priority
+and pinned to core 0. The pinned V2 reference used core 0 for USB/UAC class tasks
+but moved the continuous FT8 audio stream task to core 1. However, because this
+freeze occurs before a QMX stream exists, evidence should identify the exact
+transition before changing the topology.
 
 ## Hardware finding — host/UART bring-up without QMX passes
 
