@@ -1,6 +1,6 @@
 # T009 — Define Audio TX blocking contract and measure ADV latency
 
-Status: TESTING
+Status: COMPLETE
 
 ## Objective
 
@@ -517,4 +517,55 @@ Local build/tests/import inspection are accepted. T009 is now TESTING pending th
 
 ## Architect hardware result
 
-Record the exact Cardputer ADV probe output and the conclusion about timeout/nonblocking compliance here before T009 is COMPLETE.
+Cardputer ADV hardware probe PASS. External ELF loaded from `/sd/apps/audio_tx_probe.elf` using ELF loader 1.3.3 and returned cleanly to MiniShell.
+
+Exact measured phase reports:
+
+```text
+phase A timeout_ms=20
+calls=5000
+frames=240000
+OK=5000
+TIMEOUT=0
+other=0
+partial=0
+zero_OK=0
+min_us=9
+mean_us=998
+max_us=2487
+>1000us=2000
+>2000us=2000
+>5000us=0
+>10000us=0
+>20000us=0
+
+phase B timeout_ms=0 (MINI_WAIT_NONE)
+calls=5000
+frames=240000
+OK=5000
+TIMEOUT=0
+other=0
+partial=0
+zero_OK=0
+min_us=9
+mean_us=998
+max_us=2487
+>1000us=2000
+>2000us=2000
+>5000us=0
+>10000us=0
+>20000us=0
+```
+
+Observed runtime conclusion:
+
+- Normal 48-frame / 48 kHz Keyer-shaped writes pace at about 1 ms average.
+- Worst observed call was 2487 us; no call exceeded 5 ms in either 5000-call phase.
+- Phase A and B are identical, so `MINI_WAIT_NONE` has no observable nonblocking effect.
+- Combined with source inspection showing MiniShell's caller timeout is discarded and the resolved codec/I2S path substitutes a fixed 1000 ms wait, the current ADV provider is contract-noncompliant even though its normal measured latency is small.
+- No Keyer scheduling failure was demonstrated by this measurement.
+- The next bounded fix should be provider-side timeout compliance, not a speculative Keyer worker/scheduling redesign.
+
+Additional device logs emitted `i2s_channel_disable(...): the channel has not been enabled yet` during codec open/close. These occurred outside the measured write intervals and did not prevent successful execution; treat them as separate cleanup-noise evidence, not T009 latency failure.
+
+Architect acceptance: COMPLETE. Hardware evidence is sufficient to close F12 measurement/contract-definition work and authorize a separate provider-compliance task.
