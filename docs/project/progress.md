@@ -85,6 +85,7 @@ RX-8         COMPLETE — live QMX ALSA, V2 timing, continuous capture
 T017         COMPLETE — ADV QMX USB-host RX live decode + lifecycle + usbmsc hardware validation
 T018         COMPLETE — Linux bare ft8 -> ADV presentation + live QMX RX defaults
 T019         COMPLETE — Linux Serial/CDC + MiniFT8-owned QMX CAT frequency sync
+T020         COMPLETE — QMX CAT TX primitives; standalone RF validation deferred to T022
 AS-0..AS-8   COMPLETE
 LOG-1        COMPLETE — daily ADIF + Field Day Cabrillo
 physical TX  NEXT MAJOR PRODUCTION BOUNDARY — Linux/QMX first QSO target
