@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T015-adv-rename-replace.md   READY
+T015-adv-rename-replace.md   TESTING
 ```
 
 T015 fixes the ADV Filesystem backend so MiniShell rename replacement semantics work on FATFS; this directly addresses FT8 O-screen setting changes exiting with result 7.
 
-Workflow: local Linux/unit + ADV firmware build -> pushed commit -> supervisor diff review -> ADV UI hardware validation -> acceptance/merge -> delete T015 branch.
+Workflow: local Linux/unit + ADV firmware build -> supervisor diff review PASS -> ADV UI hardware validation -> acceptance/merge -> delete T015 branch.
 
 ## Rule
 
