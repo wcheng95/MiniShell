@@ -2335,6 +2335,32 @@ Implement this amendment on the existing T017 branch. Keep it narrow.
 8. Record resolved CPU-frequency evidence and exact files changed in the handoff.
    Return one pushed reviewable commit SHA; no PR and no Actions wait.
 
+Hardware acceptance after supervisor review must also preserve the already-defined
+V2-compatible disconnected-start behavior:
+
+```text
+boot ADV with QMX NOT connected
+M$> ft8
+FT8 application/UI starts and remains responsive
+Audio RX stays valid but not-ready
+connect QMX afterward
+QMX enumerates and UAC RX starts without restarting ft8
+live RX proceeds
+```
+
+This is not a new feature. T017 already specifies that `open("uac:qmx")` does not
+require physical presence, `start()` remains valid while waiting, and reads may
+return `MINI_ERR_NOT_READY` until UAC RX connects. The architect has now observed
+that current V3 effectively waits for QMX before completing startup, while the pinned
+V2 starts without QMX connected. Treat that as a regression.
+
+This observation is consistent with the zero-tick startup bug: with no QMX, the
+priority-4 worker stays in the pre-start polling path; attaching QMX can introduce
+a real blocking interval in device-open/enumeration that accidentally lets the
+priority-1 foreground task finish startup. Therefore do not add any explicit
+"wait for device" behavior while fixing scheduling. The corrected worker must
+block cleanly while no device is present and allow the FT8 foreground/UI to run.
+
 Hardware acceptance after supervisor review:
 
 ```text
