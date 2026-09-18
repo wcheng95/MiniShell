@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T017-adv-usb-uac-rx.md   READY
 ```
 
-T016 is COMPLETE. The former stale `linux_audio` and `linux_ft8` expectations now validate current deterministic semantics without weakening coverage, and the full root Linux CTest suite is green.
+T017 brings the pinned MiniFT8-V2 QMX USB-host UAC mechanics into the ADV backend while preserving MiniShell ownership: native 48k/S24 stereo becomes canonical 12k/S16 stereo below the Audio API, continuous capture survives synchronous decode, bare ADV ft8 defaults to uac:qmx, and the hardware gate is live decoded RX messages across consecutive slots. CDC-ACM is included as a companion if current IDF/component APIs remain compatible, but no CAT policy commands are sent in this task.
 
-Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> hardware validation when required -> merge/fast-forward to `main` -> delete the temporary branch.
+Workflow: Linux/unit/ADV build -> supervisor diff review -> QMX live hardware validation -> acceptance/merge -> delete T017 branch.
 
 ## Rule
 
