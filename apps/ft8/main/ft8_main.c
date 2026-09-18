@@ -20,6 +20,10 @@
 #define FT8_DEFAULT_PRESENTATION FT8_PRESENTATION_DESKTOP
 #endif
 
+#ifndef FT8_DEFAULT_RX_ENDPOINT
+#define FT8_DEFAULT_RX_ENDPOINT NULL
+#endif
+
 typedef struct {
     ft8_presentation_profile_t presentation;
     const char *rx_endpoint;
@@ -77,7 +81,10 @@ static bool parse_options(int argc, char **argv, Ft8Options *out)
         }
     }
 
-    return !out->has_rx_slot || out->rx_endpoint != NULL;
+    /* Fixture timing requires an explicit source, never an implicit live default. */
+    if (out->has_rx_slot && out->rx_endpoint == NULL) return false;
+    if (out->rx_endpoint == NULL) out->rx_endpoint = FT8_DEFAULT_RX_ENDPOINT;
+    return true;
 }
 
 int main(int argc, char **argv)

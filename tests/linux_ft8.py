@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import wave
 
 
 def read_until(fd: int, needle: bytes, timeout: float) -> bytes:
@@ -109,6 +110,9 @@ def main() -> int:
                     "fd_exchange=1b scv\n"
                 )
             shutil.copyfile(kfs_fixture, os.path.join(root, "flash", "kfs.wav"))
+            with wave.open(os.path.join(root, "flash", "ui.wav"), "wb") as fixture:
+                fixture.setparams((2, 2, 12000, 0, "NONE", "not compressed"))
+                fixture.writeframes(b"\0" * 4)
 
             env = os.environ.copy()
             env["MINISHELL_APP_DIR"] = app_dir
@@ -123,8 +127,8 @@ def main() -> int:
             try:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
-                # Default DESKTOP launch still exercises live config mutation.
-                os.write(master_fd, b"ft8\n")
+                # Explicit DESKTOP and a short WAV keep UI checks hardware-independent.
+                os.write(master_fd, b"ft8 --profile desktop --rx /flash/ui.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
                 os.write(master_fd, b"o")
                 transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
@@ -158,7 +162,7 @@ def main() -> int:
                 if os.path.exists(station + ".tmp"):
                     raise RuntimeError("atomic save left station.txt.tmp behind")
 
-                os.write(master_fd, b"ft8 --profile desktop\n")
+                os.write(master_fd, b"ft8 --profile desktop --rx /flash/ui.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
                 os.write(master_fd, b"v")
                 transcript.extend(read_until(master_fd, b"System Info", 3.0))
@@ -178,7 +182,7 @@ def main() -> int:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
 
                 # ADV uses the locked 20-character top row; profile name is no longer there.
-                os.write(master_fd, b"ft8 --profile adv\n")
+                os.write(master_fd, b"ft8 --profile adv --rx /flash/ui.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b"RX 20 ", 3.0))
                 os.write(master_fd, b"o")
                 transcript.extend(read_until(master_fd, b"Protocol: FT8", 3.0))
@@ -201,9 +205,10 @@ def main() -> int:
                 with open(station, "w", encoding="utf-8") as handle:
                     handle.write(as3_station)
 
-                # Decode the real 2x2 kfs fixture. 16 messages => 3 RX pages.
+                # Default ADV presentation with an explicit RX override:
+                # decode the real 2x2 kfs fixture. 16 messages => 3 RX pages.
                 os.write(master_fd,
-                         b"ft8 --profile adv --rx /flash/kfs.wav --rx-slot 12345\n")
+                         b"ft8 --rx /flash/kfs.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b" 1/3 ", 15.0))
 
                 # Select every decoded line. AS-3 queues only factual CQs.

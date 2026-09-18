@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import wave
 
 
 DEFAULT_STATION = (
@@ -45,6 +46,9 @@ def run_case(minishell, app_dir, name, original):
     with tempfile.TemporaryDirectory(prefix="minishell-ft8-config-") as root:
         station = Path(root) / "flash" / "ft8" / "station.txt"
         station.parent.mkdir(parents=True)
+        with wave.open(str(Path(root) / "flash" / "ui.wav"), "wb") as fixture:
+            fixture.setparams((2, 2, 12000, 0, "NONE", "not compressed"))
+            fixture.writeframes(b"\0" * 4)
         if original is not None:
             station.write_bytes(original)
         master, slave = pty.openpty()
@@ -58,7 +62,7 @@ def run_case(minishell, app_dir, name, original):
             os.close(slave)
             slave = -1
             read_until(master, b"M$> ")
-            os.write(master, b"ft8 --profile desktop\n")
+            os.write(master, b"ft8 --profile desktop --rx /flash/ui.wav --rx-slot 12345\n")
             if original is None:
                 read_until(master, b"R T O S V")
                 os.write(master, b"q")

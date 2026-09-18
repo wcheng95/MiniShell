@@ -1,6 +1,6 @@
 # T018 — Linux MiniFT8 live QMX defaults
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -186,19 +186,19 @@ Do not implement:
 
 Software/review gate:
 
-- [ ] bare Linux `ft8` composition defaults to ADV presentation;
-- [ ] bare Linux `ft8` composition defaults RX to `alsa:hw:2,0`;
-- [ ] shared FT8 logic contains no Linux/ALSA/QMX platform identity;
-- [ ] `--profile desktop` overrides the presentation default;
-- [ ] explicit `--rx /flash/kfs.wav --rx-slot 12345` overrides live RX and remains deterministic;
-- [ ] existing explicit live command still works:
+- [x] bare Linux `ft8` composition defaults to ADV presentation;
+- [x] bare Linux `ft8` composition defaults RX to `alsa:hw:2,0`;
+- [x] shared FT8 logic contains no Linux/ALSA/QMX platform identity;
+- [x] `--profile desktop` overrides the presentation default;
+- [x] explicit `--rx /flash/kfs.wav --rx-slot 12345` overrides live RX and remains deterministic;
+- [x] existing explicit live command retains option selection (live hardware validation below):
       `ft8 --profile adv --rx alsa:hw:2,0`;
-- [ ] Linux tests do not require QMX hardware;
-- [ ] Linux full CTest is green;
-- [ ] portable unit suite is green;
-- [ ] architecture boundary checks are green;
-- [ ] ADV build remains green if shared `ft8_main.c` is touched;
-- [ ] no unrelated cleanup.
+- [x] Linux tests do not require QMX hardware;
+- [x] Linux full CTest is green;
+- [x] portable unit suite is green;
+- [x] architecture boundary checks are green;
+- [x] ADV build remains green if shared `ft8_main.c` is touched;
+- [x] no unrelated cleanup.
 
 Manual architect acceptance on pc-1/QMX:
 
@@ -276,21 +276,86 @@ Codex:
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Linux `ft8.so` now composes ADV presentation and `alsa:hw:2,0` as defaults.
+The generic RX endpoint hook falls back to NULL in unconfigured builds and is
+applied only after parsing and validation. Explicit `--rx` overrides it without
+weakening duplicate-option validation. `--rx-slot` still requires an explicit
+`--rx`; a live default cannot silently satisfy the fixture-timing requirement.
 
 ### Files changed
 
+- `apps/ft8/main/ft8_main.c`: generic `FT8_DEFAULT_RX_ENDPOINT` fallback and
+  post-validation default selection.
+- `CMakeLists.txt`: Linux target defaults and two parser regression targets.
+- `tests/ft8_options_test.c`: execute the production parser with actual Linux
+  target compile definitions and separately without composition definitions.
+  Test bare defaults, explicit profiles/endpoints, fixture option order, and
+  invalid/duplicate options without initializing any transport. Unused app entry
+  code is discarded at link time; no production test hook or API was added.
+- `tests/linux_ft8.py`: use explicit short canonical WAV fixtures for UI checks
+  and explicit DESKTOP where required; exercise the default ADV presentation
+  during the existing full kfs decode/queue regression.
+- `tests/linux_ft8_config_load.py`: supply the short WAV explicitly so the
+  successful station-creation case needs no QMX. Load-failure assertions remain.
+- This task packet: REVIEW status, software checklist and handoff evidence.
+
 ### Invariants preserved
+
+No platform identity entered shared FT8 source. Linux engine time_osr=2/freq_osr=2,
+ALSA transport/conversion/buffering, fixture timing, AutoSeq, logging and public
+APIs are unchanged. ADV composition still supplies its existing explicit
+`uac:qmx` argument and ADV presentation, with its existing freq_osr=1 profile.
+The UI-only fixtures contain one silent 12 kHz/S16/stereo frame and reach EOF,
+preserving the existing RX: OFF memory-view assertion without a physical device.
+Canonical current-state documentation was not promoted before live acceptance.
+No deviations from the bounded task.
 
 ### Local tests run
 
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R 'ft8_options|linux_ft8' --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T018-build-unit
+cmake --build /tmp/T018-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T018-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+Focused tests **4/4 PASS**; Linux full CTest **47/47 PASS** (including the
+previously configured pinned golden engine tests at freq_osr=1 and 2); unit
+suite **14/14 PASS**; all three standalone architecture checks PASS; real ADV
+build PASS; whitespace check PASS. The new Linux parser target inherits the
+`ft8` target's actual definitions, also confirmed in generated compiler flags;
+the portable parser target has no default overrides. ADV firmware size is
+`0xb8e40`, with `0x5371c0` (88%) app-partition space free.
+
 ### Manual/hardware validation still required
+
+After supervisor review, perform the pc-1/QMX bare-command live decode and clean
+quit checks above, plus explicit WAV and DESKTOP overrides. No live QMX or ADV
+hardware testing, flashing, PR creation, or GitHub Actions wait was performed.
 
 ### Known limitations / risks
 
+The live default uses the approved host-specific ALSA card index 2, device 0.
+Hosts with a different enumeration must provide an explicit RX endpoint. There
+is no discovery or fallback to WAV when the selected live device cannot open.
+Automated coverage proves composition, parsing and deterministic application
+behavior; it does not establish on-air decode for the new bare command.
+
 ### Commit
+
+One commit titled `T018: default Linux FT8 to live QMX and ADV presentation` on
+`codex/T018-linux-ft8-live-defaults`; the pushed SHA is returned in chat.
 
 ## Supervisor review
 

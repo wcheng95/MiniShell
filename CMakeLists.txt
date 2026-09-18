@@ -151,6 +151,25 @@ target_include_directories(ft8 PRIVATE
     apps/ft8/src/ft8_engine/vendor/kissfft
 )
 target_link_libraries(ft8 PRIVATE m)
+target_compile_definitions(ft8 PRIVATE
+    FT8_DEFAULT_PRESENTATION=FT8_PRESENTATION_ADV
+    FT8_DEFAULT_RX_ENDPOINT="alsa:hw:2,0"
+)
+
+# Exercise the production parser with the actual Linux target definitions and
+# with no composition defaults. Discard the unused app entry/transport code.
+foreach(profile linux portable)
+    add_executable(ft8_options_${profile}_unit tests/ft8_options_test.c
+        apps/ft8/src/presentation_profile/presentation_profile.c)
+    target_include_directories(ft8_options_${profile}_unit PRIVATE
+        $<TARGET_PROPERTY:ft8,INCLUDE_DIRECTORIES>)
+    target_compile_options(ft8_options_${profile}_unit PRIVATE
+        -Wall -Wextra -Wpedantic -ffunction-sections)
+    target_link_options(ft8_options_${profile}_unit PRIVATE -Wl,--gc-sections)
+    add_test(NAME ft8_options_${profile}_unit COMMAND ft8_options_${profile}_unit)
+endforeach()
+target_compile_definitions(ft8_options_linux_unit PRIVATE
+    $<TARGET_PROPERTY:ft8,COMPILE_DEFINITIONS> FT8_TEST_LINUX_DEFAULTS=1)
 
 add_library(private_import_probe MODULE tests/apps/private_import_probe.c)
 set_target_properties(private_import_probe PROPERTIES
