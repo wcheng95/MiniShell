@@ -1587,6 +1587,52 @@ A likely follow-up is to isolate USB/UAC capture work from the MiniShell foregro
 core and/or ensure the successful capture loop yields, but do not make that change
 until this hardware discriminator is recorded.
 
+## Hardware finding — QMX enumeration blocked by control-transfer limit
+
+Connecting QMX after FT8/USB Host startup produces:
+
+```text
+E (...) ENUM: Configuration descriptor larger than control transfer max length
+E (...) ENUM: [0:0] CHECK_SHORT_CONFIG_DESC FAILED
+```
+
+This supersedes the earlier scheduler/freeze hypothesis for the current failure.
+QMX is a composite USB device, and enumeration stops before class/device startup
+because the host control-transfer buffer is too small for its full configuration
+descriptor.
+
+Current MiniShell ADV `sdkconfig.defaults` does not set
+`CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE`; ESP-IDF therefore uses its small
+default. The pinned MiniFT8-V2 reference explicitly used:
+
+```text
+CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048
+```
+
+Architect decision:
+
+1. Add `CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048` to
+   `platform/adv/sdkconfig.defaults`.
+2. Add an ADV compile-time config guard requiring the value to be at least 2048,
+   so regenerating sdkconfig cannot silently regress QMX enumeration.
+3. Do not change task priorities/affinities for this issue.
+4. Do not add the previously proposed breadcrumb instrumentation unless another
+   failure remains after QMX enumeration succeeds.
+5. Rebuild the real ADV firmware from the updated defaults/config.
+6. Hardware test with GPIO4 debug:
+   - USB Host install;
+   - QMX enumeration completes without CHECK_SHORT_CONFIG_DESC;
+   - UAC RX connected/opened;
+   - 48000/24/2 starts;
+   - CDC status;
+   - Cardputer UI/key responsiveness.
+7. If a responsiveness issue remains after successful enumeration/stream start,
+   diagnose it separately with evidence.
+
+Memory note: this raises the per-device default-control transfer buffer from the
+ESP-IDF default to 2048 bytes. For the single QMX device this is a small runtime
+cost compared with the already measured FT8/UAC memory budget.
+
 ## Hardware finding — no-QMX freeze after UAC install
 
 With QMX disconnected, GPIO4 shows:
@@ -1602,8 +1648,9 @@ does not respond. Because no QMX is present, this occurs before UAC device
 enumeration or audio streaming. Do not attribute it to capture-ring backlog or QMX
 traffic.
 
-Before changing task affinity/scheduling, add a narrow platform-only diagnostic
-amendment to locate the exact stop point. Required GPIO4 breadcrumbs:
+SUPERSEDED by the configuration-descriptor finding above. Do not implement the
+following breadcrumb plan unless a later post-enumeration failure requires it. The
+previous proposed breadcrumbs were:
 
 ```text
 ADV_UAC prepare: CDC driver install begin/result
