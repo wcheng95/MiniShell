@@ -1,6 +1,6 @@
 # T024 — station.txt offset source / Random TX offset
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -570,28 +570,28 @@ WinBook/TW700 testing comes after this task.
 
 ## Acceptance criteria
 
-- [ ] `offset_src=0` is parsed and means Random;
-- [ ] numeric V2 meanings 0/1/2 are preserved;
-- [ ] `offset_src` survives station config saves;
-- [ ] `offset` fixed value parses/serializes;
-- [ ] Random is 500..2500 inclusive;
-- [ ] Random implementation is portable/application-owned;
-- [ ] no platform/libc global PRNG dependency;
-- [ ] Random is resolved once per physical TX attempt;
-- [ ] immutable plan uses resolved value for all 79 tones;
-- [ ] RxTxLog T record uses same resolved value;
-- [ ] Fixed uses configured offset;
-- [ ] RX uses received offset for non-CQ when valid;
-- [ ] RX CQ falls back to Random;
-- [ ] AutoSeq retained factual RX offset is not overwritten;
-- [ ] T022 physical TX tests remain green;
-- [ ] T023 CQ/beacon tests remain green;
-- [ ] Linux full CTest passes;
-- [ ] units pass;
-- [ ] architecture checks pass;
-- [ ] sanitizer coverage for pure resolver/PRNG passes;
-- [ ] real ADV build passes;
-- [ ] no unrelated changes.
+- [x] `offset_src=0` is parsed and means Random;
+- [x] numeric V2 meanings 0/1/2 are preserved;
+- [x] `offset_src` survives station config saves;
+- [x] `offset` fixed value parses/serializes;
+- [x] Random is 500..2500 inclusive;
+- [x] Random implementation is portable/application-owned;
+- [x] no platform/libc global PRNG dependency;
+- [x] Random is resolved once per physical TX attempt;
+- [x] immutable plan uses resolved value for all 79 tones;
+- [x] RxTxLog T record uses same resolved value;
+- [x] Fixed uses configured offset;
+- [x] RX uses received offset for non-CQ when valid;
+- [x] RX CQ falls back to Random;
+- [x] AutoSeq retained factual RX offset is not overwritten;
+- [x] T022 physical TX tests remain green;
+- [x] T023 CQ/beacon tests remain green;
+- [x] Linux full CTest passes;
+- [x] units pass;
+- [x] architecture checks pass;
+- [x] sanitizer coverage for pure resolver/PRNG passes;
+- [x] real ADV build passes;
+- [x] no unrelated changes.
 
 ## Hardware/operator acceptance
 
@@ -684,23 +684,157 @@ Codex:
 
 ### Implementation summary
 
+Added the V2-numbered station offset settings and a pure, heap-free application
+resolver. The controller seeds one private PRNG state at initialization and
+resolves a local intent once after physical slot/parity/freshness eligibility,
+before encoding. The resolved snapshot flows unchanged into the existing plan,
+RT line and CAT sequence. AutoSeq facts and no-CAT simulation are unchanged.
+
+Inspected pinned MiniFT8-V2 `main/station_types.h` and `main/main.cpp` at
+`491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`: OffsetSrc values, resolver/arm path,
+default source/fixed value, and station offset load/save. Preserved the source
+numbers and modulo mapping; used the task-authorized portable generator and
+300..2700 validation instead of V2 platform entropy/unbounded RX acceptance.
+
 ### Files changed
+
+- `apps/ft8/src/config_service/config_service.[ch]`: stable source enum, defaults,
+  strict parsing and serialization of both offset keys.
+- `apps/ft8/src/tx_offset/tx_offset.[ch]`: deterministic seed/step, inclusive Random
+  mapping and pure source resolver.
+- `apps/ft8/src/app_controller/app_controller.c`: initialization-time MiniShell
+  clock observations and seed composition.
+- `apps/ft8/src/app_controller/app_controller_internal.h`: per-controller PRNG state.
+- `apps/ft8/src/app_controller/app_controller_tx_physical.c`: one resolution of
+  the local intent before its snapshot/encoding.
+- `CMakeLists.txt`, `platform/adv/main/CMakeLists.txt`: portable module composition
+  and new host test target.
+- `tests/ft8_tx_offset_test.c`: configuration, deterministic sequence, range,
+  source rules and invalid input tests.
+- `tests/ft8_physical_tx_test.c`: loaded Random/POTA and RX/Fixed fixtures,
+  plan/RT/CAT consistency, independent attempts, preserved RX facts, failure retry,
+  seed fallback and unchanged simulation checks.
+- `tests/linux_ft8_config_load.py`: expected default serialization includes the
+  two authorized new keys; existing preservation/error assertions remain.
+- `tests/architecture_rules.py`, `tests/app_dependency_boundary.py`,
+  `tests/app_platform_boundary.py`: resolver ownership/purity/no-heap enforcement
+  and mutation coverage, including forbidden platform/global PRNG calls.
+- This task packet: REVIEW handoff.
 
 ### Config behavior
 
+Numeric meanings are exactly Random=0, Fixed=1, RX=2. Missing keys default to
+Random and 1500 Hz. `offset_src` accepts only the literal 0/1/2 values; `offset`
+accepts decimal digits representing 300..2700 inclusive. Empty, malformed,
+negative, oversized and out-of-range input fails atomically without replacing the
+caller's prior configuration. Both keys always serialize. Integration proves a
+T023 CQ-type save preserves `offset_src=0` and a nondefault `offset=1600`.
+
 ### Random/PRNG model
+
+The pure generator is xorshift32 with shifts 13,17,5 and uint32_t wrap semantics.
+The controller samples available MiniShell monotonic microseconds and UTC seconds/
+nanoseconds at initialization. Seed is XOR of the low/high 32-bit words of both
+time values, UTC nanoseconds and `0x9e3779b9`. Missing/failed/invalid UTC contributes
+zero; missing monotonic contributes zero. A zero combined seed becomes
+`0x9e3779b9`; the step function also repairs zero defensively. No allocation,
+platform API, libc global random state or cryptographic claim.
+
+Each Random resolution advances once and maps with `500 + value % 2001`.
+Deterministic seed-1 sequence is tested against fixed uint32 outputs and offsets
+734, 1389, 905, 2473, 988, 1443. Tests exhaust all 2001 modulo residues and their
+FT8 tone ranges, plus 100,000 generated values and zero/extreme seed cases.
 
 ### Offset-resolution semantics
 
+- Random: every newly armed physical CQ/POTA, QSO/retry or free-text attempt uses
+  a new generator step, base 500..2500 inclusive.
+- Fixed: exactly the configured base; resolver independently validates 300..2700.
+- RX: only a QSO intent with reference offset 300..2700 uses that factual offset.
+  CQ/POTA and standalone free text always fall back to Random. Free text has no
+  meaningful received-source association in current AutoSeq, even if its default
+  numeric offset is in range. Invalid QSO reference offsets also fall back.
+- Fixed and valid RX do not advance the generator. Wrong parity, pending decode,
+  active-message polls and no-CAT simulation do not advance it.
+- Physical last_intent and Ft8TxPlan share the resolved value; the AutoSeq queue
+  remains unchanged. RX-source integration retains the original 1234 Hz fact in
+  all three modes.
+- Resolution precedes Audio pause, RT append, begin and tone writes. Failure may
+  therefore consume a generator step but never semantic completion; a later
+  eligible retry may roll again. There is no requirement to reuse the failed
+  attempt's base, or for consecutive Random values to differ.
+
 ### T022/T023 invariants preserved
+
+No TX scheduling, tone indices/spacing, CAT formatting, RX recovery, completion,
+logging format, beacon parity/priority or UI code was changed. The T021 encoder and
+AutoSeq implementation are untouched. Existing timing tests now explicitly select
+Fixed 1500 to preserve their exact prior baseline; separate new integration tests
+exercise the new default policy through real controller/encoder/radio/log code.
+No-CAT simulation explicitly retains its semantic 1500 offset and PRNG state.
 
 ### Tests run
 
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 55/55, including T022/T023 and checker mutation self-tests
+
+cmake -S tests/unit -B /tmp/T024-build-unit
+cmake --build /tmp/T024-build-unit -j8
+ctest --test-dir /tmp/T024-build-unit --output-on-failure
+# PASS: 15/15
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/serial_protocol_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All exit 0
+
+cmake -S . -B /tmp/T024-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+  -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build /tmp/T024-build-sanitize --target ft8_tx_offset_unit ft8_physical_tx_unit -j8
+ctest --test-dir /tmp/T024-build-sanitize --output-on-failure -R 'ft8_tx_offset|ft8_physical_tx'
+# PASS: 2/2 with ASan/UBSan/leak detection; run outside sandbox because of the
+# previously established LeakSanitizer/ptrace restriction
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real ESP32-S3 firmware, minishell_adv.bin 0xbbf80 bytes; 88% partition free
+
+git diff --check
+# PASS
+```
+
+New physical integration executes two independent POTA attempts, checks exact CAT
+bytes for all emitted tones against the production formatter, verifies immutable
+plan/base/RNG throughout, and matches RT offsets. Separate tests inject RT append,
+Audio pause, begin and initial-tone failures, retain AutoSeq state and successfully
+arm the next eligible attempt with the next generator state.
+
 ### Hardware validation still required
+
+After supervisor review, use pc-1/QMX as specified above to observe multiple
+Random POTA transmissions, retain their RT offsets, verify return to RX and
+on-air decodability where available. WinBook/TW700 testing follows hardware
+acceptance. No RF or hardware tests were performed by Codex.
 
 ### Known limitations / risks
 
+Time-derived noncryptographic seeds can repeat across launches with identical time
+observations; this is placement variation, not guaranteed unique entropy. Modulo
+bias and possible repeated adjacent offsets match the chosen V2 mapping. No UI
+for source/fixed-offset editing is added. No task-scope deviations.
+
 ### Commit
+
+One implementation commit on `codex/T024-offset-source-random`, titled
+`T024: resolve portable Random Fixed and RX transmit offsets`. This packet is part
+of that commit; the full pushed SHA is returned in the handoff. No PR or Actions
+wait. Branch remains stacked on completed T023.
 
 ## Supervisor review
 

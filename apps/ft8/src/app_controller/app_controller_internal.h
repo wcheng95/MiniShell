@@ -20,6 +20,7 @@ typedef struct AppRxState AppRxState;
 
 typedef struct {
     TxLifecycle lifecycle;
+    uint32_t offset_rng;
     Ft8TxPlan plan;
     AppTxSchedule schedule;
     int64_t pending_slot;

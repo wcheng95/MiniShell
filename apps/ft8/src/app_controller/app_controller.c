@@ -1,5 +1,6 @@
 #include "app_controller.h"
 #include "app_controller_tx.h"
+#include "tx_offset.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -388,6 +389,15 @@ bool app_controller_init(AppController *app, const mini_api_t *api,
     }
     memset(app, 0, sizeof(*app));
     app->api = api;
+    const mini_time_location_api_t *time = api->time_location;
+    uint64_t monotonic = time && time->monotonic_us ? time->monotonic_us() : 0;
+    mini_utc_time_t utc = {.struct_size = sizeof(utc)};
+    if (!time || !(time->capabilities & MINI_TIMELOC_CAP_UTC) || !time->utc_get ||
+        time->utc_get(&utc) != MINI_OK || utc.nanoseconds >= 1000000000u) {
+        utc.unix_seconds = 0;
+        utc.nanoseconds = 0;
+    }
+    app->tx.offset_rng = tx_offset_seed(monotonic, utc.unix_seconds, utc.nanoseconds);
 
     if (!storage_service_init(&app->storage, api->fs)) return false;
     if (!storage_service_ensure_directory(&app->storage, data_directory)) return false;

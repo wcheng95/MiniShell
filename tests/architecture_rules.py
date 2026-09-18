@@ -21,6 +21,7 @@ APP_RULES = {
             "radio_control": ("src/radio_control",),
             "tx_lifecycle": ("src/tx_lifecycle",),
             "tx_encoder": ("src/tx_encoder",),
+            "tx_offset": ("src/tx_offset",),
             "ui_shell": ("src/ui_shell",),
             "ft8_engine": ("src/ft8_engine",),
         },
@@ -30,6 +31,10 @@ APP_RULES = {
             "src/tx_encoder/tx_channel.h": "tx_encoder",
         },
         "forbidden_source_patterns": {
+            "src/tx_offset/tx_offset.c": (
+                (r"\b(?:rand|srand|random|srandom|getrandom|esp_random)\s*\(",
+                 "TX offset must use application-owned PRNG state"),
+            ),
             "main/ft8_main.c": (
                 (r"\bui\s*\.\s*(?:screen|submenu)\b",
                  "ft8_main must not inspect UiShell screen/submenu state"),
@@ -46,7 +51,7 @@ APP_RULES = {
                 "app_controller", "shared", "auto_seq", "config_service",
                 "presentation_profile", "rx_audio_adapter", "rx_frontend",
                 "rx_result_builder", "rx_slot_framer", "storage_service", "log_service",
-                "tx_lifecycle", "ui_shell", "ft8_engine", "radio_control", "tx_encoder",
+                "tx_lifecycle", "ui_shell", "ft8_engine", "radio_control", "tx_encoder", "tx_offset",
             },
             "auto_seq": {"auto_seq"},
             "config_service": {"config_service"},
@@ -59,6 +64,7 @@ APP_RULES = {
             "log_service": {"log_service", "config_service"},
             "radio_control": {"radio_control"},
             "tx_lifecycle": {"tx_lifecycle"},
+            "tx_offset": {"tx_offset", "config_service", "auto_seq"},
             "tx_encoder": {"tx_encoder", "auto_seq", "ft8_engine"},
             "ui_shell": {"ui_shell", "shared", "presentation_profile"},
             "ft8_engine": {"ft8_engine"},
@@ -109,7 +115,7 @@ APP_RULES["keyer"]["api_modules"] = {
 # The standalone host decoder reads a host WAV; it is not a runtime app.
 # Only its fopen call is exempt, not the tools directory or other platform rules.
 APP_RULES["ft8"]["native_exceptions"] = {"tools/ft8_decode.c": {"fopen"}}
-APP_RULES["ft8"]["no_heap_modules"] = {"auto_seq", "tx_encoder"}
+APP_RULES["ft8"]["no_heap_modules"] = {"auto_seq", "tx_encoder", "tx_offset"}
 for rule in APP_RULES.values():
     rule["include_roots"] = tuple(
         prefix for prefixes in rule["module_paths"].values() for prefix in prefixes

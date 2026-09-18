@@ -18,7 +18,7 @@ static bool stop_fail, restart_fail, rt_short, rt_zero, record_expected, short_c
 static unsigned audio_started;
 static bool fail_station_save;
 static const AppController *keying_app;
-static const char *station_text = "callsign=AG6AQ\ngrid=CM97\ncq_type=0\nband=3\nfd_exchange=1B SCV\n";
+static const char *station_text = "callsign=AG6AQ\ngrid=CM97\ncq_type=0\noffset_src=1\noffset=1500\nband=3\nfd_exchange=1B SCV\n";
 static void event(char c) { size_t n = strlen(events); assert(n + 1 < sizeof(events)); events[n] = c; events[n+1] = 0; }
 static uint64_t mono(void) { return now_us; }
 static mini_result_t utc(mini_utc_time_t *time)
@@ -461,10 +461,99 @@ static void cq_beacon_settings(void)
     }
 }
 
+static void offset_integration(void)
+{
+    AppController app;
+    const char *original=station_text;
+    station_text="callsign=AG6AQ\ngrid=CM97\ncq_type=2\nband=3\noffset_src=0\noffset=1600\n";
+    setup(&app,false); station_text=original;
+    assert(app.tx.offset_rng==tx_offset_seed(1000000000u,1789777000,0));
+    apply_setting(&app,APP_ACTION_SET_CQ_TYPE,UI_CQ_POTA);
+    unsigned station=path_id("/flash/ft8/station.txt");
+    assert(strstr(files[station].text,"offset_src=0\n") && strstr(files[station].text,"offset=1600\n"));
+    apply_setting(&app,APP_ACTION_SET_BEACON_MODE,UI_BEACON_ODD);
+    app.tx.offset_rng=1; keying_app=&app;
+    const int16_t bases[]={734,1389};
+    const uint32_t states[]={270369,67634689};
+    for (unsigned attempt=0;attempt<2;++attempt) {
+        bool changed; cat[0]=0; tone_count=0;
+        assert(app_controller_step_tx(&app,&changed) && app.tx.active);
+        assert(app.tx.plan.base_hz==bases[attempt] && app.tx.last_intent.offset_hz==bases[attempt]);
+        assert(app.tx.offset_rng==states[attempt] && app.auto_seq.queue[0].offset_hz==1500);
+        assert(strcmp(app.tx.plan.canonical_text,"CQ POTA AG6AQ CM97")==0);
+        char record[80]; snprintf(record,sizeof(record),"] CQ POTA AG6AQ CM97 %d\n",bases[attempt]);
+        assert(strstr(rt_contents(),record));
+        Ft8TxPlan plan=app.tx.plan;
+        uint64_t start=now_us;
+        for (unsigned i=1;i<=79;++i) {
+            now_us=start+i*160000u;
+            assert(app_controller_step_tx(&app,&changed));
+            assert(memcmp(&plan,&app.tx.plan,sizeof(plan))==0 && app.tx.offset_rng==states[attempt]);
+        }
+        assert(!app.tx.active && app.tx.physical_tx_count==attempt+1);
+        strcpy(expected,"MD6;TX;"); record_expected=true;
+        int previous=-1;
+        for (unsigned i=0;i<79;++i) {
+            float hz=ft8_tx_tone_hz(plan.base_hz,plan.tones[i]);
+            assert(hz>=500.0f && hz<=2543.75f);
+            if (previous!=plan.tones[i]) assert(radio_qmx_set_tone_hz(&serial,7,hz)==MINI_OK);
+            previous=plan.tones[i];
+        }
+        record_expected=false; strcat(expected,"RX;"); assert(strcmp(cat,expected)==0);
+        now_us=start+15000000; assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
+        assert(app.tx.offset_rng==states[attempt]); now_us=start+30000000;
+    }
+    cleanup(&app);
+
+    for (unsigned source=0;source<3;++source) {
+        char station_fixture[128];
+        snprintf(station_fixture,sizeof(station_fixture),
+            "callsign=AG6AQ\ngrid=CM97\nband=3\noffset_src=%u\noffset=1600\n",source);
+        station_text=station_fixture; setup(&app,false); station_text=original;
+        assert(auto_seq_drop_index(&app.auto_seq,0,0));
+        AutoSeqRxEvent rx={.kind=AUTO_SEQ_MSG_TX1,.flags=AUTO_SEQ_RX_FLAG_CQ,
+            .rx_slot_id=(1789776000+1005)/15-1,.offset_hz=1234,.snr_db=-12};
+        strcpy(rx.dxcall,"W6ABC"); strcpy(rx.dxgrid,"CM87");
+        assert(auto_seq_on_manual_rx(&app.auto_seq,&rx)==AUTO_SEQ_OK);
+        app.tx.offset_rng=1;
+        bool changed; assert(app_controller_step_tx(&app,&changed) && app.tx.active);
+        int16_t base=source==0 ? 734 : source==1 ? 1600 : 1234;
+        assert(app.tx.plan.base_hz==base && app.tx.last_intent.offset_hz==base);
+        assert(app.auto_seq.queue[0].offset_hz==1234);
+        AutoSeqTxIntent semantic; assert(auto_seq_prepare_tx_intent(&app.auto_seq,&semantic));
+        assert(semantic.offset_hz==1234); cleanup(&app);
+    }
+    for (unsigned failure=0;failure<4;++failure) {
+        setup(&app,true); app.config.offset_src=FT8_OFFSET_RANDOM; app.tx.offset_rng=1;
+        if (failure==0) fail_rt=2;
+        if (failure==1) stop_fail=true;
+        if (failure==2) fail_command=2;
+        if (failure==3) fail_command=3;
+        bool changed; assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
+        assert(app.tx.offset_rng==270369 && app.tx.failed_tx_count==1 && !app.tx.physical_tx_count);
+        assert(app.auto_seq.queue[0].offset_hz==1500 && app.auto_seq.queue[0].retry_counter==0);
+        stop_fail=false; fail_rt=fail_command=0;
+        now_us=anchor+15000000; assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
+        app.rx->applied_slot+=2;
+        now_us=anchor+30000000; assert(app_controller_step_tx(&app,&changed) && app.tx.active);
+        assert(app.tx.offset_rng==67634689 && app.tx.plan.base_hz==1389);
+        assert(app.auto_seq.queue[0].offset_hz==1500 && app.auto_seq.queue[0].retry_counter==0);
+        cleanup(&app);
+    }
+    setup(&app,false); app.config.offset_src=FT8_OFFSET_RANDOM; app.tx.offset_rng=1;
+    assert(radio_control_close(&app.radio)==MINI_OK);
+    bool changed; assert(app_controller_step_tx(&app,&changed) && changed);
+    assert(app.tx.simulated_tx_count==1 && app.tx.last_intent.offset_hz==1500 && app.tx.offset_rng==1);
+    cleanup(&app);
+    reset(); mini_api_t no_clock=api; no_clock.time_location=NULL;
+    assert(app_controller_init(&app,&no_clock,"/flash/ft8","/flash/ft8/station.txt"));
+    assert(app.tx.offset_rng==tx_offset_seed(0,0,0)); cleanup(&app);
+}
+
 int main(void)
 {
     success(1,0,0); success(5,20,3000); success(10,499,0); success(20,33,0);
-    failures(); freshness_and_stalls(); qso_completion(); rt_logging(); cq_beacon_settings();
+    failures(); freshness_and_stalls(); qso_completion(); rt_logging(); cq_beacon_settings(); offset_integration();
     puts("physical FT8: absolute timing, exact CAT, station identity, completion, failure cleanup, RX recovery and RT logging PASS");
     return 0;
 }

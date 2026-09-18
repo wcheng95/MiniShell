@@ -84,6 +84,8 @@ void config_service_defaults(ConfigService *config)
     config->profile_index = 0;
     config->band_index = 3; /* 20m */
     config->cq_type = FT8_CONFIG_CQ;
+    config->offset_src = FT8_OFFSET_RANDOM;
+    config->fixed_offset_hz = 1500;
 }
 
 bool config_service_parse(ConfigService *config, const char *text)
@@ -124,6 +126,19 @@ bool config_service_parse(ConfigService *config, const char *text)
         } else if (strcmp(key, "rxtx_log") == 0) {
             if (strcmp(value, "0") != 0 && strcmp(value, "1") != 0) return false;
             parsed.rxtx_log = value[0] == '1';
+        } else if (strcmp(key, "offset_src") == 0) {
+            if (value[0] < '0' || value[0] > '2' || value[1] != '\0') return false;
+            parsed.offset_src = (Ft8OffsetSource)(value[0] - '0');
+        } else if (strcmp(key, "offset") == 0) {
+            unsigned offset = 0;
+            if (!*value) return false;
+            for (const char *p = value; *p; ++p) {
+                if (*p < '0' || *p > '9') return false;
+                offset = offset * 10u + (unsigned)(*p - '0');
+                if (offset > 2700u) return false;
+            }
+            if (offset < 300u) return false;
+            parsed.fixed_offset_hz = (int16_t)offset;
         } else if (strcmp(key, "max_retry") == 0) {
             int parsed_value = atoi(value);
             parsed.max_retry = parsed_value < 0 ? 0 : parsed_value;
@@ -159,7 +174,9 @@ bool config_service_serialize(const ConfigService *config, char *out, size_t out
                     "cq_ft=%s\n"
                     "free_text=%s\n"
                     "fd_exchange=%s\n"
-                    "rxtx_log=%d\n",
+                    "rxtx_log=%d\n"
+                    "offset_src=%d\n"
+                    "offset=%d\n",
                     config->callsign,
                     config->grid,
                     config->profile_index,
@@ -170,7 +187,8 @@ bool config_service_serialize(const ConfigService *config, char *out, size_t out
                     config->cq_freetext,
                     config->free_text,
                     config->fd_exchange,
-                    config->rxtx_log ? 1 : 0);
+                    config->rxtx_log ? 1 : 0,
+                    (int)config->offset_src, config->fixed_offset_hz);
     return used >= 0 && (size_t)used < out_size;
 }
 

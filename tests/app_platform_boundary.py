@@ -118,20 +118,21 @@ def self_test():
         vendor.write_text('#include <sys/stat.h>')
         assert any('forbidden include' in e for e in check_app(root, 'ft8'))
         vendor.write_text('#include <sys/types.h>')
-        path = root / 'apps/ft8/src/tx_encoder/probe.c'
-        path.parent.mkdir(parents=True)
-        for source, reason in (
-            ('#include "minishell/api.h"', 'pure module tx_encoder'),
-            ('#include <time.h>\nvoid f(void) { clock_gettime(0, 0); }', 'forbidden native symbol'),
-            ('#include <driver/gpio.h>', 'forbidden include'),
-            ('void f(void) { malloc(16); }', 'heap call in no-heap module tx_encoder'),
-            ('void f(void) { free(0); }', 'heap call in no-heap module tx_encoder'),
-        ):
-            path.write_text(source)
-            assert any(reason in e for e in check_app(root, 'ft8')), (source, reason)
-            cases += 1
-        path.write_text('int pure_plan;')
-        assert not check_app(root, 'ft8')
+        for module in ('tx_encoder', 'tx_offset'):
+            path = root / f'apps/ft8/src/{module}/probe.c'
+            path.parent.mkdir(parents=True)
+            for source, reason in (
+                ('#include "minishell/api.h"', f'pure module {module}'),
+                ('#include <time.h>\nvoid f(void) { clock_gettime(0, 0); }', 'forbidden native symbol'),
+                ('#include <driver/gpio.h>', 'forbidden include'),
+                ('void f(void) { malloc(16); }', f'heap call in no-heap module {module}'),
+                ('void f(void) { free(0); }', f'heap call in no-heap module {module}'),
+            ):
+                path.write_text(source)
+                assert any(reason in e for e in check_app(root, 'ft8')), (source, reason)
+                cases += 1
+            path.write_text('int pure_plan;')
+            assert not check_app(root, 'ft8')
     print(f'app_platform_boundary self-test: PASS ({cases} cases plus API edges/host exception)')
     return 0
 

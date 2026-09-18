@@ -113,6 +113,7 @@ add_minishell_app(ft8
     apps/ft8/src/app_controller/app_tx_schedule.c
     apps/ft8/src/auto_seq/auto_seq.c
     apps/ft8/src/auto_seq/auto_seq_tx_intent.c
+    apps/ft8/src/tx_offset/tx_offset.c
     apps/ft8/src/config_service/config_service.c
     apps/ft8/src/radio_control/radio_control.c
     apps/ft8/src/radio_control/radio_qmx.c
@@ -146,6 +147,7 @@ target_include_directories(ft8 PRIVATE
     apps/ft8/include
     apps/ft8/src/app_controller
     apps/ft8/src/auto_seq
+    apps/ft8/src/tx_offset
     apps/ft8/src/config_service
     apps/ft8/src/radio_control
     apps/ft8/src/presentation_profile
@@ -751,3 +753,10 @@ target_include_directories(ft8_physical_tx_unit PRIVATE $<TARGET_PROPERTY:ft8,IN
 target_link_libraries(ft8_physical_tx_unit PRIVATE m)
 target_compile_options(ft8_physical_tx_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME ft8_physical_tx_unit COMMAND ft8_physical_tx_unit)
+
+add_executable(ft8_tx_offset_unit tests/ft8_tx_offset_test.c
+    apps/ft8/src/tx_offset/tx_offset.c apps/ft8/src/config_service/config_service.c)
+target_include_directories(ft8_tx_offset_unit PRIVATE apps/ft8/src/tx_offset
+    apps/ft8/src/config_service apps/ft8/src/auto_seq apps/ft8/src/tx_encoder)
+target_compile_options(ft8_tx_offset_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME ft8_tx_offset_unit COMMAND ft8_tx_offset_unit)

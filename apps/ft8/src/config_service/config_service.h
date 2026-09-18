@@ -18,6 +18,8 @@ typedef uint8_t Ft8ConfigCqType;
 #define FT8_CONFIG_CQ_FD       ((Ft8ConfigCqType)4u)
 #define FT8_CONFIG_CQ_FREETEXT ((Ft8ConfigCqType)5u)
 
+typedef enum { FT8_OFFSET_RANDOM = 0, FT8_OFFSET_FIXED = 1, FT8_OFFSET_RX = 2 } Ft8OffsetSource;
+
 typedef struct {
     char callsign[FT8_CONFIG_CALLSIGN_CAP];
     char grid[FT8_CONFIG_GRID_CAP];
@@ -30,6 +32,8 @@ typedef struct {
     int profile_index;
     int band_index;
     Ft8ConfigCqType cq_type;
+    Ft8OffsetSource offset_src;
+    int16_t fixed_offset_hz;
 } ConfigService;
 
 void config_service_defaults(ConfigService *config);

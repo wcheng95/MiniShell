@@ -1,5 +1,6 @@
 #define FT8_APP_CONTROLLER_INTERNAL 1
 #include "app_controller_tx.h"
+#include "tx_offset.h"
 #include <limits.h>
 
 static int64_t monotonic_ms(uint64_t us)
@@ -119,6 +120,9 @@ bool app_controller_step_tx(AppController *app, bool *changed)
         have_intent = auto_seq_prepare_tx_intent(&app->auto_seq, &intent);
     }
     if (!have_intent || intent.tx_parity != parity) return true;
+    if (!tx_offset_resolve(app->config.offset_src, app->config.fixed_offset_hz,
+                           &intent, &app->tx.offset_rng, &intent.offset_hz))
+        return fail_tx(app, "ft8: TX offset resolution failed\n");
     app->tx.last_intent = intent;
     app->tx.last_intent_valid = true;
     app->tx.last_tx_slot_id = slot;

@@ -242,6 +242,17 @@ def self_test() -> int:
                     expect("", f"tx_encoder -> {module}")
                 encoder.write_text('#include "auto_seq_tx_intent.h"\n#include "ft8_message_codec.h"\n')
                 expect("")
+                offset = write("src/tx_offset/tx_offset.c", "")
+                write("src/config_service/config_service.h")
+                for module in ("radio_control", "rx_audio_adapter", "storage_service", "ui_shell", "tx_encoder"):
+                    write(f"src/{module}/{module}.h")
+                    offset.write_text(f'#include "{module}.h"\n')
+                    expect("", f"tx_offset -> {module}")
+                for call in ("rand", "srand", "random", "srandom", "getrandom", "esp_random"):
+                    offset.write_text(f"void f(void) {{ {call}(); }}")
+                    expect("", "application-owned PRNG")
+                offset.write_text('#include "config_service.h"\n#include "auto_seq_tx_intent.h"\n')
+                expect("")
                 write("src/tx_encoder/tx_channel.h")
                 expect('#include "tx_channel.h"\n', "private header")
             expect('#include <app_controller.h>\n')
