@@ -7,10 +7,10 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T020-linux-qmx-cat-tx.md   READY
 ```
 
-T019 is COMPLETE. Linux MiniShell Serial/CDC and MiniFT8-owned QMX CAT are hardware-validated on pc-1: mode/VFO/frequency sync works, live FT8 RX continues, repeated CDC lifecycle passes, and no TX command is emitted.
+T020 extends the validated MiniFT8-owned QMX CAT path with receive-safe/fail-safe TX primitives: `MD6; TX;`, `TAxxxx.xx;`, and `RX;`, plus a bounded diagnostic tone. FT8 encoding/symbol scheduling, AutoSeq physical TX, and Audio TX remain out of scope.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
