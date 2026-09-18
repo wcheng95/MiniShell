@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T014-doc-reconciliation.md   READY
 ```
 
-Accepted cleanup now includes T013/F11 MiniFT8 reference provenance: the workflow, AGENTS, and canonical MiniFT8 docs agree on the V2 reference commit, the unchanged golden-WAV provenance is recorded, and a root CTest guards against future pin drift.
+T014 addresses F10/F13: documentation-only reconciliation of ADV runtime paths, Digital I/O/current service status, MiniFT8 module/logging/live-RX ownership, Keyer sidetone status, and Memory snapshot behavior.
 
-Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> merge/fast-forward to `main` -> delete the temporary branch.
+Workflow: doc/source cross-check + local regression -> pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T014 branch.
 
 ## Rule
 
