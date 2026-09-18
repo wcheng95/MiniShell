@@ -34,15 +34,17 @@ bool storage_service_ensure_directory(StorageService *storage, const char *path)
     return result == MINI_OK || result == MINI_ERR_EXISTS;
 }
 
-bool storage_service_read_text(StorageService *storage, const char *path,
-                               char *out, size_t out_size)
+StorageReadResult storage_service_read_text(StorageService *storage, const char *path,
+                                           char *out, size_t out_size)
 {
     if (!storage_ready(storage) || path == NULL || out == NULL || out_size < 2u) {
-        return false;
+        return STORAGE_READ_ERROR;
     }
 
     mini_file_t file = MINI_FILE_INVALID;
-    if (storage->fs->open(path, MINI_FS_READ, &file) != MINI_OK) return false;
+    mini_result_t opened = storage->fs->open(path, MINI_FS_READ, &file);
+    if (opened == MINI_ERR_NOT_FOUND) return STORAGE_READ_NOT_FOUND;
+    if (opened != MINI_OK) return STORAGE_READ_ERROR;
 
     size_t total = 0u;
     bool ok = true;
@@ -68,10 +70,10 @@ bool storage_service_read_text(StorageService *storage, const char *path,
     }
 
     if (storage->fs->close(file) != MINI_OK) ok = false;
-    if (!ok) return false;
+    if (!ok) return STORAGE_READ_ERROR;
 
     out[total] = '\0';
-    return true;
+    return STORAGE_READ_FOUND;
 }
 
 bool storage_service_write_text_atomic(StorageService *storage, const char *path,

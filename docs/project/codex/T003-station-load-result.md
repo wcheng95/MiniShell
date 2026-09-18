@@ -1,6 +1,6 @@
 # T003 — Preserve station.txt on load failure
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -370,24 +370,24 @@ If a clean implementation appears to require any of these, stop and report the a
 
 ## Acceptance criteria
 
-- [ ] Text load has an application-private typed result distinguishing FOUND / NOT_FOUND / ERROR.
-- [ ] Only an explicit Filesystem `MINI_ERR_NOT_FOUND` maps to NOT_FOUND.
-- [ ] Oversized text maps to ERROR.
-- [ ] Read, non-NOT_FOUND open, and close failures map to ERROR.
-- [ ] Acquired handles are closed on every load path.
-- [ ] `app_controller_init()` creates defaults only for NOT_FOUND.
-- [ ] `app_controller_init()` fails without rewriting on ERROR.
-- [ ] Parse failure preserves the existing station file.
-- [ ] First-run/missing-file default creation still works.
-- [ ] Station file path/format/defaults remain unchanged.
-- [ ] Public MiniShell API is unchanged.
-- [ ] F01 and other T001 findings remain out of scope.
-- [ ] Focused storage fault-injection tests pass.
-- [ ] Separate Linux controller-policy integration passes.
-- [ ] Normal Linux build succeeds.
-- [ ] Existing unrelated baseline failures are not modified.
-- [ ] Architecture checks pass.
-- [ ] No unrelated cleanup is included.
+- [x] Text load has an application-private typed result distinguishing FOUND / NOT_FOUND / ERROR.
+- [x] Only an explicit Filesystem `MINI_ERR_NOT_FOUND` maps to NOT_FOUND.
+- [x] Oversized text maps to ERROR.
+- [x] Read, non-NOT_FOUND open, and close failures map to ERROR.
+- [x] Acquired handles are closed on every load path.
+- [x] `app_controller_init()` creates defaults only for NOT_FOUND.
+- [x] `app_controller_init()` fails without rewriting on ERROR.
+- [x] Parse failure preserves the existing station file.
+- [x] First-run/missing-file default creation still works.
+- [x] Station file path/format/defaults remain unchanged.
+- [x] Public MiniShell API is unchanged.
+- [x] F01 and other T001 findings remain out of scope.
+- [x] Focused storage fault-injection tests pass.
+- [x] Separate Linux controller-policy integration passes.
+- [x] Normal Linux build succeeds.
+- [x] Existing unrelated baseline failures are not modified.
+- [x] Architecture checks pass.
+- [x] No unrelated cleanup is included.
 
 ## Automated tests
 
@@ -446,21 +446,84 @@ Codex fills this section and changes `Status` from `READY` to `REVIEW` before ha
 
 ### Implementation summary
 
+Implemented the private three-state load result and controller policy. Defaults
+are saved only when opening the station file positively reports absence. Load
+and parse errors abort initialization without recovery writes. No task deviations.
+
 ### Typed load-result design
+
+`StorageReadResult` distinguishes `STORAGE_READ_FOUND`,
+`STORAGE_READ_NOT_FOUND`, and `STORAGE_READ_ERROR`. Only an open result of
+`MINI_ERR_NOT_FOUND` maps to NOT_FOUND. FOUND requires successful reads through
+EOF, room for the terminating NUL, and successful close. Every acquired handle
+receives exactly one close attempt, including read/size failures. Output is valid
+only on FOUND. The controller explicitly handles each outcome and fails closed.
 
 ### Files changed
 
+- `apps/ft8/src/storage_service/storage_service.h`: private result type/contract.
+- `apps/ft8/src/storage_service/storage_service.c`: outcome translation.
+- `apps/ft8/src/app_controller/app_controller.c`: missing-only default creation.
+- `tests/ft8_storage_service_test.c`: fake public Filesystem fault injection.
+- `tests/linux_ft8_config_load.py`: isolated real application startup regression.
+- `CMakeLists.txt`: focused host target and two CTest registrations.
+- This task packet: acceptance and handoff evidence.
+
 ### Invariants preserved
+
+Storage owns mechanics, controller owns creation policy, and ConfigService owns
+syntax/defaults/serialization. Public API, station path, file format, keys,
+normalization, default values, serialization order, and atomic-save mechanics
+are unchanged. No heap allocation added. F01, logging, other findings, and the
+unrelated baseline tests remain untouched. Canonical docs remain accurate.
 
 ### Tests added
 
+`ft8_storage_service_unit` covers exact text/NUL output, empty input, partial
+reads, exact fit, explicit absence, access/I/O/type open errors, initial and
+partial-progress read errors, oversize, EOF-probe failure, close failure, and
+combined read/close failure. Counts verify no reads/closes after failed open and
+exactly one close after acquisition. A read-time NOT_FOUND is also an ERROR.
+
+`linux_ft8_config_load` launches the built FT8 module with separate temporary
+roots. It verifies exact first-run defaults, preservation of a 2,202-byte file,
+and preservation of a small overlong-callsign parse failure. All cases check no
+leftover station temporary file, return to shell, a working help command, and
+clean process exit. Error cases require the initialization diagnostic and app
+return code 3.
+
 ### Tests run and results
+
+- Direct focused C compilation with C11 and `-Wall -Wextra -Werror -Wpedantic`,
+  then `/tmp/t003-storage-test`: PASS (14 cases).
+- `cmake -S . -B build-linux`: PASS.
+- `cmake --build build-linux -j"$(nproc)"`: PASS.
+- `ctest --test-dir build-linux -R 'ft8_storage|ft8_config_load' --output-on-failure`:
+  PASS, 2/2. Integration rerun after strengthening the shell-help assertion: PASS.
+- `ctest --test-dir build-linux --output-on-failure`: 20/22 PASS. The only
+  failures remain `linux_audio` (stale expected-output substring) and `linux_ft8`
+  (stale queue-order expectation for `N5CH     RPLY 0/3`). Neither was modified.
+- `python3 tests/app_dependency_boundary.py . ft8`: PASS.
+- `python3 tests/app_dependency_boundary.py . keyer`: PASS.
+- `python3 tests/ft8_platform_boundary.py .`: PASS.
+- `git diff --check`: PASS.
 
 ### Manual/hardware validation still required
 
+None, as specified by this task. Supervisor review and architect acceptance remain.
+
 ### Known limitations / risks
 
+No known new limitations. Injected tests cover backend failures without relying
+on host permissions; real integration covers missing, oversized, and parse-error
+paths. The two unrelated full-suite baseline failures remain open.
+
 ### Commit / PR
+
+Branch: `codex/T003-station-load-result`.
+PR title: `T003: preserve station config on load failure`.
+The PR carries this implementation and its commit reference; merge remains the
+architect/coordinator's decision.
 
 ## Supervisor review
 

@@ -374,14 +374,23 @@ bool app_controller_init(AppController *app, const mini_api_t *api,
     config_service_defaults(&app->config);
 
     char text[2048];
-    bool loaded = storage_service_read_text(&app->storage, app->station_path,
-                                            text, sizeof(text));
-    if (loaded && !config_service_parse(&app->config, text)) return false;
+    StorageReadResult loaded = storage_service_read_text(&app->storage, app->station_path,
+                                                         text, sizeof(text));
+    switch (loaded) {
+    case STORAGE_READ_FOUND:
+        if (!config_service_parse(&app->config, text)) return false;
+        break;
+    case STORAGE_READ_NOT_FOUND:
+        break;
+    case STORAGE_READ_ERROR:
+    default:
+        return false;
+    }
 
     if (!auto_seq_init(&app->auto_seq, NULL) || !app_sync_auto_seq_config(app))
         return false;
 
-    if (!loaded && !app_save_config(app)) return false;
+    if (loaded == STORAGE_READ_NOT_FOUND && !app_save_config(app)) return false;
     return true;
 }
 
