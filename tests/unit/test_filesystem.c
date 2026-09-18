@@ -1,5 +1,172 @@
 #include "test_support.h"
 
+/* Two distinct native directories, each with one entry, for public-API lifetime tests. */
+static minishell_backend_dir_t s_test_dir;
+static bool s_test_dir_read;
+static uint32_t s_test_dir_closes;
+
+static mini_result_t lifetime_dir_open(void *ctx, const char *path,
+                                       minishell_backend_dir_t *out_dir)
+{
+    (void)ctx;
+    if (s_test_dir != MINISHELL_BACKEND_DIR_INVALID) return MINI_ERR_TOO_MANY_OPEN;
+    if (strcmp(path, "/sd/first") == 0) *out_dir = 1u;
+    else if (strcmp(path, "/sd/second") == 0) *out_dir = 2u;
+    else return MINI_ERR_NOT_FOUND;
+    s_test_dir = *out_dir;
+    s_test_dir_read = false;
+    return MINI_OK;
+}
+
+static mini_result_t lifetime_dir_read(void *ctx, minishell_backend_dir_t dir,
+                                       char *name, uint32_t capacity,
+                                       uint32_t *type, uint32_t *has_entry)
+{
+    (void)ctx;
+    if (dir == MINISHELL_BACKEND_DIR_INVALID || dir != s_test_dir)
+        return MINI_ERR_BAD_HANDLE;
+    *has_entry = s_test_dir_read ? 0u : 1u;
+    if (*has_entry != 0u) {
+        const char *entry = dir == 1u ? "first.txt" : "second.txt";
+        if (strlen(entry) + 1u > capacity) return MINI_ERR_NAME_TOO_LONG;
+        strcpy(name, entry);
+        *type = MINI_FS_TYPE_FILE;
+        s_test_dir_read = true;
+    }
+    return MINI_OK;
+}
+
+static mini_result_t lifetime_dir_close(void *ctx, minishell_backend_dir_t dir)
+{
+    (void)ctx;
+    if (dir == MINISHELL_BACKEND_DIR_INVALID || dir != s_test_dir)
+        return MINI_ERR_BAD_HANDLE;
+    s_test_dir = MINISHELL_BACKEND_DIR_INVALID;
+    ++s_test_dir_closes;
+    return MINI_OK;
+}
+
+static bool stale_file_rejected(const mini_fs_api_t *fs, mini_file_t stale)
+{
+    char byte;
+    uint32_t count;
+    uint64_t position;
+    uint32_t closes = g_fake.fs_close_calls;
+    uint32_t syncs = g_fake.fs_sync_calls;
+    TEST_EQ(fs->read(stale, &byte, 1u, &count), MINI_ERR_BAD_HANDLE);
+    TEST_EQ(fs->write(stale, "!", 1u, &count), MINI_ERR_BAD_HANDLE);
+    TEST_EQ(fs->seek(stale, 1, MINI_FS_SEEK_SET, &position), MINI_ERR_BAD_HANDLE);
+    TEST_EQ(fs->sync(stale), MINI_ERR_BAD_HANDLE);
+    TEST_EQ(fs->close(stale), MINI_ERR_BAD_HANDLE);
+    TEST_EQ(g_fake.fs_close_calls, closes);
+    TEST_EQ(g_fake.fs_sync_calls, syncs);
+    return true;
+}
+
+static bool stale_dir_rejected(const mini_fs_api_t *fs, mini_dir_t stale)
+{
+    mini_fs_dir_entry_t entry = {.struct_size = sizeof(entry)};
+    uint32_t has_entry;
+    uint32_t closes = s_test_dir_closes;
+    TEST_EQ(fs->dir_read(stale, &entry, &has_entry), MINI_ERR_BAD_HANDLE);
+    TEST_EQ(fs->dir_close(stale), MINI_ERR_BAD_HANDLE);
+    TEST_EQ(s_test_dir_closes, closes);
+    return true;
+}
+
+static bool test_handle_reuse(void)
+{
+    fake_reset();
+    fake_fs_add_file("/sd/first.txt", "A");
+    fake_fs_add_file("/sd/second.txt", "B");
+    s_test_dir = MINISHELL_BACKEND_DIR_INVALID;
+    s_test_dir_closes = 0u;
+    minishell_services_port_t port = fake_full_port();
+    port.fs_dir_open = lifetime_dir_open;
+    port.fs_dir_read = lifetime_dir_read;
+    port.fs_dir_close = lifetime_dir_close;
+    minishell_services_configure(&port);
+    minishell_services_app_begin();
+    const mini_fs_api_t *fs = mini_api_get()->fs;
+
+    mini_file_t files[64];
+    mini_dir_t dirs[64];
+    for (uint32_t i = 0u; i < 64u; ++i) {
+        const char expected = (i % 2u == 0u) ? 'A' : 'B';
+        const char *path = (i % 2u == 0u) ? "/sd/first.txt" : "/sd/second.txt";
+        TEST_EQ(fs->open(path, MINI_FS_READ | MINI_FS_WRITE, &files[i]), MINI_OK);
+        TEST_CHECK(files[i] != MINI_FILE_INVALID);
+        for (uint32_t j = 0u; j < i; ++j) {
+            TEST_CHECK(files[i] != files[j]);
+            TEST_CHECK(stale_file_rejected(fs, files[j]));
+        }
+        char byte;
+        uint32_t count;
+        uint64_t position;
+        TEST_EQ(fs->read(files[i], &byte, 1u, &count), MINI_OK);
+        TEST_EQ(count, 1u);
+        TEST_EQ(byte, expected);
+        TEST_EQ(fs->seek(files[i], 0, MINI_FS_SEEK_SET, &position), MINI_OK);
+        TEST_EQ(position, 0u);
+        TEST_EQ(fs->write(files[i], &expected, 1u, &count), MINI_OK);
+        TEST_EQ(count, 1u);
+        TEST_EQ(fs->sync(files[i]), MINI_OK);
+        TEST_EQ(fs->close(files[i]), MINI_OK);
+        TEST_CHECK(stale_file_rejected(fs, files[i]));
+
+        path = (i % 2u == 0u) ? "/sd/first" : "/sd/second";
+        TEST_EQ(fs->dir_open(path, &dirs[i]), MINI_OK);
+        TEST_CHECK(dirs[i] != MINI_DIR_INVALID);
+        for (uint32_t j = 0u; j < i; ++j) {
+            TEST_CHECK(dirs[i] != dirs[j]);
+            TEST_CHECK(stale_dir_rejected(fs, dirs[j]));
+        }
+        mini_fs_dir_entry_t entry = {.struct_size = sizeof(entry)};
+        TEST_EQ(fs->dir_read(dirs[i], &entry, &count), MINI_OK);
+        TEST_EQ(count, 1u);
+        TEST_EQ(entry.type, MINI_FS_TYPE_FILE);
+        TEST_CHECK(strcmp(entry.name, (i % 2u == 0u) ? "first.txt" : "second.txt") == 0);
+        TEST_EQ(fs->dir_read(dirs[i], &entry, &count), MINI_OK);
+        TEST_EQ(count, 0u);
+        TEST_EQ(fs->dir_close(dirs[i]), MINI_OK);
+        TEST_CHECK(stale_dir_rejected(fs, dirs[i]));
+    }
+
+    /* Reclaimed lifetimes must stay invalid after both app and port transitions. */
+    for (uint32_t reconfigure = 0u; reconfigure < 2u; ++reconfigure) {
+        mini_file_t old_file, new_file;
+        mini_dir_t old_dir, new_dir;
+        TEST_EQ(fs->open("/sd/first.txt", MINI_FS_READ | MINI_FS_WRITE, &old_file), MINI_OK);
+        TEST_EQ(fs->dir_open("/sd/first", &old_dir), MINI_OK);
+        uint32_t file_closes = g_fake.fs_close_calls;
+        uint32_t dir_closes = s_test_dir_closes;
+        if (reconfigure != 0u) minishell_services_configure(&port);
+        else minishell_services_app_end();
+        TEST_EQ(g_fake.fs_close_calls, file_closes + 1u);
+        TEST_EQ(s_test_dir_closes, dir_closes + 1u);
+        minishell_services_app_begin();
+        TEST_EQ(fs->open("/sd/second.txt", MINI_FS_READ | MINI_FS_WRITE, &new_file), MINI_OK);
+        TEST_EQ(fs->dir_open("/sd/second", &new_dir), MINI_OK);
+        TEST_CHECK(new_file != old_file);
+        TEST_CHECK(new_dir != old_dir);
+        TEST_CHECK(stale_file_rejected(fs, old_file));
+        TEST_CHECK(stale_dir_rejected(fs, old_dir));
+        char byte;
+        uint32_t count;
+        mini_fs_dir_entry_t entry = {.struct_size = sizeof(entry)};
+        TEST_EQ(fs->read(new_file, &byte, 1u, &count), MINI_OK);
+        TEST_EQ(count, 1u);
+        TEST_EQ(byte, 'B');
+        TEST_EQ(fs->dir_read(new_dir, &entry, &count), MINI_OK);
+        TEST_EQ(count, 1u);
+        TEST_CHECK(strcmp(entry.name, "second.txt") == 0);
+        TEST_EQ(fs->close(new_file), MINI_OK);
+        TEST_EQ(fs->dir_close(new_dir), MINI_OK);
+    }
+    minishell_services_app_end();
+    return true;
+}
+
 bool test_filesystem(void)
 {
     fake_reset();
@@ -174,5 +341,6 @@ bool test_filesystem(void)
     TEST_EQ(fs->mkdir("/sd/x"), MINI_ERR_UNSUPPORTED);
     TEST_EQ(fs->rmdir("/sd"), MINI_ERR_UNSUPPORTED);
 
+    TEST_CHECK(test_handle_reuse());
     return true;
 }

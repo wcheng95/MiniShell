@@ -465,7 +465,6 @@ void minishell_filesystem_service_configure(void)
 void minishell_filesystem_service_app_begin(void)
 {
     minishell_filesystem_service_app_end();
-    filesystem_handles_advance_generation();
 }
 
 void minishell_filesystem_service_app_end(void)

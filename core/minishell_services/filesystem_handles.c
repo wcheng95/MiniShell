@@ -4,16 +4,14 @@
 
 static filesystem_file_slot_t s_files[MINI_FS_MAX_OPEN_FILES];
 static filesystem_dir_slot_t s_dirs[MINI_FS_MAX_OPEN_DIRS];
-static uint16_t s_generation = 1u;
+/* Shared acquisition sequence, never reset at app/port boundaries. Zero marks
+ * exhaustion: fail closed instead of granting an old token a new lifetime. */
+static uint32_t s_next_handle = 1u;
 
-static mini_file_t make_file_handle(uint32_t index, uint16_t generation)
+static uint32_t allocate_handle(void)
 {
-    return ((uint32_t)generation << 16) | (index + 1u);
-}
-
-static mini_dir_t make_dir_handle(uint32_t index, uint16_t generation)
-{
-    return ((uint32_t)generation << 16) | (index + 1u);
+    if (s_next_handle == 0u) return 0u;
+    return s_next_handle++;
 }
 
 void filesystem_handles_reset(void)
@@ -22,14 +20,9 @@ void filesystem_handles_reset(void)
     memset(s_dirs, 0, sizeof(s_dirs));
 }
 
-void filesystem_handles_advance_generation(void)
-{
-    ++s_generation;
-    if (s_generation == 0u) s_generation = 1u;
-}
-
 uint32_t filesystem_handles_find_free_file(void)
 {
+    if (s_next_handle == 0u) return MINI_FS_MAX_OPEN_FILES;
     for (uint32_t i = 0u; i < MINI_FS_MAX_OPEN_FILES; ++i) {
         if (s_files[i].backend == MINISHELL_BACKEND_FILE_INVALID) return i;
     }
@@ -38,6 +31,7 @@ uint32_t filesystem_handles_find_free_file(void)
 
 uint32_t filesystem_handles_find_free_dir(void)
 {
+    if (s_next_handle == 0u) return MINI_FS_MAX_OPEN_DIRS;
     for (uint32_t i = 0u; i < MINI_FS_MAX_OPEN_DIRS; ++i) {
         if (s_dirs[i].backend == MINISHELL_BACKEND_DIR_INVALID) return i;
     }
@@ -47,31 +41,25 @@ uint32_t filesystem_handles_find_free_dir(void)
 filesystem_file_slot_t *filesystem_handles_lookup_file(mini_file_t file)
 {
     if (file == MINI_FILE_INVALID) return NULL;
-    uint32_t raw_slot = file & 0xFFFFu;
-    uint16_t generation = (uint16_t)(file >> 16);
-    if (raw_slot == 0u || raw_slot > MINI_FS_MAX_OPEN_FILES) return NULL;
-
-    filesystem_file_slot_t *slot = &s_files[raw_slot - 1u];
-    if (slot->backend == MINISHELL_BACKEND_FILE_INVALID ||
-        slot->generation != generation) {
-        return NULL;
+    for (uint32_t i = 0u; i < MINI_FS_MAX_OPEN_FILES; ++i) {
+        if (s_files[i].backend != MINISHELL_BACKEND_FILE_INVALID &&
+            s_files[i].public_handle == file) {
+            return &s_files[i];
+        }
     }
-    return slot;
+    return NULL;
 }
 
 filesystem_dir_slot_t *filesystem_handles_lookup_dir(mini_dir_t dir)
 {
     if (dir == MINI_DIR_INVALID) return NULL;
-    uint32_t raw_slot = dir & 0xFFFFu;
-    uint16_t generation = (uint16_t)(dir >> 16);
-    if (raw_slot == 0u || raw_slot > MINI_FS_MAX_OPEN_DIRS) return NULL;
-
-    filesystem_dir_slot_t *slot = &s_dirs[raw_slot - 1u];
-    if (slot->backend == MINISHELL_BACKEND_DIR_INVALID ||
-        slot->generation != generation) {
-        return NULL;
+    for (uint32_t i = 0u; i < MINI_FS_MAX_OPEN_DIRS; ++i) {
+        if (s_dirs[i].backend != MINISHELL_BACKEND_DIR_INVALID &&
+            s_dirs[i].public_handle == dir) {
+            return &s_dirs[i];
+        }
     }
-    return slot;
+    return NULL;
 }
 
 bool filesystem_handles_writable_hash_in_use(uint64_t path_hash)
@@ -98,13 +86,16 @@ mini_file_t filesystem_handles_activate_file(uint32_t index,
     }
 
     filesystem_file_slot_t *slot = &s_files[index];
+    if (slot->backend != MINISHELL_BACKEND_FILE_INVALID) return MINI_FILE_INVALID;
+    mini_file_t handle = allocate_handle();
+    if (handle == MINI_FILE_INVALID) return MINI_FILE_INVALID;
     slot->backend = backend;
-    slot->generation = s_generation;
+    slot->public_handle = handle;
     slot->flags = flags;
     slot->logical_size = logical_size;
     slot->position = position;
     slot->path_hash = path_hash;
-    return make_file_handle(index, s_generation);
+    return handle;
 }
 
 mini_dir_t filesystem_handles_activate_dir(uint32_t index,
@@ -115,9 +106,12 @@ mini_dir_t filesystem_handles_activate_dir(uint32_t index,
     }
 
     filesystem_dir_slot_t *slot = &s_dirs[index];
+    if (slot->backend != MINISHELL_BACKEND_DIR_INVALID) return MINI_DIR_INVALID;
+    mini_dir_t handle = allocate_handle();
+    if (handle == MINI_DIR_INVALID) return MINI_DIR_INVALID;
     slot->backend = backend;
-    slot->generation = s_generation;
-    return make_dir_handle(index, s_generation);
+    slot->public_handle = handle;
+    return handle;
 }
 
 minishell_backend_file_t filesystem_handles_release_file(filesystem_file_slot_t *slot)

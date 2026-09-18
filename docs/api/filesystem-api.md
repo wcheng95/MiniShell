@@ -47,7 +47,7 @@ typedef uint32_t mini_file_t;
 #define MINI_FILE_INVALID ((mini_file_t)0u)
 ```
 
-Handles are opaque and owned by the current foreground app. The portable service uses generation-aware slots so stale handles are rejected. Remaining open handles are reclaimed at app teardown.
+Handles are opaque and owned by the current foreground app. The portable service assigns a fresh identity to each acquisition so closed or reclaimed handles remain invalid when internal slots are reused. Remaining open handles are reclaimed at app teardown.
 
 ## Directory handles
 
