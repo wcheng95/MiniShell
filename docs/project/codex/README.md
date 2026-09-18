@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T009-audio-tx-latency.md   READY
 ```
 
-Accepted cleanup now on `main` includes T008/F05 Audio discontinuity propagation and FT8 stream re-anchor.
+T009 addresses F12: define the generic Audio TX timeout contract and measure the current ADV speaker write latency before any scheduling/provider redesign.
 
-Workflow remains: one temporary task branch -> local build/tests -> pushed commit -> supervisor diff review -> merge/fast-forward to `main` -> delete the temporary branch.
+Workflow: local build/test -> one pushed commit -> supervisor diff review -> ADV hardware probe -> acceptance/merge -> delete T009 branch.
 
 ## Rule
 
