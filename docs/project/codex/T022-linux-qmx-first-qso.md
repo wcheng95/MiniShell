@@ -1,6 +1,6 @@
 # T022 — Linux QMX integrated FT8 TX and first QSO
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -1183,6 +1183,44 @@ real QSO and confirmation of the complete RX -> TX -> RX -> AutoSeq progression
 through contact completion. Do not downgrade the proven TX/RxTxLog evidence if a
 later QSO attempt fails for propagation, operator timing, or remote-station
 reasons.
+
+## Consolidation decision
+
+The architect chose to consolidate the validated T022->T024 stack onto `main`
+before continuing WinBook/TW700 portability work.
+
+T022 is therefore COMPLETE as the accepted physical-QMX FT8 TX baseline.
+
+Accepted real-hardware evidence accumulated across T022/T023/T024:
+
+```text
+live QMX RX decode before TX       PASS
+QMX physical FT8 keying            PASS
+on-air FT8 decodability/spots      PASS
+slot-anchored 79-tone CAT TX       PASS
+QMX return to RX                   PASS
+post-TX receive recovery           PASS
+RxTxLog RX/TX trace                PASS
+CQ / CQ POTA beacon path           PASS
+Random-offset physical TX          PASS
+```
+
+A full completed two-way QSO has **not** yet been observed. That is retained as an
+operational follow-up, not misreported as hardware evidence and no longer blocks
+repository consolidation.
+
+WinBook/TW700 portability status at consolidation:
+
+```text
+pc-1-built minishell binary        PASS
+pc-1-built ft8.so                  PASS
+QMX USB enumeration                PASS
+QMX ALSA capture / live decode     PASS
+QMX CAT/TX on WinBook              NOT YET WORKING
+```
+
+The WinBook TX issue is a new host-portability/debug item; it does not invalidate
+the already accepted pc-1/QMX physical TX baseline.
 
 ## Architect test result
 
