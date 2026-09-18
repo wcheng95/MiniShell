@@ -12,7 +12,7 @@ T017-adv-usb-uac-rx.md   READY
 
 T017 brings the pinned MiniFT8-V2 QMX USB-host UAC mechanics into the ADV backend while preserving MiniShell ownership: native 48k/S24 stereo becomes canonical 12k/S16 stereo below the Audio API, continuous capture survives synchronous decode, bare ADV ft8 defaults to uac:qmx, and the hardware gate is live decoded RX messages across consecutive slots. CDC-ACM is included as a companion if current IDF/component APIs remain compatible, but no CAT policy commands are sent in this task.
 
-Workflow: no-QMX hardware freeze after UAC install -> add platform-only GPIO4 breadcrumbs -> re-run gates -> hardware locate exact stop point -> then decide scheduling/topology fix -> resume QMX validation -> acceptance/merge -> delete T017 branch.
+Workflow: QMX enumeration exposed undersized USB Host control-transfer buffer -> set CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048 + guard -> re-run gates -> resume QMX enumeration/live RX validation -> acceptance/merge -> delete T017 branch.
 
 ## Rule
 
