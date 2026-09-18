@@ -12,7 +12,7 @@ T017-adv-usb-uac-rx.md   READY
 
 T017 brings the pinned MiniFT8-V2 QMX USB-host UAC mechanics into the ADV backend while preserving MiniShell ownership: native 48k/S24 stereo becomes canonical 12k/S16 stereo below the Audio API, continuous capture survives synchronous decode, bare ADV ft8 defaults to uac:qmx, and the hardware gate is live decoded RX messages across consecutive slots. CDC-ACM is included as a companion if current IDF/component APIs remain compatible, but no CAT policy commands are sent in this task.
 
-Workflow: lazy ring reached Audio.open but 64 KiB allocation exceeded 39,936-byte largest block -> reduce ADV ring to 2048 frames (~8 KiB) -> re-run gates -> supervisor re-review -> resume QMX hardware validation -> measure high-water -> acceptance/merge -> delete T017 branch.
+Workflow: 2048-frame lazy ring reviewed PASS -> resume QMX hardware validation -> measure high-water -> acceptance/merge -> delete T017 branch.
 
 ## Rule
 
