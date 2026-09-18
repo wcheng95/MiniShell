@@ -255,8 +255,45 @@ static void test_adv_no_utc(void)
     assert(strcmp(frame.rows[0], "RX 20 --:--:-- 1/1 E") == 0);
 }
 
+static void test_cq_beacon_controls(void)
+{
+    UiShell ui; UiModel model; UiFrame frame; AppAction action;
+    set_default_model(&model);
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    assert(!ui_shell_handle_input(&ui,&model,key('O'),&action));
+    assert(!ui_shell_handle_input(&ui,&model,key('4'),&action));
+    assert(ui.submenu==UI_SUBMENU_O_CQ && ui.selected_line==0);
+    const char *cq_names[]={"CQ Type: CQ", "CQ Type: CQ POTA"};
+    const char *beacon_names[]={"Beacon: OFF", "Beacon: EVEN", "Beacon: ODD"};
+    for (int cq=0;cq<2;++cq) for (int beacon=0;beacon<3;++beacon) {
+        model.cq_type=(UiCqType)cq; model.beacon_mode=(UiBeaconMode)beacon;
+        ui_shell_render(&ui,&model,&frame);
+        assert(strstr(frame.rows[1],cq_names[cq]) && strstr(frame.rows[2],beacon_names[beacon]));
+        assert(frame.column_count==20 && frame.row_count==7);
+        for (unsigned row=0;row<frame.row_count;++row) assert(strlen(frame.rows[row])<=20);
+    }
+    for (int line=0;line<2;++line) {
+        const UiInput inputs[]={key((char)('1'+line)),special(UI_INPUT_ENTER),
+                                special(UI_INPUT_RIGHT),special(UI_INPUT_LEFT)};
+        for (unsigned k=0;k<4;++k) for (int value=0;value<(line ? 3 : 2);++value) {
+            model.cq_type=(UiCqType)value; model.beacon_mode=(UiBeaconMode)value;
+            ui.selected_line=line;
+            assert(ui_shell_handle_input(&ui,&model,inputs[k],&action));
+            assert(action.type==(line ? APP_ACTION_SET_BEACON_MODE : APP_ACTION_SET_CQ_TYPE));
+            assert(action.value.int_value==(line ? (value+(k==3 ? 2 : 1))%3 : 1-value));
+            assert((int)model.cq_type==value && (int)model.beacon_mode==value);
+        }
+    }
+    assert(!ui_shell_handle_input(&ui,&model,key('3'),&action) && action.type==APP_ACTION_NONE);
+    assert(!ui_shell_handle_input(&ui,&model,special(UI_INPUT_BACK),&action));
+    assert(ui.screen==SCREEN_O && ui.submenu==UI_SUBMENU_NONE);
+    assert(!ui_shell_handle_input(&ui,&model,special(UI_INPUT_BACK),&action));
+    assert(ui.screen==SCREEN_RX && ui.submenu==UI_SUBMENU_NONE);
+}
+
 int main(void)
 {
+    test_cq_beacon_controls();
     test_profile_contract();
     test_desktop_existing_navigation();
     test_adv_locked_top_and_rx_paging();

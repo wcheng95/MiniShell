@@ -1,6 +1,6 @@
 # T023 — O -> 4 CQ / Beacon controls
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -433,25 +433,25 @@ Do not add:
 
 ## Acceptance criteria
 
-- [ ] O->4 line 1 shows CQ or CQ POTA;
-- [ ] O->4 line 2 shows OFF/EVEN/ODD;
-- [ ] number keys 1/2 cycle corresponding value forward;
-- [ ] Enter cycles selected line forward;
-- [ ] Left/Right cycle selected value backward/forward;
-- [ ] CQ type changes via explicit AppAction;
-- [ ] CQ type is persisted in station.txt;
-- [ ] AutoSeq sees CQ/POTA change immediately;
-- [ ] beacon changes via explicit AppAction/controller;
-- [ ] beacon starts OFF and remains runtime-only;
-- [ ] beacon parity behavior uses existing TxLifecycle;
-- [ ] active QSO priority remains unchanged;
-- [ ] T021 plan produces correct AG6AQ/CM97 CQ text from station.txt;
-- [ ] T022 physical TX regression remains green;
-- [ ] Linux CTest passes;
-- [ ] units pass;
-- [ ] architecture checks pass;
-- [ ] real ADV build passes;
-- [ ] no unrelated changes.
+- [x] O->4 line 1 shows CQ or CQ POTA;
+- [x] O->4 line 2 shows OFF/EVEN/ODD;
+- [x] number keys 1/2 cycle corresponding value forward;
+- [x] Enter cycles selected line forward;
+- [x] Left/Right cycle selected value backward/forward;
+- [x] CQ type changes via explicit AppAction;
+- [x] CQ type is persisted in station.txt;
+- [x] AutoSeq sees CQ/POTA change immediately;
+- [x] beacon changes via explicit AppAction/controller;
+- [x] beacon starts OFF and remains runtime-only;
+- [x] beacon parity behavior uses existing TxLifecycle;
+- [x] active QSO priority remains unchanged;
+- [x] T021 plan produces correct AG6AQ/CM97 CQ text from station.txt;
+- [x] T022 physical TX regression remains green;
+- [x] Linux CTest passes;
+- [x] units pass;
+- [x] architecture checks pass;
+- [x] real ADV build passes;
+- [x] no unrelated changes.
 
 ## Hardware/operator acceptance
 
@@ -527,19 +527,108 @@ Codex:
 
 ### Implementation summary
 
+Wired only O -> 4 CQ / Beacon through UI-owned model values and explicit semantic
+AppActions. The controller maps these to the existing configuration and beacon
+helpers. This branch remains stacked on T022's hardware-tested base
+`bb0de152681a85ee4684dcbde5349fdb1146212b`; no rebase onto main.
+
 ### Files changed
+
+- `apps/ft8/include/ft8/app_types.h`: CQ/beacon presentation values, model facts,
+  and explicit set actions; no configuration/domain headers added to UI.
+- `apps/ft8/src/ui_shell/ui_shell.c`: real two-line rendering and directional
+  input action generation.
+- `apps/ft8/src/app_controller/app_controller.c`: factual model projection,
+  CQ validation/synchronization/persistence and runtime beacon action dispatch.
+- `tests/ft8_ui_smoke.c`: compact rendering, keyboard cycles, action separation,
+  model immutability and unchanged Back navigation.
+- `tests/ft8_physical_tx_test.c`: controller persistence/failure cases, beacon
+  lifecycle/parity/priority, physical POTA plan and active-TX action freeze.
+- This task packet: implementation evidence and REVIEW status.
 
 ### UI behavior
 
+O then 4 enters the existing CQ submenu. Number 1 toggles CQ/CQ POTA; number 2
+cycles OFF/EVEN/ODD. Enter and Right cycle the selected control forward, Left
+cycles backward. All content fits the ADV 20-column layout. Input emits actions
+without modifying the supplied model. Back and other navigation remain unchanged.
+
+The existing parser still accepts other historical CQ types. These are not added
+to the UI cycle: an out-of-scope loaded type is represented as unavailable (`--`),
+without changing the configuration; operating line 1 selects ordinary CQ. This
+avoids falsely displaying CQ while a different persisted type remains active.
+
 ### Controller/config behavior
+
+CQ actions accept only the two UI values, map explicitly to FT8_CONFIG_CQ/POTA,
+call the existing setter, synchronize AutoSeq, and use the existing atomic save.
+The resulting station values are `cq_type=0` and `cq_type=2`. A failed save returns
+false and restores the prior runtime CQ type/AutoSeq configuration. No new
+configuration format/key is introduced.
+
+Beacon actions validate OFF/EVEN/ODD before calling the existing setter. No
+beacon value is serialized, initialization remains OFF, and mode changes retain
+the existing stale one-shot CQ removal. Existing QSO/free-text priority, parity,
+T022 active-TX action freeze, plan immutability, RX lifecycle, CAT behavior and
+physical timing are unchanged. No edits to T022 executor, scheduler, radio,
+RX implementation, AutoSeq state machine or configuration parser.
 
 ### Tests run
 
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure -R 'ft8_ui|ft8_physical_tx'
+# Focused UI/physical integration: 2/2 PASS
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Full Linux suite: 54/54 PASS, including T022 physical TX and architecture self-tests
+
+cmake -S tests/unit -B /tmp/T023-build-unit
+cmake --build /tmp/T023-build-unit -j8
+ctest --test-dir /tmp/T023-build-unit --output-on-failure
+# Portable units: 15/15 PASS
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/serial_protocol_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All exit 0
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# Real ESP32-S3 build PASS; minishell_adv.bin 0xbbcd0 bytes, 88% app partition free
+
+git diff --check
+# PASS
+```
+
+Controller tests load AG6AQ/CM97/cq_type=0 through the normal fixture path, verify
+both encoded CQ texts and exact persisted values, inject atomic rename failure,
+reject invalid actions, and exercise forward/reverse beacon sequences without FS
+writes. Physical integration verifies POTA text before mocked CAT keying on both
+parities, skips wrong-parity opportunities, and ignores settings while the plan is
+active. Separate reply/free-text cases retain their assigned parity and prevent
+beacon CQ from taking their place. All earlier T022 assertions remain enabled.
+
 ### Hardware validation still required
+
+After supervisor review, perform the short O -> 4 operator acceptance above with
+QMX, verify selected parity and `CQ POTA AG6AQ CM97` in the RT trace, and continue
+a QSO if a station replies. No RF or hardware testing was performed by Codex.
 
 ### Known limitations / risks
 
+The controls inherit T022's physical-TX and first-QSO hardware acceptance status.
+Actions during active TX are ignored rather than queued, as authorized. Historical
+CQ types remain file-configurable but are unavailable in this two-choice UI.
+No task deviations or unrelated cleanup.
+
 ### Commit
+
+One implementation commit on `codex/T023-cq-beacon-ui`, titled
+`T023: wire CQ type and beacon UI controls`. Full pushed SHA is returned in the
+handoff; this packet is included in that commit. No PR or Actions wait.
 
 ## Supervisor review
 

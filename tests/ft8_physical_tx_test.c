@@ -16,7 +16,9 @@ static unsigned fail_command, serial_writes, fail_rt; /* RT: open/write/sync/clo
 static unsigned stop_delay_ms, write_delay_us;
 static bool stop_fail, restart_fail, rt_short, rt_zero, record_expected, short_cat;
 static unsigned audio_started;
-static const char *station_text = "callsign=AG6AQ\ngrid=CM97\nband=3\nfd_exchange=1B SCV\n";
+static bool fail_station_save;
+static const AppController *keying_app;
+static const char *station_text = "callsign=AG6AQ\ngrid=CM97\ncq_type=0\nband=3\nfd_exchange=1B SCV\n";
 static void event(char c) { size_t n = strlen(events); assert(n + 1 < sizeof(events)); events[n] = c; events[n+1] = 0; }
 static uint64_t mono(void) { return now_us; }
 static mini_result_t utc(mini_utc_time_t *time)
@@ -84,6 +86,7 @@ static mini_result_t fs_stat(const char *path, mini_fs_stat_t *out)
 static mini_result_t fs_rename(const char *from, const char *to)
 {
     unsigned a = path_id(from), b = path_id(to); assert(!files[a].open && !files[b].open);
+    if (fail_station_save) return MINI_ERR_IO;
     memcpy(files[b].text, files[a].text, files[a].size + 1); files[b].size = files[a].size;
     files[b].exists = true; files[a].exists = false; return MINI_OK;
 }
@@ -116,7 +119,11 @@ static mini_result_t serial_write(mini_serial_t stream, const void *buf, uint32_
     bool ta = memcmp(buf,"TA",2) == 0;
     assert(timeout == (ta ? 10u : 200u));
     if (ta) { assert(tone_count < 100); tone_times[tone_count++] = now_us; event('t'); }
-    if (count == 3 && memcmp(buf,"TX;",3) == 0) event('B');
+    if (count == 3 && memcmp(buf,"TX;",3) == 0) {
+        if (keying_app) assert(keying_app->tx.plan.valid &&
+            strcmp(keying_app->tx.plan.canonical_text,"CQ POTA AG6AQ CM97")==0);
+        event('B');
+    }
     if (count == 3 && memcmp(buf,"RX;",3) == 0) event('E');
     now_us += write_delay_us;
     bool fail = ++serial_writes == fail_command;
@@ -139,6 +146,7 @@ static const mini_api_t api = {.struct_size=sizeof(api), .fs=&fs, .memory=&memor
 
 static void reset(void)
 {
+    fail_station_save=false; keying_app=NULL;
     memset(files, 0, sizeof(files)); cat[0]=events[0]=expected[0]=0;
     tone_count=starts=stops=reads=audio_closes=serial_closes=syncs=file_closes=0;
     fail_command=serial_writes=fail_rt=stop_delay_ms=write_delay_us=0;
@@ -355,10 +363,108 @@ static void rt_logging(void)
     assert(!config_service_parse(&config,"rxtx_log=2\n") && config.rxtx_log);
 }
 
+static void apply_setting(AppController *app, AppActionType type, int value)
+{
+    AppAction action={.type=type,.value.int_value=value};
+    assert(app_controller_apply_action(app,&action));
+}
+
+static void cq_beacon_settings(void)
+{
+    AppController app; setup(&app,false);
+    UiModel model; app_controller_build_model(&app,&model);
+    assert(model.cq_type==UI_CQ && model.beacon_mode==UI_BEACON_OFF);
+    unsigned station=path_id("/flash/ft8/station.txt");
+    for (unsigned i=0;i<2;++i) {
+        apply_setting(&app,APP_ACTION_SET_CQ_TYPE,i==0 ? UI_CQ_POTA : UI_CQ);
+        assert(app.config.cq_type==(i==0 ? FT8_CONFIG_CQ_POTA : FT8_CONFIG_CQ));
+        assert(app.auto_seq.config.cq_type==(i==0 ? AUTO_SEQ_CQ_POTA : AUTO_SEQ_CQ));
+        assert(strstr(files[station].text,i==0 ? "cq_type=2\n" : "cq_type=0\n"));
+        AutoSeqTxIntent intent; Ft8TxPlan plan;
+        assert(auto_seq_prepare_tx_intent(&app.auto_seq,&intent));
+        assert(ft8_tx_encode(&intent,&plan)==FT8_TX_ENCODE_OK);
+        assert(strcmp(plan.canonical_text,i==0 ? "CQ POTA AG6AQ CM97" : "CQ AG6AQ CM97")==0);
+        app_controller_build_model(&app,&model);
+        assert(model.cq_type==(i==0 ? UI_CQ_POTA : UI_CQ));
+    }
+    char saved[2048]; strcpy(saved,files[station].text);
+    fail_station_save=true;
+    AppAction action={.type=APP_ACTION_SET_CQ_TYPE,.value.int_value=UI_CQ_POTA};
+    assert(!app_controller_apply_action(&app,&action));
+    assert(app.config.cq_type==FT8_CONFIG_CQ && app.auto_seq.config.cq_type==AUTO_SEQ_CQ);
+    assert(strcmp(saved,files[station].text)==0);
+    fail_station_save=false;
+    action.value.int_value=UI_CQ_UNAVAILABLE; assert(!app_controller_apply_action(&app,&action));
+    action.value.int_value=-1; assert(!app_controller_apply_action(&app,&action));
+    unsigned closes=file_closes;
+    const UiBeaconMode modes[]={UI_BEACON_EVEN,UI_BEACON_ODD,UI_BEACON_OFF,
+                                UI_BEACON_ODD,UI_BEACON_EVEN,UI_BEACON_OFF};
+    for (unsigned i=0;i<sizeof(modes)/sizeof(modes[0]);++i) {
+        apply_setting(&app,APP_ACTION_SET_BEACON_MODE,modes[i]);
+        app_controller_build_model(&app,&model); assert(model.beacon_mode==modes[i]);
+        assert(file_closes==closes && strcmp(saved,files[station].text)==0);
+        assert(!strstr(files[station].text,"beacon"));
+    }
+    assert(auto_seq_active_count(&app.auto_seq)==0); /* mode change removed stale CQ */
+    action.type=APP_ACTION_SET_BEACON_MODE; action.value.int_value=3;
+    assert(!app_controller_apply_action(&app,&action));
+    action.value.int_value=256; assert(!app_controller_apply_action(&app,&action));
+    /* OFF specifically removes a newly queued one-shot; it never parks a beacon queue. */
+    apply_setting(&app,APP_ACTION_SET_BEACON_MODE,UI_BEACON_EVEN);
+    assert(auto_seq_start_cq(&app.auto_seq,0)==AUTO_SEQ_OK);
+    apply_setting(&app,APP_ACTION_SET_BEACON_MODE,UI_BEACON_OFF);
+    assert(auto_seq_active_count(&app.auto_seq)==0);
+    cleanup(&app);
+    assert(app_controller_init(&app,&api,"/flash/ft8","/flash/ft8/station.txt"));
+    assert(app_controller_get_beacon_mode(&app)==TX_BEACON_OFF); cleanup(&app);
+
+    for (unsigned parity=0;parity<2;++parity) {
+        setup(&app,false); apply_setting(&app,APP_ACTION_SET_CQ_TYPE,UI_CQ_POTA);
+        apply_setting(&app,APP_ACTION_SET_BEACON_MODE,parity ? UI_BEACON_ODD : UI_BEACON_EVEN);
+        assert(!auto_seq_active_count(&app.auto_seq));
+        bool changed;
+        if (!parity) { /* first observed boundary is odd */
+            assert(app_controller_step_tx(&app,&changed) && !app.tx.active && !cat[0]);
+            now_us+=15000000;
+        }
+        keying_app=&app;
+        assert(app_controller_step_tx(&app,&changed) && app.tx.active);
+        assert(app.tx.plan.tx_parity==parity && strstr(rt_contents(),"CQ POTA AG6AQ CM97"));
+        Ft8TxPlan plan=app.tx.plan; closes=file_closes;
+        apply_setting(&app,APP_ACTION_SET_CQ_TYPE,UI_CQ);
+        apply_setting(&app,APP_ACTION_SET_BEACON_MODE,UI_BEACON_OFF);
+        app_controller_build_model(&app,&model);
+        assert(model.cq_type==UI_CQ_POTA && model.beacon_mode==(parity ? UI_BEACON_ODD : UI_BEACON_EVEN));
+        assert(memcmp(&plan,&app.tx.plan,sizeof(plan))==0 && file_closes==closes);
+        cleanup(&app);
+    }
+    /* A higher-priority reply or free text keeps its own parity despite beacon EVEN. */
+    for (unsigned free_text=0;free_text<2;++free_text) {
+        setup(&app,false); apply_setting(&app,APP_ACTION_SET_BEACON_MODE,UI_BEACON_EVEN);
+        if (free_text) assert(auto_seq_schedule_freetext(&app.auto_seq,"HELLO",1)==AUTO_SEQ_OK);
+        else {
+            AutoSeqRxEvent rx={.kind=AUTO_SEQ_MSG_TX1,.flags=AUTO_SEQ_RX_FLAG_CQ,
+                .rx_slot_id=(1789776000+1005)/15-1,.offset_hz=1500,.snr_db=-12};
+            strcpy(rx.dxcall,"W6ABC"); strcpy(rx.dxgrid,"CM87");
+            assert(auto_seq_on_manual_rx(&app.auto_seq,&rx)==AUTO_SEQ_OK);
+        }
+        assert(radio_control_close(&app.radio)==MINI_OK);
+        bool changed; int64_t even=(1789776000+1005)/15+1;
+        tx_lifecycle_init(&app.tx.lifecycle);
+        apply_setting(&app,APP_ACTION_SET_BEACON_MODE,UI_BEACON_EVEN);
+        assert(app_controller_observe_tx_slot(&app,even-1,0,0,&changed));
+        assert(app_controller_observe_tx_slot(&app,even,0,1000,&changed) && !changed);
+        assert(auto_seq_active_count(&app.auto_seq)==1 && !app.tx.simulated_tx_count);
+        assert(app_controller_observe_tx_slot(&app,even+1,0,16000,&changed) && changed);
+        assert(app.tx.last_intent.type==(free_text ? AUTO_SEQ_TX_INTENT_FREETEXT : AUTO_SEQ_TX_INTENT_QSO));
+        assert(app.tx.last_intent.tx_parity==1); cleanup(&app);
+    }
+}
+
 int main(void)
 {
     success(1,0,0); success(5,20,3000); success(10,499,0); success(20,33,0);
-    failures(); freshness_and_stalls(); qso_completion(); rt_logging();
+    failures(); freshness_and_stalls(); qso_completion(); rt_logging(); cq_beacon_settings();
     puts("physical FT8: absolute timing, exact CAT, station identity, completion, failure cleanup, RX recovery and RT logging PASS");
     return 0;
 }

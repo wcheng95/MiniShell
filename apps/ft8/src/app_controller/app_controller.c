@@ -1,4 +1,5 @@
 #include "app_controller.h"
+#include "app_controller_tx.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -629,6 +630,13 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
     snprintf(model->band_name, sizeof(model->band_name), "%s",
              config_service_band_name(model->profile_index, model->band_index));
 
+    model->cq_type = app->config.cq_type == FT8_CONFIG_CQ ? UI_CQ :
+                     app->config.cq_type == FT8_CONFIG_CQ_POTA ? UI_CQ_POTA : UI_CQ_UNAVAILABLE;
+    switch (app_controller_get_beacon_mode(app)) {
+        case TX_BEACON_EVEN: model->beacon_mode = UI_BEACON_EVEN; break;
+        case TX_BEACON_ODD: model->beacon_mode = UI_BEACON_ODD; break;
+        default: model->beacon_mode = UI_BEACON_OFF; break;
+    }
     model->skip_tx1 = auto_seq_get_skip_tx1(&app->auto_seq);
     model->max_retry = auto_seq_get_max_retry(&app->auto_seq);
     model->rx_active = app_controller_rx_active(app);
@@ -733,6 +741,27 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
         case APP_ACTION_ROTATE_TX_QUEUE:
             (void)auto_seq_rotate_same_parity(&app->auto_seq);
             return true;
+
+        case APP_ACTION_SET_CQ_TYPE: {
+            int value = action->value.int_value;
+            if (value != UI_CQ && value != UI_CQ_POTA) return false;
+            Ft8ConfigCqType previous = app->config.cq_type;
+            if (!config_service_set_cq_type(&app->config,
+                    value == UI_CQ ? FT8_CONFIG_CQ : FT8_CONFIG_CQ_POTA)) return false;
+            if (app_sync_auto_seq_config(app) && app_save_config(app)) return true;
+            /* A failed atomic save must not leave the model advertising a commit. */
+            app->config.cq_type = previous;
+            (void)app_sync_auto_seq_config(app);
+            return false;
+        }
+
+        case APP_ACTION_SET_BEACON_MODE:
+            switch (action->value.int_value) {
+                case UI_BEACON_OFF: return app_controller_set_beacon_mode(app, TX_BEACON_OFF);
+                case UI_BEACON_EVEN: return app_controller_set_beacon_mode(app, TX_BEACON_EVEN);
+                case UI_BEACON_ODD: return app_controller_set_beacon_mode(app, TX_BEACON_ODD);
+                default: return false;
+            }
 
         case APP_ACTION_SET_PROFILE:
             config_service_set_profile(&app->config, action->value.index);

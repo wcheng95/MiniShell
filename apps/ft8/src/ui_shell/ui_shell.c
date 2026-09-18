@@ -206,11 +206,14 @@ static void render_o_root(const UiShell *ui, const UiModel *model, UiFrame *fram
     frame_footer(frame, "2-6 Enter <>chg `back q quit");
 }
 
-static void render_o_cq(const UiShell *ui, UiFrame *frame)
+static void render_o_cq(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
-    row_item(ui, frame, 0, "CQ Type: --");
-    row_item(ui, frame, 1, "Beacon: --");
-    frame_footer(frame, "CQ controls later  `back q quit");
+    const char *cq = model->cq_type == UI_CQ ? "CQ" : model->cq_type == UI_CQ_POTA ? "CQ POTA" : "--";
+    const char *beacon = model->beacon_mode == UI_BEACON_EVEN ? "EVEN" :
+                         model->beacon_mode == UI_BEACON_ODD ? "ODD" : "OFF";
+    row_item(ui, frame, 0, "CQ Type: %s", cq);
+    row_item(ui, frame, 1, "Beacon: %s", beacon);
+    frame_footer(frame, "1/2 Enter <>chg `back q quit");
 }
 
 static void render_o_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -234,7 +237,7 @@ static void render_o_message(const UiShell *ui, UiFrame *frame)
 static void render_o(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
     switch (ui->submenu) {
-        case UI_SUBMENU_O_CQ: render_o_cq(ui, frame); break;
+        case UI_SUBMENU_O_CQ: render_o_cq(ui, model, frame); break;
         case UI_SUBMENU_O_TX: render_o_tx(ui, model, frame); break;
         case UI_SUBMENU_O_MESSAGE: render_o_message(ui, frame); break;
         default: render_o_root(ui, model, frame); break;
@@ -503,6 +506,21 @@ static bool emit_set_band(const UiModel *model, int delta, AppAction *action)
     return true;
 }
 
+static bool emit_cq_control(const UiModel *model, int line, int delta, AppAction *action)
+{
+    if (line == 0) {
+        action->type = APP_ACTION_SET_CQ_TYPE;
+        action->value.int_value = model->cq_type == UI_CQ ? UI_CQ_POTA : UI_CQ;
+        return true;
+    }
+    if (line == 1) {
+        action->type = APP_ACTION_SET_BEACON_MODE;
+        action->value.int_value = ((int)model->beacon_mode + (delta < 0 ? 2 : 1)) % 3;
+        return true;
+    }
+    return false;
+}
+
 static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction *action)
 {
     size_t item_index;
@@ -534,6 +552,9 @@ static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction
         if (line == 4) { ui->submenu = UI_SUBMENU_O_TX; ui->selected_line = 0; return false; }
         if (line == 5) { ui->submenu = UI_SUBMENU_O_MESSAGE; ui->selected_line = 0; return false; }
     }
+
+    if (ui->screen == SCREEN_O && ui->submenu == UI_SUBMENU_O_CQ)
+        return emit_cq_control(model, line, +1, action);
 
     if (ui->screen == SCREEN_O && ui->submenu == UI_SUBMENU_O_TX) {
         if (line == 2) {
@@ -580,6 +601,8 @@ static bool adjust_selected(UiShell *ui, const UiModel *model, int delta, AppAct
     if (ui->submenu == UI_SUBMENU_NONE) {
         if (ui->selected_line == 1) return emit_set_profile(model, delta, action);
         if (ui->selected_line == 2) return emit_set_band(model, delta, action);
+    } else if (ui->submenu == UI_SUBMENU_O_CQ) {
+        return emit_cq_control(model, ui->selected_line, delta, action);
     } else if (ui->submenu == UI_SUBMENU_O_TX) {
         if (ui->selected_line == 2) {
             action->type = APP_ACTION_SET_SKIP_TX1;

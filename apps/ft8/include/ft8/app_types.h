@@ -31,7 +31,9 @@ typedef enum {
     APP_ACTION_SET_PROFILE,
     APP_ACTION_SET_BAND,
     APP_ACTION_SET_SKIP_TX1,
-    APP_ACTION_SET_MAX_RETRY
+    APP_ACTION_SET_MAX_RETRY,
+    APP_ACTION_SET_CQ_TYPE,
+    APP_ACTION_SET_BEACON_MODE
 } AppActionType;
 
 typedef struct {
@@ -43,6 +45,10 @@ typedef struct {
     } value;
 } AppAction;
 
+/* Presentation values keep policy/configuration headers out of ui_shell. */
+typedef enum { UI_CQ, UI_CQ_POTA, UI_CQ_UNAVAILABLE } UiCqType;
+typedef enum { UI_BEACON_OFF, UI_BEACON_EVEN, UI_BEACON_ODD } UiBeaconMode;
+
 typedef struct {
     int profile_index;
     int profile_count;
@@ -50,6 +56,8 @@ typedef struct {
     int band_index;
     int band_count;
     char band_name[8];
+    UiCqType cq_type;
+    UiBeaconMode beacon_mode;
     bool skip_tx1;
     int max_retry;
 
