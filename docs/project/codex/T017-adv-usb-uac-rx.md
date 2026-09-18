@@ -1238,7 +1238,7 @@ measured evidence and authorization. Pending lifecycle/MSC acceptance remains.
 ### Commit reference
 
 Bounded capacity amendment on `codex/T017-adv-usb-uac-rx`; exact pushed SHA returned
-in the handoff. Status: REVIEW. No PR, no Actions wait, no hardware testing.
+in the handoff. Status: TESTING. No PR, no Actions wait, no hardware testing.
 
 ## Supervisor 2048-frame ring re-review
 
@@ -2207,6 +2207,50 @@ deviations from this amendment.
 One implementation commit titled `T017: remap temporary debug UART to GPIO3/6`
 on `codex/T017-adv-usb-uac-rx`; exact pushed SHA returned in chat. No PR or
 GitHub Actions wait.
+
+## Hardware finding — full USB/UAC bring-up passes; decode still pending
+
+Real ADV result on implementation `84eab890a547a60eaed906b57593122686991597`:
+
+```text
+ADV: USB Host diagnostics on UART0 TX=GPIO3 RX=GPIO6 115200
+I (...) adv_uac: USB Host installed FIFO 91/18/91; heap 179052 largest 122880
+I (...) uac-host: Install Succeed, Version: 1.3.3
+I (...) adv_uac: capture task create begin: static stack=4096 heap=166712 largest=110592
+I (...) adv_uac: capture task create success
+I (...) adv_uac: QMX 0483:a34c UAC RX interface 3 opened
+I (...) uac-host: Resume Interface 3-1
+I (...) adv_uac: selected 48000/24/2 -> 12000/S16/2
+I (...) adv_uac: CDC ready 0483:a34c interface 0 (no CAT commands)
+```
+
+MiniFT8 no longer crashes or freezes. The V-screen Memory view during live RX reports:
+
+```text
+Memory: 142.2K 129.2K 3 57% ON
+```
+
+Interpretation:
+- static capture worker solved the late-task-allocation failure;
+- ADV-only freq_osr=1 materially relaxed memory pressure;
+- USB Host, QMX enumeration, UAC RX open, strict stream selection and CDC open all pass;
+- Cardputer UI/input remain responsive;
+- live FT8 message decode is not yet observed.
+
+Before changing DSP, run for at least two complete FT8 slots and quit normally. Record
+the existing provider stop diagnostic:
+
+```text
+high-water=.../2048 overflow=... discontinuity=... read-errors=... transfer-errors=...
+```
+
+This determines whether canonical audio is being produced continuously and whether
+the 2048-frame ring is adequate. Also confirm QMX is manually tuned to the desired
+FT8 dial frequency/mode because T017 intentionally sends no CAT commands.
+
+If transport counters are healthy but no decode appears, add the next narrow probe at
+the platform boundary: total native bytes/reads and canonical sample peak/mean (or a
+small representative sample statistic), not a DSP change.
 
 ## Architect hardware result
 
