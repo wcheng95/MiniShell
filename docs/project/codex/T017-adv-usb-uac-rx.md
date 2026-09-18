@@ -1546,6 +1546,47 @@ Preferred correction if the hardware numbers confirm this diagnosis:
 Do not treat the absence of GPIO4 output as evidence of a USB-host failure until the
 pre-Audio FT8 allocation path is ruled out.
 
+## Hardware finding — USB handoff succeeds; input responsiveness under test
+
+Real ADV result with the 2048-frame ring:
+
+```text
+M$> ft8
+I (...) adv_uac: ring allocation request bytes=8228 heap-free=96616 largest-block=39936
+I (...) adv_uac: ring allocation success bytes=8228 heap-free=88164 largest-block=32256
+
+FATAL: read zero bytes from port
+```
+
+Interpretation:
+
+- the FT8 workspace and lazy UAC ring now both allocate successfully;
+- the USB Serial/JTAG monitor disconnect is expected and is evidence that the
+  console handoff reached USB-host ownership;
+- USB Serial/JTAG cannot be used as the FT8 terminal while host mode owns the PHY;
+- GPIO4 diagnostics require a separate UART adapter on GPIO4 TX + GND.
+
+After QMX is connected, FT8 becomes visible/running but the reported key response is
+unclear whether it is only the now-disconnected PC terminal or also the physical
+Cardputer keyboard. Before changing scheduling, isolate with:
+
+```text
+1. start ft8 with QMX disconnected;
+2. after USB Serial/JTAG disconnects, press Q on the physical Cardputer keyboard;
+3. observe whether FT8 exits / USB Serial/JTAG returns;
+4. repeat, then connect QMX and immediately test physical Q again;
+5. note whether the top UTC/slot counter continues advancing after QMX connects.
+```
+
+If physical keyboard and top-line updates work before QMX but freeze only after QMX
+streaming begins, investigate scheduling/starvation. MiniShell foreground applications
+are pinned to core 0 at priority 1. Current T017 has UAC background work at higher
+priorities, including UAC driver core 0 priority 5, CDC driver core 0 priority 4,
+and capture priority 4. The pinned V2 reference placed the audio stream task on core 1.
+A likely follow-up is to isolate USB/UAC capture work from the MiniShell foreground
+core and/or ensure the successful capture loop yields, but do not make that change
+until this hardware discriminator is recorded.
+
 ## Architect hardware result
 
 Record QMX enumeration, live decoded messages, consecutive-slot behavior, repeated
