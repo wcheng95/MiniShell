@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T009-audio-tx-latency.md   TESTING
+none
 ```
 
-T009 addresses F12: define the generic Audio TX timeout contract and measure the current ADV speaker write latency before any scheduling/provider redesign.
+Accepted cleanup now includes T009/F12 Audio TX contract definition and ADV latency measurement. The current ADV speaker path is normally ~1 ms for Keyer-sized writes but does not honor caller timeout/nonblocking budgets; provider compliance is a separate next task.
 
-Workflow: local build/test -> supervisor diff review PASS -> ADV hardware probe -> acceptance/merge -> delete T009 branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> required hardware validation -> merge/fast-forward to `main` -> delete the temporary branch.
 
 ## Rule
 
