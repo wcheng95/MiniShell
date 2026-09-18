@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T018-linux-ft8-live-defaults.md   TESTING
+none
 ```
 
-T018 makes Linux bare `ft8` the operator-ready live QMX command: ADV presentation plus the existing `alsa:hw:2,0` UAC/ALSA RX stream by default, while explicit profile/RX overrides and hardware-independent tests remain intact.
+T018 is COMPLETE. On pc-1, bare `ft8` now selects the ADV presentation and live QMX `alsa:hw:2,0` RX path; live decode, clean exit, explicit WAV RX override, and explicit DESKTOP override are validated.
 
-Workflow: composition defaults -> deterministic regression updates -> supervisor diff review -> live pc-1/QMX validation -> fast-forward `main` -> delete T018 branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
 ## Rule
 
