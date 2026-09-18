@@ -502,6 +502,11 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
 
     audio_status = rx_audio_adapter_read(&rx->audio, rx->transport_frames,
                                          RX_TRANSPORT_FRAMES, &got, 20u);
+    if (audio_status == RX_AUDIO_ADAPTER_DISCONTINUITY) {
+        rx_frontend_reset_stream(&rx->frontend);
+        rx->timing_pending = true;
+        return true;
+    }
     if (audio_status == RX_AUDIO_ADAPTER_END_OF_STREAM) {
         if (rx_audio_adapter_close(&rx->audio) != RX_AUDIO_ADAPTER_OK) return false;
         rx->active = false;
@@ -529,12 +534,14 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
                                    &first_sample_offset) ||
             !backdate_slot_reference(&first_slot_id,
                                      &first_sample_offset,
-                                     out_count) ||
-            rx_slot_framer_init(&rx->framer,
-                                first_slot_id,
-                                first_sample_offset) != RX_SLOT_FRAMER_OK) {
+                                     out_count)) {
             return false;
         }
+        RxSlotFramerStatus status = rx->framer_initialized
+            ? rx_slot_framer_reset_stream(&rx->framer, first_slot_id,
+                                           first_sample_offset, rx_emit_event, rx)
+            : rx_slot_framer_init(&rx->framer, first_slot_id, first_sample_offset);
+        if (status != RX_SLOT_FRAMER_OK) return false;
         rx->framer_initialized = true;
         rx->timing_pending = false;
     }

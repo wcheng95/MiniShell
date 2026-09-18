@@ -1,6 +1,6 @@
 # T008 — Surface Audio RX discontinuity
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -349,44 +349,167 @@ After supervisor review and merge/fast-forward to `main`, delete local and remot
 
 ## Acceptance criteria
 
-- [ ] generic `MINI_ERR_DISCONTINUITY` public result exists with documented RX meaning;
-- [ ] public Audio forces zero frames for discontinuity and leaves stream usable;
-- [ ] Linux ALSA successful recovery surfaces discontinuity instead of hiding it;
-- [ ] Linux buffered worker remains alive and drains/discards while event is pending;
-- [ ] old epoch frames cannot leak after discontinuity notification;
-- [ ] adapter exposes a distinct discontinuity status;
-- [ ] controller treats discontinuity as recoverable;
-- [ ] frontend stream phase resets;
-- [ ] framer re-anchors from UTC and emits existing STREAM_RESET;
-- [ ] first partial slot after reset is discarded;
-- [ ] WAV fixture behavior remains unchanged;
-- [ ] no Audio TX/F12 changes;
-- [ ] focused tests pass locally;
-- [ ] architecture checks pass;
-- [ ] full local suite result recorded;
-- [ ] no unrelated cleanup.
+- [x] generic `MINI_ERR_DISCONTINUITY` public result exists with documented RX meaning;
+- [x] public Audio forces zero frames for discontinuity and leaves stream usable;
+- [x] Linux ALSA successful recovery surfaces discontinuity instead of hiding it;
+- [x] Linux buffered worker remains alive and drains/discards while event is pending;
+- [x] old epoch frames cannot leak after discontinuity notification;
+- [x] adapter exposes a distinct discontinuity status;
+- [x] controller treats discontinuity as recoverable;
+- [x] frontend stream phase resets;
+- [x] framer re-anchors from UTC and emits existing STREAM_RESET;
+- [x] first partial slot after reset is discarded;
+- [x] WAV fixture behavior remains unchanged;
+- [x] no Audio TX/F12 changes;
+- [x] focused tests pass locally;
+- [x] architecture checks pass;
+- [x] full local suite result recorded;
+- [x] no unrelated cleanup.
 
 ## Codex implementation notes
 
 ### Implementation summary
 
+Added recoverable Audio RX discontinuity propagation from Linux ALSA through
+buffered capture, public Audio, and the FT8 adapter to controller-owned recovery.
+No task deviations or new application API. WAV transport, Audio TX, ring capacity,
+AutoSeq, and the two baseline tests are unchanged.
+
 ### Public Audio discontinuity contract
+
+`MINI_ERR_DISCONTINUITY` is additive result -18. Public Audio forces zero frames
+on this result and keeps the stream started/usable. The adapter exposes distinct
+`RX_AUDIO_ADAPTER_DISCONTINUITY`, preserves the raw result, and performs no DSP
+reset or stream restart. Public struct layouts/API version are unchanged; the
+RX meaning and caller responsibility are documented in `docs/api/audio-api.md`.
 
 ### Linux provider / buffered epoch design
 
+Both ALSA wait-error and read-error recovery paths return discontinuity on
+successful recovery, reset native decimation phase, and discard any data produced
+in that call. Recovery failure still returns IO. Output count remains zero.
+
+The buffered wrapper uses atomic RUNNING/PENDING/ACKNOWLEDGED states. Only the
+producer publishes PENDING; it continues reading but discards data until consumer
+acknowledgement. Only the consumer advances its read counter to flush the ring,
+then publishes ACKNOWLEDGED. The producer acquires that acknowledgement before
+starting a fresh read. A read begun while pending is discarded even if ACK arrives
+while it is in flight. Every provider discontinuity unconditionally publishes
+PENDING, including a read begun while pending whose previous event was acknowledged
+during that read. Gaps coalesce only if the consumer has not acknowledged yet. A second
+pending check after copying prevents delivery when a gap was published during
+that copy. Fatal errors remain terminal. No hot-path locks were added and the
+single-producer/single-consumer ring-counter ownership is preserved.
+
 ### FT8 recovery design
+
+The controller resets frontend phase immediately, leaves RX active, and marks
+timing pending without touching the retained batch. Existing `framer_initialized`
+state distinguishes first establishment from recovery, including explicit-slot
+streams. On the next nonzero frontend output it obtains UTC, backdates by the
+new sample count, and initializes or resets the existing framer as appropriate.
+Reset uses the existing callback/STREAM_RESET path to clear engine DSP continuity
+while retaining hash knowledge. A partial first slot is discarded. Missing UTC
+returns failure rather than continuing a guessed timing reference.
 
 ### Files changed
 
+- `include/minishell/api.h`, `docs/api/audio-api.md`: additive result and RX contract.
+- `core/minishell_services/audio_service.c`: zero-frame enforcement.
+- `platform/linux/linux_audio_wav.c`: ALSA recovery mapping.
+- `platform/linux/linux_audio_buffered.h`: atomic epoch handshake/drain policy.
+- `apps/ft8/src/rx_audio_adapter/rx_audio_adapter.h` and `.c`: distinct status mapping.
+- `apps/ft8/src/app_controller/app_controller.c`: existing frontend/framer recovery.
+- `tests/unit/test_audio.c`, `tests/rx_audio_adapter_rx6_test.c`: propagation/usability.
+- `tests/linux_audio_discontinuity_test.c`: deterministic threaded wrapper test.
+- `tests/linux_alsa_discontinuity_test.c`: private ALSA callback fault injection.
+- `tests/ft8_rx_discontinuity_test.c`: white-box production RX stack test.
+- `CMakeLists.txt`: new focused tests and existing pure framer test registration.
+- This task packet: handoff evidence and REVIEW status.
+
 ### Tests added
+
+Public Audio and adapter tests deliberately receive bogus nonzero counts with
+discontinuity, assert zero output and preserved lifecycle, then read successfully
+without reopening/restarting.
+
+The pthread wrapper test queues old data, reports a gap, drains multiple pending
+reads, acknowledges while another read is in flight, and verifies only a fresh
+post-ACK read is delivered. Repeated pending gaps coalesce, worker stays alive,
+and a later IO error is terminal. Synchronization uses explicit test tickets and
+bounded waits rather than timing-dependent sleeps as the proof.
+
+The ALSA test includes the private provider implementation and replaces its
+existing function pointers: both recovery sites, partial production before a
+gap, phase reset, failed recovery, and subsequent successful reading are tested
+without hardware. It passes locally with ALSA headers; hosts lacking those
+headers explicitly skip only this provider-specific test (CTest return 77).
+
+The controller test includes the implementation for private-state inspection and
+links the real frontend/framer/engine stack. It proves frontend phase reset,
+UTC replacement of explicit timing, discarded partial framer state, cleared
+engine sample history, preserved nonempty hash knowledge and retained historical
+batch, a subsequent complete decoded window, missing-UTC failure, and gap before
+initial timing establishment. Existing `test_stream_reset()` runs unchanged in
+the newly registered pure framer target. No production test seam was needed.
 
 ### Local tests run and results
 
+Base: `63d437db33bc578cbbc2c54f1a4f82cbb71cad4a`.
+
+- `git status --short`: clean on the existing T008 branch before implementation.
+- `cmake -S . -B build-linux`: PASS.
+- `cmake --build build-linux -j"$(nproc)"`: PASS; final rebuild also PASS.
+- `ctest --test-dir build-linux -R 'audio|rx_audio_adapter|rx_slot_framer|discontinuity' --output-on-failure`:
+  5/6 PASS; only the documented `linux_audio` stale substring failure.
+- Final focused rerun after strengthening history/hash and ALSA assertions:
+  `ctest --test-dir build-linux -R 'rx_audio_adapter|rx_slot_framer|discontinuity' --output-on-failure`:
+  PASS, 5/5, including the real ALSA mapping test (not skipped).
+- `python3 tests/app_dependency_boundary.py . ft8`: PASS.
+- `python3 tests/app_dependency_boundary.py . keyer`: PASS.
+- `python3 tests/ft8_platform_boundary.py .`: PASS (54 source/header files).
+- `cmake -S tests/unit -B /tmp/T008-build-unit`: PASS.
+- `cmake --build /tmp/T008-build-unit -j"$(nproc)"`: PASS.
+- `ctest --test-dir /tmp/T008-build-unit --output-on-failure`: PASS, 14/14.
+- `git diff --check`: PASS.
+- `ctest --test-dir build-linux --output-on-failure`: 26/28 PASS. Only accepted
+  baseline failures remain: `linux_audio` (stale frames/hash substring) and
+  `linux_ft8` (stale queue-order expectation). Neither was modified.
+
+Supervisor race follow-up: the buffered regression now acknowledges the first
+event while provider read 5 is in flight, returns a second discontinuity from
+that read, and requires a second zero-frame notification. Read 6, begun while
+pending, is still discarded after acknowledgement; fresh read 7 is delivered.
+The extended test failed on the original conditional publication and passed with
+unconditional PENDING publication. No other production behavior changed.
+
+Reran the complete T008 local gate after this correction: Linux configure/build
+PASS; required audio/discontinuity filter 5/6 PASS (only baseline `linux_audio`);
+all three architecture commands PASS; unit configure/build PASS and CTest 14/14
+PASS; `git diff --check` PASS; full Linux CTest 26/28 PASS with only the same
+`linux_audio` and `linux_ft8` baseline failures. Existing implementation commit
+amended as requested.
+
+All checks ran locally. No PR opened and no GitHub Actions wait.
+
 ### Hardware/manual validation still required
+
+None required for merge. An induced live QMX overrun may provide additional
+hardware evidence later; deterministic fake-provider tests cover this handoff.
 
 ### Known limitations / risks
 
+The existing ring-full backpressure policy is unchanged; T008 does not address
+F12 latency/blocking. Pending recovery intentionally discards samples until a
+safe consumer acknowledgement, then FT8 discards the initial partial slot.
+Real backend/device recovery behavior has not been tested on hardware here.
+The two known unrelated full-suite failures remain.
+
 ### Commit
+
+One bounded implementation commit on `codex/T008-audio-discontinuity` containing
+this report. The pushed SHA is returned in the handoff. Branch deletion remains
+deferred until supervisor review and merge/fast-forward to main.
 
 ## Supervisor review
 

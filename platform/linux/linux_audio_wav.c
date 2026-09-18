@@ -383,7 +383,8 @@ static mini_result_t audio_rx_read(void *ctx, minishell_backend_audio_t audio,
         if (ready == 0) return MINI_OK;
         if (ready < 0) {
             if (s_alsa.pcm_recover(s_alsa.pcm, ready, 1) < 0) return MINI_ERR_IO;
-            return MINI_OK;
+            s_alsa.decimation_phase = 0u;
+            return MINI_ERR_DISCONTINUITY;
         }
 
         while (produced < frame_capacity) {
@@ -395,7 +396,8 @@ static mini_result_t audio_rx_read(void *ctx, minishell_backend_audio_t audio,
             if (got == -EAGAIN) break;
             if (got < 0) {
                 if (s_alsa.pcm_recover(s_alsa.pcm, (int)got, 1) < 0) return MINI_ERR_IO;
-                continue;
+                s_alsa.decimation_phase = 0u;
+                return MINI_ERR_DISCONTINUITY;
             }
             if (got == 0) break;
 

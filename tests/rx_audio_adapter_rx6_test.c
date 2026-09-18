@@ -40,7 +40,7 @@ static mini_result_t fake_read(mini_audio_stream_t stream, void *frames,
     assert(timeout_ms == 123u);
     ++s_read_count;
     if (s_read_result != MINI_OK) {
-        *out_frames = 0u;
+        *out_frames = s_read_result == MINI_ERR_DISCONTINUITY ? 99u : 0u;
         return s_read_result;
     }
     samples[0] = 100;
@@ -101,6 +101,14 @@ int main(void)
     assert(rx_audio_adapter_read(&adapter, frames, 4u, &got, 123u) == RX_AUDIO_ADAPTER_OK);
     assert(got == 2u && frames[0] == 100 && frames[3] == -200);
 
+    s_read_result = MINI_ERR_DISCONTINUITY;
+    assert(rx_audio_adapter_read(&adapter, frames, 4u, &got, 123u) == RX_AUDIO_ADAPTER_DISCONTINUITY);
+    assert(got == 0u && adapter.started && adapter.open);
+    assert(rx_audio_adapter_last_result(&adapter) == MINI_ERR_DISCONTINUITY);
+    s_read_result = MINI_OK;
+    assert(rx_audio_adapter_read(&adapter, frames, 4u, &got, 123u) == RX_AUDIO_ADAPTER_OK);
+    assert(got == 2u && s_open_count == 1 && s_start_count == 1);
+    assert(s_stop_count == 0 && s_close_count == 0);
     s_read_result = MINI_ERR_END_OF_STREAM;
     got = 99u;
     assert(rx_audio_adapter_read(&adapter, frames, 4u, &got, 123u) == RX_AUDIO_ADAPTER_END_OF_STREAM);

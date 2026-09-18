@@ -103,6 +103,7 @@ static mini_result_t rx_read(mini_audio_stream_t stream, void *frames,
     mini_result_t result = port->audio_rx_read(port->ctx, s_rx.backend_handle,
                                                frames, frame_capacity, out_frames,
                                                timeout_ms);
+    if (result == MINI_ERR_DISCONTINUITY) *out_frames = 0u;
     if (result == MINI_OK && *out_frames > frame_capacity) {
         *out_frames = 0u;
         return MINI_ERR_IO;

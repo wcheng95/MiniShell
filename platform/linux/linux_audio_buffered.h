@@ -49,6 +49,15 @@ typedef struct {
     mini_result_t (*close)(void *ctx, minishell_backend_audio_t audio);
 } linux_audio_underlying_t;
 
+/* Producer publishes PENDING and stops enqueueing. Consumer alone flushes then
+ * publishes ACKNOWLEDGED. Producer acquires that ACK before starting a fresh read;
+ * neither side resets the other side's monotonic ring counter. */
+enum {
+    LINUX_AUDIO_EPOCH_RUNNING,
+    LINUX_AUDIO_EPOCH_PENDING,
+    LINUX_AUDIO_EPOCH_ACKNOWLEDGED
+};
+
 typedef struct {
     linux_audio_underlying_t underlying;
     minishell_backend_audio_t underlying_handle;
@@ -58,6 +67,7 @@ typedef struct {
     atomic_uint_fast64_t read_count;
     atomic_int stop_requested;
     atomic_int worker_result;
+    atomic_int epoch;
 
     void *pthread_library;
     int (*pthread_create_fn)(pthread_t *, const pthread_attr_t *,
@@ -117,6 +127,7 @@ static void linux_audio_ring_reset(void)
     atomic_store_explicit(&s_linux_audio_buffered.read_count, 0u, memory_order_relaxed);
     atomic_store_explicit(&s_linux_audio_buffered.stop_requested, 0, memory_order_relaxed);
     atomic_store_explicit(&s_linux_audio_buffered.worker_result, MINI_OK, memory_order_relaxed);
+    atomic_store_explicit(&s_linux_audio_buffered.epoch, LINUX_AUDIO_EPOCH_RUNNING, memory_order_relaxed);
 }
 
 static void *linux_audio_capture_worker(void *arg)
@@ -126,6 +137,11 @@ static void *linux_audio_capture_worker(void *arg)
     int16_t temp[LINUX_AUDIO_WORKER_FRAMES * 2u];
 
     while (!atomic_load_explicit(&s->stop_requested, memory_order_acquire)) {
+        int epoch = atomic_load_explicit(&s->epoch, memory_order_acquire);
+        if (epoch == LINUX_AUDIO_EPOCH_ACKNOWLEDGED)
+            atomic_store_explicit(&s->epoch, LINUX_AUDIO_EPOCH_RUNNING, memory_order_release);
+        /* A read begun while pending is discarded even if ACK arrives mid-read. */
+        bool discard = epoch == LINUX_AUDIO_EPOCH_PENDING;
         uint32_t got = 0u;
         mini_result_t result = s->underlying.read(
             s->underlying.ctx, s->underlying_handle,
@@ -133,12 +149,16 @@ static void *linux_audio_capture_worker(void *arg)
 
         if (atomic_load_explicit(&s->stop_requested, memory_order_acquire)) break;
 
+        if (result == MINI_ERR_DISCONTINUITY) {
+            atomic_store_explicit(&s->epoch, LINUX_AUDIO_EPOCH_PENDING, memory_order_release);
+            continue;
+        }
         if (result == MINI_ERR_TIMEOUT || result == MINI_ERR_NOT_READY) continue;
         if (result != MINI_OK) {
             atomic_store_explicit(&s->worker_result, result, memory_order_release);
             break;
         }
-        if (got == 0u) continue;
+        if (discard || got == 0u) continue;
 
         for (uint32_t i = 0u; i < got; ++i) {
             uint64_t write_count;
@@ -249,6 +269,12 @@ static mini_result_t linux_audio_buffered_read(void *ctx,
         deadline = linux_audio_monotonic_ms() + timeout_ms;
 
     for (;;) {
+        if (atomic_load_explicit(&s->epoch, memory_order_acquire) == LINUX_AUDIO_EPOCH_PENDING) {
+            uint64_t end = atomic_load_explicit(&s->write_count, memory_order_acquire);
+            atomic_store_explicit(&s->read_count, end, memory_order_release);
+            atomic_store_explicit(&s->epoch, LINUX_AUDIO_EPOCH_ACKNOWLEDGED, memory_order_release);
+            return MINI_ERR_DISCONTINUITY;
+        }
         uint64_t read_count = atomic_load_explicit(&s->read_count, memory_order_relaxed);
         uint64_t write_count = atomic_load_explicit(&s->write_count, memory_order_acquire);
         uint64_t available = write_count - read_count;
@@ -265,6 +291,8 @@ static mini_result_t linux_audio_buffered_read(void *ctx,
             }
 
             atomic_store_explicit(&s->read_count, read_count + take, memory_order_release);
+            if (atomic_load_explicit(&s->epoch, memory_order_acquire) == LINUX_AUDIO_EPOCH_PENDING)
+                continue;
             *out_frames = take;
             return MINI_OK;
         }

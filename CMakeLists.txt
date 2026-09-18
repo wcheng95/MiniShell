@@ -373,6 +373,31 @@ add_executable(ft8_engine_rx1g_unit tests/ft8_engine_rx1g_test.c)
 target_link_libraries(ft8_engine_rx1g_unit PRIVATE ft8_engine_core)
 target_compile_options(ft8_engine_rx1g_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
+add_executable(linux_audio_discontinuity_unit tests/linux_audio_discontinuity_test.c)
+target_include_directories(linux_audio_discontinuity_unit PRIVATE
+    include core/minishell_services platform/linux)
+target_link_libraries(linux_audio_discontinuity_unit PRIVATE dl pthread)
+target_compile_options(linux_audio_discontinuity_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+add_executable(linux_alsa_discontinuity_unit tests/linux_alsa_discontinuity_test.c)
+target_include_directories(linux_alsa_discontinuity_unit PRIVATE include core/minishell_services)
+target_link_libraries(linux_alsa_discontinuity_unit PRIVATE dl)
+target_compile_options(linux_alsa_discontinuity_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+# Exercise the same production RX stack, exposing private state only in the test TU.
+get_target_property(FT8_DISCONTINUITY_SOURCES ft8 SOURCES)
+list(FILTER FT8_DISCONTINUITY_SOURCES EXCLUDE REGEX "apps/ft8/main/|app_controller/app_controller\\.c$")
+get_target_property(FT8_DISCONTINUITY_INCLUDES ft8 INCLUDE_DIRECTORIES)
+add_executable(ft8_rx_discontinuity_unit tests/ft8_rx_discontinuity_test.c ${FT8_DISCONTINUITY_SOURCES})
+target_include_directories(ft8_rx_discontinuity_unit PRIVATE ${FT8_DISCONTINUITY_INCLUDES})
+target_link_libraries(ft8_rx_discontinuity_unit PRIVATE m)
+target_compile_options(ft8_rx_discontinuity_unit PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(rx_slot_framer_rx4_unit tests/rx_slot_framer_rx4_test.c
+    apps/ft8/src/rx_slot_framer/rx_slot_framer.c)
+target_include_directories(rx_slot_framer_rx4_unit PRIVATE apps/ft8/src/rx_slot_framer)
+target_compile_options(rx_slot_framer_rx4_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
 add_executable(rx_audio_adapter_rx6_unit
     tests/rx_audio_adapter_rx6_test.c
     apps/ft8/src/rx_audio_adapter/rx_audio_adapter.c
@@ -500,6 +525,11 @@ add_test(NAME ft8_decoder_rx1d_unit COMMAND ft8_decoder_rx1d_unit)
 add_test(NAME ft8_hash_store_rx1e_unit COMMAND ft8_hash_store_rx1e_unit)
 add_test(NAME ft8_message_codec_rx1f_unit COMMAND ft8_message_codec_rx1f_unit)
 add_test(NAME ft8_engine_rx1g_unit COMMAND ft8_engine_rx1g_unit)
+add_test(NAME linux_audio_discontinuity_unit COMMAND linux_audio_discontinuity_unit)
+add_test(NAME linux_alsa_discontinuity_unit COMMAND linux_alsa_discontinuity_unit)
+set_tests_properties(linux_alsa_discontinuity_unit PROPERTIES SKIP_RETURN_CODE 77)
+add_test(NAME ft8_rx_discontinuity_unit COMMAND ft8_rx_discontinuity_unit)
+add_test(NAME rx_slot_framer_rx4_unit COMMAND rx_slot_framer_rx4_unit)
 add_test(NAME rx_audio_adapter_rx6_unit COMMAND rx_audio_adapter_rx6_unit)
 
 if(FT8_RX1C_REFERENCE_WAV)

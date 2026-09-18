@@ -34,6 +34,7 @@ typedef int32_t mini_result_t;
 #define MINI_ERR_TIMEOUT         ((mini_result_t)-15)
 #define MINI_ERR_NOT_EMPTY       ((mini_result_t)-16)
 #define MINI_ERR_END_OF_STREAM   ((mini_result_t)-17)
+#define MINI_ERR_DISCONTINUITY   ((mini_result_t)-18)
 
 typedef struct {
     uint32_t struct_size;

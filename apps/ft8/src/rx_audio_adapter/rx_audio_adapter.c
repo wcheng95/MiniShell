@@ -111,6 +111,8 @@ RxAudioAdapterStatus rx_audio_adapter_read(RxAudioAdapter *adapter,
                                       (uint32_t)frame_capacity, &got,
                                       timeout_ms);
     adapter->last_result = result;
+    if (result == MINI_ERR_DISCONTINUITY)
+        return RX_AUDIO_ADAPTER_DISCONTINUITY;
     if (result == MINI_ERR_END_OF_STREAM)
         return RX_AUDIO_ADAPTER_END_OF_STREAM;
     if (result != MINI_OK)

@@ -12,6 +12,7 @@ typedef struct {
     uint32_t rx_pos;
     bool rx_open;
     bool rx_started;
+    bool rx_discontinuity;
     char rx_endpoint[64];
 
     uint32_t tx_open_calls;
@@ -87,6 +88,11 @@ static mini_result_t fake_rx_read(void *ctx, minishell_backend_audio_t audio,
     if (!s_audio.rx_open || audio != FAKE_RX_HANDLE) return MINI_ERR_BAD_HANDLE;
     if (!s_audio.rx_started) return MINI_ERR_NOT_READY;
     ++s_audio.rx_read_calls;
+    if (s_audio.rx_discontinuity) {
+        s_audio.rx_discontinuity = false;
+        *out_frames = 99u;
+        return MINI_ERR_DISCONTINUITY;
+    }
 
     const uint32_t source_frames = 3u;
     if (s_audio.rx_pos >= source_frames) {
@@ -267,6 +273,15 @@ bool test_audio(void)
     TEST_EQ(rx_buffer[2], 200);
     TEST_EQ(rx_buffer[3], -200);
 
+    s_audio.rx_discontinuity = true;
+    uint32_t opens_before_gap = s_audio.rx_open_calls;
+    TEST_EQ(audio->rx->read(rx, rx_buffer, 2u, &frames, MINI_WAIT_NONE), MINI_ERR_DISCONTINUITY);
+    TEST_EQ(frames, 0u);
+    TEST_CHECK(s_audio.rx_started);
+    TEST_EQ(s_audio.rx_open_calls, opens_before_gap);
+    TEST_EQ(s_audio.rx_start_calls, 1u);
+    TEST_EQ(s_audio.rx_stop_calls, 0u);
+    TEST_EQ(s_audio.rx_close_calls, 0u);
     memset(rx_buffer, 0, sizeof(rx_buffer));
     TEST_EQ(audio->rx->read(rx, rx_buffer, 2u, &frames, MINI_WAIT_NONE), MINI_OK);
     TEST_EQ(frames, 1u);
