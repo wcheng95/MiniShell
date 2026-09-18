@@ -1,6 +1,6 @@
 # T018 — Linux MiniFT8 live QMX defaults
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -202,11 +202,11 @@ Software/review gate:
 
 Manual architect acceptance on pc-1/QMX:
 
-- [ ] with QMX connected, bare `M$> ft8` enters ADV 20x7 presentation;
-- [ ] bare `ft8` opens the live QMX UAC/ALSA stream and decodes on-air FT8;
-- [ ] `q` returns cleanly to `M$>`;
-- [ ] explicit deterministic WAV launch still works;
-- [ ] explicit `--profile desktop` still selects DESKTOP when desired.
+- [x] with QMX connected, bare `M$> ft8` enters ADV 20x7 presentation;
+- [x] bare `ft8` opens the live QMX UAC/ALSA stream and decodes on-air FT8;
+- [x] `q` returns cleanly to `M$>`;
+- [x] explicit deterministic WAV launch still works;
+- [x] explicit `--profile desktop` still selects DESKTOP when desired.
 
 ## Automated tests
 
@@ -436,11 +436,44 @@ Observed result:
 This passes the primary T018 hardware/operator acceptance gate: bare Linux `ft8`
 now behaves as the intended live MiniFT8-V3 operator command.
 
-Remaining acceptance before T018 COMPLETE:
+Remaining acceptance completed:
 
-1. quit cleanly back to `M$>`;
-2. verify explicit WAV/`--rx-slot` override still works;
-3. verify `--profile desktop` still selects DESKTOP when explicitly requested.
+- clean quit returned to `M$>`;
+- explicit WAV/`--rx-slot` override worked using the available
+  `/sd/kfs16b12k.wav` fixture;
+- explicit `--profile desktop` selected DESKTOP as expected.
+
+
+## Final architect acceptance — T018 COMPLETE
+
+pc-1/QMX validation passes all T018 operator-facing requirements:
+
+```text
+bare M$> ft8
+  -> ADV presentation                         PASS
+  -> default alsa:hw:2,0 live QMX RX         PASS
+  -> real on-air FT8 decode                  PASS
+  -> q returns cleanly to M$>                PASS
+
+explicit RX override
+  -> /sd/kfs16b12k.wav + --rx-slot           PASS
+
+explicit presentation override
+  -> --profile desktop                       PASS
+```
+
+The task example used `/flash/kfs.wav`, but that fixture was not present on the
+architect's current Linux logical root. The available `/sd/kfs16b12k.wav` fixture
+successfully exercised the same explicit RX override and deterministic WAV path.
+
+T018 is COMPLETE. The accepted Linux operator baseline is now:
+
+```text
+M$> ft8
+```
+
+which composes to ADV presentation plus the current pc-1 QMX endpoint
+`alsa:hw:2,0`. Explicit CLI overrides remain supported.
 
 ## Architect test result
 
