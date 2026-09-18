@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -2112,6 +2112,36 @@ Next observations:
 4. If UAC is streaming with clean continuity but no decodes, next add narrow
    platform/engine diagnostics (sample amplitude + slot/candidate count) rather
    than changing DSP parameters blindly.
+
+## Supervisor GPIO3/GPIO6 remap re-review
+
+PASS for hardware testing on `0c4645e3746c3af6500b2eabd5d6779e5cee92b2`.
+
+The production delta from the previously accepted T017 implementation is limited to
+the temporary debug-UART pin mapping and matching cleanup:
+
+```text
+UART0 TX = GPIO3
+UART0 RX = GPIO6
+115200 8N1
+```
+
+`adv_console.c` routes and resets GPIO3/GPIO6 consistently. The source regression
+checks the new mapping/banner, 8N1 configuration, deletion-before-pin-reset ordering,
+and absence of stale GPIO4/GPIO5 references. No MiniFT8, Keyer, Digital I/O, public
+API, UAC buffering, USB ownership, task scheduling, or ADV freq_osr profile changed.
+
+Linux CTest 45/45, units 14/14, architecture checks and the real ADV build are accepted.
+T017 returns to TESTING.
+
+Next hardware milestones:
+1. confirm GPIO3 TX is readable at 115200 8N1;
+2. run bare `ft8` with QMX connected;
+3. capture all GPIO3 diagnostics from host install through UAC enumeration;
+4. verify `capture task create success`;
+5. verify QMX UAC RX opens and strict 48000/24/2 starts;
+6. if streaming is established but no FT8 messages decode, continue with narrow
+   sample/timing diagnostics rather than changing DSP blindly.
 
 ## Engineer handoff — GPIO3/GPIO6 debug-UART remap
 
