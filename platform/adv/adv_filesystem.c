@@ -16,6 +16,7 @@
 #include "wear_levelling.h"
 
 #include "adv_internal.h"
+#include "adv_filesystem_rename.h"
 
 #define ADV_FLASH_PATH "/flash"
 #define ADV_FLASH_LABEL "flash"
@@ -263,13 +264,35 @@ static mini_result_t fs_stat(void *ctx, const char *path,
     return MINI_OK;
 }
 
+static int native_rename(const char *source, const char *destination)
+{
+    return rename(source, destination) == 0 ? 0 : errno;
+}
+
+static int native_remove(const char *path)
+{
+    return unlink(path) == 0 ? 0 : errno;
+}
+
+static int native_stat(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0 ? 0 : errno;
+}
+
+static void rename_report(const char *operation, const char *backup, int error)
+{
+    fprintf(stderr, "ADV filesystem: %s: %s (errno %d)\n", operation, backup, error);
+}
+
 static mini_result_t fs_rename(void *ctx, const char *old_path,
                                const char *new_path)
 {
     (void)ctx;
     if (!is_native_path(old_path) || !is_native_path(new_path)) return MINI_ERR_NOT_FOUND;
-    if (!same_volume(old_path, new_path)) return MINI_ERR_UNSUPPORTED;
-    return rename(old_path, new_path) == 0 ? MINI_OK : result_from_errno(errno);
+    const adv_rename_ops_t ops = {native_rename, native_remove, native_stat, rename_report};
+    return result_from_errno(adv_rename_replace(&ops, old_path, new_path,
+                                               same_volume(old_path, new_path)));
 }
 
 static mini_result_t fs_remove_file(void *ctx, const char *path)

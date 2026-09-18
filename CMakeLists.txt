@@ -616,3 +616,13 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/ft8_reference_pin.py
             ${CMAKE_SOURCE_DIR} --self-test
 )
+
+add_executable(adv_filesystem_rename_unit
+    tests/adv_filesystem_rename_test.c
+    apps/ft8/src/storage_service/storage_service.c
+)
+target_include_directories(adv_filesystem_rename_unit PRIVATE
+    include platform/adv apps/ft8/src/storage_service
+)
+target_compile_options(adv_filesystem_rename_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME adv_filesystem_rename_unit COMMAND adv_filesystem_rename_unit)
