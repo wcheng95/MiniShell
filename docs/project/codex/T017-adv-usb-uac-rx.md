@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: BLOCKED
+Status: READY
 
 ## Objective
 
@@ -1126,8 +1126,9 @@ failures; the source-boundary test ties those transitions to the production
 prepare/release order. Shared MiniFT8, usbmsc, public APIs and FT8 DSP remain unchanged.
 
 Linux CTest 41/41, units 14/14, architecture checks and the real ADV build are accepted.
-T017 is now TESTING. Do not merge until live QMX UAC decode, repeated lifecycle,
-console handoff, ring diagnostics and usbmsc-after-FT8 are confirmed on hardware.
+The first hardware run exposed a pre-UAC memory-allocation failure. T017 is reopened
+for the architect-approved lazy-ring amendment above. Do not resume hardware testing
+until that amendment is implemented and re-reviewed.
 
 The prior implementation remains otherwise acceptable in structure: UAC/CDC stay
 platform-private; canonical conversion/ring/discontinuity ownership is correct;
@@ -1150,6 +1151,89 @@ Required amendment:
 8. Re-run Linux 39/39, units 14/14, architecture checks, and the real ADV build.
 
 After this amendment, return a new implementation SHA for supervisor re-review. Do not begin hardware acceptance on 454368fe570e1f2df2efa1505242c50a0f0c4b6d.
+
+## Architect memory-allocation amendment
+
+Hardware measurement immediately before launching FT8:
+
+```text
+app used      0 B
+heap free     264.5 KiB
+largest block 208.0 KiB
+```
+
+This confirms the first hardware failure is a pre-UAC memory-pressure problem.
+The production FT8 monitor baseline requires about 206 KiB contiguous, while T017
+currently reserves the 16384-frame UAC ring (65536 bytes) permanently in static
+internal DRAM. `app_controller_start_rx()` allocates AppRxState and the FT8 engine
+workspace before calling Audio.open(), so the 208 KiB shell-state largest block is
+too close to the FT8 workspace requirement to survive those preceding allocations.
+
+Required amendment:
+
+1. Remove the permanent static `adv_uac_buffer_t ring` allocation from .bss.
+2. Keep only a nullable provider-owned pointer/state in permanent storage.
+3. In `rx_open("uac:qmx")`, after the application/FT8 workspace already exists
+   but **before** `adv_console_begin_usb_host()`, allocate one
+   `adv_uac_buffer_t` dynamically from internal 8-bit-capable heap.
+4. Log before/after allocation while USB Serial/JTAG is still active:
+   - requested bytes;
+   - heap free;
+   - largest block;
+   - allocation success/failure.
+5. Zero/init the allocated ring exactly as the former static object was initialized.
+6. Pass/use the pointer through all conversion/ring/epoch paths without changing
+   public Audio semantics.
+7. On clean UAC close after USB/class/console teardown is complete, free the ring
+   and clear the pointer.
+8. If teardown fails and provider reservation/cleanup obligation is retained, do
+   **not** free the ring prematurely; retain it until cleanup succeeds.
+9. On prepare failure after ring allocation:
+   - unwind USB/console ownership as already specified;
+   - once ownership cleanup succeeds, free the ring and clear reservation;
+   - if ownership cleanup fails, retain ring + reservation for retry.
+10. An Audio-open ring allocation failure must:
+    - occur before USB Serial/JTAG suspension;
+    - print a diagnostic on the normal USB console;
+    - return MINI_ERR_NO_MEMORY or the nearest existing appropriate backend result;
+    - leave USB ownership untouched.
+11. WAV and other non-UAC endpoints must allocate no UAC ring.
+12. Do not reduce the 16384-frame ring yet. First restore the intended allocation
+    order, then measure real ring high-water during synchronous decode.
+13. Add/adjust host tests for:
+    - lazy allocation state;
+    - allocation failure with no USB/console handoff;
+    - cleanup success frees ring;
+    - cleanup failure retains ring;
+    - later cleanup retry frees it;
+    - repeated open/close does not leak.
+14. Re-run Linux full CTest, unit suite, architecture checks and real ADV build.
+15. Record new firmware .bss size; the expected result is approximately 64 KiB
+    recovered from static .bss relative to the current T017 build.
+
+Expected runtime allocation order:
+
+```text
+M$> shell
+    no UAC ring allocated
+
+ft8 startup
+    AppController / AppRxState
+    FT8 monitor workspace (~206 KiB contiguous)
+    Audio.open("uac:qmx")
+        allocate 64 KiB canonical UAC ring
+        then suspend USB Serial/JTAG
+        then install USB Host/UAC/CDC
+
+ft8 clean exit
+    teardown UAC/CDC/USB Host
+    restore USB Serial/JTAG
+    free UAC ring
+    return M$>
+```
+
+After this amendment, repeat the exact hardware launch that previously returned 8.
+Only if FT8 reaches the GPIO4 handoff should subsequent USB enumeration debugging begin.
 
 ## Hardware finding — first T017 run
 
