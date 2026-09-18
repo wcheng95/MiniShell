@@ -1,6 +1,6 @@
 # T010 — Make ADV Audio TX honor caller timeout
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -526,7 +526,15 @@ TESTING precede merge and later branch deletion.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff and local evidence. If accepted, move to TESTING for the existing ADV probe.
+PASS for hardware testing. Reviewed commit `d04e3e3717a7a33f8be5937270de321c400b6bfb` against `main`.
+
+The provider change is narrow and preserves ownership: ES8311 codec creation, hardware volume, mute/unmute and lifecycle remain in `esp_codec_dev`; PCM transport now uses the already-owned I2S TX channel so MiniShell caller timeouts and accepted byte progress are visible. The private mapping helper is host-test-only support for the exact production mapping and introduces no public/runtime dependency.
+
+The esp_codec_dev 1.6.2 inspection is sufficient: this configuration has no active software-volume PCM transform, so direct I2S transport does not bypass current sample processing.
+
+One inherited IDF limitation remains explicit: `i2s_channel_write()` may reuse a finite timeout across internal waits instead of enforcing one aggregate whole-call deadline, and `MINI_WAIT_FOREVER` is converted by this IDF/FreeRTOS configuration rather than treated as a literal infinite sentinel. T010 therefore proves exact forwarding and truthful progress, not stronger semantics than the underlying IDF primitive can provide.
+
+Local mapping tests (40 cases), unit suite 14/14, architecture checks, full Linux 27/29 with only accepted baseline failures, and the real ADV firmware build all pass. T010 is now TESTING pending the existing `audio_tx_probe` on Cardputer ADV. Do not merge until phase A remains healthy and phase B demonstrates nonblocking/timeout behavior.
 
 ## Architect hardware result
 
