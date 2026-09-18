@@ -205,6 +205,24 @@ target_include_directories(ft8_storage_service_unit PRIVATE
 )
 target_compile_options(ft8_storage_service_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
+add_executable(ft8_runtime_grid_ownership_unit
+    tests/ft8_runtime_grid_ownership_test.c
+    apps/ft8/src/app_controller/app_controller_instance.c
+    apps/ft8/src/config_service/config_service.c
+)
+target_include_directories(ft8_runtime_grid_ownership_unit PRIVATE
+    include
+    apps/ft8/include
+    apps/ft8/src/app_controller
+    apps/ft8/src/auto_seq
+    apps/ft8/src/config_service
+    apps/ft8/src/storage_service
+    apps/ft8/src/tx_lifecycle
+)
+target_compile_options(ft8_runtime_grid_ownership_unit PRIVATE
+    -Wall -Wextra -Werror -Wpedantic
+)
+
 add_executable(ft8_ui_smoke
     tests/ft8_ui_smoke.c
     apps/ft8/src/presentation_profile/presentation_profile.c
@@ -460,6 +478,7 @@ add_test(
 )
 
 add_test(NAME ft8_storage_service_unit COMMAND ft8_storage_service_unit)
+add_test(NAME ft8_runtime_grid_ownership_unit COMMAND ft8_runtime_grid_ownership_unit)
 add_test(NAME ft8_ui_smoke COMMAND ft8_ui_smoke)
 add_test(NAME linux_terminal_parser_unit COMMAND linux_terminal_parser_unit)
 add_test(NAME ft8_auto_seq_as2_unit COMMAND ft8_auto_seq_as2_unit)
