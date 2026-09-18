@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: TESTING
+Status: READY
 
 ## Objective
 
@@ -380,15 +380,15 @@ Canonical ownership state:
 ```text
 normal M$> shell
     USB Serial/JTAG console active
-    GPIO4/5 debug UART inactive
+    GPIO3/6 debug UART inactive
     USB Host inactive
     TinyUSB MSC inactive
 
 enter ft8 using uac:qmx
     suspend/uninstall USB Serial/JTAG
     enable temporary V2-style debug UART
-        TX = GPIO4
-        RX = GPIO5
+        TX = GPIO3
+        RX = GPIO6
         baud = 115200
     install USB Host
     run QMX UAC + optional CDC
@@ -402,7 +402,7 @@ clean ft8 exit
     drain USB host events
     usb_host_uninstall()
     CONFIRM PHY RELEASED
-    disable temporary GPIO4/5 debug UART
+    disable temporary GPIO3/6 debug UART
     restore USB Serial/JTAG console
     return to normal M$>
 
@@ -421,16 +421,16 @@ Required implementation rules:
 2. Do not call `usb_host_install()` while USB Serial/JTAG is still installed.
 3. Add a private ADV temporary debug-UART owner using the proven MiniFT8-V2 console
    wiring:
-   - UART TX GPIO4
-   - UART RX GPIO5
+   - UART TX GPIO3
+   - UART RX GPIO6
    - 115200 baud.
 4. The GPIO4/5 UART is a diagnostics/debug terminal during the FT8 USB-host window.
    It is not a new public MiniShell service and not part of MiniFT8 application
    logic.
 5. Route ADV/System/debug diagnostics that would otherwise disappear while USB
-   Serial/JTAG is suspended to GPIO4/5 during this window.
+   Serial/JTAG is suspended to GPIO3/6 during this window.
 6. Cardputer Display/Input remain the authoritative FT8 UI/control path.
-7. GPIO5 RX may accept debug-terminal input only if it can be done without creating
+7. GPIO6 RX may accept debug-terminal input only if it can be done without creating
    competing FT8 UI/application policy. Diagnostic output is mandatory; UART input
    is optional for T017.
 8. Restore USB Serial/JTAG only after UAC/CDC are gone and
@@ -452,7 +452,7 @@ Hardware acceptance therefore includes:
 normal M$> visible over USB Serial/JTAG
 -> run ft8
 -> USB Serial/JTAG disconnects
--> GPIO4 TX shows T017/UAC diagnostics at 115200
+-> GPIO3 TX shows T017/UAC diagnostics at 115200
 -> Cardputer display/keyboard run FT8
 -> q
 -> UAC/CDC stop
@@ -1013,7 +1013,7 @@ heap demand; actual free heap/largest block remains unmeasured.
 
 **Hardware testing has not begun.** Await supervisor re-review before any flash,
 serial terminal or QMX acceptance session. Still to validate: USB disconnect and
-re-enumeration, GPIO4 diagnostics, repeated FT8 entry/quit, failure recovery, live
+re-enumeration, GPIO3 diagnostics, repeated FT8 entry/quit, failure recovery, live
 QMX decode/ring occupancy, heap stability, and the unchanged MSC sequence after
 clean Host release. ESP log formatting is bounded and may truncate long diagnostic
 calls; large diagnostic bursts can wait for UART TX capacity. ROM/panic output is
@@ -1062,6 +1062,28 @@ Rules:
 - if USB Host teardown is incomplete, do not restore USB Serial/JTAG until the PHY is actually released;
 - after clean FT8 exit, USB Serial/JTAG must return before control is considered back at the normal shell state.
 
+## Architect debug-pin remap — GPIO3/GPIO6
+
+The temporary FT8 USB-host debug UART is moved from GPIO4/GPIO5 to the easier-access
+Keyer connector pair:
+
+```text
+TX = GPIO3
+RX = GPIO6
+baud = 115200 8N1
+```
+
+Ownership rule:
+
+- MiniShell runs one foreground app at a time, so FT8 and Keyer do not actively own
+  these pins concurrently.
+- While FT8 owns USB Host, GPIO3/GPIO6 belong to the private ADV debug UART.
+- On every clean FT8 exit and recoverable prepare failure, the UART driver must be
+  removed and GPIO3/GPIO6 reset to neutral GPIO state before returning to `M$>`.
+- Keyer behavior/source is unchanged; it can reacquire GPIO3/GPIO6 later through the
+  normal Digital I/O service.
+- No public API or MiniFT8 domain code changes.
+
 ## Architect FT8 debug-terminal decision
 
 While `ft8` owns the ESP32-S3 USB PHY for USB Host, use the same temporary debug UART wiring as MiniFT8-V2:
@@ -1078,11 +1100,11 @@ Ownership/state model:
 ```text
 M$> normal shell
     USB Serial/JTAG console active
-    GPIO4/5 debug UART inactive
+    GPIO3/6 debug UART inactive
 
 enter ft8 with uac:qmx
     suspend/uninstall USB Serial/JTAG
-    enable temporary GPIO4/5 UART debug terminal
+    enable temporary GPIO3/6 UART debug terminal
     install USB Host
     run QMX UAC/CDC
     Cardputer display/keyboard remain the authoritative FT8 UI/input
@@ -1098,7 +1120,7 @@ exit ft8
 Scope/behavior:
 
 - reuse the proven V2 UART0/custom-console wiring where practical;
-- GPIO4/5 is a debug/diagnostic terminal during the FT8 USB-host window;
+- GPIO3/6 is a debug/diagnostic terminal during the FT8 USB-host window;
 - preserve Cardputer display/keyboard as the normal local FT8 UI/input path;
 - do not require GPIO4/5 UART for FT8 correctness;
 - do not expose UART/ESP-IDF details to MiniFT8 application code;
@@ -1234,7 +1256,7 @@ measured after the FT8 workspace was allocated on hardware.
 
 Linux CTest 42/42, units 14/14, architecture checks and the real ADV build are accepted.
 T017 returns to TESTING. Resume the same hardware launch; record the allocation logs,
-GPIO4 diagnostics, QMX enumeration and then ring high-water over real decode slots.
+GPIO3 diagnostics, QMX enumeration and then ring high-water over real decode slots.
 
 ## Supervisor lazy-ring re-review
 
@@ -1257,7 +1279,7 @@ Its size is not an architectural requirement: record ring high-water during real
 synchronous FT8 decode, then trim later from measured need if RAM pressure warrants.
 
 Resume the exact launch that previously returned 8. First success criterion is that
-FT8 now reaches the UAC allocation/console handoff and GPIO4 diagnostics; only then
+FT8 now reaches the UAC allocation/console handoff and GPIO3 diagnostics; only then
 continue to QMX enumeration/live-decode acceptance.
 
 ## Supervisor review
@@ -1564,7 +1586,7 @@ Interpretation:
 - the USB Serial/JTAG monitor disconnect is expected and is evidence that the
   console handoff reached USB-host ownership;
 - USB Serial/JTAG cannot be used as the FT8 terminal while host mode owns the PHY;
-- GPIO4 diagnostics require a separate UART adapter on GPIO4 TX + GND.
+- GPIO3 diagnostics require a separate UART adapter on GPIO3 TX + GND.
 
 After QMX is connected, FT8 becomes visible/running but the reported key response is
 unclear whether it is only the now-disconnected PC terminal or also the physical
@@ -1600,7 +1622,7 @@ The amendment is config-only and bounded:
 Linux CTest 42/42, units 14/14, architecture checks, guard checks and the real ADV
 rebuild are accepted. T017 returns to TESTING.
 
-Next hardware success criterion: with GPIO4 diagnostics active, QMX enumeration must
+Next hardware success criterion: with GPIO3 diagnostics active, QMX enumeration must
 proceed beyond the previous `CHECK_SHORT_CONFIG_DESC FAILED` point and reach UAC RX
 connected/open plus strict 48000/24/2 stream start.
 
@@ -2048,7 +2070,7 @@ accepted. T017 returns to TESTING.
 Next hardware milestones:
 - ring allocation succeeds with substantially larger free/largest heap;
 - USB Host and UAC 1.3.3 install;
-- GPIO4 prints `capture task create success`;
+- GPIO3 prints `capture task create success`;
 - QMX enumerates past configuration descriptor;
 - UAC RX interface opens and strict 48000/24/2 starts;
 - Cardputer UI/keyboard remains responsive.
