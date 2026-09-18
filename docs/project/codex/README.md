@@ -7,10 +7,10 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T021-ft8-tx-encoder.md   READY
 ```
 
-T020 is COMPLETE at the software/review level: MiniFT8 now has QMX `TX;`, `TAxxxx.xx;`, and `RX;` primitives with fail-safe RX cleanup. The architect intentionally deferred standalone RF validation to the integrated T022 Linux/QMX transmit test.
+T021 adds the pure FT8 transmit encoder: AutoSeq semantic intent -> canonical TX text -> 77-bit payload -> CRC/LDPC -> immutable 79-tone FT8 plan. No CAT, clock, platform API, or hardware is involved; T020 RF validation remains deferred to T022.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
