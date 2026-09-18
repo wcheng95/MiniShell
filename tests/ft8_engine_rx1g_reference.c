@@ -102,10 +102,12 @@ int main(int argc, char **argv)
     float block[FT8_MONITOR_BLOCK_SIZE];
     int rc = 1;
 
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <ft8_cq_w1xyz_fn42.wav>\n", argv[0]);
+    if ((argc != 2 && argc != 3) ||
+        (argc == 3 && strcmp(argv[2], "1") != 0 && strcmp(argv[2], "2") != 0)) {
+        fprintf(stderr, "usage: %s <ft8_cq_w1xyz_fn42.wav> [freq_osr=1|2]\n", argv[0]);
         return 2;
     }
+    if (argc == 3) config.monitor.freq_osr = (uint32_t)atoi(argv[2]);
     if (open_pcm_data(argv[1], &f, &sample_count) != 0) {
         fprintf(stderr, "cannot parse RX-1A WAV: %s\n", argv[1]);
         return 1;
@@ -114,6 +116,8 @@ int main(int argc, char **argv)
         posix_memalign(&workspace, req.alignment, req.workspace_bytes) != 0 ||
         workspace == NULL)
         goto cleanup;
+    printf("engine time_osr=%u freq_osr=%u workspace=%zu alignment=%zu\n",
+           config.monitor.time_osr, config.monitor.freq_osr, req.workspace_bytes, req.alignment);
     if (ft8_engine_init(&engine, &config, workspace, req.workspace_bytes) != FT8_ENGINE_OK)
         goto cleanup;
     if (ft8_engine_begin_window(&engine, 12345) != FT8_ENGINE_OK)

@@ -404,6 +404,13 @@ target_include_directories(ft8_rx_discontinuity_unit PRIVATE ${FT8_DISCONTINUITY
 target_link_libraries(ft8_rx_discontinuity_unit PRIVATE m)
 target_compile_options(ft8_rx_discontinuity_unit PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(ft8_rx_adv_profile_unit tests/ft8_rx_discontinuity_test.c ${FT8_DISCONTINUITY_SOURCES})
+target_include_directories(ft8_rx_adv_profile_unit PRIVATE ${FT8_DISCONTINUITY_INCLUDES})
+target_compile_definitions(ft8_rx_adv_profile_unit PRIVATE FT8_DEFAULT_FREQ_OSR=1 FT8_TEST_EXPECT_FREQ_OSR=1)
+target_link_libraries(ft8_rx_adv_profile_unit PRIVATE m)
+target_compile_options(ft8_rx_adv_profile_unit PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME ft8_rx_adv_profile_unit COMMAND ft8_rx_adv_profile_unit)
+
 add_executable(rx_slot_framer_rx4_unit tests/rx_slot_framer_rx4_test.c
     apps/ft8/src/rx_slot_framer/rx_slot_framer.c)
 target_include_directories(rx_slot_framer_rx4_unit PRIVATE apps/ft8/src/rx_slot_framer)
@@ -572,6 +579,8 @@ if(FT8_RX1G_REFERENCE_WAV)
         NAME ft8_engine_rx1g_reference
         COMMAND ft8_engine_rx1g_reference "${FT8_RX1G_REFERENCE_WAV}"
     )
+    add_test(NAME ft8_engine_freq1_reference
+        COMMAND ft8_engine_rx1g_reference "${FT8_RX1G_REFERENCE_WAV}" 1)
 endif()
 
 add_test(

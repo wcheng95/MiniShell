@@ -25,6 +25,10 @@ DMA_ATTR uint8_t native_data[2304];
 struct Connection { uint8_t address, interface; };
 QueueHandle_t connections;
 SemaphoreHandle_t capture_done, host_done, cdc_done;
+alignas(portBYTE_ALIGNMENT) StackType_t capture_stack[4096 / sizeof(StackType_t)];
+static_assert(sizeof(capture_stack) == 4096, "capture stack must remain 4096 bytes");
+StaticTask_t capture_tcb;
+TaskHandle_t capture_handle;
 std::atomic<bool> reserved{false}, started{false}, connected{false};
 std::atomic<bool> quit{false}, host_quit{false}, unplugged{false}, cdc_unplugged{false};
 std::atomic<bool> host_installed{false};
@@ -240,14 +244,22 @@ void capture_task(void *)
         close_capture();
     }
     xSemaphoreGive(capture_done);
-    vTaskDelete(nullptr);
+    // The owner deletes this task only once suspended on neither CPU. Self
+    // deletion defers TCB cleanup to idle and could race static-buffer reuse.
+    for (;;) vTaskSuspend(nullptr);
 }
 
 bool release()
 {
     started = false;
     quit = true;
-    if (capture_running) { xSemaphoreTake(capture_done, portMAX_DELAY); capture_running = false; }
+    if (capture_running) {
+        xSemaphoreTake(capture_done, portMAX_DELAY);
+        while (eTaskGetState(capture_handle) != eSuspended) vTaskDelay(1);
+        vTaskDelete(capture_handle);
+        capture_handle = nullptr;
+        capture_running = false;
+    }
     if (cdc_running) { xSemaphoreTake(cdc_done, portMAX_DELAY); cdc_running = false; }
     if (!close_capture() || !close_cdc()) return false;
     if (cdc_installed) {
@@ -317,7 +329,14 @@ bool prepare()
     config.callback = driver_event;
     if (uac_host_install(&config) != ESP_OK) return false;
     uac_installed = true;
-    capture_running = xTaskCreate(capture_task, "uac_capture", 4096, nullptr, 4, nullptr) == pdPASS;
+    ESP_LOGI(tag, "capture task create begin: static stack=%u heap=%u largest=%u",
+             (unsigned)sizeof(capture_stack),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    capture_handle = xTaskCreateStatic(capture_task, "uac_capture", sizeof(capture_stack),
+                                      nullptr, 4, capture_stack, &capture_tcb);
+    capture_running = capture_handle != nullptr;
+    ESP_LOGI(tag, "capture task create %s", capture_running ? "success" : "failure");
     return capture_running;
 }
 mini_result_t rx_open(void *ctx, const char *endpoint, uint32_t rate, uint32_t format,

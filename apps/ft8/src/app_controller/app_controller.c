@@ -15,6 +15,12 @@
 #define RX_TRANSPORT_FRAMES 257u
 #define RX_FRONTEND_OUT_CAPACITY ((RX_TRANSPORT_FRAMES + 1u) / 2u)
 
+/* Application composition may select a smaller monitor workspace. The engine's
+ * portable baseline and time oversampling remain unchanged. */
+#ifndef FT8_DEFAULT_FREQ_OSR
+#define FT8_DEFAULT_FREQ_OSR FT8_MONITOR_BASELINE_FREQ_OSR
+#endif
+
 _Static_assert(APP_MAX_TX_LINES >= AUTO_SEQ_MAX_QUEUE,
                "UiModel must hold the complete active AutoSeq queue");
 _Static_assert(FT8_CONFIG_CQ == AUTO_SEQ_CQ, "CQ type mapping drifted");
@@ -432,6 +438,7 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
     app->rx = rx;
 
     engine_config = ft8_engine_baseline_config();
+    engine_config.monitor.freq_osr = FT8_DEFAULT_FREQ_OSR;
     if (ft8_engine_query_requirements(&engine_config, &req) != FT8_ENGINE_OK ||
         req.workspace_bytes > UINT32_MAX || req.alignment == 0u ||
         (req.alignment & (req.alignment - 1u)) != 0u ||

@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -1902,6 +1902,125 @@ Architect-approved narrow amendment:
 The static 4 KiB capture stack does consume permanent internal DRAM, but this is far
 smaller than the 64 KiB ring that was removed from .bss. It trades a small predictable
 resident cost for reliable task creation after FT8/UAC heap fragmentation.
+
+## Engineer handoff — static capture worker and ADV FT8 memory profile
+
+### Implementation summary
+
+Implemented only the two current amendments. `uac_capture` now uses a static
+4096-byte stack and `StaticTask_t`, with creation-begin heap/largest-block and
+success/failure diagnostics. Priority remains 4 and affinity remains unpinned.
+Creation failure still returns through the existing prepare/unwind path.
+
+The finished worker signals its owner and suspends. The owner waits until
+`eTaskGetState()` reports `eSuspended`, then deletes it synchronously before
+allowing reuse of the static stack/TCB. In the resolved ESP-IDF 5.5.4 kernel,
+that state check excludes a task still running on either CPU; deleting a
+non-running task completes TCB cleanup immediately. This avoids the deferred
+idle cleanup associated with self-deletion racing the next open. Host, CDC and
+UAC class task creation and teardown are unchanged.
+
+Application composition now accepts the generic `FT8_DEFAULT_FREQ_OSR` override
+when forming the RX engine configuration. Without an override it uses the
+unchanged portable baseline (time_osr=2/freq_osr=2). ADV defines it as 1 only
+for the packaged `app_controller.c` translation unit, confirmed in the real
+ADV compile commands. No platform identifiers or behavior changes were added
+to FT8 DSP/domain modules; time_osr stays 2 in both profiles.
+
+### Files changed
+
+- `platform/adv/adv_audio_uac.cpp`: static worker storage, creation diagnostics,
+  and synchronous retirement before static storage reuse.
+- `apps/ft8/src/app_controller/app_controller.c` and
+  `platform/adv/main/CMakeLists.txt`: generic profile selection and ADV override.
+- `tests/ft8_rx_discontinuity_test.c` and root `CMakeLists.txt`: exercise the
+  actual controller with both default and ADV profiles, checking the portable
+  baseline and continuing the discontinuity regression under both profiles.
+- `tests/ft8_engine_rx1g_reference.c` and root `CMakeLists.txt`: run the same
+  pinned golden decode at freq_osr=1 as well as the default freq_osr=2.
+- `tests/adv_usb_console_boundary.py`: guard static task creation, stack size,
+  priority, retirement order, and ADV composition selection.
+- This task packet: REVIEW status and implementation/test evidence.
+
+### Behavior and invariants preserved
+
+The lazy 2048-frame ring, conversion, overflow/discontinuity handling, USB
+ownership/console handoff, usbmsc, all task priorities/core affinities, and
+control-transfer maximum of 2048 are unchanged. Both `sdkconfig.defaults` and
+the resolved ADV `sdkconfig`/generated header retain 2048. Linux/default FT8
+retains frequency oversampling 2. No golden WAV content was changed.
+
+### Memory evidence
+
+Exact `ft8_engine_query_requirements()` results from the two host controller
+tests and golden decode runs (6 kHz monitor, time_osr=2):
+
+| Profile | Workspace bytes | Alignment | Change from freq_osr=2 |
+| --- | ---: | ---: | ---: |
+| Linux/default, freq_osr=2 | 211312 | 16 | 0 |
+| ADV profile executed on host, freq_osr=1 | 105808 | 16 | -105504 |
+
+Target ABI calculation gives **211288 bytes at freq_osr=2** and **105792 bytes
+at freq_osr=1**, saving **105496 bytes**. This is a source/ABI calculation,
+not a hardware measurement: the real Xtensa compiler reports alignment 8,
+`sizeof(kiss_fftr_state)=12`, `sizeof(kiss_fft_state)=272`, complex size 8 and
+float size 4. Applying the unchanged monitor query's slice/alignment rules
+gives FFT plans 19476/9876 bytes and waterfalls 161076/80538 bytes respectively.
+The host calculation with alignment 16 and a 24-byte real-FFT state matches
+the executed query results above. Engine-instance/candidate/hash storage is
+unchanged and is separate from these workspace figures.
+
+The real firmware map now reports `.dram0.bss` **0x4168 (16744 bytes)** versus
+the previous **0x3010 (12304 bytes)**: **+4440 bytes**, exactly the static stack
+4096 + TCB 340 + handle 4. The UAC ring remains lazy heap storage. Firmware
+binary size is **0xb8e30**, leaving **0x5371d0 (88%)** of the app partition free.
+
+### Tests run and results
+
+All local gates passed:
+
+```sh
+git -C /home/wei/projects/Mini-FT8 show \
+  491e757ae6b1e4cfd2b9a6ba10f48b35643849e0:tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav \
+  > /tmp/T017-profile-golden.wav
+cmake -S . -B build-linux -DFT8_RX1G_REFERENCE_WAV=/tmp/T017-profile-golden.wav
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T017-build-unit
+cmake --build /tmp/T017-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T017-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+Linux full CTest **45/45** (including both golden profiles, controller profiles,
+architecture checks/self-tests and UAC lifecycle regressions); unit suite
+**14/14**; all three standalone boundary checks PASS; real ESP32-S3 ADV build
+PASS. Both golden runs decode exactly one `CQ W1XYZ FN42`, payload
+`000000206016500A1988`, at slot 12345. The pinned V2 source also confirms
+`g_time_osr=2`, `g_freq_osr=1` in `main/main.cpp`.
+
+### Hardware/manual validation still required; known limitations
+
+Hardware testing remains paused per the architect's chat instruction, which
+supersedes the earlier instruction to resume with QMX connected. No flashing
+or hardware test was performed. QMX enumeration, the new creation-success
+milestone, live/continuous decode, repeated ft8/quit/ft8, and usbmsc-after-FT8
+still require architect validation. The static worker costs 4440 resident
+bytes; host decode and source/lifecycle regressions cannot establish real
+device scheduling or weak-signal performance. No scheduling tuning or freeze
+breadcrumbs were added.
+
+### Commit/PR reference
+
+This handoff is included in the implementation commit titled
+`T017: reserve capture worker and select ADV FT8 memory profile` on
+`codex/T017-adv-usb-uac-rx`; the pushed SHA is returned in chat. No PR opened
+and no GitHub Actions wait requested.
 
 ## Architect hardware result
 

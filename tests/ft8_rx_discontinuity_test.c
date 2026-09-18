@@ -4,6 +4,10 @@
 #define FT8_APP_CONTROLLER_INTERNAL 1
 #include "../apps/ft8/src/app_controller/app_controller.c"
 
+#ifndef FT8_TEST_EXPECT_FREQ_OSR
+#define FT8_TEST_EXPECT_FREQ_OSR 2
+#endif
+
 static mini_result_t read_result = MINI_OK;
 static bool utc_available = true;
 static unsigned opens, starts, stops, closes;
@@ -51,6 +55,14 @@ int main(void)
     assert(auto_seq_init(&app.auto_seq, NULL));
     AppRxStartConfig config = {.endpoint = "fake", .has_explicit_timing = true, .slot_id = 1};
     assert(app_controller_start_rx(&app, &config));
+    Ft8EngineConfig baseline = ft8_engine_baseline_config();
+    assert(baseline.monitor.time_osr == 2 && baseline.monitor.freq_osr == 2);
+    assert(app.rx->engine.config.monitor.time_osr == 2);
+    assert(app.rx->engine.config.monitor.freq_osr == FT8_TEST_EXPECT_FREQ_OSR);
+    Ft8EngineRequirements requirements;
+    assert(ft8_engine_query_requirements(&app.rx->engine.config, &requirements) == FT8_ENGINE_OK);
+    printf("controller time_osr=2 freq_osr=%u workspace=%zu alignment=%zu\n",
+           app.rx->engine.config.monitor.freq_osr, requirements.workspace_bytes, requirements.alignment);
     bool changed;
     assert(app_controller_step_rx(&app, &changed));
     AppRxState *rx = app.rx;

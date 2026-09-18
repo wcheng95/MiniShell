@@ -24,6 +24,21 @@ ordered(release, "xSemaphoreTake(capture_done", "xSemaphoreTake(cdc_done",
 ordered(provider, "if (usb_host_uninstall() == ESP_OK)", "host_installed = false;")
 assert provider.count("adv_console_end_usb_host(") == 1
 assert provider.count("adv_console_begin_usb_host(") == 1
+assert 'xTaskCreate(capture_task' not in provider
+ordered(prepare, 'capture task create begin',
+        'xTaskCreateStatic(capture_task, "uac_capture", sizeof(capture_stack),',
+        'nullptr, 4, capture_stack, &capture_tcb)', 'capture task create %s')
+assert 'StackType_t capture_stack[4096 / sizeof(StackType_t)]' in provider
+assert 'StaticTask_t capture_tcb;' in provider
+ordered(release, 'xSemaphoreTake(capture_done',
+        'while (eTaskGetState(capture_handle) != eSuspended)',
+        'vTaskDelete(capture_handle)', 'capture_handle = nullptr;')
+capture = provider.split('void capture_task(void *)', 1)[1].split('bool release()', 1)[0]
+assert 'vTaskDelete(nullptr)' not in capture
+ordered(capture, 'xSemaphoreGive(capture_done)', 'for (;;) vTaskSuspend(nullptr);')
+composition = (root / 'platform/adv/main/CMakeLists.txt').read_text()
+assert ('set_property(SOURCE "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller.c"\n'
+        '        APPEND PROPERTY COMPILE_DEFINITIONS FT8_DEFAULT_FREQ_OSR=1)') in composition
 assert "adv_console_resume_after_usb" not in provider
 ordered(console.split("int adv_console_suspend_for_usb(void)", 1)[1],
         "if (s_host_console.suspended) return -1;", "usb_serial_jtag_driver_uninstall()")

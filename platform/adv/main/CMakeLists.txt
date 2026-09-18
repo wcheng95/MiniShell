@@ -54,6 +54,10 @@ if(NOT CMAKE_SCRIPT_MODE_FILE)
         "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller_tx.c"
         PROPERTIES COMPILE_DEFINITIONS FT8_APP_CONTROLLER_INTERNAL
     )
+    # Packaged FT8 uses the pinned V2 monitor profile; desktop defaults stay in
+    # the portable engine. Limit the override to this controller translation unit.
+    set_property(SOURCE "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller.c"
+        APPEND PROPERTY COMPILE_DEFINITIONS FT8_DEFAULT_FREQ_OSR=1)
 endif()
 
 set(ADV_PORTABLE_UTILITY_SOURCES
