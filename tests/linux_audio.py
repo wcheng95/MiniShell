@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import os
+import re
+import struct
 import shutil
 import subprocess
 import sys
@@ -34,7 +36,20 @@ def main() -> int:
         if len(payload) != expected_frames * 4:
             print("fixture payload length mismatch", file=sys.stderr)
             return 2
-        expected_hash = fnv1a(payload)
+        samples = list(struct.iter_unpack("<hh", payload))
+        # The probe saturates abs(INT16_MIN) to INT16_MAX.
+        magnitudes = [(min(abs(left), 32767), min(abs(right), 32767))
+                      for left, right in samples]
+        expected = {
+            "frames": str(expected_frames),
+            "hash": f"{fnv1a(payload):016x}",
+            "rate": "0.000",
+            "peak_l": str(max((left for left, _ in magnitudes), default=0)),
+            "peak_r": str(max((right for _, right in magnitudes), default=0)),
+            "mean_l": str(sum(left for left, _ in magnitudes) // expected_frames if expected_frames else 0),
+            "mean_r": str(sum(right for _, right in magnitudes) // expected_frames if expected_frames else 0),
+            "unequal": str(sum(left != right for left, right in samples)),
+        }
 
     with tempfile.TemporaryDirectory(prefix="minishell-audio-") as root:
         flash = os.path.join(root, "flash")
@@ -63,14 +78,23 @@ def main() -> int:
             print(output, end="")
             return 1
 
-        expected = (
-            f"audio_probe: PASS frames={expected_frames} "
-            f"hash={expected_hash:016x}"
+        records = re.findall(r"audio_probe: PASS[^\r\n]*", output)
+        pattern = re.compile(
+            r"audio_probe: PASS frames=(?P<frames>\d+) rate=(?P<rate>\d+\.\d{3})Hz "
+            r"peak=(?P<peak_l>\d+)/(?P<peak_r>\d+) "
+            r"mean_abs=(?P<mean_l>\d+)/(?P<mean_r>\d+) "
+            r"unequal_lr=(?P<unequal>\d+) hash=(?P<hash>[0-9a-f]{16})"
         )
-        if output.count(expected) != 2:
+        if len(records) != 2:
             print(output, end="")
-            print(f"expected twice: {expected}")
+            print(f"expected exactly two PASS records, got {len(records)}")
             return 1
+        for record in records:
+            match = pattern.fullmatch(record)
+            if match is None or match.groupdict() != expected:
+                print(output, end="")
+                print(f"expected metrics: {expected}; got: {record}")
+                return 1
         if "audio_probe: FAIL" in output:
             print(output, end="")
             return 1

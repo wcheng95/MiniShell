@@ -3,6 +3,7 @@
 import errno
 import os
 import pty
+import re
 import select
 import shutil
 import subprocess
@@ -35,10 +36,47 @@ def read_until(fd: int, needle: bytes, timeout: float) -> bytes:
     return bytes(data)
 
 
-def current_screen(data: bytes) -> bytes:
-    marker = b"\x1b[2J\x1b[H"
-    pos = data.rfind(marker)
-    return data[pos:] if pos >= 0 else data
+# The ADV adapter writes a complete clear + seven 20-column rows per frame.
+# Read whole frames so a PTY chunk ending at the page marker cannot hide rows.
+TX_FRAME = re.compile(
+    rb"\x1b\[2J\x1b\[H" + b"".join(
+        rb"\x1b\[" + str(row).encode() + rb";1H([^\x1b]{20})"
+        for row in range(1, 8)
+    )
+)
+
+
+def read_tx_page(fd, transcript, page, pages, count, previous=None):
+    deadline = time.monotonic() + 3.0
+    pending = bytearray()
+    while time.monotonic() < deadline:
+        readable, _, _ = select.select([fd], [], [], max(0, deadline - time.monotonic()))
+        if not readable:
+            continue
+        chunk = os.read(fd, 4096)
+        if not chunk:
+            break
+        transcript.extend(chunk)
+        pending.extend(chunk)
+        for frame in TX_FRAME.finditer(pending):
+            rows = frame.groups()
+            if not rows[0].startswith(b"TX ") or f" {page}/{pages} ".encode() not in rows[0]:
+                continue
+            calls = []
+            for line, row in enumerate(rows[1:], 1):
+                if not row.strip():
+                    continue
+                match = re.fullmatch(rb"([1-6]) ([A-Z0-9/]+) +RPLY 0/3 *", row)
+                if match is None or int(match[1]) != line or line != len(calls) + 1:
+                    raise RuntimeError(f"unexpected TX row {line}: {row!r}")
+                calls.append(match[2])
+            # A periodic clock redraw already in flight may precede the action.
+            if calls == previous:
+                continue
+            if len(calls) != count or len(set(calls)) != count:
+                raise RuntimeError(f"expected {count} unique TX rows: {rows!r}")
+            return calls
+    raise TimeoutError(f"missing complete TX page {page}/{pages}: {bytes(pending)!r}")
 
 
 def main() -> int:
@@ -177,75 +215,48 @@ def main() -> int:
                 transcript.extend(read_until(master_fd, b" 3/3 ", 3.0))
                 os.write(master_fd, b"1234")
 
-                # The eight factual CQs become eight RPLY contexts: T pages are 6 + 2.
+                # AS-3: capture all eight factual CQ contexts in rendered order.
                 os.write(master_fd, b"t")
-                page1 = read_until(master_fd, b"WN0KS    RPLY 0/3", 3.0)
-                expected_page1 = (b"N4NJJ", b"AG6X", b"AE7KJ", b"W7RPS",
-                                  b"N7REB", b"WN0KS")
-                if b" 1/2 " not in page1 or page1.count(b"RPLY 0/3") != 6 or \
-                        any(call not in page1 for call in expected_page1):
-                    raise RuntimeError(
-                        f"AS-3 T page 1 did not contain the six expected CQ contexts: {page1!r}"
-                    )
-                transcript.extend(page1)
-
+                initial_page1 = read_tx_page(master_fd, transcript, 1, 2, 6)
                 os.write(master_fd, b"\x1b[B")
-                page2 = read_until(master_fd, b"KQ4PUG   RPLY 0/3", 3.0)
-                if b" 2/2 " not in page2 or page2.count(b"RPLY 0/3") != 2 or \
-                        b"N5CH" not in page2 or b"KQ4PUG" not in page2:
-                    raise RuntimeError(
-                        f"AS-3 T page 2 did not contain the two expected CQ contexts: {page2!r}"
-                    )
-                transcript.extend(page2)
+                initial_page2 = read_tx_page(master_fd, transcript, 2, 2, 2)
+                initial_order = initial_page1 + initial_page2
+                expected_calls = {b"N4NJJ", b"AG6X", b"AE7KJ", b"W7RPS",
+                                  b"N7REB", b"WN0KS", b"N5CH", b"KQ4PUG"}
+                if len(initial_order) != 8 or set(initial_order) != expected_calls:
+                    raise RuntimeError(f"AS-3 wrong CQ queue: {initial_order!r}")
 
-                # AS-5: all eight CQs have the same TX parity. Return to page 1
-                # and press Enter; V2 rotation moves the head to the end of the
-                # contiguous same-parity run.
+                # AS-5: all fixture CQs have the same TX parity. Rotate only
+                # the head to the tail; retain the observed relative tail order.
                 os.write(master_fd, b"\x1b[B")
-                transcript.extend(read_until(master_fd, b" 1/2 ", 3.0))
+                if read_tx_page(master_fd, transcript, 1, 2, 6) != initial_page1:
+                    raise RuntimeError("AS-3 queue changed while paging")
                 os.write(master_fd, b"\r")
-                rotated = read_until(master_fd, b"N5CH     RPLY 0/3", 3.0)
-                rotated_screen = current_screen(rotated)
-                expected_rotated_page1 = (b"AG6X", b"AE7KJ", b"W7RPS",
-                                          b"N7REB", b"WN0KS", b"N5CH")
-                if b" 1/2 " not in rotated_screen or \
-                        any(call not in rotated_screen for call in expected_rotated_page1) or \
-                        b"N4NJJ" in rotated_screen:
-                    raise RuntimeError(
-                        f"AS-5 same-parity rotation produced wrong page 1: {rotated_screen!r}"
-                    )
-                transcript.extend(rotated)
-
-                # Drop visible line 1 (absolute queue index 0 => AG6X). A QSO
-                # drop parks metadata inactive; only active rows remain visible.
-                os.write(master_fd, b"1")
-                dropped = read_until(master_fd, b"KQ4PUG   RPLY 0/3", 3.0)
-                dropped_screen = current_screen(dropped)
-                if b"AG6X" in dropped_screen or b"AE7KJ" not in dropped_screen or \
-                        b"KQ4PUG" not in dropped_screen or b" 1/2 " not in dropped_screen:
-                    raise RuntimeError(
-                        f"AS-5 T drop did not remove the rotated head: {dropped_screen!r}"
-                    )
-                transcript.extend(dropped)
-
-                # Page 2 now contains only N4NJJ. Drop it through page-local key 1;
-                # the UI action must carry absolute index 6. Six active rows remain,
-                # so paging collapses back to 1/1.
+                rotated_page1 = read_tx_page(master_fd, transcript, 1, 2, 6,
+                                             previous=initial_page1)
                 os.write(master_fd, b"\x1b[B")
-                page2_after_drop = read_until(master_fd, b"N4NJJ    RPLY 0/3", 3.0)
-                if b" 2/2 " not in page2_after_drop:
-                    raise RuntimeError(f"AS-5 expected one row on page 2: {page2_after_drop!r}")
-                transcript.extend(page2_after_drop)
+                rotated_page2 = read_tx_page(master_fd, transcript, 2, 2, 2)
+                rotated_order = rotated_page1 + rotated_page2
+                if rotated_order != initial_order[1:] + initial_order[:1]:
+                    raise RuntimeError(f"AS-5 rotation: {initial_order!r} -> {rotated_order!r}")
+
+                os.write(master_fd, b"\x1b[B")
+                if read_tx_page(master_fd, transcript, 1, 2, 6) != rotated_page1:
+                    raise RuntimeError("AS-5 queue changed while paging")
+                # Drop visible line 1, then reconstruct the seven-row queue.
                 os.write(master_fd, b"1")
-                collapsed = read_until(master_fd, b" 1/1 ", 3.0)
-                collapsed_screen = current_screen(collapsed)
-                remaining = (b"AE7KJ", b"W7RPS", b"N7REB", b"WN0KS", b"N5CH", b"KQ4PUG")
-                if b"N4NJJ" in collapsed_screen or b"AG6X" in collapsed_screen or \
-                        any(call not in collapsed_screen for call in remaining):
-                    raise RuntimeError(
-                        f"AS-5 page-2 absolute drop/collapse failed: {collapsed_screen!r}"
-                    )
-                transcript.extend(collapsed)
+                dropped_page1 = read_tx_page(master_fd, transcript, 1, 2, 6,
+                                             previous=rotated_page1)
+                os.write(master_fd, b"\x1b[B")
+                dropped_page2 = read_tx_page(master_fd, transcript, 2, 2, 1)
+                if dropped_page1 + dropped_page2 != rotated_order[1:]:
+                    raise RuntimeError(f"AS-5 head drop: {dropped_page1 + dropped_page2!r}")
+
+                # Drop page-local row 1 (absolute index 6), collapsing to 1/1.
+                os.write(master_fd, b"1")
+                remaining = read_tx_page(master_fd, transcript, 1, 1, 6)
+                if remaining != rotated_order[1:-1]:
+                    raise RuntimeError(f"AS-5 page-local drop/collapse: {remaining!r}")
 
                 os.write(master_fd, b"q")
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))

@@ -1,6 +1,6 @@
 # T016 — Repair stale Linux regression expectations
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -289,22 +289,22 @@ No ADV build/hardware validation is required because production code is unchange
 
 ## Acceptance criteria
 
-- [ ] both failures reproduced before edits and match stale expectations;
-- [ ] linux_audio independently validates current deterministic probe metrics;
-- [ ] linux_audio no longer depends on frames/hash adjacency;
-- [ ] exactly two successful probe runs are still required;
-- [ ] linux_ft8 preserves expected eight-call CQ set;
-- [ ] linux_ft8 captures real queue order before rotation;
-- [ ] rotation is asserted as `initial[1:] + initial[:1]`;
-- [ ] no unsupported N5CH/KQ4PUG relative order is hard-coded;
-- [ ] drop/page-local absolute-index behavior remains covered;
-- [ ] page collapse remains covered;
-- [ ] no production source changed;
-- [ ] architecture checks pass;
-- [ ] unit suite passes;
-- [ ] full Linux CTest is green;
-- [ ] no expectations are weakened to generic PASS-only checks;
-- [ ] no unrelated cleanup.
+- [x] both failures reproduced before edits and match stale expectations;
+- [x] linux_audio independently validates current deterministic probe metrics;
+- [x] linux_audio no longer depends on frames/hash adjacency;
+- [x] exactly two successful probe runs are still required;
+- [x] linux_ft8 preserves expected eight-call CQ set;
+- [x] linux_ft8 captures real queue order before rotation;
+- [x] rotation is asserted as `initial[1:] + initial[:1]`;
+- [x] no unsupported N5CH/KQ4PUG relative order is hard-coded;
+- [x] drop/page-local absolute-index behavior remains covered;
+- [x] page collapse remains covered;
+- [x] no production source changed;
+- [x] architecture checks pass;
+- [x] unit suite passes;
+- [x] full Linux CTest is green;
+- [x] no expectations are weakened to generic PASS-only checks;
+- [x] no unrelated cleanup.
 
 ## Branch workflow
 
@@ -332,19 +332,149 @@ directly; no hardware TESTING phase is needed.
 
 ### Pre-edit failure reproduction
 
+Before any edits, configured/built Linux and ran:
+
+```bash
+ctest --test-dir build-linux -R '^(linux_audio|linux_ft8)$' --output-on-failure
+```
+
+Result: **0/2 PASS**, exit 8. Full output was saved to `/tmp/T016-before.log`
+and is reproduced below (ESC bytes escaped as `\x1b` for Markdown readability).
+Both failures match the task diagnosis. Audio reports correct frames/hash with
+intervening diagnostics. FT8 initially renders queue order
+`N4NJJ, AG6X, W7RPS, AE7KJ, N7REB, WN0KS, KQ4PUG, N5CH`; rotation correctly makes
+`AG6X, W7RPS, AE7KJ, N7REB, WN0KS, KQ4PUG` page 1, so waiting for N5CH there times
+out. Inspected `auto_seq_rotate_same_parity()` to confirm head-to-tail semantics.
+No new production defect was encountered.
+
+<details>
+<summary>Exact pre-edit CTest output (terminal ESC bytes escaped)</summary>
+
+```text
+Internal ctest changing into directory: /home/wei/projects/MiniShell/build-linux
+Test project /home/wei/projects/MiniShell/build-linux
+    Start  9: linux_audio
+1/2 Test  #9: linux_audio ......................***Failed    0.08 sec
+minishell
+M$> audio_probe: PASS frames=180140 rate=0.000Hz peak=5439/5436 mean_abs=1173/1173 unequal_lr=155431 hash=f05f17c990b748e1
+M$> audio_probe: PASS frames=180140 rate=0.000Hz peak=5439/5436 mean_abs=1173/1173 unequal_lr=155431 hash=f05f17c990b748e1
+M$> expected twice: audio_probe: PASS frames=180140 hash=f05f17c990b748e1
+
+    Start 29: linux_ft8
+2/2 Test #29: linux_ft8 ........................***Failed    3.13 sec
+minishell
+M$> ft8
+\x1b[2J\x1b[H\x1b[1;1HFT8  20m  Default    RX       \x1b[2;1H                              \x1b[3;1H                              \x1b[4;1H                              \x1b[5;1H                              \x1b[6;1H                              \x1b[7;1H                              \x1b[8;1HR T O S V  1-6 select q quit  \x1b[2J\x1b[H\x1b[1;1HFT8  20m  Default    O        \x1b[2;1H>1 Protocol: FT8              \x1b[3;1H 2 Profile: Default           \x1b[4;1H 3 Band: 20m                  \x1b[5;1H 4 CQ / Beacon >              \x1b[6;1H 5 TX >                       \x1b[7;1H 6 Message >                  \x1b[8;1H2-6 Enter <>chg `back q quit  \x1b[2J\x1b[H\x1b[1;1HFT8  20m  Default    O        \x1b[2;1H>1 Offset Source: --          \x1b[3;1H 2 Fixed Offset: --           \x1b[4;1H 3 Skip TX1: OFF              \x1b[5;1H 4 Max Retry: 3               \x1b[6;1H 5 Tune: --                   \x1b[7;1H                              \x1b[8;1H<> changes wired items `back q\x1b[2J\x1b[H\x1b[1;1HFT8  20m  Default    O        \x1b[2;1H 1 Offset Source: --          \x1b[3;1H 2 Fixed Offset: --           \x1b[4;1H>3 Skip TX1: ON               \x1b[5;1H 4 Max Retry: 3               \x1b[6;1H 5 Tune: --                   \x1b[7;1H                              \x1b[8;1H<> changes wired items `back q\x1b[2J\x1b[HM$> ft8 --profile desktop
+\x1b[2J\x1b[H\x1b[1;1HFT8  20m  Default    RX       \x1b[2;1H                              \x1b[3;1H                              \x1b[4;1H                              \x1b[5;1H                              \x1b[6;1H                              \x1b[7;1H                              \x1b[8;1HR T O S V  1-6 select q quit  \x1b[2J\x1b[H\x1b[1;1HFT8  20m  Default    V        \x1b[2;1H>1 Memory >                   \x1b[3;1H 2 GPS >                      \x1b[4;1H 3 QSO / Log >                \x1b[5;1H 4 Performance >              \x1b[6;1H 5 System Info >              \x1b[7;1H 6 About >                    \x1b[8;1H1-6 Enter  read only  q quit  \x1b[2J\x1b[H\x1b[1;1HFT8  20m  Default    V        \x1b[2;1HHeap free: 7.9M               \x1b[3;1HLargest: --                   \x1b[4;1HApp alloc: 2.5K               \x1b[5;1HAlloc count: 1                \x1b[6;1HLargest/free: --              \x1b[7;1HRX: OFF                       \x1b[8;1Hread only        `back q quit \x1b[2J\x1b[H\x1b[1;1HFT8  20m  Default    V        \x1b[2;1H>1 Memory >                   \x1b[3;1H 2 GPS >                      \x1b[4;1H 3 QSO / Log >                \x1b[5;1H 4 Performance >              \x1b[6;1H 5 System Info >              \x1b[7;1H 6 About >                    \x1b[8;1H1-6 Enter  read only  q quit  \x1b[2J\x1b[H\x1b[1;1HFT8  20m  Default    V        \x1b[2;1HRuntime: MiniShell            \x1b[3;1HPresentation: DESKTOP         \x1b[4;1HUI: text 30x8                 \x1b[5;1HApp: ft8                      \x1b[6;1HStation: Default              \x1b[7;1HBand: 20m                     \x1b[8;1Hread only        `back q quit \x1b[2J\x1b[HM$> ft8 --profile adv
+\x1b[2J\x1b[H\x1b[1;1HRX 20 06:34:36 1/1 6\x1b[2;1H                    \x1b[3;1H                    \x1b[4;1H                    \x1b[5;1H                    \x1b[6;1H                    \x1b[7;1H                    \x1b[2J\x1b[H\x1b[1;1HO  20 06:34:36 1/1 6\x1b[2;1H>1 Protocol: FT8    \x1b[3;1H 2 Profile: Default \x1b[4;1H 3 Band: 20m        \x1b[5;1H 4 CQ / Beacon >    \x1b[6;1H 5 TX >             \x1b[7;1H 6 Message >        \x1b[2J\x1b[H\x1b[1;1HO  20 06:34:36 1/1 6\x1b[2;1H>1 Offset Source: --\x1b[3;1H 2 Fixed Offset: -- \x1b[4;1H 3 Skip TX1: ON     \x1b[5;1H 4 Max Retry: 3     \x1b[6;1H 5 Tune: --         \x1b[7;1H                    \x1b[2J\x1b[H\x1b[1;1HV  20 06:34:36 1/1 6\x1b[2;1H>1 Memory >         \x1b[3;1H 2 GPS >            \x1b[4;1H 3 QSO / Log >      \x1b[5;1H 4 Performance >    \x1b[6;1H 5 System Info >    \x1b[7;1H 6 About >          \x1b[2J\x1b[H\x1b[1;1HV  20 06:34:36 1/1 6\x1b[2;1HRuntime: MiniShell  \x1b[3;1HPresentation: ADV   \x1b[4;1HUI: text 20x7       \x1b[5;1HApp: ft8            \x1b[6;1HStation: Default    \x1b[7;1HBand: 20m           \x1b[2J\x1b[HM$> ft8 --profile adv --rx /flash/kfs.wav --rx-slot 12345
+\x1b[2J\x1b[H\x1b[1;1HRX 20 06:34:36 1/1 6\x1b[2;1H                    \x1b[3;1H                    \x1b[4;1H                    \x1b[5;1H                    \x1b[6;1H                    \x1b[7;1H                    \x1b[2J\x1b[H\x1b[1;1HRX 20 06:34:36 1/3 6\x1b[2;1H1 CQ N4NJJ DM26     \x1b[3;1H2 CQ AG6X DM12      \x1b[4;1H3 CQ W7RPS CN85     \x1b[5;1H4 CQ AE7KJ CN86     \x1b[6;1H5 S58MU N0GZ EN31   \x1b[7;1H6 KA3FMO KO6BPG DM12\x1b[2J\x1b[H\x1b[1;1HRX 20 06:34:36 2/3 6\x1b[2;1H1 N6ACA KX0S R-06   \x1b[3;1H2 WM0L K3QM R-06    \x1b[4;1H3 PD0TV N2NT 73     \x1b[5;1H4 CQ N7REB CN74     \x1b[6;1H5 WM0L KA2EEU EM20  \x1b[7;1H6 W1AW/0 <...> 73   \x1b[2J\x1b[H\x1b[1;1HRX 20 06:34:36 3/3 6\x1b[2;1H1 CQ WN0KS EM19     \x1b[3;1H2 WV7Z KE9I EN62    \x1b[4;1H3 CQ KQ4PUG FM16    \x1b[5;1H4 CQ N5CH EM05      \x1b[6;1H                    \x1b[7;1H                    \x1b[2J\x1b[H\x1b[1;1HTX 20 06:34:36 1/2 6\x1b[2;1H1 N4NJJ    RPLY 0/3 \x1b[3;1H2 AG6X     RPLY 0/3 \x1b[4;1H3 W7RPS    RPLY 0/3 \x1b[5;1H4 AE7KJ    RPLY 0/3 \x1b[6;1H5 N7REB    RPLY 0/3 \x1b[7;1H6 WN0KS    RPLY 0/3 \x1b[2J\x1b[H\x1b[1;1HTX 20 06:34:36 2/2 6\x1b[2;1H1 KQ4PUG   RPLY 0/3 \x1b[3;1H2 N5CH     RPLY 0/3 \x1b[4;1H                    \x1b[5;1H                    \x1b[6;1H                    \x1b[7;1H                    \x1b[2J\x1b[H\x1b[1;1HTX 20 06:34:36 1/2 6\x1b[2;1H1 N4NJJ    RPLY 0/3 \x1b[3;1H2 AG6X     RPLY 0/3 \x1b[4;1H3 W7RPS    RPLY 0/3 \x1b[5;1H4 AE7KJ    RPLY 0/3 \x1b[6;1H5 N7REB    RPLY 0/3 \x1b[7;1H6 WN0KS    RPLY 0/3 Traceback (most recent call last):
+  File "/home/wei/projects/MiniShell/tests/linux_ft8.py", line 272, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/home/wei/projects/MiniShell/tests/linux_ft8.py", line 207, in main
+    rotated = read_until(master_fd, b"N5CH     RPLY 0/3", 3.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/wei/projects/MiniShell/tests/linux_ft8.py", line 20, in read_until
+    raise TimeoutError(f"timed out waiting for {needle!r}; got {bytes(data)!r}")
+TimeoutError: timed out waiting for b'N5CH     RPLY 0/3'; got b'\x1b[2J\x1b[H\x1b[1;1HTX 20 06:34:36 1/2 6\x1b[2;1H1 AG6X     RPLY 0/3 \x1b[3;1H2 W7RPS    RPLY 0/3 \x1b[4;1H3 AE7KJ    RPLY 0/3 \x1b[5;1H4 N7REB    RPLY 0/3 \x1b[6;1H5 WN0KS    RPLY 0/3 \x1b[7;1H6 KQ4PUG   RPLY 0/3 \x1b[2J\x1b[H\x1b[1;1HTX 20 06:34:37 1/2 7\x1b[2;1H1 AG6X     RPLY 0/3 \x1b[3;1H2 W7RPS    RPLY 0/3 \x1b[4;1H3 AE7KJ    RPLY 0/3 \x1b[5;1H4 N7REB    RPLY 0/3 \x1b[6;1H5 WN0KS    RPLY 0/3 \x1b[7;1H6 KQ4PUG   RPLY 0/3 \x1b[2J\x1b[H\x1b[1;1HTX 20 06:34:38 1/2 8\x1b[2;1H1 AG6X     RPLY 0/3 \x1b[3;1H2 W7RPS    RPLY 0/3 \x1b[4;1H3 AE7KJ    RPLY 0/3 \x1b[5;1H4 N7REB    RPLY 0/3 \x1b[6;1H5 WN0KS    RPLY 0/3 \x1b[7;1H6 KQ4PUG   RPLY 0/3 \x1b[2J\x1b[H\x1b[1;1HTX 20 06:34:39 1/2 9\x1b[2;1H1 AG6X     RPLY 0/3 \x1b[3;1H2 W7RPS    RPLY 0/3 \x1b[4;1H3 AE7KJ    RPLY 0/3 \x1b[5;1H4 N7REB    RPLY 0/3 \x1b[6;1H5 WN0KS    RPLY 0/3 \x1b[7;1H6 KQ4PUG   RPLY 0/3 '
+
+
+0% tests passed, 2 tests failed out of 2
+
+Total Test time (real) =   3.21 sec
+
+The following tests FAILED:
+	  9 - linux_audio (Failed)
+	 29 - linux_ft8 (Failed)
+Errors while running CTest
+```
+
+</details>
+
 ### linux_audio repair
+
+Decode WAV payload independently with little-endian signed stereo samples.
+Compute frame count, FNV-1a over payload bytes, saturated absolute peaks and
+integer means, and unequal-channel frame count. Saturate abs(-32768) to 32767,
+matching the inspected probe contract. Validate non-live rate as `0.000Hz`.
+
+Parse explicit named fields from exactly two PASS records and compare all fields;
+malformed records, extra/missing PASS records, nonzero process exit, or any FAIL
+remain failures. Actual expected fixture metrics:
+
+```text
+frames=180140 rate=0.000Hz peak=5439/5436
+mean_abs=1173/1173 unequal_lr=155431 hash=f05f17c990b748e1
+```
+
+These values are derived at runtime, not hard-coded as acceptance constants.
+The probe and fixture bytes are unchanged.
 
 ### linux_ft8 repair
 
+Read complete ADV terminal frames (clear plus seven 20-column row writes), rather
+than assuming a PTY read containing the header also contains every row. Validate
+page markers, contiguous page-local row numbers, exact `RPLY 0/3` state/retry text,
+row counts, and uniqueness. Ignore an already-in-flight clock redraw of the
+pre-action rows while waiting for the changed frame; unchanged behavior times out.
+
+Capture initial pages 6+2 and require exactly the eight specified factual CQs.
+Capture both rotated pages and compare the entire order with
+`initial_order[1:] + initial_order[:1]`. This preserves every row and its relative
+tail order and puts the old head last. Reconstruct pages 6+1 after dropping the
+rotated head and compare with `rotated_order[1:]`; drop page-local line 1 on page 2
+and require page 1/1 with exactly `rotated_order[1:-1]`. No N5CH/KQ4PUG order is
+assumed. Existing config persistence, Memory/System Info, profile, RX selection,
+clean quit and process-exit checks remain.
+
 ### Files changed
+
+- `tests/linux_audio.py`: independently calculated deterministic metric assertions.
+- `tests/linux_ft8.py`: complete-frame parsing and semantic queue/action assertions.
+- This task packet: reproduction, REVIEW status and test evidence.
 
 ### Local tests/results
 
+```bash
+git status --short
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+ctest --test-dir build-linux -R '^(linux_audio|linux_ft8)$' --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+cmake -S tests/unit -B /tmp/T016-build-unit
+cmake --build /tmp/T016-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T016-build-unit --output-on-failure
+git diff --check
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+```
+
+Linux configure/build PASS. Before edits the focused run failed as captured above;
+after edits **2/2 PASS**. All three standalone architecture commands PASS.
+Unit configure/build and **14/14 PASS**. Full root Linux CTest **37/37 PASS**,
+including architecture checker self-tests and reference-pin check. Zero accepted
+failures remain. Final `git diff --check` PASS.
+
 ### Behavior/invariants preserved
+
+Test-only implementation; production, public API, fixture WAV, probe source,
+AutoSeq order, UI rendering/actions, DSP and decode expectations are unchanged.
+The assertions are stronger than the former substring/set checks. No new build
+registration or duplicated pure rotation unit test was needed. No task deviations.
 
 ### Known limitations / risks
 
+The terminal parser deliberately follows the current ADV 20x7 frame contract;
+rendering-format changes will require a reviewed test update. PTY checks retain
+the existing three-second deadlines. No ADV build or hardware validation is
+required because production code is unchanged. No PR or Actions wait performed.
+
 ### Commit
+
+One test-only implementation commit on `codex/T016-linux-baseline-tests`, titled
+`T016: repair Linux audio metrics and FT8 queue assertions`. The pushed SHA is
+returned in the handoff; these notes are included in that commit.
 
 ## Supervisor review
 
