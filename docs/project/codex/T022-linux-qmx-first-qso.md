@@ -1150,6 +1150,40 @@ from V3 UI remains later UI work and is not claimed by T022.
 
 T022 is now TESTING.
 
+## Architect partial hardware result — TX proven on air
+
+Hardware testing on pc-1/QMX has begun.
+
+Observed by the architect:
+
+```text
+QMX physical FT8 TX             PASS
+on-air FT8 decodability         PASS
+received/spotted by stations    PASS
+RxTxLog generation/content      PASS
+full completed QSO              NOT YET
+```
+
+The fact that other stations spotted/decoded the transmission is accepted as
+real-RF evidence that the T020 CAT key/tone/end path plus the T021 79-tone plan
+produce a decodable FT8 signal on air.
+
+This also satisfies the deferred T020 hardware proof for:
+
+- actual QMX keying;
+- TA-controlled FT8 tone transmission;
+- bounded return from TX;
+- usable physical FT8 emission.
+
+RxTxLog is confirmed working on the real run, so the mandatory T022 debug trace
+requirement is also hardware-validated.
+
+T022 remains TESTING because the task's final acceptance still requires a full
+real QSO and confirmation of the complete RX -> TX -> RX -> AutoSeq progression
+through contact completion. Do not downgrade the proven TX/RxTxLog evidence if a
+later QSO attempt fails for propagation, operator timing, or remote-station
+reasons.
+
 ## Architect test result
 
 Record:
