@@ -150,6 +150,7 @@ T017        COMPLETE — ADV QMX USB-host RX + lifecycle + post-FT8 usbmsc
 T018        COMPLETE — Linux bare ft8 live-QMX/ADV defaults
 T019        COMPLETE — Linux Serial/CDC + receive-safe QMX CAT sync
 T020        COMPLETE — QMX CAT TX primitives; RF validation deferred to T022
+T021        COMPLETE — pure FT8 TX encoder + immutable 79-tone plan
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -278,6 +279,40 @@ The standalone 1500 Hz RF tone test was intentionally skipped by the architect.
 Therefore T020 is software/review complete but is **not yet hardware-validated**.
 Real QMX keying, tone control, RX restoration, and post-TX receive recovery are
 deferred to the integrated T022 Linux/QMX transmit test.
+
+## FT8 TX encoder baseline
+
+T021 completes the pure FT8 transmit-plan layer:
+
+```text
+AutoSeqTxIntent
+    -> canonical FT8 TX text
+    -> 77-bit payload
+    -> CRC-14 + LDPC(174,91)
+    -> 79 Gray/Costas tone indices
+    -> Ft8TxPlan
+```
+
+The implementation is platform-free, heap-free, and contains no CAT/radio/clock
+behavior. Exact payload and tone output is checked against 25 fixed vectors
+generated independently from the pinned MiniFT8-V2 encoder source.
+
+Current plan constants:
+
+```text
+symbols       79
+symbol time   160 ms
+tone spacing  6.25 Hz
+tone range    0..7
+```
+
+Standard calls, current CQ variants, free text, and Field Day TX2/TX3 are
+supported. Nonstandard/hashed-call TX remains intentionally unsupported for the
+first-QSO path.
+
+T022 now owns physical scheduling/integration: slot-anchored CAT tone updates,
+deferred T020 RF validation, real QMX RX restoration, and the required
+V2-compatible RxTxLog trace for the first Linux/QMX QSO.
 
 ## AutoSeq ownership
 
