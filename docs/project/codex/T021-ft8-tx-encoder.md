@@ -418,14 +418,36 @@ T021 Ft8TxPlan
 T020 radio_control begin / TA / end
 ```
 
-Because T020 standalone RF testing was skipped, T022 hardware acceptance must
-explicitly include:
+Because T020 standalone RF testing was skipped, T022 hardware acceptance must explicitly include:
 
 - actual QMX keying;
 - CAT TA tone control;
 - bounded end-TX RX restoration;
 - post-TX live receive recovery;
+- **RxTxLog enabled for the entire integrated test**;
+- retention of the V2-compatible `RT[YYMMDD].txt` trace covering both decoded RX
+  messages and every transmitted FT8 message used in the exchange;
 - and then the first real FT8 exchange/QSO.
+
+RxTxLog is a hard T022 debug requirement, not optional instrumentation. V3 does
+not currently implement it, so T022 must port the smallest V2-compatible logging
+slice needed for QSO diagnosis before the first on-air attempt.
+
+At minimum preserve the V2 line semantics:
+
+```text
+T [YYYYMMDD HHMMSS][freq_MHz] <text> <offset_hz>
+R [YYYYMMDD HHMMSS][freq_MHz] <text> <snr_db> <offset_hz>
+```
+
+and the daily filename:
+
+```text
+RT[YYMMDD].txt
+```
+
+The first-QSO test evidence must include the resulting RT log, or its relevant
+contents, so RX/TX sequencing can be reconstructed after the test.
 
 T021 must not pre-empt that integration.
 
