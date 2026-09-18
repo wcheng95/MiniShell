@@ -1,6 +1,6 @@
 # T024 — station.txt offset source / Random TX offset
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -925,6 +925,37 @@ T021 encoder implementation was modified.
 
 No blocking software finding. T024 is TESTING for real pc-1/QMX Random-offset
 validation.
+
+## Architect result — Random offset validated on QMX
+
+The architect confirmed T024 worked on real pc-1/QMX hardware.
+
+Accepted hardware evidence:
+
+```text
+offset_src=0 parsing/preservation   PASS
+Random 500..2500 Hz placement       PASS
+CQ/POTA physical TX                 PASS
+RxTxLog resolved offset             PASS
+post-TX RX recovery                 PASS
+```
+
+The real operator run therefore confirms the new application-owned offset resolver
+works through the complete physical path:
+
+```text
+station.txt
+  -> ConfigService
+  -> tx_offset Random resolver
+  -> Ft8TxPlan.base_hz
+  -> RxTxLog T offset
+  -> QMX TA tones
+```
+
+T024 is COMPLETE.
+
+The Linux MiniFT8 feature set at this branch is now suitable for the planned
+WinBook/TW700 portability test. No WinBook-specific code belongs in T024.
 
 ## Architect test result
 
