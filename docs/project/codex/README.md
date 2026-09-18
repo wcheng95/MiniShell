@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T012-architecture-enforcement.md   READY
 ```
 
-Accepted cleanup now includes T011/F08 Linux runtime export-boundary enforcement: external modules resolve `mini_api_get` but private MiniShell implementation symbols are not dynamically exported.
+T012 addresses F09: strengthen FT8/Keyer architecture enforcement, close include/platform/purity blind spots, add negative fixtures, and register the checks in normal root CTest.
 
-Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> merge/fast-forward to `main` -> delete the temporary branch.
+Workflow: local checker/self-test + Linux/unit suites -> pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T012 branch.
 
 ## Rule
 
