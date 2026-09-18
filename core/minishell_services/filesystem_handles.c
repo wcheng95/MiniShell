@@ -62,6 +62,17 @@ filesystem_dir_slot_t *filesystem_handles_lookup_dir(mini_dir_t dir)
     return NULL;
 }
 
+bool filesystem_handles_path_hash_in_use(uint64_t path_hash)
+{
+    for (uint32_t i = 0u; i < MINI_FS_MAX_OPEN_FILES; ++i) {
+        if (s_files[i].backend != MINISHELL_BACKEND_FILE_INVALID &&
+            s_files[i].path_hash == path_hash) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool filesystem_handles_writable_hash_in_use(uint64_t path_hash)
 {
     for (uint32_t i = 0u; i < MINI_FS_MAX_OPEN_FILES; ++i) {

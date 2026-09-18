@@ -36,6 +36,7 @@ uint32_t filesystem_handles_find_free_file(void);
 uint32_t filesystem_handles_find_free_dir(void);
 filesystem_file_slot_t *filesystem_handles_lookup_file(mini_file_t file);
 filesystem_dir_slot_t *filesystem_handles_lookup_dir(mini_dir_t dir);
+bool filesystem_handles_path_hash_in_use(uint64_t path_hash);
 bool filesystem_handles_writable_hash_in_use(uint64_t path_hash);
 mini_file_t filesystem_handles_activate_file(uint32_t index,
                                              minishell_backend_file_t backend,

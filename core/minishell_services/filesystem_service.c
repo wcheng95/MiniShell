@@ -33,8 +33,10 @@ static mini_result_t fs_open(const char *path, uint32_t flags, mini_file_t *out_
     if (result != MINI_OK) return result;
 
     uint64_t path_hash = filesystem_path_hash(normalized);
+    /* A writer owns the normalized logical path exclusively. Readers may
+     * coexist, but a write/truncate/append open cannot alias any live handle. */
     if ((flags & MINI_FS_WRITE) != 0u &&
-        filesystem_handles_writable_hash_in_use(path_hash)) {
+        filesystem_handles_path_hash_in_use(path_hash)) {
         return MINI_ERR_ACCESS;
     }
 

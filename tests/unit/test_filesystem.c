@@ -188,6 +188,18 @@ bool test_filesystem(void)
     TEST_CHECK(strcmp(g_fake.fs_last_path, "/sd/read.txt") == 0);
     TEST_CHECK(f != MINI_FILE_INVALID);
 
+    /* Readers may coexist, but a writer cannot acquire the same normalized
+     * logical path while any reader already owns it. */
+    mini_file_t reader2 = MINI_FILE_INVALID;
+    TEST_EQ(fs->open("/sd/read.txt", MINI_FS_READ, &reader2), MINI_OK);
+    uint32_t opens_before_alias = g_fake.fs_open_calls;
+    mini_file_t alias_writer = MINI_FILE_INVALID;
+    TEST_EQ(fs->open("/sd/./read.txt", MINI_FS_WRITE | MINI_FS_TRUNC,
+                     &alias_writer), MINI_ERR_ACCESS);
+    TEST_EQ(alias_writer, MINI_FILE_INVALID);
+    TEST_EQ(g_fake.fs_open_calls, opens_before_alias);
+    TEST_EQ(fs->close(reader2), MINI_OK);
+
     g_fake.fs_max_read = 2u;
     char buf[16] = {0};
     uint32_t n = 99u;
@@ -210,6 +222,11 @@ bool test_filesystem(void)
     TEST_EQ(fs->read(f, NULL, 0, &n), MINI_OK);
     TEST_EQ(fs->close(f), MINI_OK);
     TEST_EQ(fs->close(f), MINI_ERR_BAD_HANDLE);
+
+    /* Once the final reader releases the path, a writer may acquire an alias. */
+    alias_writer = MINI_FILE_INVALID;
+    TEST_EQ(fs->open("/sd/./read.txt", MINI_FS_WRITE, &alias_writer), MINI_OK);
+    TEST_EQ(fs->close(alias_writer), MINI_OK);
 
     mini_file_t w = MINI_FILE_INVALID;
     g_fake.fs_max_write = 3u;
