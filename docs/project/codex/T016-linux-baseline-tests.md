@@ -1,6 +1,6 @@
 # T016 — Repair stale Linux regression expectations
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Objective
 
@@ -478,8 +478,14 @@ returned in the handoff; these notes are included in that commit.
 
 ## Supervisor review
 
-Supervisor reviews that both changes repair stale assertions rather than mask product bugs.
+PASS. Reviewed `400f1c644178b9af043f1199baabb93e47ec34b6` against `main`.
+
+The changes are test-only. `linux_audio` now parses exactly two complete PASS records and independently derives frame count, saturated per-channel peaks, integer mean absolute values, unequal-channel count, non-live rate, and FNV-1a hash from the WAV fixture. This removes the brittle field-adjacency assumption while increasing coverage.
+
+`linux_ft8` now reconstructs the actual rendered TX queue across both ADV pages, requires the expected eight-call set with exact `RPLY 0/3` rows, verifies AS-5 rotation as `initial[1:] + initial[:1]`, then derives the drop/page-collapse expectations from that captured order. The stale N5CH/KQ4PUG relative-order assumption is gone without weakening queue semantics.
+
+Focused tests 2/2, architecture checks, unit suite 14/14, and full Linux CTest 37/37 pass. No production source, fixture, probe, UI, AutoSeq, DSP, or API behavior changed. Commit was fast-forwarded directly to `main`.
 
 ## Architect test result
 
-No hardware validation required for this test-only task.
+ACCEPTED. No hardware validation required.
