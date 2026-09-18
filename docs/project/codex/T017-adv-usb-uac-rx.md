@@ -1790,6 +1790,68 @@ Next discriminator: while FT8 is waiting with QMX disconnected, press physical C
 `Q`. If FT8 exits and USB Serial/JTAG returns, the local UI/input path is healthy
 before QMX enumeration and the later freeze is QMX-triggered.
 
+## Architect ADV FT8 memory-profile decision — freq_osr=1
+
+For ADV only, reduce the FT8 monitor frequency oversampling from 2 to 1.
+
+This is not an arbitrary degradation: the pinned MiniFT8-V2 reference
+`491e757ae6b1e4cfd2b9a6ba10f48b35643849e0` used:
+
+```text
+g_time_osr = 2
+g_freq_osr = 1
+```
+
+Current MiniFT8 V3 baseline uses time_osr=2/freq_osr=2. On ADV, use the V2-proven
+time_osr=2/freq_osr=1 profile to relax internal RAM pressure while retaining the
+existing desktop/Linux baseline.
+
+Known monitor impact at 6 kHz:
+
+```text
+freq_osr=2:
+    nfft             1920
+    block_stride     1732
+    waterfall        161076 bytes
+
+freq_osr=1:
+    nfft              960
+    block_stride      866
+    waterfall         80538 bytes
+```
+
+The waterfall alone saves 80538 bytes; FFT plan, window/history and scratch buffers
+also shrink, so total FT8 monitor workspace falls substantially (roughly half).
+
+Implementation requirements:
+
+1. ADV packaged FT8 must use:
+   - time_osr = 2
+   - freq_osr = 1.
+2. Linux/default MiniFT8 must remain at its current freq_osr=2 baseline.
+3. Do not add ADV/ESP-IDF conditionals inside FT8 DSP/domain modules.
+4. Prefer a generic composition/configuration seam, for example:
+   - a generic `FT8_DEFAULT_FREQ_OSR` compile-time override consumed by
+     app_controller when forming `Ft8EngineConfig`, defaulting to the existing
+     monitor baseline when not defined; and
+   - ADV build composition defines it as 1 only for the packaged ADV FT8 path.
+   An equally clean generic internal configuration path is acceptable.
+5. Keep `time_osr=2`.
+6. Add regression coverage proving:
+   - Linux/default baseline remains freq_osr=2;
+   - ADV composition selects freq_osr=1;
+   - no platform identifier leaks into shared FT8 domain code.
+7. Re-run deterministic FT8 RX/decode tests under the ADV/V2-compatible
+   freq_osr=1 profile where practical, not merely compile it.
+8. Record the exact `ft8_engine_query_requirements()` workspace bytes for
+   freq_osr=1 and compare with freq_osr=2.
+9. Keep the 2048-frame lazy UAC ring.
+10. Combine this with the already-authorized static `uac_capture` worker amendment
+    in the next implementation pass; do not make unrelated scheduling/core changes.
+
+This ADV-specific memory profile should be treated as the current field configuration,
+not as a change to the portable MiniFT8 decoding baseline.
+
 ## Hardware finding — probable capture-task allocation failure after UAC install
 
 With QMX already connected, real ADV now gets past ring allocation, USB Host install,
