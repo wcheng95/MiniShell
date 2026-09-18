@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -1106,6 +1106,30 @@ Scope/behavior:
 - if practical, permit RX input on GPIO5 for diagnostic shell/control only where ownership is unambiguous, but do not create a second competing FT8 UI policy;
 - restore the pre-FT8 console state on every clean exit and on recoverable prepare failure;
 - if USB Host teardown has not released the PHY, keep USB Serial/JTAG suspended, but the GPIO4/5 debug path may remain available to report the cleanup failure.
+
+## Supervisor lazy-ring re-review
+
+PASS for resumed hardware testing on `14bc505f4abb9c049b0772d005f6ffb67dcc702e`.
+
+The lazy allocation amendment is accepted. The permanent UAC ring has been replaced
+by a nullable provider-owned pointer; `rx_open("uac:qmx")` allocates and zeroes the
+ring before any console/USB ownership handoff, and non-UAC/WAV endpoints bypass the
+allocation entirely. Allocation failure returns NO_MEMORY while normal USB
+Serial/JTAG is still active. Clean close frees the ring only after successful
+class/Host/console cleanup; failed teardown retains both allocation and reservation
+for retry.
+
+The real ADV map confirms the intended result: .dram0.bss fell from 77872 bytes to
+12304 bytes, recovering 65568 bytes. Linux CTest 42/42, units 14/14, architecture
+checks and the real ADV build are accepted.
+
+For the next hardware run, keep the current 16384-frame (~64 KiB) runtime ring.
+Its size is not an architectural requirement: record ring high-water during real
+synchronous FT8 decode, then trim later from measured need if RAM pressure warrants.
+
+Resume the exact launch that previously returned 8. First success criterion is that
+FT8 now reaches the UAC allocation/console handoff and GPIO4 diagnostics; only then
+continue to QMX enumeration/live-decode acceptance.
 
 ## Supervisor review
 
