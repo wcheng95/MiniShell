@@ -1,6 +1,6 @@
 # T010 — Make ADV Audio TX honor caller timeout
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -339,42 +339,190 @@ After acceptance/merge, delete local and remote T010 branch.
 
 ## Acceptance criteria
 
-- [ ] current codec software-processing semantics inspected and recorded;
-- [ ] direct I2S transport proven not to change current PCM semantics, or task reports conflict instead;
-- [ ] ADV speaker forwards caller timeout to I2S;
-- [ ] partial accepted bytes map truthfully to frames;
-- [ ] zero-progress timeout maps to MINI_ERR_TIMEOUT;
-- [ ] zero-progress/odd-progress error cases fail safely;
-- [ ] no Keyer scheduling/block-size changes;
-- [ ] no Audio public API changes;
-- [ ] existing service/Keyer tests pass;
-- [ ] focused provider mapping tests pass;
-- [ ] real ADV firmware builds;
-- [ ] architecture checks pass;
-- [ ] full local suite recorded;
+- [x] current codec software-processing semantics inspected and recorded;
+- [x] direct I2S transport proven not to change current PCM semantics, or task reports conflict instead;
+- [x] ADV speaker forwards caller timeout to I2S;
+- [x] partial accepted bytes map truthfully to frames;
+- [x] zero-progress timeout maps to MINI_ERR_TIMEOUT;
+- [x] zero-progress/odd-progress error cases fail safely;
+- [x] no Keyer scheduling/block-size changes;
+- [x] no Audio public API changes;
+- [x] existing service/Keyer tests pass;
+- [x] focused provider mapping tests pass;
+- [x] real ADV firmware builds;
+- [x] architecture checks pass;
+- [x] full local suite recorded;
 - [ ] repeated ADV phase A remains functional;
 - [ ] repeated ADV phase B demonstrates nonblocking timeout behavior;
-- [ ] no unrelated cleanup.
+- [x] no unrelated cleanup.
 
 ## Codex implementation notes
 
 ### Implementation summary
 
+Replaced only speaker PCM transfer with the already-owned I2S TX channel,
+forwarding caller timeout unchanged and mapping actual byte progress. Codec
+creation/control/volume/mute/lifecycle, DMA geometry, Keyer, public Audio API,
+and portable service behavior remain unchanged. Added a small private callback
+helper to test the exact forwarding/mapping used by production without mocking
+ESP-IDF. No redesign was introduced.
+
+The required direct-call design removes the codec's fixed 1000 ms wait. Inspection
+also found inherited IDF timeout limitations described below: this implementation
+must not be interpreted as proving strict whole-call deadline or true infinite
+wait semantics for every possible request. Supervisor review must consider that
+evidence before declaring the entire public timeout contract satisfied.
+
 ### esp_codec_dev software-transform check
+
+Resolved versions: **esp_codec_dev 1.6.2**, **ESP-IDF v5.5.4**, confirmed by
+`platform/adv/dependencies.lock`, component `idf_component.yml`, and resolved
+`platform/adv/build/project_description.json`. Component root:
+`/home/wei/projects/MiniShell/platform/adv/managed_components/espressif__esp_codec_dev`.
+
+Evidence from those local sources:
+
+- `platform/adv/adv_audio_speaker.cpp::prepare_codec()` zero-initializes
+  `esp_codec_dev_cfg_t`, then sets `codec_if` to the ES8311 codec, `data_if` to
+  the I2S data interface, and `dev_type` to IN_OUT. ES8311 configuration uses
+  BOTH mode, existing I2C/GPIO control, PA pin NC and `use_mclk=false`; default
+  hardware-gain fields are zero. No custom software-volume handler is installed.
+- `esp_codec_dev.c:128` (`esp_codec_dev_new`) allocates zeroed device state with
+  calloc: `sw_vol` starts NULL. Defaults include the volume curve and
+  disable-when-closed; these do not create a PCM transform.
+- `esp_codec_dev.c:201-209` (`esp_codec_dev_open`) creates software volume only
+  when codec is NULL or `codec->set_vol` is NULL. Our ES8311 has a non-NULL callback:
+  `device/es8311/es8311.c:737` assigns `es8311_set_vol`.
+- `esp_codec_dev.c:358-377` (`esp_codec_dev_set_out_vol`) dispatches to hardware
+  `codec->set_vol` when `sw_vol` is NULL. `es8311_set_vol` at
+  `device/es8311/es8311.c:350-362` subtracts hardware-gain compensation and writes
+  ES8311_DAC_REG32 through codec control. Gain defaults (5 V PA/3.3 V DAC when
+  zero) are applied in this hardware-register calculation, not to PCM bytes.
+- `esp_codec_dev.c:317-333` (`esp_codec_dev_write`) has only one possible PCM
+  transform: `dev->sw_vol->process`, guarded by non-NULL `sw_vol`. It is inactive
+  for this configuration. The following `_i2s_data_write` at
+  `platform/audio_codec_data_i2s.c:720-744` passes the byte buffer unchanged to
+  `i2s_channel_write` on IDF >=5. There is no additional active PCM conversion.
+
+Therefore direct transport does not bypass active software volume/gain/other
+PCM processing. Existing ES8311 volume 80 and mute/unmute remain hardware control
+operations, unchanged. This proof depends on the inspected configuration/version;
+a future software-volume handler or different codec requires reevaluation.
 
 ### Provider timeout/progress mapping
 
+The existing handle/state/pointer/frame-count validation remains in speaker_write,
+including its original `0x3fffffff` bound. Requested byte multiplication is safe
+for this S16 endpoint. A private transport callback invokes:
+`i2s_channel_write(s_i2s_tx, frames, requested_bytes, &written, timeout_ms)`.
+
+The shared tested helper initializes public progress to zero. Odd or over-reported
+byte counts return IO/zero defensively. Any positive complete-frame progress
+returns OK with the accepted count, including native timeout/other-error results.
+With no progress, native ESP_ERR_TIMEOUT maps to TIMEOUT; ESP_OK and other errors
+map to IO. There is no retry loop, timeout clamp, or invented pacing policy.
+
+**Resolved IDF timeout evidence and limitation:**
+
+- `/home/wei/projects/esp-idf/components/esp_driver_i2s/i2s_common.c:1347-1395`
+  passes `pdMS_TO_TICKS(timeout_ms)` to the channel binary semaphore at line 1361
+  and to each DMA queue receive at line 1370. There is no aggregate deadline or
+  special UINT32_MAX handling in this function. Semaphore failure maps to native
+  INVALID_STATE; queue exhaustion maps to native TIMEOUT.
+- `platform/adv/build/config/sdkconfig.h` sets CONFIG_FREERTOS_HZ=100.
+  IDF `components/freertos/config/include/freertos/FreeRTOSConfig.h:92` uses that
+  as configTICK_RATE_HZ. `FreeRTOS-Kernel/include/freertos/projdefs.h:46` multiplies
+  in TickType_t before dividing by 1000. Xtensa `portmacro.h:99-100` uses 32-bit
+  TickType_t and portMAX_DELAY=0xffffffff.
+- Reused the actual ADV speaker compiler command from build/compile_commands.json
+  for `/tmp/T010-tick-check.cpp` static assertions: 0 ms -> 0 ticks, 20 ms -> 2
+  ticks, UINT32_MAX -> **4294967 ticks**, not portMAX_DELAY. Compilation passed.
+  Thus WAIT_NONE does not intentionally wait; the normal 20 ms request reaches
+  I2S unchanged, quantized to two ticks. Passing FOREVER unchanged follows T010's
+  explicit instruction but is about 11.93 hours per wait in this IDF configuration,
+  not truly indefinite. Finite budgets may also be reused across acquisitions.
+
+These are measured source/compiler findings, not silently fixed by a provider
+clamp, IDF patch, new worker, or public-contract change. Exact forwarding is
+implemented and tested; true unbounded/whole-call-budget semantics cannot be
+claimed for this underlying API. Hardware phase A/B validation remains pending.
+
 ### Files changed
+
+- `platform/adv/adv_audio_speaker.cpp`: direct I2S transport adapter and helper call.
+- `platform/adv/adv_audio_tx_write.h`: private host-testable byte/result mapping.
+- `tests/adv_audio_tx_timeout_test.c`: 40 forwarding/progress cases.
+- `CMakeLists.txt`: register focused host test.
+- This task packet: evidence, local results and REVIEW status.
 
 ### Tests added
 
+`adv_audio_tx_timeout_unit` covers each native result/progress case under 20 ms,
+WAIT_NONE, WAIT_FOREVER and 7 ms requests. Assertions verify identical callback
+handle/buffer/byte count, unchanged timeout, one transport call, full/partial OK,
+zero/partial timeout, zero/partial other error, odd progress, zero-progress OK,
+and over-report rejection. Existing service and Keyer tests were not modified.
+
 ### Local tests/build results
+
+Base: `fa88688ef87f87b95460c00189361415a21b07b9`.
+
+- `git status --short`: initially clean on existing T010 branch.
+- `cmake -S . -B build-linux`: PASS.
+- `cmake --build build-linux -j"$(nproc)"`: PASS.
+- `ctest --test-dir build-linux -R 'audio|keyer_k5' --output-on-failure`: 3/4 PASS;
+  new mapping test passes; only documented linux_audio baseline failure.
+- `python3 tests/app_dependency_boundary.py . ft8`: PASS.
+- `python3 tests/app_dependency_boundary.py . keyer`: PASS.
+- `python3 tests/ft8_platform_boundary.py .`: PASS.
+- `cmake -S tests/unit -B /tmp/T010-build-unit`: PASS.
+- `cmake --build /tmp/T010-build-unit -j"$(nproc)"`: PASS.
+- `ctest --test-dir /tmp/T010-build-unit --output-on-failure`: PASS, 14/14,
+  including unchanged Audio and Keyer K5 regressions.
+- `source /home/wei/projects/esp-idf/export.sh` then
+  `idf.py -C platform/adv build`: PASS against the real resolved dependencies.
+  Firmware `platform/adv/build/minishell_adv.bin`: 0xa3a00 bytes, 89% app partition
+  free. SHA-256:
+  `e63cdd41b5434e0919ec016c2026a2a8d786de06907cce4c04a7d5f66403a974`.
+- Actual Xtensa compiler static-assert check of resolved tick conversion: PASS
+  (IDF system headers emit existing include_next pedantic warnings).
+- `git diff --check`: PASS.
+- `ctest --test-dir build-linux --output-on-failure`: 27/29 PASS. Only accepted
+  linux_audio output-substring and linux_ft8 queue-order failures remain.
+
+No PR, GitHub Actions wait, or hardware flashing performed.
 
 ### Hardware validation still required
 
+After supervisor review, architect flashes this firmware and reruns the existing
+T009 external `audio_tx_probe` (no probe changes needed). From repository root:
+
+```bash
+source /home/wei/projects/esp-idf/export.sh
+read -r -p 'ADV serial port: ' T010_ADV_PORT
+idf.py -C platform/adv -p "$T010_ADV_PORT" flash monitor
+```
+
+In MiniShell, run `audio_tx_probe` and retain both complete phase reports.
+Phase A must remain operational; phase B should demonstrate immediate capacity/
+partial/timeout behavior instead of hidden 1000 ms waits. Do not merge until
+those results are supplied and reviewed. No arbitrary latency threshold added.
+
 ### Known limitations / risks
 
+Exact pass-through removes the codec timeout substitution but inherits the IDF
+quantization/repeated-budget/FOREVER conversion limitations above. No stronger
+compliance claim is made. ESP_ERR_INVALID_STATE with zero progress maps to IO
+per the task, including a failed I2S channel-semaphore acquisition. Odd progress
+is a defensive impossible/driver-contract guard. DMA geometry and existing
+channel-disable diagnostic noise remain unchanged. Hardware amplitude and normal
+transport still require the specified post-review probe evidence.
+
 ### Commit
+
+One bounded implementation commit on `codex/T010-adv-audio-tx-timeout`, containing
+this report; pushed SHA returned in the handoff. Supervisor review and hardware
+TESTING precede merge and later branch deletion.
 
 ## Supervisor review
 

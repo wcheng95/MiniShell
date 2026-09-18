@@ -373,6 +373,10 @@ add_executable(ft8_engine_rx1g_unit tests/ft8_engine_rx1g_test.c)
 target_link_libraries(ft8_engine_rx1g_unit PRIVATE ft8_engine_core)
 target_compile_options(ft8_engine_rx1g_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
+add_executable(adv_audio_tx_timeout_unit tests/adv_audio_tx_timeout_test.c)
+target_include_directories(adv_audio_tx_timeout_unit PRIVATE include platform/adv)
+target_compile_options(adv_audio_tx_timeout_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
 add_executable(linux_audio_discontinuity_unit tests/linux_audio_discontinuity_test.c)
 target_include_directories(linux_audio_discontinuity_unit PRIVATE
     include core/minishell_services platform/linux)
@@ -525,6 +529,7 @@ add_test(NAME ft8_decoder_rx1d_unit COMMAND ft8_decoder_rx1d_unit)
 add_test(NAME ft8_hash_store_rx1e_unit COMMAND ft8_hash_store_rx1e_unit)
 add_test(NAME ft8_message_codec_rx1f_unit COMMAND ft8_message_codec_rx1f_unit)
 add_test(NAME ft8_engine_rx1g_unit COMMAND ft8_engine_rx1g_unit)
+add_test(NAME adv_audio_tx_timeout_unit COMMAND adv_audio_tx_timeout_unit)
 add_test(NAME linux_audio_discontinuity_unit COMMAND linux_audio_discontinuity_unit)
 add_test(NAME linux_alsa_discontinuity_unit COMMAND linux_alsa_discontinuity_unit)
 set_tests_properties(linux_alsa_discontinuity_unit PROPERTIES SKIP_RETURN_CODE 77)

@@ -1,6 +1,7 @@
 #include <cstdint>
 
 #include "adv_i2c.h"
+#include "adv_audio_tx_write.h"
 #include "adv_internal.h"
 
 #include "driver/gpio.h"
@@ -193,12 +194,18 @@ mini_result_t speaker_start(void *ctx, minishell_backend_audio_t audio)
     return MINI_OK;
 }
 
+int write_i2s(void *handle, const void *frames, size_t bytes,
+               size_t *written, uint32_t timeout_ms)
+{
+    return i2s_channel_write(static_cast<i2s_chan_handle_t>(handle), frames,
+                              bytes, written, timeout_ms);
+}
+
 mini_result_t speaker_write(void *ctx, minishell_backend_audio_t audio,
                             const void *frames, uint32_t frame_count,
                             uint32_t *out_frames, uint32_t timeout_ms)
 {
     (void)ctx;
-    (void)timeout_ms;
     if (!valid_handle(audio)) return MINI_ERR_BAD_HANDLE;
     if (out_frames == nullptr) return MINI_ERR_INVALID;
     *out_frames = 0u;
@@ -206,12 +213,10 @@ mini_result_t speaker_write(void *ctx, minishell_backend_audio_t audio,
     if (frame_count == 0u) return MINI_OK;
     if (frames == nullptr || frame_count > 0x3fffffffu) return MINI_ERR_INVALID;
 
-    int bytes = static_cast<int>(frame_count * sizeof(int16_t));
-    if (esp_codec_dev_write(s_codec, const_cast<void *>(frames), bytes) != ESP_CODEC_DEV_OK) {
-        return MINI_ERR_IO;
-    }
-    *out_frames = frame_count;
-    return MINI_OK;
+    /* esp_codec_dev 1.6.2 uses ES8311 hardware volume here (no sw_vol).
+     * Keep codec control intact; bypass only its fixed-1000-ms data write. */
+    return adv_audio_tx_write(write_i2s, s_i2s_tx, frames, frame_count,
+                               out_frames, timeout_ms, ESP_ERR_TIMEOUT);
 }
 
 mini_result_t speaker_stop(void *ctx, minishell_backend_audio_t audio)
