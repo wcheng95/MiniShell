@@ -32,7 +32,7 @@ V2-style Field Day Cabrillo      COMPLETE
 physical TX / CAT / Audio TX     NOT YET PORTED
 ```
 
-Linux remains the deterministic regression/reference environment. ADV is now the active hardware-integration target when work depends on ESP32-S3 USB, memory, display/input, or other embedded-only behavior.
+Linux is the active MiniFT8 completion platform and deterministic regression/reference environment. The first real MiniFT8-V3 QSO is targeted on Linux/QMX. ADV remains a fully validated embedded RX deployment target and should be revisited only when work specifically depends on ESP32-S3 USB, memory, display/input, or other embedded-only behavior.
 
 ## Working live QMX path
 
@@ -355,7 +355,7 @@ Detailed RX and AS stage documents remain in this directory as implementation hi
 
 ## Next
 
-The next major production boundary is real TX integration while preserving the existing semantic layers:
+The next major production boundary is real TX integration on Linux/QMX, with the first MiniFT8-V3 QSO intentionally happening on Linux before the finished TX path is carried back to ADV:
 
 ```text
 AutoSeq TxIntent
