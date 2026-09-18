@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -1217,6 +1217,24 @@ measured evidence and authorization. Pending lifecycle/MSC acceptance remains.
 
 Bounded capacity amendment on `codex/T017-adv-usb-uac-rx`; exact pushed SHA returned
 in the handoff. Status: REVIEW. No PR, no Actions wait, no hardware testing.
+
+## Supervisor 2048-frame ring re-review
+
+PASS for hardware testing on `21ca5a2e637f1658aefbea8490046e2bd9bf46e8`.
+
+The change from the accepted lazy-ring implementation is bounded to capacity-dependent
+code/tests/documentation. `ADV_UAC_RING_FRAMES` is 2048; the stop diagnostic derives
+its denominator from that constant; lazy allocation, console handoff, USB lifecycle,
+conversion and discontinuity semantics are unchanged. The lifecycle regression
+explicitly asserts the approved 2048-frame capacity.
+
+The complete ring object is approximately 8228 bytes (8192 bytes of stereo S16 sample
+storage plus metadata/alignment), comfortably below the 39936-byte largest free block
+measured after the FT8 workspace was allocated on hardware.
+
+Linux CTest 42/42, units 14/14, architecture checks and the real ADV build are accepted.
+T017 returns to TESTING. Resume the same hardware launch; record the allocation logs,
+GPIO4 diagnostics, QMX enumeration and then ring high-water over real decode slots.
 
 ## Supervisor lazy-ring re-review
 
