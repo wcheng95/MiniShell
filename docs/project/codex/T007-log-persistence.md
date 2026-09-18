@@ -1,6 +1,6 @@
 # T007 — Harden MiniFT8 log persistence
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Objective
 
@@ -284,8 +284,8 @@ until supervisor review and merge/fast-forward to main, as specified above.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff and local test evidence.
+PASS. Reviewed `73122f3c93689363e4fdc2da667032dd1ed80e23` against `main`. T007 moves ADIF/Cabrillo persistence to copy-on-write temp files with sync/close and rename as the sole commit point. Final logs stay untouched on all known pre-commit failures, retry is safe, controller/AutoSeq ownership is unchanged, and the local fault-injection/build/architecture evidence passed. The commit was fast-forwarded directly to `main`.
 
 ## Architect test result
 
-No hardware validation is expected for this persistence change.
+ACCEPTED. No hardware validation required.
