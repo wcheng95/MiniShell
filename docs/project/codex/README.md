@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T017-adv-usb-uac-rx.md   TESTING
+none
 ```
 
-T017 brings the pinned MiniFT8-V2 QMX USB-host UAC mechanics into the ADV backend while preserving MiniShell ownership: native 48k/S24 stereo becomes canonical 12k/S16 stereo below the Audio API, continuous capture survives synchronous decode, bare ADV ft8 defaults to uac:qmx, and the hardware gate is live decoded RX messages across consecutive slots. CDC-ACM is included as a companion if current IDF/component APIs remain compatible, but no CAT policy commands are sent in this task.
+T017 is COMPLETE. Cardputer ADV now runs live QMX USB-host UAC RX through MiniShell Audio and decodes real on-air FT8 at 240 MHz with `time_osr=2, freq_osr=1`; lifecycle and post-FT8 `usbmsc` validation pass.
 
-Workflow: 240 MHz startup regression -> guarantee a nonzero capture-worker block -> restore full USB/UAC bring-up at 240 MHz -> measure live transport/ring statistics over complete FT8 slots -> diagnose no-decode only if transport is healthy -> acceptance/merge -> delete T017 branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> hardware validation when required -> fast-forward `main` -> delete the temporary branch.
 
 ## Rule
 
