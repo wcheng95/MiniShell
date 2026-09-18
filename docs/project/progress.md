@@ -67,7 +67,9 @@ Linux: M$> ft8 --profile adv --rx alsa:hw:2,0
 ADV:   M$> ft8
 ```
 
-The packaged ADV application defaults bare `ft8` to `uac:qmx`. Real hardware now passes USB-host/UAC bring-up and live on-air decode at 240 MHz. The accepted ADV engine profile remains `time_osr=2, freq_osr=1`. A temporary `freq_osr=2` experiment remained alive but reduced free/largest heap to about 58.8/31.0 KiB and produced no decode, so it is not the production baseline.
+The packaged ADV application defaults bare `ft8` to `uac:qmx`. Real hardware now passes USB-host/UAC bring-up and live on-air decode at 240 MHz. The accepted ADV engine profile remains `time_osr=2, freq_osr=1`. A temporary `freq_osr=2` experiment remained alive but reduced free/largest heap to about 58.8/31.0 KiB. Decode time/candidate load were not measured, so the lack of observed messages is inconclusive; its higher RAM/compute cost is deferred to a later performance study. It is not the production baseline.
+
+QMX post-enumeration unplug/replug recovery is not a T017 requirement: real QMX hardware can return a short device descriptor on a second enumeration, matching the practical MiniFT8-V2 limitation. Initial startup with QMX absent followed by the first attachment remains the required disconnected-start behavior.
 
 Current MiniFT8 status:
 
