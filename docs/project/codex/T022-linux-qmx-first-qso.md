@@ -1,6 +1,6 @@
 # T022 — Linux QMX integrated FT8 TX and first QSO
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1046,6 +1046,109 @@ Supervisor reviews:
 - all RF-failure cleanup paths.
 
 Only then does T022 move to TESTING.
+
+
+## Supervisor review — integrated TX accepted for hardware testing
+
+PASS for pc-1/QMX hardware/QSO testing on
+`b723156359521256a1f323d3c496400febe39027`.
+
+Reviewed the single implementation commit from T022 task head
+`4e85ab59133bb3854d5438b1f02c55af5ddc5f98` and the complete
+`main..b7231563` delta.
+
+Accepted physical path:
+
+```text
+previous RX slot finalized/applied
+    -> immutable T021 plan
+    -> stop live Audio RX
+    -> append+sync+close RT T record
+    -> T020 MD6; TX;
+    -> absolute-slot TA progression
+    -> RX;
+    -> restart Audio RX
+    -> frontend/framer UTC re-anchor
+    -> ADIF/Cabrillo eligibility commit
+    -> AutoSeq tick exactly once
+```
+
+Timing review:
+
+- slot anchor = monotonic observation minus UTC milliseconds-into-slot;
+- first tone = floor(ms_into_slot / 160);
+- all later tone decisions derive from absolute slot time;
+- overdue symbols are skipped rather than emitted as a burst;
+- repeated adjacent equal tones may omit redundant TA writes;
+- completion is first poll at/after 12.640 s;
+- backward monotonic movement fails safe;
+- pre-key filesystem/Audio work is rechecked against the <1 s start window.
+
+RX review:
+
+- live Audio is stopped before any radio key command;
+- Linux buffered stop/start resets the capture ring;
+- no RX reads occur while physical TX is active;
+- frontend phase is reset and timing is marked pending;
+- post-TX start uses the existing UTC backdated first-sample re-anchor;
+- failed RX restart does not count/tick a successful transmission.
+
+Failure review:
+
+- plan/identity, RX stop, RT T-line, begin, TA, clock and end failures do not
+  consume AutoSeq completion;
+- after a possible key-up, cleanup makes best-effort `RX;` and restarts Audio;
+- T020 uncertain-TX `rx_required` semantics remain intact;
+- normal shutdown still routes active/uncertain radio state through
+  `radio_control_close()`.
+
+RxTxLog review:
+
+- missing setting defaults ON;
+- only explicit `rxtx_log=0|1` is accepted;
+- daily path is `/flash/ft8/RT[YYMMDD].txt`;
+- R and T formats match the V2 semantics required by T022;
+- append handles short writes, requires sync, and requires close;
+- failed T record prevents keying;
+- RX record failure is diagnosed but decoded/AutoSeq facts continue;
+- retained batch generations cannot be logged/projected twice.
+
+Station identity review:
+
+- production contains no hardcoded AG6AQ/CM97 identity;
+- the hardware fixture loads `callsign=AG6AQ`, `grid=CM97` through the normal
+  station/config path;
+- the test proves propagation into AutoSeq and the actual T021 plan
+  `CQ AG6AQ CM97`.
+
+Accepted evidence:
+
+```text
+Linux CTest          54/54 PASS
+portable units       15/15 PASS
+ASan/UBSan focused   PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+No blocking software finding.
+
+### First-QSO UI limitation
+
+The current V3 O -> CQ / Beacon menu remains a placeholder; T022 does not add
+manual CQ/beacon controls. Therefore the first real T022 QSO should use the
+implemented responder path:
+
+1. receive and decode a standard-callsign CQ;
+2. on the RX screen select that CQ with its numbered line;
+3. AutoSeq creates the reply on the opposite parity;
+4. the physical executor sends the resulting plan.
+
+This is sufficient to validate the first integrated QSO. Originating CQ/beacon
+from V3 UI remains later UI work and is not claimed by T022.
+
+T022 is now TESTING.
 
 ## Architect test result
 
