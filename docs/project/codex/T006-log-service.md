@@ -1,6 +1,6 @@
 # T006 — Extract MiniFT8 logging ownership
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -496,8 +496,8 @@ reviews `main..<commit>`. No PR opened.
 
 ## Supervisor review
 
-Supervisor reviews the actual diff against current `main` and the local test evidence.
+PASS. Reviewed commit `dc5077b39881742a44f956f4ba2777c7f0581335` against the previous `main`. The extraction preserves controller TX-start ordering and independent AutoSeq ACK ownership, moves ADIF/Cabrillo representation and file mutation into application-private `log_service`, preserves T004 effective-grid behavior, and leaves F07 recovery semantics unchanged. Local focused tests 3/3, unit tests 14/14, architecture checks PASS; full Linux suite 22/24 with only the two accepted baseline failures. Commit was fast-forwarded directly to `main`.
 
 ## Architect test result
 
-No hardware validation is expected for this behavior-preserving extraction unless the implementation introduces an unexpected hardware dependency.
+ACCEPTED. No hardware validation required for this behavior-preserving extraction.
