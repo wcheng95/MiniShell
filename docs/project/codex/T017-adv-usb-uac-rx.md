@@ -1587,6 +1587,27 @@ A likely follow-up is to isolate USB/UAC capture work from the MiniShell foregro
 core and/or ensure the successful capture loop yields, but do not make that change
 until this hardware discriminator is recorded.
 
+## Hardware finding — host/UART bring-up without QMX passes
+
+Real ADV test with QMX disconnected reached the expected host-wait state:
+
+```text
+ADV: USB Host diagnostics on UART0 TX=GPIO4 RX=GPIO5 115200
+I (...) adv_uac: USB Host installed FIFO 91/18/91; heap 78908 largest 31744
+I (...) uac-host: Install Succeed, Version: 1.3.3
+```
+
+This confirms:
+- lazy ring allocation has already succeeded;
+- USB Serial/JTAG -> GPIO4/5 diagnostic handoff works;
+- USB Host installation works;
+- UAC host 1.3.3 installation works with no device attached;
+- the remaining responsiveness issue is downstream of this point.
+
+Next discriminator: while FT8 is waiting with QMX disconnected, press physical Cardputer
+`Q`. If FT8 exits and USB Serial/JTAG returns, the local UI/input path is healthy
+before QMX enumeration and the later freeze is QMX-triggered.
+
 ## Architect hardware result
 
 Record QMX enumeration, live decoded messages, consecutive-slot behavior, repeated
