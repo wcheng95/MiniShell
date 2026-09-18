@@ -12,15 +12,12 @@ wcheng95/Mini-FT8
 ## Current development rule
 
 ```text
-completion / first QSO   Linux/QMX
-embedded validation      ADV only when hardware-specific behavior matters
+production TX baseline   Linux/pc-1 + QMX accepted
+portability next          WinBook/TW700 + QMX CAT/TX
+embedded validation       ADV only when hardware-specific behavior matters
 ```
 
-The ADV RAM/USB-host feasibility risk is retired by T017. MiniFT8 now returns to
-Linux to finish physical TX and complete the first real MiniFT8-V3 QSO. Keep Linux
-as the deterministic development/regression platform until a completed TX path is
-ready to be carried back to ADV. Preserve V2 behavior first, then introduce
-deliberate V3 differences explicitly.
+The ADV RAM/USB-host feasibility risk is retired by T017. Linux/pc-1 + QMX now has an accepted physical FT8 TX baseline through T022-T024: real CAT keying, on-air decodability, RX recovery, RxTxLog, CQ/POTA beacon operation, and V2-compatible offset-source behavior. A completed two-way QSO has not yet been observed and remains an operational follow-up. The next host-portability target is WinBook/TW700, where the pc-1-built binaries already run and decode QMX audio; CAT/TX remains unresolved.
 
 ## Current production baseline
 
@@ -35,7 +32,11 @@ AutoSeq AS-0..AS-8                 COMPLETE
 simulated TX lifecycle             COMPLETE
 ADIF persistent logging            COMPLETE
 Field Day Cabrillo logging         COMPLETE
-physical QMX TX                    NEXT MAJOR BOUNDARY — Linux first QSO
+physical QMX TX                    COMPLETE — pc-1/QMX hardware validated
+CQ/POTA beacon controls             COMPLETE — T023 hardware validated
+Random/Fixed/RX TX offset           COMPLETE — T024 hardware validated
+WinBook/TW700 live RX               PASS — pc-1 binaries + QMX ALSA decode
+WinBook/TW700 QMX CAT/TX            NEXT PORTABILITY DEBUG ITEM
 ```
 
 Working live Linux/QMX command:
@@ -149,8 +150,11 @@ RX-8        COMPLETE — live QMX ALSA + V2 timing + continuous capture
 T017        COMPLETE — ADV QMX USB-host RX + lifecycle + post-FT8 usbmsc
 T018        COMPLETE — Linux bare ft8 live-QMX/ADV defaults
 T019        COMPLETE — Linux Serial/CDC + receive-safe QMX CAT sync
-T020        COMPLETE — QMX CAT TX primitives; RF validation deferred to T022
+T020        COMPLETE — QMX CAT TX primitives; RF validated through T022-T024
 T021        COMPLETE — pure FT8 TX encoder + immutable 79-tone plan
+T022        COMPLETE — integrated physical QMX FT8 TX + RX recovery + RxTxLog
+T023        COMPLETE — CQ/CQ POTA + beacon OFF/EVEN/ODD
+T024        COMPLETE — Random/Fixed/RX TX-offset source
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -382,14 +386,11 @@ The V2 ARRL Field Day header and `QSO:` line format are preserved. QSO lines are
 
 ### RxTxLog / RT trace
 
-V2's `RT[YYMMDD].txt` RX/TX trace is not yet implemented in V3.
+V2-compatible `RT[YYMMDD].txt` RX/TX trace is implemented in V3 and hardware validated.
 
-It is now a required part of T022, because the first integrated Linux/QMX QSO must
-leave enough evidence to debug slot timing, decoded messages, transmitted text,
-reports and frequency offsets.
+It is part of the accepted T022 physical-TX baseline and provides RX/TX evidence for slot timing, transmitted text, reports and frequency offsets.
 
-T022 must enable RxTxLog for the whole on-air integration test and preserve the
-V2-compatible line semantics:
+The accepted implementation preserves the V2-compatible line semantics:
 
 ```text
 T [YYYYMMDD HHMMSS][freq_MHz] <text> <offset_hz>
