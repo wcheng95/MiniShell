@@ -1,6 +1,6 @@
 # T023 — O -> 4 CQ / Beacon controls
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -634,6 +634,69 @@ handoff; this packet is included in that commit. No PR or Actions wait.
 
 Supervisor checks the exact diff, especially that T023 does not modify T022
 scheduler/radio/RX semantics.
+
+
+## Supervisor review — CQ / Beacon UI accepted for operator testing
+
+PASS on `f8a14de9b489604b0c9a952e89b98e74e5b460bf`.
+
+Reviewed the single implementation commit from T023 task head
+`9df726e1096ae162a99a8f8c8fa343046173508b`.
+
+Accepted scope is exactly the requested O -> 4 controls:
+
+```text
+1 CQ Type: CQ / CQ POTA
+2 Beacon:  OFF / EVEN / ODD
+```
+
+Accepted input behavior:
+
+- number key 1/2 cycles the corresponding control forward;
+- Enter cycles the selected control forward;
+- Right cycles forward;
+- Left cycles backward;
+- Back behavior is unchanged.
+
+Architecture review:
+
+- ui_shell depends only on UI-owned CQ/beacon presentation values;
+- UI emits explicit `APP_ACTION_SET_CQ_TYPE` and
+  `APP_ACTION_SET_BEACON_MODE`;
+- controller alone maps those actions to ConfigService/AutoSeq/TxLifecycle;
+- CQ persists through the existing atomic `station.txt` save;
+- failed CQ persistence restores the previous ConfigService and AutoSeq value;
+- beacon remains runtime-only and initializes OFF;
+- no T022 executor, scheduler, radio, RX, log, encoder, AutoSeq state-machine or
+  configuration-parser implementation was modified.
+
+CQ freshness review:
+
+A queued one-shot beacon context does not cache the final CQ text/type.
+`auto_seq_prepare_tx_intent()` reads the current `seq->config.cq_type` when
+the intent is prepared for transmission, so changing CQ <-> CQ POTA cannot leave
+a stale queued message.
+
+Physical regression tests additionally prove that immediately before mocked
+`TX;`, the immutable T021 plan is:
+
+```text
+CQ POTA AG6AQ CM97
+```
+
+for the POTA setting, using station identity loaded normally from station.txt.
+
+Accepted evidence:
+
+```text
+Linux CTest          54/54 PASS
+portable units       15/15 PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+No blocking finding. T023 is TESTING for the short real-QMX operator validation.
 
 ## Architect test result
 
