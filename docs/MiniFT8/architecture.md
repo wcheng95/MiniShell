@@ -109,6 +109,7 @@ The application edge translates between MiniShell service types and MiniFT8-owne
 | `config_service` | parsed/persisted FT8 configuration values |
 | `auto_seq` | pure QSO sequencing, queue, eligibility, typed log events and per-format ACK state |
 | `tx_lifecycle` | pure TX-slot/parity/lifecycle eligibility |
+| `tx_encoder` | pure AutoSeq intent -> canonical FT8 payload and immutable 79-tone transmit plan |
 | `rx_audio_adapter` | MiniShell Audio RX edge and application stream lifecycle |
 | `rx_frontend` | canonical 12 kHz S16 stereo to 6 kHz mono float conversion |
 | `rx_slot_framer` | FT8 slot/sample progression and block framing |
@@ -436,10 +437,11 @@ The ADV `freq_osr=2` comparison is not part of the production profile: it remain
 alive but consumed roughly 103 KiB more application memory and did not decode during
 the hardware comparison. The accepted ADV profile remains `freq_osr=1`.
 
-Physical QMX TX realization remains future work. The next control slice adds the
-MiniShell serial/CDC byte-stream service plus MiniFT8-owned QMX CAT frequency/mode
-synchronization; CAT TX commands remain a later step. The diagrams for those boundaries describe intended
-ownership, not implemented transmitter functionality. A future I/Q source would use
+QMX receive CAT synchronization, CAT TX primitives, and the pure FT8 79-tone
+encoder are implemented. Real slot-anchored physical FT8 transmission remains the
+next integration boundary. The diagrams describe the accepted ownership: T022
+coordinates the existing TxLifecycle, AutoSeq intent, Ft8TxPlan, and MiniFT8-owned
+QMX CAT adapter without moving protocol or radio semantics into MiniShell. A future I/Q source would use
 the same Audio API with an application-owned I/Q processing path.
 
 ## 12. Boundary rules
