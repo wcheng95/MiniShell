@@ -7,12 +7,14 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T002-filesystem-handle-lifetime.md   READY
+T003-station-load-result.md   READY
 ```
 
-T001 architecture audit was reviewed and merged in PR #33. Its accepted findings define the cleanup backlog; T002 addresses F03 first.
+T001 architecture audit is merged in PR #33. T002 fixed F03 and is merged in PR #34.
 
-No unrelated feature implementation should proceed while T002 and the accepted Wave-1 integrity cleanup are active.
+T003 addresses F02: an existing station file must never be replaced merely because loading it failed.
+
+No unrelated feature implementation should proceed while the accepted Wave-1 integrity cleanup is active.
 
 ## Rule
 
