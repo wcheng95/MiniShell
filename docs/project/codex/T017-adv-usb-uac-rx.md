@@ -1024,7 +1024,7 @@ The pre-existing UAC live-audio hardware acceptance also remains pending.
 
 New amendment commit on `codex/T017-adv-usb-uac-rx`, based on the existing
 implementation and updated task packet. Its exact pushed SHA is returned in the
-handoff. Status: REVIEW. No PR, no Actions wait, no hardware testing. No deviation
+handoff. Status: TESTING. No PR, no Actions wait, no hardware testing. No deviation
 from the newly authorized amendment.
 
 ## Architect USB ownership decision
@@ -2052,6 +2052,44 @@ Next hardware milestones:
 - QMX enumerates past configuration descriptor;
 - UAC RX interface opens and strict 48000/24/2 starts;
 - Cardputer UI/keyboard remains responsive.
+
+## Supervisor static-capture / ADV-profile re-review
+
+PASS for hardware testing on `84eab890a547a60eaed906b57593122686991597`.
+
+Review findings:
+- the private ADV capture worker now uses a static 4096-byte stack/TCB and no longer
+  depends on late fragmented heap;
+- task priority and unpinned affinity behavior are unchanged;
+- ADV composition overrides only `app_controller.c` with
+  `FT8_DEFAULT_FREQ_OSR=1`;
+- portable/Linux engine baseline remains `freq_osr=2`;
+- the ADV setting matches the pinned MiniFT8-V2 firmware profile
+  (`time_osr=2, freq_osr=1`);
+- measured/calculated ADV monitor workspace drops from 211288 to 105792 bytes;
+- .bss rises only 4440 bytes for the static capture task resources;
+- Linux 45/45, units 14/14, architecture checks and real ADV build pass.
+
+Hardware result after this change:
+- no crash;
+- no freeze;
+- FT8 remains interactive;
+- V/Memory reports approximately `142.2K 129.2K 3 57% ON`;
+- live FT8 decode has not yet produced messages.
+
+This confirms the memory/task-startup phase is substantially resolved. Continue by
+verifying the actual UAC sample path and FT8 timing before changing decoder/DSP.
+
+Next observations:
+1. GPIO4 must show QMX UAC RX interface opened and strict `48000/24/2` selected.
+2. Confirm the FT8 top-line UTC is correct to roughly one second; live FT8 framing
+   depends on MiniShell UTC.
+3. After several active FT8 slots, quit normally and capture provider continuity/
+   ring diagnostics if visible: high-water, overflow, discontinuity, read-errors,
+   transfer-errors.
+4. If UAC is streaming with clean continuity but no decodes, next add narrow
+   platform/engine diagnostics (sample amplitude + slot/candidate count) rather
+   than changing DSP parameters blindly.
 
 ## Architect hardware result
 
