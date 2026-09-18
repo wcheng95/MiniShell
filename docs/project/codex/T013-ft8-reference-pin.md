@@ -1,6 +1,6 @@
 # T013 — Align MiniFT8 V2 reference provenance
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -201,19 +201,19 @@ No hardware validation and no GitHub Actions wait are required.
 
 ## Acceptance criteria
 
-- [ ] old workflow pin is replaced by canonical `491e757...`;
-- [ ] workflow still checks out `wcheng95/Mini-FT8`;
-- [ ] golden WAV path/content is not changed;
-- [ ] old vs canonical revision relationship is recorded;
-- [ ] identical golden WAV blob provenance is recorded;
-- [ ] no DSP/protocol/reference expected output is rebaselined;
-- [ ] drift regression checks workflow + canonical docs;
-- [ ] drift regression is registered in root CTest;
-- [ ] FT8 architecture checks pass;
-- [ ] unit suite passes;
-- [ ] full Linux suite result recorded;
-- [ ] optional canonical reference tests are run if locally practical, otherwise limitation recorded;
-- [ ] no unrelated cleanup.
+- [x] old workflow pin is replaced by canonical `491e757...`;
+- [x] workflow still checks out `wcheng95/Mini-FT8`;
+- [x] golden WAV path/content is not changed;
+- [x] old vs canonical revision relationship is recorded;
+- [x] identical golden WAV blob provenance is recorded;
+- [x] no DSP/protocol/reference expected output is rebaselined;
+- [x] drift regression checks workflow + canonical docs;
+- [x] drift regression is registered in root CTest;
+- [x] FT8 architecture checks pass;
+- [x] unit suite passes;
+- [x] full Linux suite result recorded;
+- [x] optional canonical reference tests are run if locally practical, otherwise limitation recorded;
+- [x] no unrelated cleanup.
 
 ## Branch workflow
 
@@ -240,21 +240,134 @@ Supervisor reviews `main..<SHA>`. If clean, fast-forward/merge to `main`, then d
 
 ### Implementation summary
 
+Aligned the workflow behavioral reference with the approved canonical V2 commit.
+Added a local pin/provenance checker with mutation self-tests and root CTest
+registration. No FT8/DSP code, reference expectation, WAV content/transformation,
+public API, or runtime behavior changed. No task deviations or hardware/manual
+validation requirements.
+
 ### Revision comparison
+
+Independently inspected the existing `/home/wei/projects/Mini-FT8` Git repository
+before editing the workflow. Its origin is `git@github.com:wcheng95/Mini-FT8`.
+Commands:
+
+```bash
+git -C /home/wei/projects/Mini-FT8 remote get-url origin
+git -C /home/wei/projects/Mini-FT8 rev-list --left-right --count 5bd3ef98f72388a850bebad04bd7300b90edb63c...491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
+git -C /home/wei/projects/Mini-FT8 diff --name-only 5bd3ef98f72388a850bebad04bd7300b90edb63c 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
+```
+
+The revision count was `0 11`: canonical is 11 commits ahead of the old pin.
+Changed files exactly match the pre-task evidence: the upstream RX-1A workflow,
+`components/ft8_lib/ft8/message.c`, and the four listed `tests/tx_e2e` build/test
+sources. Identical WAV data does not imply identical behavioral source revisions.
 
 ### Golden WAV provenance
 
+Executed `git -C /home/wei/projects/Mini-FT8 ls-tree -l <revision>
+tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav` for **both** full revisions above.
+Both returned mode `100644`, blob `04b67efb6d1d2092dfc4d57fd2477e9e381eb46d`,
+size **163724 bytes**, and the same golden path.
+
+Extracted the canonical artifact directly from Git, independently of working-tree
+state, using:
+
+```bash
+mkdir -p /tmp/T013-canonical/tests/tx_e2e/golden
+git -C /home/wei/projects/Mini-FT8 show 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0:tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav > /tmp/T013-canonical/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav
+git hash-object /tmp/T013-canonical/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav
+```
+
+The extracted file hashes to the same Git blob. Later extracted the sibling golden
+fixtures from that same commit for RX-7; no repository WAV was modified.
+
 ### Pin-drift regression
+
+`tests/ft8_reference_pin.py` checks the actual external checkout `repository` and
+`ref`, all workflow golden WAV path occurrences, and the repository-bearing fenced
+reference declarations in AGENTS and both canonical MiniFT8 docs. Every full SHA
+in those declarations must equal the canonical SHA. Repeated canonical pins are
+allowed; unrelated commit prose elsewhere is ignored. A canonical SHA in a
+workflow comment cannot mask a stale checkout ref.
+
+The checker uses only the standard library unless PyYAML is already installed,
+in which case it also parses and validates the checkout structurally. Both paths
+were tested (`python3` and `python3 -S`). Mutation self-tests reject stale pins in
+each of the four files, conflicting documentation pins, wrong checkout repository,
+wrong WAV path, and stale workflow ref accompanied by a canonical comment. Positive
+fixtures verify repeated canonical pins and unrelated historical commit prose.
+Root CTest `ft8_reference_pin` runs the checker and its self-tests.
 
 ### Workflow change
 
+Changed only the checkout ref from `5bd3ef98f72388a850bebad04bd7300b90edb63c`
+to `491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`, plus two provenance comments
+separating the behavioral source pin from the unchanged golden WAV blob.
+PyYAML **6.0.1** was already installed. Parsed old (`git show HEAD:<workflow>`)
+and edited YAML, replaced only the old parsed checkout ref with canonical, and
+asserted complete structural equality. This passed: every run script, expected
+decode string, transformation, checkout repository/path, and workflow gate is
+unchanged.
+
 ### Files changed
+
+- `.github/workflows/ft8-reference.yml`: canonical ref and provenance comments.
+- `tests/ft8_reference_pin.py`: lightweight drift regression and self-tests.
+- `CMakeLists.txt`: register `ft8_reference_pin` CTest.
+- `docs/project/codex/T013-ft8-reference-pin.md`: REVIEW status and evidence.
 
 ### Local tests run and results
 
+Executed all commands in the local test gate above. Linux configure/build passed;
+focused pin/architecture CTest **7/7 passed**; standalone FT8 dependency,
+platform/purity, and compatibility-wrapper checks passed. Unit configure/build
+and **14/14 tests passed**. `git diff --check` passed. Full Linux CTest:
+**34/36 passed**, with only the accepted `linux_audio` diagnostic-substring and
+`linux_ft8` rotated-queue expectation failures. Those tests remain unchanged.
+Also ran `python3 tests/ft8_reference_pin.py . --self-test` and
+`python3 -S tests/ft8_reference_pin.py . --self-test`; both passed.
+
+Canonical reference build and tests:
+
+```bash
+cmake -S . -B /tmp/T013-ft8-reference \
+  -DFT8_RX1C_REFERENCE_WAV=/tmp/T013-canonical/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav \
+  -DFT8_RX1D_REFERENCE_WAV=/tmp/T013-canonical/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav \
+  -DFT8_RX1G_REFERENCE_WAV=/tmp/T013-canonical/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav
+cmake --build /tmp/T013-ft8-reference -j"$(nproc)"
+ctest --test-dir /tmp/T013-ft8-reference -R '^(ft8_monitor_rx1c|ft8_decoder_rx1d|ft8_engine_rx1g)' --output-on-failure
+```
+
+Configure/build passed; reference/unit selection **6/6 passed**. Also executed
+workflow RX-2 through RX-6 run bodies locally, changing only temporary build/input/
+output paths: build directory `/tmp/T013-ft8-reference`, canonical fixture root
+`/tmp/T013-canonical`, RX-6 output root `/tmp/T013-rx6-root`. RX-2 exact decode
+`CQ W1XYZ FN42`, RX-3 frontend, RX-4 framer, RX-5 assembly, and RX-6 Audio tests
+all passed with unchanged assertions. UI smoke passed. RX-7 initially needed
+sibling WAVs absent from the single-file extraction; after extracting them, its
+unchanged production decoded-UI test passed:
+
+```bash
+git -C /home/wei/projects/Mini-FT8 archive 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0 tests/tx_e2e/golden | tar -x -C /tmp/T013-canonical
+python3 tests/linux_ft8_rx7.py /tmp/T013-ft8-reference/minishell /tmp/T013-ft8-reference/runtime/apps /tmp/T013-canonical/tests/tx_e2e/golden/ft8_cq_w1xyz_fn42.wav
+```
+
 ### Known limitations / risks
 
+The drift checker is intentionally scoped to literal checkout fields and the
+repository-bearing fenced documentation declarations, not arbitrary historical
+prose. Its dependency-free workflow parser expects the current step/key layout
+and fails if that layout no longer yields the expected checkout. Live upstream
+Git history/WAV blobs are verified during this handoff, not fetched by routine
+CTest. No reference output was rebaselined. The two accepted Linux failures remain
+outside scope. No hardware validation, PR, or GitHub Actions wait was performed.
+
 ### Commit
+
+One bounded commit on `codex/T013-ft8-reference-pin`, titled
+`T013: align FT8 reference pin and enforce provenance`. The pushed SHA is returned
+in the handoff; these notes are part of that commit.
 
 ## Supervisor review
 

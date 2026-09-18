@@ -79,9 +79,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: wcheng95/Mini-FT8
-          ref: 5bd3ef98f72388a850bebad04bd7300b90edb63c
+          # Behavioral source revision; see canonical MiniShell V2 reference docs.
+          ref: 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
           path: reference/Mini-FT8
 
+      # Golden WAV blob: 04b67efb6d1d2092dfc4d57fd2477e9e381eb46d (unchanged from old pin).
       - name: Configure consolidated reference build
         if: steps.gate.outputs.run_reference == 'true'
         shell: bash

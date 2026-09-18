@@ -610,3 +610,9 @@ add_test(
     NAME architecture_platform_selftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/app_platform_boundary.py --self-test
 )
+
+add_test(
+    NAME ft8_reference_pin
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/ft8_reference_pin.py
+            ${CMAKE_SOURCE_DIR} --self-test
+)
