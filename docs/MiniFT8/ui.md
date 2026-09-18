@@ -237,7 +237,7 @@ Field meanings:
 
 MiniFT8 obtains these values only through the platform-independent MiniShell Memory API. No Linux-, ESP32-, or ADV-specific memory calls belong in the MiniFT8 application.
 
-The memory snapshot is queried only while `V -> 1 Memory` is visible. Changes to the memory values or RX active state trigger a redraw of this page. Other UIScreens do not continuously poll memory diagnostics.
+`app_controller_build_model()` snapshots Memory facts whenever it builds a complete `UiModel`, regardless of the visible screen. `V -> 1 Memory` displays that snapshot; its visibility does not control the query. The controller supplies facts, while `ui_shell` owns presentation, redraw decisions, and navigation.
 
 ## Rendering boundary
 

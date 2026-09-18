@@ -42,7 +42,7 @@ RxResultBuilder -> RxBatch
 app_controller
    /          \
   v            v
-AutoSeq      MiniShell FS logging
+AutoSeq      log_service -> MiniShell FS/Time
   |
   v
 TxIntent / simulated TX lifecycle
@@ -99,7 +99,7 @@ Field Day Cabrillo:
 /flash/ft8/fieldday.txt
 ```
 
-Logging eligibility originates in pure AutoSeq state, but file/time I/O remains in `app_controller` using MiniShell Filesystem and Time/Location APIs. Writes are acknowledged to AutoSeq only after successful persistence, preserving V2 duplicate-prevention semantics.
+AutoSeq owns pure log eligibility/events and per-format ACK state. `app_controller` coordinates TX-start ordering and passes station/QSO facts to `log_service`, which owns ADIF/Cabrillo serialization, date/frequency/path policy and copy-on-write persistence through injected MiniShell Filesystem and Time/Location APIs (T006/T007). Sync/close precede rename as the commit point; the controller ACKs only successful persistence.
 
 V2's optional `RTYYMMDD.txt` traffic log remains intentionally unported until V3 exposes the corresponding `rxtx_log` setting.
 
@@ -111,23 +111,22 @@ K1 ADV runtime ELF proof      COMPLETE
 K2 MiniShell Digital I/O      COMPLETE
 K3 portable Keyer engine      COMPLETE
 K4 GPIO KeyIn/KeyOut          COMPLETE
-K5 sidetone                   NEXT KEYER STAGE
+K5 sidetone                   IMPLEMENTED / TRANSPORT HARDWARE-VALIDATED
 ```
 
-K4 keeps orchestration in `app_controller`:
+The controller keeps orchestration in `app_controller`:
 
 ```text
 config_service
       |
       v
-app_controller
-   /      |       \
-  v       v        v
-keyin  keyer_engine keyout
-  |                  |
-  v                  v
-MiniShell Digital I/O
+                  +--> keyin ------> MiniShell Digital I/O
+                  +--> keyer_engine
+app_controller ---+--> keyout ------> MiniShell Digital I/O
+                  `--> sidetone ----> MiniShell Audio TX
 ```
+
+K5 software is implemented; T009/T010 provide ADV Audio TX transport hardware evidence. K6 UI/settings and K7 audible/operator field acceptance remain future work.
 
 Default ADV deployment remains:
 

@@ -86,19 +86,12 @@ Additional profiles such as PaperS3 or Tab5 should be introduced only when those
 `app_controller` owns FT8-domain coordination. Other logical MiniFT8 modules do not coordinate one another behind its back.
 
 ```text
-MiniShell edge adapters
-        |
-        v
-  app_controller
-   /    |     \
-  v     v      v
-config  qso   future ft8_engine
-        scheduler
-
-UiModel / AppAction
-        |
-        v
-     ui_shell
+MiniShell edge adapters -> app_controller
+                              |-> config_service / storage_service / log_service
+                              |-> auto_seq / tx_lifecycle
+                              |-> rx_audio_adapter / rx_frontend / rx_slot_framer
+                              |-> ft8_engine / rx_result_builder
+                              `-> UiModel / AppAction <-> ui_shell
 ```
 
 `ft8_main` owns the foreground application loop and lifecycle only. It wires the edge adapters, controller, and UI together; it must not become a second owner of scheduler, DSP, radio/control, or configuration state.
@@ -114,11 +107,16 @@ The application edge translates between MiniShell service types and MiniFT8-owne
 | `app_controller` | cross-module FT8-domain sequencing |
 | `ui_shell` | Screen/Submenu navigation, rendering, UI-local selection state |
 | `config_service` | parsed/persisted FT8 configuration values |
-| `qso_scheduler` | scheduler-owned runtime settings and QSO/TX policy |
-| `storage_service` | FT8 file policy and safe text persistence through MiniShell Filesystem |
-| future MiniFT8 RX-audio edge | opening/reading MiniShell RX Audio and assigning source/profile channel meaning |
-| future `ft8_engine` | FT8-specific DSP, encode/decode, symbol generation, waveform synthesis |
-| future MiniFT8 Control edge | use of the future MiniShell Control API; no CAT syntax or platform transport |
+| `auto_seq` | pure QSO sequencing, queue, eligibility, typed log events and per-format ACK state |
+| `tx_lifecycle` | pure TX-slot/parity/lifecycle eligibility |
+| `rx_audio_adapter` | MiniShell Audio RX edge and application stream lifecycle |
+| `rx_frontend` | canonical 12 kHz S16 stereo to 6 kHz mono float conversion |
+| `rx_slot_framer` | FT8 slot/sample progression and block framing |
+| `ft8_engine` | FT8 DSP/protocol decode and hash state |
+| `rx_result_builder` | engine results to factual `RxBatch` entries |
+| `storage_service` | configuration/text persistence helpers through MiniShell Filesystem |
+| `log_service` | ADIF/Cabrillo serialization, date/time/frequency/path policy and copy-on-write file mutation through injected MiniShell APIs |
+| `presentation_profile` | presentation/layout profile facts |
 
 MiniShell owns application-visible filesystem handles, display semantics, input events, time/location, memory, audio stream lifecycle, and platform resources. A future MiniShell Control service will likewise own application-visible radio-control transport/resource lifecycle.
 
@@ -229,7 +227,7 @@ If the FT8 decoder requires a different internal representation, such as 6 kHz m
 
 ### 5.3 TX ownership
 
-For audio-based TX, MiniFT8 owns protocol waveform synthesis and channel mapping:
+For future physical audio-based TX, MiniFT8 will own protocol waveform synthesis and channel mapping:
 
 ```text
 FT8 message
@@ -295,7 +293,7 @@ Tune is application policy, not a dedicated MiniShell Control primitive.
 
 ## 7. TX realization remains capability-driven
 
-After `ft8_engine` produces a TX signal plan, `app_controller` chooses a realization based on capabilities.
+Physical TX realization remains future work. The intended boundary is for `app_controller` to choose a realization from capabilities after a protocol TX signal plan is available; the current production lifecycle is simulated.
 
 Control-frequency radio:
 
@@ -320,17 +318,22 @@ The decision is based on independent capabilities, never a switch on one monolit
 
 ## 8. Storage boundary
 
-`storage_service` owns MiniFT8 file **policy**, not the filesystem:
+`storage_service` provides configuration/text persistence helpers; it does not own the filesystem:
 
-- `/flash/ft8/` default data/configuration directory;
-- `station.txt` configuration naming;
-- configurable `RxTxLog` destination/location from `station.txt`;
+- ensuring the selected application directory exists;
 - complete text reads/writes;
 - safe temporary-file save sequence.
 
 MiniShell Filesystem owns logical namespace and paths, handles, lifecycle cleanup, quota policy, and platform/native file operations through its backend.
 
-Thus `/flash/ft8/station.txt` is MiniFT8 policy, while how `/flash` maps to Linux, LittleFS, NuttX, or another backend is MiniShell policy. `RxTxLog` may be placed on `/flash` or `/sd` according to the path selected in `station.txt`; its destination is FT8 application policy rather than an ADV filesystem rule.
+`ft8_main` selects `/flash/ft8/station.txt` by default, and `config_service` owns configuration parsing/serialization. Thus this path is MiniFT8 policy, while how `/flash` maps to Linux, LittleFS, NuttX, or another backend is MiniShell policy. The optional V2 `RxTxLog` traffic log is not enabled in V3. ADIF/Cabrillo path policy belongs to `log_service`, using the station configuration directory.
+
+AutoSeq owns pure log eligibility/events and per-format ACK state. At TX start,
+`app_controller` snapshots station/QSO facts, calls `log_service`, and ACKs only
+successful persistence independently for ADIF and Cabrillo. `log_service` owns
+serialization, UTC/date/frequency/path policy and copy-on-write mutation through
+injected Filesystem and Time/Location APIs. It syncs/closes a temporary file before
+rename commits the new log; known pre-commit failures leave the final log unchanged.
 
 The FT8-only configuration does not persist a protocol `mode=` value. Protocol identity comes from the application being launched.
 
@@ -392,41 +395,28 @@ Future applications may reuse proven modules where the interfaces genuinely matc
 
 ## 11. Current implementation boundary
 
-Implemented MiniShell side:
+Implemented production baseline:
 
 ```text
-Audio public API
-Audio resident service/lifecycle
+MiniShell Audio RX API/service
 Linux deterministic WAV RX provider
-12 kHz / S16 / 2-channel reference fixture
+Linux live ALSA/QMX capture worker and ring
+rx_audio_adapter -> rx_frontend -> rx_slot_framer
+    -> ft8_engine -> rx_result_builder / RxBatch
+continuous multi-slot live RX with V2-compatible 12.64-second decoding
+AutoSeq AS-0..AS-8 and simulated TX lifecycle
+ADIF and Field Day Cabrillo logging through log_service
 ```
 
-Not yet implemented/integrated:
+The RX pipeline transports 12 kHz S16 stereo through MiniShell, converts to 6 kHz
+mono float in `rx_frontend`, and frames blocks/slots in `rx_slot_framer` before
+engine decoding. `app_controller` projects results into AutoSeq and UiModel.
+Capture continues in the Linux worker while synchronous decoding runs.
 
-```text
-MiniFT8 RX Audio consumer/source-profile layer
-ft8_engine replay/decode path
-MiniShell Control public service
-live QMX/UAC provider
-TX realization
-```
-
-RX implementation is temporarily paused while the two-backend/two-profile validation milestone is completed. When RX resumes, the deterministic vertical slice remains:
-
-```text
-tests/kfs16b12k.wav
-    -> MiniShell WAV provider
-    -> MiniShell Audio API: 12 kHz / S16 / 2-channel
-    -> MiniFT8 RX source/profile interpretation
-    -> ordinary-audio select/downmix
-    -> ft8_engine
-    -> decoded messages
-    -> app_controller
-    -> UiModel
-    -> RX screen
-```
-
-A later I/Q source uses the same Audio API but selects the MiniFT8 I/Q branch instead of ordinary-audio downmix.
+Physical QMX TX realization, generic MiniShell Control/CAT, and physical CAT/control
+integration remain future work. The diagrams for those boundaries describe intended
+ownership, not implemented transmitter functionality. A future I/Q source would use
+the same Audio API with an application-owned I/Q processing path.
 
 ## 12. Boundary rules
 
@@ -437,7 +427,7 @@ A later I/Q source uses the same Audio API but selects the MiniFT8 I/Q branch in
 5. MiniShell Audio owns transport, stream lifecycle, buffering, and native-format conversion; MiniFT8 owns channel meaning and DSP conversion.
 6. The `ft8` application owns FT8 protocol semantics, timing, modulation, waveform synthesis, and QSO policy. Other protocols are separate applications.
 7. MiniShell Control, when implemented, owns generic device/radio control realization but never FT8 symbols or tune policy.
-8. `storage_service` owns MiniFT8 file policy; MiniShell Filesystem remains the filesystem/resource owner.
+8. `storage_service` owns config/text persistence helpers and `log_service` owns log serialization/persistence policy; MiniShell Filesystem remains the filesystem/resource owner.
 9. Mocks and simulations stay below MiniShell unless the thing being tested is a pure MiniFT8 module with an explicit MiniFT8-level test interface.
 10. Keep one authoritative owner for mutable state/resource policy.
 11. Prefer synchronous explicit calls until concurrency is proven necessary.

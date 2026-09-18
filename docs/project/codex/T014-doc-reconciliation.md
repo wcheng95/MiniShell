@@ -1,6 +1,6 @@
 # T014 — Reconcile canonical architecture and status documentation
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -439,24 +439,24 @@ Do not:
 
 ## Acceptance criteria
 
-- [ ] canonical ADV ELF paths use `/flash/apps` and `/sd/apps`;
-- [ ] Digital I/O is documented as current public service;
-- [ ] runtime external ELF is documented as implemented/validated, not future;
-- [ ] MiniFT8 module map matches current source;
-- [ ] stale `qso_scheduler`/future RX/paused RX production text is removed or clearly historical;
-- [ ] MiniFT8 live RX/current boundary matches production;
-- [ ] logging ownership matches AutoSeq/controller/log_service split;
-- [ ] Keyer diagrams/status include sidetone accurately;
-- [ ] current summaries no longer say K5 is simply "next";
-- [ ] K6/K7 are not falsely marked complete;
-- [ ] Memory snapshot documentation matches current controller model-build behavior;
-- [ ] implemented vs hardware-validated status is distinguished where relevant;
-- [ ] no production/test/build/workflow source changes;
-- [ ] static consistency searches reviewed;
-- [ ] architecture/reference focused tests pass;
-- [ ] unit suite passes;
-- [ ] full Linux suite result recorded;
-- [ ] no unrelated documentation rewrite.
+- [x] canonical ADV ELF paths use `/flash/apps` and `/sd/apps`;
+- [x] Digital I/O is documented as current public service;
+- [x] runtime external ELF is documented as implemented/validated, not future;
+- [x] MiniFT8 module map matches current source;
+- [x] stale `qso_scheduler`/future RX/paused RX production text is removed or clearly historical;
+- [x] MiniFT8 live RX/current boundary matches production;
+- [x] logging ownership matches AutoSeq/controller/log_service split;
+- [x] Keyer diagrams/status include sidetone accurately;
+- [x] current summaries no longer say K5 is simply "next";
+- [x] K6/K7 are not falsely marked complete;
+- [x] Memory snapshot documentation matches current controller model-build behavior;
+- [x] implemented vs hardware-validated status is distinguished where relevant;
+- [x] no production/test/build/workflow source changes;
+- [x] static consistency searches reviewed;
+- [x] architecture/reference focused tests pass;
+- [x] unit suite passes;
+- [x] full Linux suite result recorded;
+- [x] no unrelated documentation rewrite.
 
 ## Branch workflow
 
@@ -484,25 +484,146 @@ Supervisor reviews `main..<SHA>`. If clean, fast-forward/merge to `main`, then d
 
 ### Implementation summary
 
+Reconciled current documentation against production source and accepted evidence.
+Only Markdown files changed. Runtime/API, DSP, application ownership, Keyer timing,
+logging behavior, persisted formats, tests, build and workflows are unchanged.
+Historical task/audit/RX/AS records were preserved. No task deviations.
+
 ### Canonical architecture corrections
+
+The three canonical architecture documents now use `/flash/apps/<app>.elf` and
+`/sd/apps/<app>.elf`, including concrete Keyer examples and precedence. ADV external
+ELF loading is implemented/hardware-validated, with compiled-in applications still
+first. Digital I/O is a current public v3 service; Control remains future. Keyer
+is a current external target, while full field acceptance remains later work.
 
 ### MiniFT8 ownership/status corrections
 
+Replaced the obsolete scheduler/future-engine module map with the production
+AutoSeq, TX lifecycle, RX edge/frontend/framer/engine/result-builder, logging,
+storage, and presentation owners. Continuous Linux ALSA/QMX RX and simulated TX
+are current; physical QMX TX and Control/CAT remain future. TX diagrams are now
+explicitly prospective. Logging responsibility is split among AutoSeq eligibility
+and per-format ACK state, controller TX-start ordering, and log_service
+serialization/date/frequency/path/copy-on-write persistence. Storage retains
+config/text helpers; optional V2 traffic logging remains unported.
+
 ### Keyer status corrections
+
+Added sidetone as a controller-coordinated sibling to KeyIn/engine/KeyOut in all
+three current diagrams. Status is implemented / transport hardware-validated,
+not blanket K5 field acceptance. T009 measures 48-frame/48 kHz writes; T010's final
+architect record validates finite/nonblocking transport behavior. K6 UI/settings
+and K7 audible/operator field validation remain future work.
 
 ### Memory polling correction
 
+`app_controller_build_model()` calls `app_controller_build_memory_model()` for
+every complete model build, without inspecting the visible screen. V/Memory
+presents the snapshot; UI retains rendering/redraw/navigation ownership.
+
 ### Files changed
+
+- `README.md`: K5 status and sidetone diagram.
+- `docs/README.md`: directly conflicting K5-next summary corrected.
+- `docs/architecture/architecture.md`: paths, current services, runtime milestone,
+  current Keyer and live RX status.
+- `docs/architecture/design-principles.md`: paths and implemented loader status.
+- `docs/architecture/resident-vs-app.md`: paths, runtime packaging and current Keyer app.
+- `docs/MiniFT8/architecture.md`: production module map, live RX, logging/storage
+  ownership, and future physical TX distinction.
+- `docs/MiniFT8/ui.md`: model-build Memory snapshot behavior.
+- `docs/MiniFT8/README.md`: directly conflicting controller logging ownership.
+- `docs/MiniFT8/development.md`: directly conflicting logging ownership/projection.
+- `docs/keyer/README.md`: K5 implementation/transport evidence, module diagram and
+  controller timing description; K6/K7 remain future.
+- `docs/project/progress.md`: log_service ownership and Keyer status/diagram.
+- This task packet: REVIEW status and handoff evidence.
 
 ### Static consistency searches
 
+Ran the four exact `rg` searches in the Verification section after editing, over
+its listed paths. Before editing, ran their combined expression over the same
+canonical and historical document trees; saved output in `/tmp/T014-before.txt`.
+After-search output is in `/tmp/T014-after-{paths,status,memory,logging}.txt`.
+
+Before: old ELF paths in all three architecture documents; K5-next in current
+Keyer/progress summaries; obsolete scheduler/future RX/paused RX in MiniFT8
+architecture; screen-only Memory query claim; controller-owned file/time I/O in
+progress. Additional contextual review found stale Digital I/O/runtime milestones,
+README sidetone status, docs-map K5-next, and the two canonical MiniFT8 logging
+ownership statements.
+
+After: path and Memory searches have no matches. Status matches are historical
+`as-boundary-audit`, `as-plan`, `as-2-auto-seq-core`, `rx-1b-design` references,
+the explicit prototype-removal statement in development, and the architecture
+sentence saying Digital I/O is current while Control is future. Logging matches
+are the historical coordinator/routing statements in `as-plan` and
+`as-boundary-audit`. All were inspected in context and intentionally retained.
+Current summaries contain no K5-next claim or physical MiniFT8 TX claim.
+
 ### Source cross-checks
+
+- `include/minishell/api.h`: v3 service table including `digital_io`; no Control API.
+- `platform/adv/adv_apps.c` and `adv_elf_loader.c`: external roots and compiled-in,
+  flash, SD lookup order. `platform/adv/README.md` and Keyer K1/K4 evidence record
+  hardware load/unload, flash precedence, and GPIO validation.
+- `apps/ft8/src/app_controller/app_controller_instance.c:161`: complete model build
+  calls Memory builder unconditionally after UI facts; `app_controller.c:634`
+  queries `memory->get_info` with availability/result checks, no screen condition.
+- `app_controller_tx.c:120` onward: TX-start event/facts snapshot, separate
+  log_service format writes, then independent ACKs and simulated AutoSeq tick.
+- `apps/ft8/src/log_service/log_service.c`: injected FS/Time, UTC/path/serialization,
+  temporary-file sync/close and rename. T006 supervisor accepts extraction;
+  T007 supervisor accepts copy-on-write commit semantics.
+- `apps/ft8/main/ft8_main.c`, config/storage headers, and production RX modules:
+  default station path, config/text separation, 12 kHz stereo to 6 kHz mono,
+  960-sample blocks and 79-block decode window. `linux_audio_buffered.h` has the
+  capture worker and canonical ring; existing current-state evidence records
+  continuous QMX RX.
+- `apps/keyer/src/app_controller/app_controller.c`: KeyIn/engine/KeyOut/sidetone
+  call sequence, monotonic timing, silent sleep path and cleanup.
+- `apps/keyer/src/sidetone/sidetone.[ch]`: public Audio TX `speaker`, 48 frames at
+  48 kHz, 20 ms timeout. `platform/adv/adv_audio_speaker.cpp` implements transport.
+  T009/T010 final architect hardware sections supersede their earlier pending
+  implementation notes. T010 records 998 us mean/2487 us max for finite writes,
+  and 8 us mean/113 us max with 4934/5000 zero-progress timeouts for WAIT_NONE.
+  This is transport evidence, not full audible/operator field acceptance.
 
 ### Local tests run and results
 
+```bash
+git status --short
+git diff --check
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R 'architecture|ft8_reference_pin' --output-on-failure
+cmake -S tests/unit -B /tmp/T014-build-unit
+cmake --build /tmp/T014-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T014-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+```
+
+Both configure/builds passed. Focused architecture/reference checks **7/7 PASS**;
+unit suite **14/14 PASS**. Full Linux CTest **34/36 PASS**: only accepted
+`linux_audio` diagnostic-substring and `linux_ft8` rotated-queue expectation
+failures remain. No expectations changed. Final `git diff --check` passed;
+changed-file inspection confirms only Markdown. Bytecode suppression avoids
+untracked checker cache files and does not alter tests.
+
 ### Known limitations / risks
 
+No new hardware test was required or performed. Hardware claims cite existing
+accepted evidence only. Full Keyer K7 field acceptance and physical MiniFT8 TX
+remain future. Historical records retain stage-specific wording intentionally;
+current canonical text takes precedence. No production/test/build/workflow source
+changed, and no PR or GitHub Actions wait was performed.
+
 ### Commit
+
+One documentation-only commit on `codex/T014-doc-reconciliation`, titled
+`T014: reconcile canonical architecture and status docs`. The pushed SHA is
+returned in the handoff; this report is part of that commit.
 
 ## Supervisor review
 

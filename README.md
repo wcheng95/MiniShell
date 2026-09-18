@@ -60,7 +60,7 @@ Keyer
     Digital I/O                   COMPLETE
     portable keyer engine         COMPLETE
     physical GPIO KeyIn/KeyOut    COMPLETE
-    sidetone                      NEXT KEYER STAGE
+    sidetone                      IMPLEMENTED / TRANSPORT HARDWARE-VALIDATED
 ```
 
 Repo-wide current status is maintained in:
@@ -284,13 +284,10 @@ Architecture:
 config_service
       |
       v
-app_controller
-   /      |       \
-  v       v        v
-keyin  keyer_engine keyout
-  |                  |
-  v                  v
-MiniShell Digital I/O
+                  +--> keyin ------> MiniShell Digital I/O
+                  +--> keyer_engine
+app_controller ---+--> keyout ------> MiniShell Digital I/O
+                  `--> sidetone ----> MiniShell Audio TX
 ```
 
 Current real ADV GPIO baseline:

@@ -105,7 +105,7 @@ Canonical entry point:
 docs/keyer/README.md
 ```
 
-Keyer K1 runtime ELF, K2 Digital I/O, K3 portable engine, and K4 physical GPIO KeyIn/KeyOut are complete. K5 sidetone is the next Keyer stage.
+Keyer K1 runtime ELF, K2 Digital I/O, K3 portable engine, and K4 physical GPIO KeyIn/KeyOut are complete. K5 sidetone is implemented with ADV Audio TX transport hardware validation; K6 UI/settings and K7 full field validation remain future work.
 
 ## Other application/research areas
 

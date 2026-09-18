@@ -265,7 +265,11 @@ AutoSeq
     owns QSO policy/state only
 
 app_controller
-    owns application coordination, MiniShell API calls, logging and TX lifecycle
+    owns application coordination, TX-start log ordering and TX lifecycle
+
+log_service
+    owns ADIF/Cabrillo serialization, date/frequency/path policy and
+    copy-on-write persistence through injected MiniShell FS/Time APIs
 ```
 
 ## Canonical documents

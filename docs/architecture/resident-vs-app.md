@@ -54,6 +54,7 @@ nano
 rm
 rmdir
 ft8
+keyer
 ```
 
 These use only the public MiniShell API and can be built for Linux or ADV when the required capabilities are available.
@@ -100,25 +101,24 @@ Do not define an application conceptually by its container format. `.so` and `.e
 
 ```text
 Linux/Mint          .so
-Cardputer ADV V1    compiled-in registry
-Cardputer ADV next  runtime external .elf
+Cardputer ADV      compiled-in registry and runtime external .elf
 ```
 
-The ADV static registry remains available during transition/testing, but runtime loading is now an active MiniShell architecture target.
+ADV runtime external ELF loading is implemented and hardware-validated. The compiled-in registry remains the first resolution tier.
 
 ADV application resolution is:
 
 ```text
 1. compiled-in application
-2. /flash/<app>.elf
-3. /sd/<app>.elf
+2. /flash/apps/<app>.elf
+3. /sd/apps/<app>.elf
 ```
 
 The same external ELF may live in either location; when both copies exist, `/flash` wins. Therefore both of these are valid Keyer installations:
 
 ```text
-/flash/keyer.elf
-/sd/keyer.elf
+/flash/apps/keyer.elf
+/sd/apps/keyer.elf
 ```
 
 The source-level application contract remains MiniShell public API plus the application's own modules. Loader details such as path discovery, ELF parsing, relocation, symbol resolution, execution context, and unloading stay resident/private to MiniShell and the ADV backend.

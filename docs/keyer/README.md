@@ -1,7 +1,7 @@
 # Keyer on MiniShell
 
-Status: **K0/K1/K2/K3/K4 complete; K5 next**  
-Date: 2026-09-10
+Status: **K0/K1/K2/K3/K4 complete; K5 implemented / transport hardware-validated**
+Date: 2026-09-17
 
 ## Purpose
 
@@ -42,16 +42,13 @@ Cross-module orchestration belongs only in `app_controller`:
 config_service
       |
       v
-app_controller
-   /      |       \
-  v       v        v
-keyin  keyer_engine keyout
-  |                  |
-  v                  v
-MiniShell Digital I/O
+                  +--> keyin ------> MiniShell Digital I/O
+                  +--> keyer_engine
+app_controller ---+--> keyout ------> MiniShell Digital I/O
+                  `--> sidetone ----> MiniShell Audio TX
 ```
 
-The dependency checker now enforces this Keyer module boundary in CI.
+The shared architecture checks enforce Keyer dependencies and platform/API purity in root CTest.
 
 ## Configuration ownership
 
@@ -104,7 +101,7 @@ keyout
     logical key state -> MiniShell Digital I/O
 
 sidetone
-    K5
+    portable tone generation through MiniShell Audio TX
 
 ui_shell / ui_adapter
     K6
@@ -123,7 +120,7 @@ MiniShell monotonic_us()
     -> logical key state/events
 ```
 
-The K4 loop samples and advances at approximately 1 ms granularity.
+The controller samples KeyIn and advances the engine using MiniShell monotonic time. Sidetone writes 48 mono S16 frames at 48 kHz with a 20 ms transport timeout; silent operation uses the controller sleep path. Audio transport does not own Morse timing.
 
 ## Runtime ELF policy
 
@@ -276,7 +273,17 @@ Cardputer ADV hardware validation passed the real GPIO KeyIn/KeyOut path. The ap
 
 ### K5 — sidetone through MiniShell Audio TX
 
-Add portable tone generation and ADV Audio TX realization without changing Keyer timing ownership.
+Implemented: the controller coordinates `sidetone` alongside KeyIn, engine and
+KeyOut. The module uses MiniShell Audio TX only; the ADV speaker provider realizes
+`speaker`. T009 measured the existing 48-frame/48 kHz transport. T010 corrected
+provider timeout/nonblocking semantics and passed the ADV hardware probe, while
+preserving the normal finite-wait path. See the accepted hardware records in
+`../project/codex/T009-audio-tx-latency.md` and
+`../project/codex/T010-adv-audio-tx-timeout.md`.
+
+Status is **implemented / transport hardware-validated**. This evidence does not
+replace audible/operator end-to-end K7 field acceptance. Keyer timing remains in
+the engine/controller; K6 UI/settings and K7 validation remain future work.
 
 ### K6 — minimal field UI and settings
 
@@ -298,7 +305,7 @@ K1 ADV runtime ELF proof             COMPLETE
 K2 MiniShell Digital I/O V1          COMPLETE
 K3 portable Keyer engine             COMPLETE
 K4 GPIO KeyIn/KeyOut                 COMPLETE
-K5 sidetone                          NEXT
+K5 sidetone                          IMPLEMENTED / TRANSPORT HARDWARE-VALIDATED
 
 MiniShell knows Keyer semantics      NO
 Keyer config path                    /flash/keyer/setting.txt

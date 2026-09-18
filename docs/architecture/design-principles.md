@@ -154,28 +154,27 @@ The physical form differs by maintained target:
 
 ```text
 Linux/Mint          .so + dlopen/dlsym/dlclose
-Cardputer ADV V1    compiled-in registry
-Cardputer ADV next  runtime external .elf
+Cardputer ADV      compiled-in registry and runtime external .elf
 ```
 
-The ADV static registry remains a valid baseline and transition mechanism, but runtime ELF loading is now an **active architecture target**.
+ADV runtime ELF loading is implemented and hardware-validated. The static registry remains the first resolution tier.
 
 The established ADV application resolution order is:
 
 ```text
 1. compiled-in application
-2. /flash/<app>.elf
-3. /sd/<app>.elf
+2. /flash/apps/<app>.elf
+3. /sd/apps/<app>.elf
 ```
 
-For external applications specifically, `/flash` is searched before `/sd`. The same ELF may be installed in either location. If both external copies exist, the `/flash` copy wins. The first field-usable external application is Keyer, so both of these are valid placements:
+For external applications specifically, `/flash` is searched before `/sd`. The same ELF may be installed in either location. If both external copies exist, the `/flash` copy wins. The current external application target is Keyer, so both of these are valid placements:
 
 ```text
-/flash/keyer.elf
-/sd/keyer.elf
+/flash/apps/keyer.elf
+/sd/apps/keyer.elf
 ```
 
-`/sd/keyer.elf` is convenient for development/removable distribution; copying that binary to `/flash/keyer.elf` must work without rebuilding it.
+`/sd/apps/keyer.elf` is convenient for development/removable distribution; copying that binary to `/flash/apps/keyer.elf` must work without rebuilding it.
 
 Application source does not contain loader-specific logic. `keyer.elf` must depend only on the MiniShell public API and Keyer-owned modules; it must not know about ESP-IDF, FreeRTOS, M5/Cardputer, FATFS implementation details, or the ELF loader itself.
 
@@ -258,7 +257,7 @@ Packaging may differ while the observable API behavior stays the same:
 ```text
 Linux                runtime-loaded .so
 ADV V1 baseline      statically composed probe/app
-ADV ELF milestone    runtime-loaded /flash/<app>.elf or /sd/<app>.elf
+ADV ELF milestone    runtime-loaded /flash/apps/<app>.elf or /sd/apps/<app>.elf
 ```
 
 The ELF loader itself also requires focused tests for resolution order, load/start/return/unload/cleanup, and failure handling. Tests must prove:

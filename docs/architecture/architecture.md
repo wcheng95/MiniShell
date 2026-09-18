@@ -13,7 +13,7 @@ The maintained targets are Linux Mint on `pc-1` and Cardputer ADV. Linux is the 
 ```text
 +------------------------------------------------------+
 |                   Applications                       |
-|          ft8 / future keyer/ft4/rtty/js8 / tools    |
+|          ft8 / keyer / future ft4/rtty/js8 / tools    |
 +---------------------- MiniShell API -----------------+
 |                  Portable MiniShell                  |
 | shell / app lifecycle / service semantics / policy   |
@@ -29,7 +29,7 @@ MiniShell may be thin or thick depending on the target. The application-facing A
 
 MiniShell has two primary responsibilities:
 
-1. **Platform adaptation** — logical services such as memory, storage, time/location, display, input, and audio, with later services such as Digital I/O, control, or networking added only when justified by application requirements.
+1. **Platform adaptation** — logical services such as memory, storage, time/location, display, input, audio, and Digital I/O, with later services such as control or networking added only when justified by application requirements.
 2. **Application runtime** — discovery, foreground lifecycle, cleanup, and where practical load/unload without rebuilding MiniShell.
 
 A third cross-cutting responsibility is **resource policy**: MiniShell defines the resource domain applications may consume and enforces it through the owning services.
@@ -146,28 +146,27 @@ Packaging/loading is private:
 
 ```text
 Linux/Mint          .so + dlopen()/dlsym()/dlclose()
-Cardputer ADV V1    compiled-in registry
-Cardputer ADV next  runtime external .elf
+Cardputer ADV      compiled-in registry and runtime external .elf
 ```
 
-ADV V1 intentionally used static composition to prove the backend and application boundary first. That historical decision remains valid, but runtime ELF is now an **active architecture milestone**.
+ADV V1 historically used static composition to prove the backend and application boundary. Runtime external ELF loading is now implemented and hardware-validated; compiled-in applications remain supported.
 
 The established ADV application resolution order is:
 
 ```text
 1. compiled-in application
-2. /flash/<app>.elf
-3. /sd/<app>.elf
+2. /flash/apps/<app>.elf
+3. /sd/apps/<app>.elf
 ```
 
 For external applications, `/flash` is searched before `/sd`. The same external ELF may be installed in either location. If both external copies exist, the `/flash` copy wins. For Keyer, both are valid:
 
 ```text
-/flash/keyer.elf
-/sd/keyer.elf
+/flash/apps/keyer.elf
+/sd/apps/keyer.elf
 ```
 
-`/sd/keyer.elf` is convenient during development and for removable distribution. Copying the exact same file to `/flash/keyer.elf` must make it runnable from flash without changing the application binary.
+`/sd/apps/keyer.elf` is convenient during development and for removable distribution. Copying the exact same file to `/flash/apps/keyer.elf` must make it runnable from flash without changing the application binary.
 
 The loader is a resident/private MiniShell mechanism. Path discovery, ELF parsing, relocation, symbol resolution, execution-task setup, cleanup, and unloading must not leak into application source. The resolution order above is a MiniShell runtime rule, not application logic.
 
@@ -187,6 +186,7 @@ Time/Location
 Display
 Input
 Audio
+Digital I/O
 ```
 
 `MINISHELL_API_VERSION` identifies the API generation expected by the current source/build. `struct_size`, capabilities, validity bits, fixed-width types, and opaque handles remain useful design mechanisms, but they are **not a backward-compatibility promise** during this phase.
@@ -203,7 +203,7 @@ Audio          format-described independent RX/TX streams
 
 The Audio API transports ordered frames and does not assign application meaning such as stereo versus I/Q to channels. The current Linux WAV RX provider validates and streams exact-format PCM through the private provider boundary.
 
-API changes remain justified by real application requirements, but incompatible changes are allowed when they improve clarity, ownership, or portability. Digital I/O and Control are not yet public MiniShell services; Keyer is expected to provide the first concrete requirement for Digital I/O.
+API changes remain justified by real application requirements, but incompatible changes are allowed when they improve clarity, ownership, or portability. Digital I/O is an implemented public v3 service used by Keyer KeyIn/KeyOut. Control remains a future public service.
 
 Canonical public contracts live under `docs/api/`.
 
@@ -302,7 +302,7 @@ ft8
 hello cat cp date df free ls mkdir mv nano rm rmdir
 ```
 
-Keyer is the next planned domain application and the first planned field-usable ADV runtime ELF. Future protocol applications such as `ft4`, `rtty`, and `js8` are separate applications rather than protocol modes inside `ft8`.
+Keyer is an implemented domain application with an ADV external ELF target, hardware-validated GPIO KeyIn/KeyOut, and implemented sidetone with transport hardware evidence. Full field acceptance remains a later milestone. Future protocol applications such as `ft4`, `rtty`, and `js8` are separate applications rather than protocol modes inside `ft8`.
 
 `put/get`, `suspend`, `poweroff`, and similar operations are platform-dependent. They may exist on a target where useful and be absent elsewhere; no fake implementation is required.
 
@@ -341,7 +341,7 @@ MiniShell-managed resource cleanup
 invalid/missing ELF failure paths
 ```
 
-Tests must prove that the same ELF works from either external location, that `/flash/<app>.elf` wins when both external copies exist, and that a compiled-in application wins over a same-name external copy. A non-colliding external test app should be used to prove the loader path itself.
+Tests must prove that the same ELF works from either external location, that `/flash/apps/<app>.elf` wins when both external copies exist, and that a compiled-in application wins over a same-name external copy. A non-colliding external test app should be used to prove the loader path itself.
 
 Those loader tests do not replace service/API tests. Service/unit tests remain more important than merely proving that one executable file can load.
 
@@ -372,21 +372,21 @@ Linux backend + ADV presentation       PASS
 ADV backend   + ADV presentation       PASS
 ```
 
-MiniFT8 RX integration has advanced through RX-7 on Linux while preserving the platform boundary, and Cardputer ADV continues to pass the firmware build gate.
+MiniFT8 RX integration includes continuous multi-slot Linux ALSA/QMX capture and V2-compatible decoding while preserving the platform boundary, and Cardputer ADV continues to pass the firmware build gate.
 
-The next runtime milestone is:
+The implemented, hardware-validated runtime supports:
 
 ```text
 ADV application resolution
     1. compiled-in
-    2. /flash/<app>.elf
-    3. /sd/<app>.elf
+    2. /flash/apps/<app>.elf
+    3. /sd/apps/<app>.elf
 
-first field external app:
+current external application target:
     keyer.elf
 ```
 
-The purpose is not merely to prove ELF parsing. A field-usable Keyer should exercise the external-app lifecycle plus real MiniShell services strongly enough to validate the runtime architecture in practical use.
+K1 validated the same external ELF from flash and SD, including repeated execution and flash precedence. Keyer K4 validated real GPIO KeyIn/KeyOut. K5 sidetone is implemented and its ADV Audio TX transport is hardware-validated (T009/T010); K6 UI/settings and K7 full field validation remain future work.
 
 ## 18. Reference-development rule
 

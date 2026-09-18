@@ -81,7 +81,7 @@ app_controller
         |      +-> QsoView -> UiModel -> T UIScreen
         |      `-> TxIntent / log eligibility
         |
-        +-> MiniShell FS logging
+        +-> log_service -> MiniShell FS/Time
         `-> simulated TX lifecycle
 ```
 
@@ -199,12 +199,13 @@ SIGNOFF        -> TX5
 
 ## Logging contract
 
-Logging remains a controller responsibility, not an AutoSeq filesystem responsibility.
+The controller coordinates logging at TX start. Pure AutoSeq owns eligibility/events and per-format ACK state; `log_service` owns serialization, date/frequency/path policy and copy-on-write persistence through injected MiniShell Filesystem and Time/Location APIs.
 
 ```text
 AutoSeq
     -> AutoSeqLogEvent at eligible TX start
-    -> app_controller writes files through MiniShell FS
+    -> app_controller passes station/QSO facts to log_service
+    -> log_service commits files through MiniShell FS
     -> app_controller ACKs only successful writes
 ```
 
