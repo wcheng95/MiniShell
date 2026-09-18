@@ -1,6 +1,6 @@
 # T002 — Filesystem stale-handle lifetime
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -475,8 +475,8 @@ avoid embedding a self-referential commit hash here.
 
 ## Supervisor review
 
-Supervisor reviews the actual diff, token-lifetime design, regression tests, and test results.
+PASS. The merged implementation preserves Filesystem ownership, uses a fresh shared nonzero 32-bit token per acquisition, fails closed on token-space exhaustion, keeps lookup bounded to the fixed slot counts, and adds public-API regressions for file/directory reuse, stale operations, teardown, and reconfiguration. PR #34 was reviewed against commit `6840262` and merged as `1ff4f0be7640cffcc09e13bbb86a3b20da06a493`.
 
 ## Architect test result
 
-No hardware test is expected. Architect records acceptance/rejection after supervisor review.
+ACCEPTED. No hardware validation required. Architect authorized merge of PR #34.
