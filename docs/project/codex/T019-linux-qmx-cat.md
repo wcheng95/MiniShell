@@ -1,6 +1,6 @@
 # T019 — Linux QMX CAT over MiniShell Serial/CDC
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -410,23 +410,23 @@ Do not implement:
 
 Software/review gate:
 
-- [ ] MiniShell exposes optional raw Serial/CDC byte transport;
-- [ ] MiniShell service owns serial handle lifecycle and app-end cleanup;
-- [ ] Linux provider supports explicit `serial:/dev/ttyACM*`-style endpoint;
-- [ ] no QMX CAT syntax exists below the MiniFT8 application boundary;
-- [ ] MiniFT8 QMX adapter owns exact CAT strings;
-- [ ] startup command order is `MD6; FR0; FT0; FA...;`;
-- [ ] 20m command is exactly `FA00014074000;`;
-- [ ] all band dial frequencies match existing MiniFT8/log policy;
-- [ ] no TX-related CAT command is emitted;
-- [ ] omitting `--cat` preserves T018 bare-`ft8` behavior;
-- [ ] explicit `--cat` failure is reported and cleans up;
-- [ ] ADIF/Cabrillo regression remains unchanged;
-- [ ] Linux full CTest passes;
-- [ ] portable unit suite passes;
-- [ ] architecture boundary checks pass;
-- [ ] real ADV build passes despite the append-only optional API field;
-- [ ] no unrelated cleanup.
+- [x] MiniShell exposes optional raw Serial/CDC byte transport;
+- [x] MiniShell service owns serial handle lifecycle and app-end cleanup;
+- [x] Linux provider supports explicit `serial:/dev/ttyACM*`-style endpoint;
+- [x] no QMX CAT syntax exists below the MiniFT8 application boundary;
+- [x] MiniFT8 QMX adapter owns exact CAT strings;
+- [x] startup command order is `MD6; FR0; FT0; FA...;`;
+- [x] 20m command is exactly `FA00014074000;`;
+- [x] all band dial frequencies match existing MiniFT8/log policy;
+- [x] no TX-related CAT command is emitted;
+- [x] omitting `--cat` preserves T018 bare-`ft8` behavior;
+- [x] explicit `--cat` failure is reported and cleans up;
+- [x] ADIF/Cabrillo regression remains unchanged;
+- [x] Linux full CTest passes;
+- [x] portable unit suite passes;
+- [x] architecture boundary checks pass;
+- [x] real ADV build passes despite the append-only optional API field;
+- [x] no unrelated cleanup.
 
 Manual architect acceptance on pc-1/QMX:
 
@@ -505,21 +505,137 @@ Codex:
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Added an optional raw Serial service at the end of `mini_api_t`, retaining API
+generation v3 and checking struct sizes before the new field is consumed.
+The resident service owns one public stream handle, renews it on reopen,
+validates transfers, passes timeouts through, and closes it at app end or service
+reconfiguration. No Serial provider is installed on ADV.
+
+The Linux provider accepts `serial:<absolute tty path>`, saves/restores termios,
+uses raw 115200/8N1 without flow control, and performs nonblocking reads/writes
+with poll and a monotonic deadline. The small flat `mini_serial_api_t` contains
+capabilities plus open/read/write/close; no second nested table is needed.
+Close consumes the public/backend handle even if restoration or close reports
+an error, matching Linux fd lifetime and avoiding a retry against a reused fd.
+This detail is specified in the header and new Serial contract.
+
+`--cat` is optional with no default. `ft8_main` asks `app_controller` to start
+control after configuration/UI initialization and before RX. The controller
+passes the selected band's canonical dial frequency to the control-only
+`radio_control` / `radio_qmx` modules. They open Serial and send exactly
+`MD6;`, `FR0;`, `FT0;`, `FA%011lu;`, each with the pinned V2 200 ms timeout.
+20m is exactly `MD6;FR0;FT0;FA00014074000;`. No other CAT commands are emitted,
+including during cleanup. Error or short write aborts the sequence and closes
+control. Later RX/app failure and normal quit also close control.
+
+The existing logging frequency arrays were replaced by
+`config_service_band_dial_hz()`. ADIF decimal-MHz and Cabrillo integer-kHz
+serialization remain identical, including empty/zero frequency for invalid
+indices. No V2 platform code was imported; the reference inspected was
+`main/radio_control.cpp` and `main/radio_control_qmx.cpp` at
+`491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`.
 
 ### Files changed
 
+- Public/resident service: `include/minishell/api.h`,
+  `core/minishell_services/{minishell_services.h,services_internal.h,services.c,serial_service.c}`.
+- Linux transport/composition:
+  `platform/linux/{linux_serial.c,linux_internal.h,linux_services.c}`.
+- MiniFT8 entry/controller: `apps/ft8/main/ft8_main.c`,
+  `apps/ft8/src/app_controller/{app_controller.c,app_controller.h,app_controller_internal.h}`.
+- MiniFT8 control and band/log policy:
+  `apps/ft8/src/radio_control/{radio_control.c,radio_control.h,radio_qmx.c,radio_qmx.h}`,
+  `apps/ft8/src/config_service/{config_service.c,config_service.h}`,
+  `apps/ft8/src/log_service/log_service.c`.
+- Build composition: root `CMakeLists.txt`, `platform/adv/main/CMakeLists.txt`,
+  `tests/unit/CMakeLists.txt`.
+- Tests: `tests/{linux_serial_test.c,linux_ft8_cat.py,ft8_radio_control_test.c,ft8_options_test.c,ft8_log_service_test.c}`,
+  `tests/unit/{test_serial.c,test_main.c,test_support.h}`.
+- Enforcement: `tests/{architecture_rules.py,app_platform_boundary.py,ft8_platform_boundary.py,serial_protocol_boundary.py}`.
+- Documentation: `docs/api/serial-api.md`, `docs/README.md`, and this task packet.
+
 ### Invariants preserved
+
+Bare FT8 still has no CAT path and retains T018 ADV presentation/live Linux RX
+defaults. Explicit WAV/slot and presentation overrides remain intact. Endpoint
+syntax is interpreted only by the Linux provider; the application parser rejects
+missing/empty/duplicate CAT options, while malformed transport endpoints fail
+clearly during open. No POSIX or tty dependency enters MiniFT8. Protocol literals
+remain inside `radio_qmx`; the architecture check rejects them in core/Linux.
+
+No RX Audio conversion, buffering, discontinuity, DSP/oversampling, AutoSeq, TX,
+UI, or persisted-setting changes. No live band resynchronization, CAT responses,
+discovery, or public ADV Serial provider. ADV links the portable optional service
+and app code only; its private CDC handle remains separate. No deviation from
+the authorized architecture or receive-only scope.
 
 ### Local tests run
 
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R 'serial|radio_control|linux_ft8|ft8_options|log_service|architecture' --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T019-build-unit
+cmake --build /tmp/T019-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T019-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+Focused regressions **15/15 PASS**; Linux full CTest **49/49 PASS**; portable
+unit suite **15/15 PASS**; all three standalone architecture checks PASS;
+real ADV firmware build PASS; whitespace check PASS. ADV binary size is
+`0xb9340`, leaving `0x536cc0` (88%) of the app partition free.
+
+New evidence includes:
+
+- Serial validation, capability/unavailable handling, stale handles, short
+  transfers, over-report rejection, timeout forwarding, close-error consumption,
+  app-end cleanup and reconfiguration through the old provider.
+- Production service/provider PTY round trips including NUL/newline/control
+  bytes, non-tty/malformed/missing endpoint rejection, raw 8N1, finite/nonblocking
+  read timeout, a saturated write queue timeout, termios restoration, reopen
+  and peer disconnect.
+- All seven exact CAT frequency strings; no transmit/time/tone commands;
+  injected short writes and errors at each command stop immediately and close;
+  old/truncated or absent Serial API is rejected safely.
+- Actual FT8 process with a saved 40m band emits exactly
+  `MD6;FR0;FT0;FA00007074000;` over a PTY, survives repeated close/reopen, cleans
+  up after later RX startup failure, reports CAT open failure, and emits nothing
+  when CAT is omitted. All audio fixtures are deterministic WAVs.
+- Existing byte-for-byte ADIF/Cabrillo assertions and added frequency checks for
+  all bands pass. Architecture self-tests also cover forbidden termios/poll
+  headers in application code.
+
 ### Manual/hardware validation still required
+
+After supervisor review, identify the real QMX CDC node on pc-1 and execute the
+manual acceptance procedure above: selected mode/VFO/frequency synchronization,
+no RF keying, continued live FT8 RX, and clean repeated quit/reopen. No hardware
+CAT command, RF transmission, flashing, PR, or Actions wait was performed.
 
 ### Known limitations / risks
 
+Writes acknowledge byte acceptance by the transport, not QMX response or a
+physical drain guarantee. A failure may leave a partially applied receive setup
+or incomplete command at the device; this task deliberately does not send
+recovery/transmit commands or parse responses. The selected band is synchronized
+only at startup. Device paths are explicit and host-specific; no cross-process
+tty arbitration or reconnect/discovery policy is added. PTY/mocked evidence does
+not replace real QMX acceptance. Existing untracked Python cache directories
+were present before this task and are excluded from the implementation commit.
+
 ### Commit
+
+One implementation commit titled `T019: add Linux Serial transport and receive-only QMX CAT`
+on `codex/T019-linux-qmx-cat`; exact pushed SHA returned in chat.
 
 ## Supervisor review
 

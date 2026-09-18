@@ -12,6 +12,7 @@
 #include "storage_service.h"
 #include "log_service.h"
 #include "tx_lifecycle.h"
+#include "radio_control.h"
 
 typedef struct AppRxState AppRxState;
 
@@ -38,6 +39,7 @@ struct AppController {
     bool gps_grid_active;
     AppRxState *rx;
     AppTxState tx;
+    RadioControl radio;
 };
 
 /* Internal lifecycle used by the public create/destroy wrapper and white-box tests. */

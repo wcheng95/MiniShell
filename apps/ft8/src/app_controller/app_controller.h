@@ -21,6 +21,7 @@ AppController *app_controller_create(const mini_api_t *api,
                                      const char *data_directory,
                                      const char *station_path);
 void app_controller_destroy(AppController *app);
+mini_result_t app_controller_start_cat(AppController *app, const char *endpoint);
 
 /* Synchronize dynamic MiniShell Time/Location state into FT8 policy state.
  * Live location may temporarily replace the working station grid; persistent

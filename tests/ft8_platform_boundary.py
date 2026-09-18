@@ -5,6 +5,7 @@ import sys
 
 from app_dependency_boundary import check_app as check_dependencies
 from app_platform_boundary import check_app as check_platform
+from serial_protocol_boundary import check_transport
 
 
 def main():
@@ -13,6 +14,7 @@ def main():
         return 2
     root = pathlib.Path(sys.argv[1]).resolve()
     errors = check_dependencies(root, 'ft8') + check_platform(root, 'ft8')
+    errors += check_transport(root)
     if errors:
         print('\n'.join(errors))
         return 1

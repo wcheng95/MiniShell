@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "minishell_services.h"
+bool test_serial(void);
 
 #define TEST_CHECK(expr) do { \
     if (!(expr)) { \

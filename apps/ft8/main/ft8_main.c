@@ -27,6 +27,7 @@
 typedef struct {
     ft8_presentation_profile_t presentation;
     const char *rx_endpoint;
+    const char *cat_endpoint;
     bool has_rx_slot;
     int64_t rx_slot_id;
 } Ft8Options;
@@ -76,6 +77,9 @@ static bool parse_options(int argc, char **argv, Ft8Options *out)
         } else if (strcmp(argv[i], "--rx-slot") == 0) {
             if (++i >= argc || out->has_rx_slot || !parse_i64(argv[i], &out->rx_slot_id)) return false;
             out->has_rx_slot = true;
+        } else if (strcmp(argv[i], "--cat") == 0) {
+            if (++i >= argc || !argv[i][0] || argv[i][0] == '-' || out->cat_endpoint) return false;
+            out->cat_endpoint = argv[i];
         } else {
             return false;
         }
@@ -110,7 +114,7 @@ int main(int argc, char **argv)
     }
 
     if (!parse_options(argc, argv, &options)) {
-        say_console(api, "usage: ft8 [--profile desktop|adv] [--rx endpoint [--rx-slot slot]]\n");
+        say_console(api, "usage: ft8 [--profile desktop|adv] [--rx endpoint [--rx-slot slot]] [--cat endpoint]\n");
         return 1;
     }
 
@@ -132,6 +136,12 @@ int main(int argc, char **argv)
         goto cleanup;
     }
     adapter_initialized = true;
+
+    if (options.cat_endpoint && app_controller_start_cat(app, options.cat_endpoint) != MINI_OK) {
+        say_system(api, "ft8: CAT open/synchronization failed\n");
+        result = 12;
+        goto cleanup;
+    }
 
     if (options.rx_endpoint != NULL) {
         AppRxStartConfig rx_config = {

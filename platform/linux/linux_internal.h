@@ -19,6 +19,7 @@ void linux_filesystem_configure(minishell_services_port_t *port);
 void linux_time_location_configure(minishell_services_port_t *port);
 void linux_terminal_configure(minishell_services_port_t *port);
 void linux_digital_io_configure(minishell_services_port_t *port);
+void linux_serial_configure(minishell_services_port_t *port);
 
 int linux_terminal_app_begin(void);
 void linux_terminal_app_end(void);

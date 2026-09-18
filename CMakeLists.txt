@@ -26,6 +26,7 @@ set(MINISHELL_SERVICE_SOURCES
     core/minishell_services/input_service.c
     core/minishell_services/audio_service.c
     core/minishell_services/digital_io_service.c
+    core/minishell_services/serial_service.c
 )
 
 set(MINISHELL_LINUX_SOURCES
@@ -39,6 +40,7 @@ set(MINISHELL_LINUX_SOURCES
     platform/linux/linux_terminal_parser.c
     platform/linux/linux_loader.c
     platform/linux/linux_services.c
+    platform/linux/linux_serial.c
     platform/linux/linux_audio_wav.c
     platform/linux/linux_digital_io.c
     platform/linux/platform_info.c
@@ -109,6 +111,8 @@ add_minishell_app(ft8
     apps/ft8/src/auto_seq/auto_seq.c
     apps/ft8/src/auto_seq/auto_seq_tx_intent.c
     apps/ft8/src/config_service/config_service.c
+    apps/ft8/src/radio_control/radio_control.c
+    apps/ft8/src/radio_control/radio_qmx.c
     apps/ft8/src/presentation_profile/presentation_profile.c
     apps/ft8/src/storage_service/storage_service.c
     apps/ft8/src/log_service/log_service.c
@@ -138,6 +142,7 @@ target_include_directories(ft8 PRIVATE
     apps/ft8/src/app_controller
     apps/ft8/src/auto_seq
     apps/ft8/src/config_service
+    apps/ft8/src/radio_control
     apps/ft8/src/presentation_profile
     apps/ft8/src/storage_service
     apps/ft8/src/log_service
@@ -170,6 +175,22 @@ foreach(profile linux portable)
 endforeach()
 target_compile_definitions(ft8_options_linux_unit PRIVATE
     $<TARGET_PROPERTY:ft8,COMPILE_DEFINITIONS> FT8_TEST_LINUX_DEFAULTS=1)
+
+add_executable(ft8_radio_control_unit tests/ft8_radio_control_test.c
+    apps/ft8/src/radio_control/radio_control.c
+    apps/ft8/src/radio_control/radio_qmx.c
+    apps/ft8/src/config_service/config_service.c)
+target_include_directories(ft8_radio_control_unit PRIVATE include
+    apps/ft8/src/radio_control apps/ft8/src/config_service)
+target_compile_options(ft8_radio_control_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME ft8_radio_control_unit COMMAND ft8_radio_control_unit)
+
+add_executable(linux_serial_unit tests/linux_serial_test.c ${MINISHELL_SERVICE_SOURCES}
+    platform/linux/linux_serial.c platform/linux/linux_common.c)
+target_include_directories(linux_serial_unit PRIVATE include core core/minishell_services platform/linux)
+target_compile_options(linux_serial_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME linux_serial_unit COMMAND linux_serial_unit)
+set_tests_properties(linux_serial_unit PROPERTIES TIMEOUT 10)
 
 add_library(private_import_probe MODULE tests/apps/private_import_probe.c)
 set_target_properties(private_import_probe PROPERTIES
@@ -225,9 +246,10 @@ target_compile_options(audio_probe PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(ft8_log_service_unit
     tests/ft8_log_service_test.c
+    apps/ft8/src/config_service/config_service.c
     apps/ft8/src/log_service/log_service.c
 )
-target_include_directories(ft8_log_service_unit PRIVATE include apps/ft8/src/log_service)
+target_include_directories(ft8_log_service_unit PRIVATE include apps/ft8/src/log_service apps/ft8/src/config_service)
 target_compile_options(ft8_log_service_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
 add_executable(ft8_storage_service_unit
@@ -251,6 +273,7 @@ target_include_directories(ft8_runtime_grid_ownership_unit PRIVATE
     apps/ft8/src/app_controller
     apps/ft8/src/auto_seq
     apps/ft8/src/config_service
+    apps/ft8/src/radio_control
     apps/ft8/src/storage_service
     apps/ft8/src/log_service
     apps/ft8/src/tx_lifecycle
@@ -307,6 +330,7 @@ target_include_directories(ft8_tx_lifecycle_as7_unit PRIVATE
     apps/ft8/src/app_controller
     apps/ft8/src/auto_seq
     apps/ft8/src/config_service
+    apps/ft8/src/radio_control
     apps/ft8/src/storage_service
     apps/ft8/src/log_service
     apps/ft8/src/tx_lifecycle
@@ -630,6 +654,11 @@ foreach(app ft8 keyer)
                 ${CMAKE_SOURCE_DIR} ${app}
     )
 endforeach()
+add_test(NAME linux_ft8_cat COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_SOURCE_DIR}/tests/linux_ft8_cat.py $<TARGET_FILE:minishell> $<TARGET_FILE_DIR:ft8>)
+set_tests_properties(linux_ft8_cat PROPERTIES TIMEOUT 30)
+add_test(NAME serial_protocol_boundary COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_SOURCE_DIR}/tests/serial_protocol_boundary.py ${CMAKE_SOURCE_DIR})
 add_test(
     NAME architecture_app_selftest
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/app_dependency_boundary.py --self-test

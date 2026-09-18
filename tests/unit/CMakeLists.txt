@@ -19,6 +19,7 @@ add_executable(minishell_unit_tests
     ../../core/minishell_services/input_service.c
     ../../core/minishell_services/audio_service.c
     ../../core/minishell_services/digital_io_service.c
+    ../../core/minishell_services/serial_service.c
     ../../apps/nano/main/nano_buffer.c
     ../../apps/cp/main/cp_copy.c
     test_support.c
@@ -30,6 +31,7 @@ add_executable(minishell_unit_tests
     test_display.c
     test_input.c
     test_audio.c
+    test_serial.c
     test_nano_buffer.c
     test_cp_copy.c
     test_main.c
@@ -111,7 +113,7 @@ target_compile_options(keyer_k5_sidetone_unit PRIVATE
 )
 
 enable_testing()
-foreach(group system console memory filesystem time_location display input audio)
+foreach(group system console memory filesystem time_location display input audio serial)
     add_test(NAME api_${group}_unit COMMAND minishell_unit_tests ${group})
 endforeach()
 add_test(NAME nano_editor_unit COMMAND minishell_unit_tests nano_buffer)

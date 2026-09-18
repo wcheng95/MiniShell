@@ -750,4 +750,12 @@ void app_controller_shutdown(AppController *app)
 {
     if (app == NULL) return;
     app_rx_destroy(app);
+    (void)radio_control_close(&app->radio);
+}
+
+mini_result_t app_controller_start_cat(AppController *app, const char *endpoint)
+{
+    if (!app) return MINI_ERR_INVALID;
+    return radio_control_open_qmx(&app->radio, app->api, endpoint,
+                                  config_service_band_dial_hz(app->config.band_index));
 }

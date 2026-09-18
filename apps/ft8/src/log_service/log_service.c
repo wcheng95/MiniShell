@@ -1,4 +1,5 @@
 #include "log_service.h"
+#include "config_service.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -70,24 +71,17 @@ static bool utc_fields(const mini_time_location_api_t *time_location,
     return true;
 }
 
-static const char *band_frequency_mhz(int band_index)
+static void band_frequency_mhz(int band_index, char out[16])
 {
-    static const char *const frequencies[] = {
-        "3.573", "7.074", "10.136", "14.074", "18.100", "21.074", "28.074"
-    };
-    if (band_index < 0 || band_index >= (int)(sizeof(frequencies) / sizeof(frequencies[0])))
-        return "";
-    return frequencies[band_index];
+    uint32_t hz = config_service_band_dial_hz(band_index);
+    out[0] = '\0';
+    if (hz) (void)snprintf(out, 16, "%lu.%03lu", (unsigned long)(hz / 1000000u),
+                          (unsigned long)((hz % 1000000u) / 1000u));
 }
 
 static int band_frequency_khz(int band_index)
 {
-    static const int frequencies[] = {
-        3573, 7074, 10136, 14074, 18100, 21074, 28074
-    };
-    if (band_index < 0 || band_index >= (int)(sizeof(frequencies) / sizeof(frequencies[0])))
-        return 0;
-    return frequencies[band_index];
+    return (int)(config_service_band_dial_hz(band_index) / 1000u);
 }
 
 static bool build_data_path(const LogService *service, const char *name,
@@ -207,7 +201,7 @@ bool log_service_write_adif(const LogService *service, const LogStationFacts *st
     char rst_rcvd_buf[32] = "";
     char my_grid4[5] = "";
     char line[512];
-    const char *freq;
+    char freq[16];
     const char *mode = "FT8";
     size_t my_grid_len;
     int n;
@@ -250,7 +244,7 @@ bool log_service_write_adif(const LogService *service, const LogStationFacts *st
     memcpy(my_grid4, station->effective_grid, my_grid_len);
     my_grid4[my_grid_len] = '\0';
 
-    freq = band_frequency_mhz(station->band_index);
+    band_frequency_mhz(station->band_index, freq);
     n = snprintf(line, sizeof(line),
                  "<call:%zu>%s <gridsquare:%zu>%s <mode:%zu>%s"
                  "<qso_date:8>%s <time_on:6>%s <freq:%zu>%s "
@@ -358,4 +352,3 @@ bool log_service_write_cabrillo(const LogService *service, const LogStationFacts
     if (!cabrillo_header(header, sizeof(header), station->callsign, location)) return false;
     return fs_commit_record(service->fs, path, header, qso_line, "END-OF-LOG:\n");
 }
-

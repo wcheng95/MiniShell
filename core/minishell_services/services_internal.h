@@ -52,3 +52,8 @@ bool minishell_display_service_available(void);
 bool minishell_input_service_available(void);
 bool minishell_audio_service_available(void);
 bool minishell_digital_io_service_available(void);
+
+void minishell_serial_service_configure(void);
+void minishell_serial_service_app_end(void);
+bool minishell_serial_service_available(void);
+const mini_serial_api_t *minishell_serial_service_api(void);

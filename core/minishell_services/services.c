@@ -17,6 +17,7 @@ static mini_api_t s_api = {
     .input = NULL,
     .audio = NULL,
     .digital_io = NULL,
+    .serial = NULL,
 };
 
 const minishell_services_port_t *minishell_services_port(void)
@@ -59,6 +60,7 @@ static void refresh_api_table(void)
     s_api.digital_io = minishell_digital_io_service_available()
                            ? minishell_digital_io_service_api()
                            : NULL;
+    s_api.serial = minishell_serial_service_available() ? minishell_serial_service_api() : NULL;
 }
 
 void minishell_services_configure(const minishell_services_port_t *port)
@@ -78,6 +80,7 @@ void minishell_services_configure(const minishell_services_port_t *port)
     minishell_input_service_configure();
     minishell_audio_service_configure();
     minishell_digital_io_service_configure();
+    minishell_serial_service_configure();
     refresh_api_table();
 }
 
@@ -92,6 +95,7 @@ void minishell_services_app_begin(void)
 
 void minishell_services_app_end(void)
 {
+    minishell_serial_service_app_end();
     minishell_digital_io_service_app_end();
     minishell_audio_service_app_end();
     minishell_filesystem_service_app_end();

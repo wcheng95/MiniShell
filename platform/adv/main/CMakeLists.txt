@@ -14,6 +14,7 @@ set(MINISHELL_SERVICE_SOURCES
     "${MINISHELL_ROOT}/core/minishell_services/input_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/audio_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/digital_io_service.c"
+    "${MINISHELL_ROOT}/core/minishell_services/serial_service.c"
 )
 
 set(MINIFT8_SOURCES
@@ -25,6 +26,8 @@ set(MINIFT8_SOURCES
     "${MINISHELL_ROOT}/apps/ft8/src/auto_seq/auto_seq.c"
     "${MINISHELL_ROOT}/apps/ft8/src/auto_seq/auto_seq_tx_intent.c"
     "${MINISHELL_ROOT}/apps/ft8/src/config_service/config_service.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/radio_control/radio_control.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/radio_control/radio_qmx.c"
     "${MINISHELL_ROOT}/apps/ft8/src/presentation_profile/presentation_profile.c"
     "${MINISHELL_ROOT}/apps/ft8/src/storage_service/storage_service.c"
     "${MINISHELL_ROOT}/apps/ft8/src/log_service/log_service.c"
@@ -121,6 +124,7 @@ idf_component_register(
         "${MINISHELL_ROOT}/apps/ft8/src/app_controller"
         "${MINISHELL_ROOT}/apps/ft8/src/auto_seq"
         "${MINISHELL_ROOT}/apps/ft8/src/config_service"
+        "${MINISHELL_ROOT}/apps/ft8/src/radio_control"
         "${MINISHELL_ROOT}/apps/ft8/src/presentation_profile"
         "${MINISHELL_ROOT}/apps/ft8/src/storage_service"
         "${MINISHELL_ROOT}/apps/ft8/src/log_service"

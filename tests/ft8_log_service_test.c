@@ -315,6 +315,21 @@ int main(void)
     LogStationFacts station = {"AG6AQ", "CM97ab", " R 1B SCV", 3};
     LogQsoFacts qso = {"W6ABC", "CM88", " R 2A ORG", -12, 5, true, true};
     CHECK(log_service_init(&log, &fs, &time, "/flash/ft8/station.txt"));
+    const char *mhz[] = {"3.573", "7.074", "10.136", "14.074", "18.100", "21.074", "28.074"};
+    const char *khz[] = {"3573", "7074", "10136", "14074", "18100", "21074", "28074"};
+    for (int band = 0; band < 7; ++band) {
+        reset();
+        station.band_index = band;
+        CHECK(log_service_write_adif(&log, &station, &qso));
+        CHECK(log_service_write_cabrillo(&log, &station, &qso));
+        char field[32];
+        snprintf(field, sizeof(field), "<freq:%zu>%s ", strlen(mhz[band]), mhz[band]);
+        CHECK(strstr(files[0].text, field));
+        snprintf(field, sizeof(field), "QSO: %s DG ", khz[band]);
+        CHECK(strstr(files[1].text, field));
+    }
+    reset();
+    station.band_index = 3;
     CHECK(log_service_write_adif(&log, &station, &qso));
     CHECK(strcmp(files[0].text,
         "<call:5>W6ABC <gridsquare:4>CM88 <mode:3>FT8<qso_date:8>20240102 "

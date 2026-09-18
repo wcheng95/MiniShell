@@ -22,6 +22,9 @@ typedef uintptr_t minishell_backend_audio_t;
 typedef uintptr_t minishell_backend_digital_t;
 #define MINISHELL_BACKEND_DIGITAL_INVALID ((minishell_backend_digital_t)0u)
 
+typedef uintptr_t minishell_backend_serial_t;
+#define MINISHELL_BACKEND_SERIAL_INVALID ((minishell_backend_serial_t)0u)
+
 typedef struct {
     uint64_t memory_bytes;
     uint64_t storage_bytes;
@@ -138,6 +141,18 @@ typedef struct {
     mini_result_t (*digital_io_write)(void *ctx, minishell_backend_digital_t line,
                                       uint32_t level);
     mini_result_t (*digital_io_close)(void *ctx, minishell_backend_digital_t line);
+
+    /* Raw Serial/CDC transport. Close consumes the backend handle on all results. */
+    uint64_t serial_capabilities;
+    mini_result_t (*serial_open)(void *ctx, const char *endpoint,
+                                 minishell_backend_serial_t *out_serial);
+    mini_result_t (*serial_read)(void *ctx, minishell_backend_serial_t serial,
+                                 void *buffer, uint32_t size, uint32_t *out_read,
+                                 uint32_t timeout_ms);
+    mini_result_t (*serial_write)(void *ctx, minishell_backend_serial_t serial,
+                                  const void *buffer, uint32_t size,
+                                  uint32_t *out_written, uint32_t timeout_ms);
+    mini_result_t (*serial_close)(void *ctx, minishell_backend_serial_t serial);
 } minishell_services_port_t;
 
 /* Configure the resident service layer. Safe to call again in host tests. */

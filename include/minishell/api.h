@@ -352,6 +352,29 @@ typedef struct {
     mini_result_t (*close)(mini_digital_io_t line);
 } mini_digital_io_api_t;
 
+#define MINI_SERIAL_CAP_READ   (1ull << 0)
+#define MINI_SERIAL_CAP_WRITE  (1ull << 1)
+
+typedef uint32_t mini_serial_t;
+#define MINI_SERIAL_INVALID ((mini_serial_t)0u)
+
+/* Optional raw byte stream; endpoint syntax belongs to the platform provider.
+ * One app-owned stream at a time. Read/write may return a short positive count;
+ * timeout means no progress. MINI_WAIT_NONE polls, MINI_WAIT_FOREVER waits.
+ * Zero-size transfers succeed without a buffer; out_count is always required.
+ * Close consumes the handle even if cleanup reports an error. App exit closes
+ * any remaining stream. No radio protocol or message framing is implied. */
+typedef struct {
+    uint32_t struct_size;
+    uint64_t capabilities;
+    mini_result_t (*open)(const char *endpoint, mini_serial_t *out_serial);
+    mini_result_t (*read)(mini_serial_t serial, void *buffer, uint32_t size,
+                          uint32_t *out_read, uint32_t timeout_ms);
+    mini_result_t (*write)(mini_serial_t serial, const void *buffer, uint32_t size,
+                           uint32_t *out_written, uint32_t timeout_ms);
+    mini_result_t (*close)(mini_serial_t serial);
+} mini_serial_api_t;
+
 typedef struct {
     uint32_t api_version;
     uint32_t struct_size;
@@ -364,6 +387,7 @@ typedef struct {
     const mini_input_api_t *input;
     const mini_audio_api_t *audio;
     const mini_digital_io_api_t *digital_io;
+    const mini_serial_api_t *serial;
 } mini_api_t;
 
 MINI_IMPORT const mini_api_t *mini_api_get(void);

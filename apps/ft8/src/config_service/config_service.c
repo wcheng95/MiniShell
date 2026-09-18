@@ -7,6 +7,16 @@
 
 static const char *k_profiles[] = {"Default", "User"};
 static const char *k_bands[] = {"80m", "40m", "30m", "20m", "17m", "15m", "10m"};
+
+uint32_t config_service_band_dial_hz(int band_index)
+{
+    static const uint32_t frequencies[] = {
+        3573000u, 7074000u, 10136000u, 14074000u, 18100000u, 21074000u, 28074000u
+    };
+    if (band_index < 0 || band_index >= (int)(sizeof(frequencies) / sizeof(frequencies[0])))
+        return 0;
+    return frequencies[band_index];
+}
 static const int k_profile_count = (int)(sizeof(k_profiles) / sizeof(k_profiles[0]));
 static const int k_band_count = (int)(sizeof(k_bands) / sizeof(k_bands[0]));
 

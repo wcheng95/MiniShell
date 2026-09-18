@@ -18,6 +18,7 @@ APP_RULES = {
             "rx_slot_framer": ("src/rx_slot_framer",),
             "storage_service": ("src/storage_service",),
             "log_service": ("src/log_service",),
+            "radio_control": ("src/radio_control",),
             "tx_lifecycle": ("src/tx_lifecycle",),
             "ui_shell": ("src/ui_shell",),
             "ft8_engine": ("src/ft8_engine",),
@@ -42,7 +43,7 @@ APP_RULES = {
                 "app_controller", "shared", "auto_seq", "config_service",
                 "presentation_profile", "rx_audio_adapter", "rx_frontend",
                 "rx_result_builder", "rx_slot_framer", "storage_service", "log_service",
-                "tx_lifecycle", "ui_shell", "ft8_engine",
+                "tx_lifecycle", "ui_shell", "ft8_engine", "radio_control",
             },
             "auto_seq": {"auto_seq"},
             "config_service": {"config_service"},
@@ -52,7 +53,8 @@ APP_RULES = {
             "rx_result_builder": {"rx_result_builder", "ft8_engine"},
             "rx_slot_framer": {"rx_slot_framer"},
             "storage_service": {"storage_service"},
-            "log_service": {"log_service"},
+            "log_service": {"log_service", "config_service"},
+            "radio_control": {"radio_control"},
             "tx_lifecycle": {"tx_lifecycle"},
             "ui_shell": {"ui_shell", "shared", "presentation_profile"},
             "ft8_engine": {"ft8_engine"},
@@ -95,7 +97,7 @@ APP_RULES = {
 APP_RULES["ft8"]["module_paths"]["tools"] = ("tools",)
 APP_RULES["ft8"]["allowed"]["tools"] = {"tools", "ft8_engine"}
 APP_RULES["ft8"]["api_modules"] = {
-    "main", "app_controller", "storage_service", "log_service", "rx_audio_adapter",
+    "main", "app_controller", "storage_service", "log_service", "rx_audio_adapter", "radio_control",
 }
 APP_RULES["keyer"]["api_modules"] = {
     "main", "app_controller", "config_service", "keyin", "keyout", "sidetone",

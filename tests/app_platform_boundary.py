@@ -16,7 +16,7 @@ FORBIDDEN_PREFIXES = (
 )
 FORBIDDEN_HEADERS = {
     "arduino.h", "unistd.h", "fcntl.h", "dirent.h", "pthread.h",
-    "dlfcn.h", "sdkconfig.h", "platform_backend.h", "adv_internal.h",
+    "dlfcn.h", "termios.h", "poll.h", "sdkconfig.h", "platform_backend.h", "adv_internal.h",
 }
 NATIVE_RE = re.compile(
     r"\b(?:snd_\w+|pthread_\w+|dlopen|dlsym|dlclose|esp_\w+|gpio_\w+|"

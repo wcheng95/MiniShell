@@ -44,6 +44,7 @@ Display
 Input
 Audio
 Digital I/O
+Serial/CDC (optional)
 ```
 
 Canonical service contracts:
@@ -60,6 +61,7 @@ docs/api/display-api.md
 docs/api/input-api.md
 docs/api/audio-api.md
 docs/api/digital-io-api.md
+docs/api/serial-api.md
 ```
 
 ## Architecture

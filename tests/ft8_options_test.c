@@ -20,6 +20,13 @@ int main(void)
     CHECK(options.rx_endpoint == NULL);
 #endif
     CHECK(!options.has_rx_slot);
+    CHECK(options.cat_endpoint == NULL);
+    CHECK(PARSE("ft8", "--cat", "serial:/dev/ttyACM0"));
+    CHECK(strcmp(options.cat_endpoint, "serial:/dev/ttyACM0") == 0);
+    CHECK(!PARSE("ft8", "--cat"));
+    CHECK(!PARSE("ft8", "--cat", ""));
+    CHECK(!PARSE("ft8", "--cat", "--profile", "adv"));
+    CHECK(!PARSE("ft8", "--cat", "one", "--cat", "two"));
     CHECK(PARSE("ft8", "--profile", "desktop"));
     CHECK(options.presentation == FT8_PRESENTATION_DESKTOP);
 

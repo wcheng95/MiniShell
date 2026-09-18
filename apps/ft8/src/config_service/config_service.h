@@ -39,6 +39,8 @@ int config_service_profile_count(void);
 const char *config_service_profile_name(int profile_index);
 int config_service_band_count(int profile_index);
 const char *config_service_band_name(int profile_index, int band_index);
+/* Canonical FT8 dial frequency; zero for an invalid band index. */
+uint32_t config_service_band_dial_hz(int band_index);
 
 void config_service_set_skip_tx1(ConfigService *config, bool enabled);
 void config_service_set_max_retry(ConfigService *config, int value);
