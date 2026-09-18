@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -239,18 +239,18 @@ Store already-converted MiniShell canonical frames in the ring:
 
 not 48 kHz / 24-bit native frames.
 
-Architect-confirmed target for the lazy-allocation amendment:
+Current architect-confirmed target after the lazy-ring allocation failure:
 
 ```text
-16384 canonical frames
-= 65536 bytes
-= about 1.365 seconds at 12 kHz
+2048 canonical frames
+= 8192 bytes
+= about 170.7 ms at 12 kHz
 ```
 
-The architect explicitly reconfirmed 16384 frames in chat after concurrent task
-commit `f6c8695` proposed 4096 frames. That confirmation overrides the smaller
-proposal; this amendment changes allocation lifetime only. Capacity changes still
-require measured ring high-water evidence and authorization.
+This supersedes the earlier 16384-frame confirmation following measured allocation
+failure. Lazy allocation remains unchanged. Historical implementation and review
+notes below retain their original capacities; the 2048-frame handoff records the
+current build. Further capacity changes require measurements and authorization.
 
 Use a power-of-two ring and fixed/static storage where practical.
 
@@ -1158,6 +1158,65 @@ Required amendment:
    synchronous decode, grow from measured need.
 
 Do not change shared MiniFT8 or decode behavior for this memory adjustment.
+
+## Codex 2048-frame capacity amendment handoff
+
+### Implementation summary / files changed
+
+Changed `ADV_UAC_RING_FRAMES` to **2048** in
+`platform/adv/adv_audio_uac_buffer.h`. Sample storage is **8192 bytes**; the complete
+`adv_uac_buffer_t` allocation is **8228 bytes**, including 36 bytes of metadata and
+padding. This covers approximately 170.7 ms of canonical 12 kHz stereo audio.
+
+`platform/adv/adv_audio_uac.cpp` now derives the high-water denominator from
+`ADV_UAC_RING_FRAMES`. `tests/adv_uac_allocation_test.py` checks the approved capacity
+and verifies the actual stop diagnostic reports the configured denominator. This
+task report is the only other changed file.
+
+### Behavior / invariants preserved
+
+Lazy internal-heap allocation, allocation diagnostics, cleanup/retry ownership and
+WAV delegation are unchanged. Conversion phase/channel order, ring wrap,
+no-overwrite/overflow, epoch ACK and discontinuity behavior are unchanged. Existing
+ring tests exercise full/overflow behavior at the new capacity using the constant.
+Shared MiniFT8, console/USB lifecycle and usbmsc are unchanged. No deviations from
+the requested capacity-only amendment.
+
+### Tests run and results
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T017-build-unit
+cmake --build /tmp/T017-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T017-build-unit --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+All passed: Linux **42/42**, units **14/14**, architecture checks/checker self-tests,
+real IDF **v5.5.4 ADV build**, and whitespace check. Production source has no literal
+old high-water denominator. Firmware is **0xb8aa0 bytes**, app partition free
+**0x537560 bytes (88%)**. `.dram0.bss` remains **0x3010 (12304 bytes)** and
+`.dram0.data` remains **0x4b68**; the ring is still allocated lazily.
+
+### Hardware/manual validation still required / risks
+
+**Hardware testing has not resumed.** Await supervisor review before the next run.
+Then record allocation/heap diagnostics, USB startup, and high-water plus
+overflow/discontinuity counts over at least three synchronous decode slots. The
+smaller backlog budget has not been validated on hardware; grow or trim only with
+measured evidence and authorization. Pending lifecycle/MSC acceptance remains.
+
+### Commit reference
+
+Bounded capacity amendment on `codex/T017-adv-usb-uac-rx`; exact pushed SHA returned
+in the handoff. Status: REVIEW. No PR, no Actions wait, no hardware testing.
 
 ## Supervisor lazy-ring re-review
 

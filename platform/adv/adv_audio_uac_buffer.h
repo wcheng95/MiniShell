@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define ADV_UAC_RING_FRAMES 16384u
+#define ADV_UAC_RING_FRAMES 2048u
 /* All operations are serialized by the provider's short critical section. */
 typedef struct {
     int16_t frames[ADV_UAC_RING_FRAMES][2];

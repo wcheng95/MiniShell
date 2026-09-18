@@ -391,8 +391,8 @@ mini_result_t rx_stop(void *ctx, minishell_backend_audio_t audio)
     if (was_started) adv_uac_loss(ring);
     uint32_t high_water = ring->high_water, overflows = ring->overflows, losses = ring->losses;
     portEXIT_CRITICAL(&lock);
-    ESP_LOGI(tag, "high-water=%lu/16384 overflow=%lu discontinuity=%lu read-errors=%u transfer-errors=%u",
-             (unsigned long)high_water, (unsigned long)overflows,
+    ESP_LOGI(tag, "high-water=%lu/%lu overflow=%lu discontinuity=%lu read-errors=%u transfer-errors=%u",
+             (unsigned long)high_water, (unsigned long)ADV_UAC_RING_FRAMES, (unsigned long)overflows,
              (unsigned long)losses, read_errors.load(), transfer_errors.load());
     return ok ? MINI_OK : MINI_ERR_IO;
 }

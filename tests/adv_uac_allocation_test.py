@@ -126,7 +126,7 @@ static mini_result_t open_uac(minishell_backend_audio_t *out)
 }
 int main()
 {
-    static_assert(ADV_UAC_RING_FRAMES == 16384u, "retain approved ring capacity");
+    static_assert(ADV_UAC_RING_FRAMES == 2048u, "retain approved ring capacity");
     assert(!ring && !reserved && allocations == 0);
     base.audio_rx_open = wav_open;
     base.audio_rx_close = wav_close;
@@ -159,6 +159,7 @@ int main()
         assert(rx_start(nullptr, audio) == MINI_OK);
         ring->high_water = 42;
         assert(rx_stop(nullptr, audio) == MINI_OK);
+        assert(logs.back().find("high-water=42/" + std::to_string(ADV_UAC_RING_FRAMES) + " ") != std::string::npos);
         assert(ring == saved && !usb_owned && reserved && ring->pending);
         assert(rx_start(nullptr, audio) == MINI_OK);
         assert(ring == saved && ring->high_water == 42 && ring->pending);
