@@ -115,23 +115,82 @@ static bool fs_write_all(const mini_fs_api_t *fs, mini_file_t file,
     return true;
 }
 
-static bool fs_append_line(const mini_fs_api_t *fs, const char *path,
-                           const char *line)
+static bool fs_read_exact(const mini_fs_api_t *fs, mini_file_t file,
+                           char *buffer, uint32_t size)
 {
-    mini_file_t file = MINI_FILE_INVALID;
-    bool ok;
+    uint32_t total = 0u;
+    while (total < size) {
+        uint32_t got = 0u;
+        if (fs->read(file, buffer + total, size - total, &got) != MINI_OK ||
+            got == 0u || got > size - total) return false;
+        total += got;
+    }
+    return true;
+}
 
-    if (fs == NULL || path == NULL || line == NULL ||
-        fs->open == NULL || fs->write == NULL || fs->close == NULL) {
-        return false;
+/* Final is read-only until rename. Every acquired handle gets one close attempt. */
+static bool fs_commit_record(const mini_fs_api_t *fs, const char *path,
+                              const char *new_header, const char *record,
+                              const char *end_marker)
+{
+    mini_fs_stat_t stat = {.struct_size = sizeof(stat)};
+    mini_file_t source = MINI_FILE_INVALID;
+    mini_file_t temp = MINI_FILE_INVALID;
+    char temp_path[260];
+    char buffer[512];
+    bool ok = false;
+    bool temp_created = false;
+    size_t marker_size = strlen(end_marker);
+    uint64_t copy_size = 0u;
+
+    if (fs == NULL || fs->stat == NULL || fs->open == NULL ||
+        fs->read == NULL || fs->write == NULL || fs->sync == NULL ||
+        fs->close == NULL || fs->rename == NULL || fs->remove_file == NULL ||
+        (marker_size != 0u && fs->seek == NULL)) return false;
+    int n = snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
+    if (n < 0 || (size_t)n >= sizeof(temp_path)) return false;
+
+    mini_result_t result = fs->stat(path, &stat);
+    bool exists = result == MINI_OK;
+    if (!exists && result != MINI_ERR_NOT_FOUND) return false;
+    if (exists) {
+        if (stat.type != MINI_FS_TYPE_FILE || stat.size < marker_size) return false;
+        copy_size = stat.size - marker_size;
+        if (fs->open(path, MINI_FS_READ, &source) != MINI_OK) return false;
+        if (marker_size != 0u) {
+            uint64_t position = 0u;
+            if (copy_size > INT64_MAX || marker_size > sizeof(buffer) ||
+                fs->seek(source, (int64_t)copy_size, MINI_FS_SEEK_SET, &position) != MINI_OK ||
+                position != copy_size ||
+                !fs_read_exact(fs, source, buffer, (uint32_t)marker_size) ||
+                memcmp(buffer, end_marker, marker_size) != 0 ||
+                fs->seek(source, 0, MINI_FS_SEEK_SET, &position) != MINI_OK ||
+                position != 0u) goto cleanup;
+        }
     }
 
-    if (fs->open(path, MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_APPEND, &file) != MINI_OK)
-        return false;
+    if (fs->open(temp_path, MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_TRUNC,
+                 &temp) != MINI_OK) goto cleanup;
+    temp_created = true;
+    while (copy_size != 0u) {
+        uint32_t chunk = copy_size > sizeof(buffer) ? sizeof(buffer) : (uint32_t)copy_size;
+        if (!fs_read_exact(fs, source, buffer, chunk) ||
+            !fs_write_all(fs, temp, buffer, chunk)) goto cleanup;
+        copy_size -= chunk;
+    }
+    if (!exists && !fs_write_all(fs, temp, new_header, strlen(new_header))) goto cleanup;
+    if (!fs_write_all(fs, temp, record, strlen(record)) ||
+        !fs_write_all(fs, temp, end_marker, marker_size)) goto cleanup;
+    ok = true;
 
-    ok = fs_write_all(fs, file, line, strlen(line));
-    if (ok && fs->sync != NULL) ok = fs->sync(file) == MINI_OK;
-    if (fs->close(file) != MINI_OK) ok = false;
+cleanup:
+    if (source != MINI_FILE_INVALID && fs->close(source) != MINI_OK) ok = false;
+    if (temp_created) {
+        if (ok && fs->sync(temp) != MINI_OK) ok = false;
+        if (fs->close(temp) != MINI_OK) ok = false;
+        if (ok) ok = fs->rename(temp_path, path) == MINI_OK;
+        if (!ok) (void)fs->remove_file(temp_path);
+    }
     return ok;
 }
 
@@ -207,7 +266,7 @@ bool log_service_write_adif(const LogService *service, const LogStationFacts *st
                  rst_sent_buf, rst_rcvd_buf);
     if (n < 0 || (size_t)n >= sizeof(line)) return false;
 
-    return fs_append_line(service->fs, path, line);
+    return fs_commit_record(service->fs, path, "", line, "");
 }
 
 static const char *fd_strip_r(const char *exchange)
@@ -229,20 +288,11 @@ static const char *fd_section(const char *exchange)
     return space;
 }
 
-static bool cabrillo_write_header(const mini_fs_api_t *fs, const char *path,
-                                  const char *mycall, const char *location)
+static bool cabrillo_header(char *header, size_t header_size,
+                            const char *mycall, const char *location)
 {
-    mini_file_t file = MINI_FILE_INVALID;
-    char header[512];
     int n;
-    bool ok;
-
-    if (fs == NULL || path == NULL || mycall == NULL || location == NULL ||
-        fs->open == NULL || fs->close == NULL) {
-        return false;
-    }
-
-    n = snprintf(header, sizeof(header),
+    n = snprintf(header, header_size,
                  "START-OF-LOG: 3.0\n"
                  "CREATED-BY: Mini-FT8\n"
                  "CONTEST: ARRL-FIELD-DAY\n"
@@ -255,59 +305,11 @@ static bool cabrillo_write_header(const mini_fs_api_t *fs, const char *path,
                  "CATEGORY-POWER: LOW\n"
                  "CATEGORY-STATION: PORTABLE\n"
                  "LOCATION: %s\n"
-                 "OPERATORS: %s\n"
-                 "END-OF-LOG:\n",
+                 "OPERATORS: %s\n",
                  mycall, location, mycall);
-    if (n < 0 || (size_t)n >= sizeof(header)) return false;
+    if (n < 0 || (size_t)n >= header_size) return false;
 
-    if (fs->open(path, MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_TRUNC, &file) != MINI_OK)
-        return false;
-    ok = fs_write_all(fs, file, header, (size_t)n);
-    if (ok && fs->sync != NULL) ok = fs->sync(file) == MINI_OK;
-    if (fs->close(file) != MINI_OK) ok = false;
-    return ok;
-}
-
-static bool cabrillo_append_qso(const mini_fs_api_t *fs, const char *path,
-                                const char *mycall, const char *location,
-                                const char *qso_line)
-{
-    static const char end_marker[] = "END-OF-LOG:\n";
-    mini_fs_stat_t stat = {.struct_size = sizeof(stat)};
-    mini_file_t file = MINI_FILE_INVALID;
-    uint64_t marker_pos;
-    uint64_t pos = 0u;
-    char marker[sizeof(end_marker)];
-    uint32_t got = 0u;
-    bool ok;
-
-    if (fs == NULL || path == NULL || qso_line == NULL ||
-        fs->stat == NULL || fs->open == NULL || fs->read == NULL ||
-        fs->seek == NULL || fs->close == NULL) {
-        return false;
-    }
-
-    if (fs->stat(path, &stat) != MINI_OK || stat.size == 0u) {
-        if (!cabrillo_write_header(fs, path, mycall, location)) return false;
-        if (fs->stat(path, &stat) != MINI_OK) return false;
-    }
-    if (stat.size < sizeof(end_marker) - 1u) return false;
-
-    if (fs->open(path, MINI_FS_READ | MINI_FS_WRITE, &file) != MINI_OK) return false;
-    marker_pos = stat.size - (sizeof(end_marker) - 1u);
-    ok = fs->seek(file, (int64_t)marker_pos, MINI_FS_SEEK_SET, &pos) == MINI_OK &&
-         pos == marker_pos;
-    if (ok) ok = fs->read(file, marker, sizeof(end_marker) - 1u, &got) == MINI_OK &&
-                 got == sizeof(end_marker) - 1u &&
-                 memcmp(marker, end_marker, sizeof(end_marker) - 1u) == 0;
-    if (ok) ok = fs->seek(file, (int64_t)marker_pos, MINI_FS_SEEK_SET, &pos) == MINI_OK &&
-                 pos == marker_pos;
-    if (ok) ok = fs_write_all(fs, file, qso_line, strlen(qso_line));
-    if (ok) ok = fs_write_all(fs, file, "\n", 1u);
-    if (ok) ok = fs_write_all(fs, file, end_marker, sizeof(end_marker) - 1u);
-    if (ok && fs->sync != NULL) ok = fs->sync(file) == MINI_OK;
-    if (fs->close(file) != MINI_OK) ok = false;
-    return ok;
+    return true;
 }
 
 bool log_service_write_cabrillo(const LogService *service, const LogStationFacts *station,
@@ -319,6 +321,7 @@ bool log_service_write_cabrillo(const LogService *service, const LogStationFacts
     char date_ymd[16];
     char time_hhmm[8];
     char qso_line[160];
+    char header[512];
     const char *my_fd;
     const char *their_fd;
     const char *location;
@@ -345,14 +348,14 @@ bool log_service_write_cabrillo(const LogService *service, const LogStationFacts
     n = snprintf(time_hhmm, sizeof(time_hhmm), "%02u%02u", hour, minute);
     if (n < 0 || (size_t)n >= sizeof(time_hhmm)) return false;
 
-    n = snprintf(qso_line, sizeof(qso_line), "QSO: %d DG %s %s %s %s %s %s",
+    n = snprintf(qso_line, sizeof(qso_line), "QSO: %d DG %s %s %s %s %s %s\n",
                  band_frequency_khz(station->band_index),
                  date_ymd, time_hhmm,
                  station->callsign, my_fd,
                  event->dxcall, their_fd);
     if (n < 0 || (size_t)n >= sizeof(qso_line)) return false;
 
-    return cabrillo_append_qso(service->fs, path,
-                               station->callsign, location, qso_line);
+    if (!cabrillo_header(header, sizeof(header), station->callsign, location)) return false;
+    return fs_commit_record(service->fs, path, header, qso_line, "END-OF-LOG:\n");
 }
 

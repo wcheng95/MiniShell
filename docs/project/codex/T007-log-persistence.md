@@ -1,6 +1,6 @@
 # T007 — Harden MiniFT8 log persistence
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -164,39 +164,123 @@ After supervisor review and merge/fast-forward to main, delete the local and rem
 
 ## Acceptance criteria
 
-- [ ] final ADIF is untouched before rename commit;
-- [ ] final Cabrillo is untouched before rename commit;
-- [ ] only NOT_FOUND creates a new log;
-- [ ] stat/read/open/write/sync/close failures preserve committed bytes;
-- [ ] malformed Cabrillo preserves committed bytes;
-- [ ] retry after known failure is safe;
-- [ ] exact ADIF/Cabrillo output preserved;
-- [ ] controller/AutoSeq ownership unchanged;
-- [ ] no public API change and no heap;
-- [ ] focused fault-injection tests pass;
-- [ ] architecture checks pass;
-- [ ] local full-suite result recorded;
-- [ ] no unrelated cleanup.
+- [x] final ADIF is untouched before rename commit;
+- [x] final Cabrillo is untouched before rename commit;
+- [x] only NOT_FOUND creates a new log;
+- [x] stat/read/open/write/sync/close failures preserve committed bytes;
+- [x] malformed Cabrillo preserves committed bytes;
+- [x] retry after known failure is safe;
+- [x] exact ADIF/Cabrillo output preserved;
+- [x] controller/AutoSeq ownership unchanged;
+- [x] no public API change and no heap;
+- [x] focused fault-injection tests pass;
+- [x] architecture checks pass;
+- [x] local full-suite result recorded;
+- [x] no unrelated cleanup.
 
 ## Codex implementation notes
 
 ### Implementation summary
 
+ADIF and Cabrillo now build complete replacements in `<final>.tmp` and return
+success only after rename commits the replacement. Production changes are
+confined to `log_service.c`; controller, AutoSeq, public API, and the logging
+interface are unchanged. No task deviations.
+
 ### Persistence / commit-point design
+
+A shared private helper stats final and permits creation only on explicit
+`MINI_ERR_NOT_FOUND`. Existing paths must be regular files. ADIF copies the
+existing bytes; Cabrillo first validates the exact trailing END marker and
+copies only the preceding bytes. Empty existing Cabrillo is malformed.
+
+The helper opens final read-only and temp with WRITE|CREATE|TRUNC, streaming
+through a fixed 512-byte stack buffer with complete-read/write loops. It appends
+the serialized record and optional END marker, closes the source, syncs and
+closes temp, then renames temp over final. Each acquired handle receives exactly
+one close attempt; any earlier failure prevents rename. Failed attempts make a
+best-effort removal of temp. Failed removal does not compromise final or retry:
+the next attempt truncates/reuses temp. Rename returning MINI_OK is the sole
+success/commit point.
 
 ### Files changed
 
+- `apps/ft8/src/log_service/log_service.c`: shared copy-on-write mechanics and
+  Cabrillo header serialization into the temporary replacement.
+- `tests/ft8_log_service_test.c`: fake committed/temp files, fault injection,
+  byte-preservation guards, cleanup and retry assertions.
+- This task packet: REVIEW status and local implementation/test evidence.
+
 ### Invariants preserved
+
+Exact filenames, ADIF fields/order/spacing/newlines, Cabrillo header/QSO/END
+layout, frequency mapping, unknown-report omission, effective runtime grid, and
+independent format results remain covered. AutoSeq eligibility/ACK state and
+controller TX-start ordering are unchanged. No heap or platform-private APIs.
+Final is never opened with write, truncate, or append flags.
+
+The earlier tests' sync/close counts were updated narrowly: a new Cabrillo file
+now commits one complete temporary file, replacing the old header-then-in-place
+QSO sequence. Exact output assertions remain intact.
 
 ### Fault-injection tests added
 
+For both formats, every filesystem operation in successful new/existing-file
+traces is failed individually, followed by a successful retry: 84 total points
+(ADIF new 15/existing 22; Cabrillo new 27/existing 20). This covers stat, source
+open/read/close, temporary open/write/sync/close, marker seeks, and rename,
+including failures after partial progress. Tests assert zero commits on failure,
+unchanged final bytes/existence throughout operations, closed handles, and
+exactly one committed record after retry. Cleanup removal deliberately fails
+in these cases to prove safe reuse of stale temp content.
+
+Additional tests cover exact ADIF creation and append, exact Cabrillo creation
+and append, partial reads/writes, zero-progress reads/writes, directory targets,
+multiple malformed/missing END cases, and streaming 1,600-byte prefixes including
+embedded NUL bytes. Rename checks require synced temp and all handles closed.
+The existing serialization and independent-format-result assertions remain.
+
 ### Local tests run and results
+
+Base: `5ec7fa4dc468f1934f2ead6827ba771608ad3708`.
+
+- `git status --short`: clean before implementation on the existing T007 branch.
+- `cmake -S . -B build-linux`: PASS.
+- `cmake --build build-linux -j"$(nproc)"`: PASS; final test-only rebuild PASS.
+- `ctest --test-dir build-linux -R 'ft8_log_service|ft8_tx_lifecycle_as7|ft8_runtime_grid' --output-on-failure`:
+  PASS, 3/3; final rerun after adding exact ADIF append assertions also PASS.
+- `build-linux/ft8_log_service_unit`: PASS, including all 84 failure/retry points.
+- `python3 tests/app_dependency_boundary.py . ft8`: PASS.
+- `python3 tests/app_dependency_boundary.py . keyer`: PASS.
+- `python3 tests/ft8_platform_boundary.py .`: PASS (54 source/header files).
+- `cmake -S tests/unit -B /tmp/T007-build-unit`: PASS.
+- `cmake --build /tmp/T007-build-unit -j"$(nproc)"`: PASS.
+- `ctest --test-dir /tmp/T007-build-unit --output-on-failure`: PASS, 14/14.
+- `git diff --check`: PASS.
+- `ctest --test-dir build-linux --output-on-failure`: 22/24 PASS. Only the
+  documented `linux_audio` output-substring and `linux_ft8` queue-order baseline
+  failures remain; those tests and associated behavior were not changed.
+
+All checks ran locally. No PR or GitHub Actions wait.
 
 ### Hardware/manual validation still required
 
+None expected. Supervisor review and architect acceptance remain.
+
 ### Known limitations / residual crash window
 
+Successful rename followed by process/power loss before AutoSeq ACK is not
+crash-exactly-once. No heuristic deduplication or persistent QSO identity was
+introduced. Filesystem/backend crash durability remains its own contract.
+Copy-on-write requires space for a complete temporary replacement and copies
+the existing log on each addition. Temporary cleanup is best effort; subsequent
+attempts safely truncate leftovers. Concurrent external writers are not coordinated.
+
 ### Commit
+
+One implementation commit on `codex/T007-log-persistence`, containing this
+report. The pushed SHA is returned in the handoff. Branch deletion is deferred
+until supervisor review and merge/fast-forward to main, as specified above.
 
 ## Supervisor review
 

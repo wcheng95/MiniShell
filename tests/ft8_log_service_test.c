@@ -8,45 +8,72 @@
     fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #expr); exit(1); \
 } } while (0)
 
-static struct {
-    char text[4096];
+typedef struct {
+    char text[8192];
     size_t size;
     size_t position;
     bool exists;
     bool opened;
+    bool synced;
     unsigned syncs;
     unsigned closes;
-} files[2];
+} FakeFile;
+/* final ADIF, final Cabrillo, and their respective temporary paths */
+static FakeFile files[4];
+static FakeFile committed[2];
+static bool guard_final;
+static unsigned operations, fail_at, commits;
 static int fail_open = -1;
-static bool fail_sync;
-static bool fail_close;
+static bool fail_sync, fail_close, fail_remove;
+static bool zero_read, zero_write, directory;
+
+static void check_final(void)
+{
+    if (!guard_final) return;
+    for (unsigned i = 0; i < 2; ++i) {
+        CHECK(files[i].exists == committed[i].exists);
+        CHECK(files[i].size == committed[i].size);
+        CHECK(memcmp(files[i].text, committed[i].text, files[i].size) == 0);
+    }
+}
+
+static bool fault(void)
+{
+    check_final();
+    return ++operations == fail_at;
+}
 
 static unsigned path_index(const char *path)
 {
-    if (strcmp(path, "/flash/ft8/20240102.txt") == 0) return 0;
-    CHECK(strcmp(path, "/flash/ft8/fieldday.txt") == 0);
-    return 1;
+    const char *paths[] = {"/flash/ft8/20240102.txt", "/flash/ft8/fieldday.txt",
+                          "/flash/ft8/20240102.txt.tmp", "/flash/ft8/fieldday.txt.tmp"};
+    for (unsigned i = 0; i < 4; ++i) if (strcmp(path, paths[i]) == 0) return i;
+    CHECK(false);
+    return 0;
 }
 
 static unsigned file_index(mini_file_t file)
 {
-    CHECK(file >= 1 && file <= 2 && files[file - 1].opened);
+    CHECK(file >= 1 && file <= 4 && files[file - 1].opened);
     return file - 1;
 }
 
 static mini_result_t fake_open(const char *path, uint32_t flags, mini_file_t *out)
 {
     unsigned i = path_index(path);
-    if ((int)i == fail_open) return MINI_ERR_IO;
+    /* This assertion applies even to failed opens. Final is never writable. */
+    CHECK(flags == (i < 2 ? MINI_FS_READ :
+                    (MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_TRUNC)));
+    if (fault() || (int)i == fail_open) return MINI_ERR_IO;
     CHECK(!files[i].opened);
-    if (i == 0) CHECK(flags == (MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_APPEND));
-    else CHECK(flags == (MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_TRUNC) ||
-               flags == (MINI_FS_READ | MINI_FS_WRITE));
     if (!files[i].exists && !(flags & MINI_FS_CREATE)) return MINI_ERR_NOT_FOUND;
-    if (flags & MINI_FS_TRUNC) files[i].size = 0;
-    files[i].exists = true;
-    files[i].opened = true;
-    files[i].position = (flags & MINI_FS_APPEND) ? files[i].size : 0;
+    if (flags & MINI_FS_TRUNC) {
+        files[i].size = 0;
+        files[i].text[0] = '\0';
+    }
+    files[i].exists = files[i].opened = true;
+    files[i].synced = false;
+    files[i].position = 0;
     *out = i + 1;
     return MINI_OK;
 }
@@ -55,7 +82,10 @@ static mini_result_t fake_write(mini_file_t file, const void *data, uint32_t siz
                                 uint32_t *written)
 {
     unsigned i = file_index(file);
-    /* Exercise the existing full-write loop with partial progress. */
+    CHECK(i >= 2);
+    *written = 0;
+    if (fault()) return MINI_ERR_IO;
+    if (zero_write) return MINI_OK;
     if (size > 17) size = 17;
     CHECK(files[i].position + size < sizeof(files[i].text));
     memcpy(files[i].text + files[i].position, data, size);
@@ -70,8 +100,13 @@ static mini_result_t fake_read(mini_file_t file, void *data, uint32_t size,
                                uint32_t *got)
 {
     unsigned i = file_index(file);
+    CHECK(i < 2);
+    *got = 0;
+    if (fault()) return MINI_ERR_IO;
+    if (zero_read) return MINI_OK;
     size_t available = files[i].size - files[i].position;
     if (size > available) size = (uint32_t)available;
+    if (size > 7) size = 7;
     memcpy(data, files[i].text + files[i].position, size);
     files[i].position += size;
     *got = size;
@@ -82,6 +117,7 @@ static mini_result_t fake_seek(mini_file_t file, int64_t offset, uint32_t origin
                                uint64_t *position)
 {
     unsigned i = file_index(file);
+    if (fault()) return MINI_ERR_IO;
     CHECK(origin == MINI_FS_SEEK_SET && offset >= 0 && (uint64_t)offset <= files[i].size);
     files[i].position = (size_t)offset;
     *position = (uint64_t)offset;
@@ -91,16 +127,22 @@ static mini_result_t fake_seek(mini_file_t file, int64_t offset, uint32_t origin
 static mini_result_t fake_stat(const char *path, mini_fs_stat_t *out)
 {
     unsigned i = path_index(path);
+    CHECK(i < 2);
+    if (fault()) return MINI_ERR_IO;
     if (!files[i].exists) return MINI_ERR_NOT_FOUND;
     out->size = files[i].size;
-    out->type = MINI_FS_TYPE_FILE;
+    out->type = directory ? MINI_FS_TYPE_DIRECTORY : MINI_FS_TYPE_FILE;
     return MINI_OK;
 }
 
 static mini_result_t fake_sync(mini_file_t file)
 {
-    ++files[file_index(file)].syncs;
-    return fail_sync ? MINI_ERR_IO : MINI_OK;
+    unsigned i = file_index(file);
+    CHECK(i >= 2);
+    ++files[i].syncs;
+    if (fault() || fail_sync) return MINI_ERR_IO;
+    files[i].synced = true;
+    return MINI_OK;
 }
 
 static mini_result_t fake_close(mini_file_t file)
@@ -108,7 +150,60 @@ static mini_result_t fake_close(mini_file_t file)
     unsigned i = file_index(file);
     files[i].opened = false;
     ++files[i].closes;
-    return fail_close ? MINI_ERR_IO : MINI_OK;
+    return fault() || fail_close ? MINI_ERR_IO : MINI_OK;
+}
+
+static mini_result_t fake_rename(const char *old_path, const char *new_path)
+{
+    unsigned source = path_index(old_path), dest = path_index(new_path);
+    CHECK(source == dest + 2);
+    CHECK(files[source].exists && files[source].synced);
+    for (unsigned i = 0; i < 4; ++i) CHECK(!files[i].opened);
+    if (fault()) return MINI_ERR_IO;
+    files[dest] = files[source];
+    files[source].exists = false;
+    ++commits;
+    if (guard_final) committed[dest] = files[dest];
+    return MINI_OK;
+}
+
+static mini_result_t fake_remove(const char *path)
+{
+    unsigned i = path_index(path);
+    CHECK(i >= 2 && !files[i].opened);
+    check_final();
+    if (fail_remove) return MINI_ERR_IO;
+    files[i].exists = false;
+    return MINI_OK;
+}
+
+static void reset(void)
+{
+    memset(files, 0, sizeof(files));
+    guard_final = false;
+    operations = fail_at = commits = 0;
+    fail_open = -1;
+    fail_sync = fail_close = fail_remove = false;
+    zero_read = zero_write = directory = false;
+}
+
+static void seed(unsigned i, const char *text)
+{
+    CHECK(strlen(text) < sizeof(files[i].text));
+    strcpy(files[i].text, text);
+    files[i].size = strlen(text);
+    files[i].exists = true;
+}
+
+static void guard(void)
+{
+    for (unsigned i = 0; i < 2; ++i) committed[i] = files[i];
+    guard_final = true;
+}
+
+static void check_closed(void)
+{
+    for (unsigned i = 0; i < 4; ++i) CHECK(!files[i].opened);
 }
 
 static mini_result_t fake_utc(mini_utc_time_t *utc)
@@ -124,12 +219,92 @@ static const char header[] =
     "CATEGORY-ASSISTED: NON-ASSISTED\nCATEGORY-BAND: ALL\nCATEGORY-MODE: MIXED\n"
     "CATEGORY-POWER: LOW\nCATEGORY-STATION: PORTABLE\nLOCATION: SCV\nOPERATORS: AG6AQ\n";
 
+typedef bool (*Writer)(const LogService *, const LogStationFacts *, const LogQsoFacts *);
+
+static void test_persistence(const LogService *log, const LogStationFacts *station,
+                              const LogQsoFacts *qso)
+{
+    const Writer writers[] = {log_service_write_adif, log_service_write_cabrillo};
+    const char *initial[] = {"previous ADIF bytes\n", "existing header\nEND-OF-LOG:\n"};
+    for (unsigned format = 0; format < 2; ++format) {
+        for (unsigned existing = 0; existing < 2; ++existing) {
+            reset();
+            if (existing) seed(format, initial[format]);
+            guard();
+            CHECK(writers[format](log, station, qso));
+            CHECK(commits == 1);
+            FakeFile expected = files[format];
+            unsigned steps = operations;
+            /* Fail every operation in a successful trace, including every partial
+             * read/write, both closes, marker seeks, sync and commit rename. */
+            for (unsigned step = 1; step <= steps; ++step) {
+                reset();
+                if (existing) seed(format, initial[format]);
+                seed(format + 2, "stale temporary content which must never reach final");
+                guard();
+                fail_at = step;
+                fail_remove = true; /* Retry must also tolerate cleanup failure. */
+                CHECK(!writers[format](log, station, qso));
+                CHECK(operations >= step && commits == 0);
+                check_final();
+                check_closed();
+                fail_at = 0;
+                CHECK(writers[format](log, station, qso));
+                CHECK(commits == 1);
+                CHECK(files[format].size == expected.size);
+                CHECK(memcmp(files[format].text, expected.text, expected.size) == 0);
+                CHECK(!files[format + 2].exists);
+                check_closed();
+            }
+            printf("format %u existing %u: %u failure/retry points passed\n",
+                   format, existing, steps);
+        }
+        for (unsigned mode = 0; mode < 3; ++mode) {
+            reset();
+            seed(format, initial[format]);
+            guard();
+            zero_read = mode == 0;
+            zero_write = mode == 1;
+            directory = mode == 2;
+            CHECK(!writers[format](log, station, qso));
+            CHECK(commits == 0);
+            check_final();
+            check_closed();
+        }
+        /* Exercise more than one copy buffer, including embedded NUL bytes. */
+        reset();
+        for (unsigned i = 0; i < 1600; ++i) files[format].text[i] = (char)(i % 127);
+        files[format].size = 1600;
+        files[format].exists = true;
+        if (format == 1) {
+            memcpy(files[format].text + 1600, "END-OF-LOG:\n", 12);
+            files[format].size += 12;
+        }
+        guard();
+        CHECK(writers[format](log, station, qso));
+        for (unsigned i = 0; i < 1600; ++i) CHECK(files[format].text[i] == (char)(i % 127));
+        check_closed();
+    }
+    const char *malformed[] = {"", "END", "header\nEND-OF-LOG:",
+                               "header\nEND-OF-LOG:\ntrailing", "header\nBAD-OF-LOG:\n"};
+    for (unsigned i = 0; i < sizeof(malformed) / sizeof(malformed[0]); ++i) {
+        reset();
+        seed(1, malformed[i]);
+        guard();
+        CHECK(!log_service_write_cabrillo(log, station, qso));
+        CHECK(commits == 0);
+        check_final();
+        check_closed();
+    }
+}
+
 int main(void)
 {
     const mini_fs_api_t fs = {
         .struct_size = sizeof(fs), .open = fake_open, .write = fake_write,
         .read = fake_read, .seek = fake_seek, .stat = fake_stat,
-        .sync = fake_sync, .close = fake_close
+        .sync = fake_sync, .close = fake_close,
+        .rename = fake_rename, .remove_file = fake_remove
     };
     const mini_time_location_api_t time = {
         .struct_size = sizeof(time), .capabilities = MINI_TIMELOC_CAP_UTC,
@@ -146,6 +321,11 @@ int main(void)
         "<time_on:6>030405 <freq:6>14.074 <station_callsign:5>AG6AQ "
         "<my_gridsquare:4>CM97 <rst_sent:3>-12 <rst_rcvd:1>5 <comment:0> <eor>\n") == 0);
     CHECK(files[0].syncs == 1 && files[0].closes == 1);
+    FakeFile first_adif = files[0];
+    CHECK(log_service_write_adif(&log, &station, &qso));
+    CHECK(files[0].size == 2 * first_adif.size);
+    CHECK(memcmp(files[0].text, first_adif.text, first_adif.size) == 0);
+    CHECK(memcmp(files[0].text + first_adif.size, first_adif.text, first_adif.size) == 0);
 
     memset(files, 0, sizeof(files));
     station.band_index = 1;
@@ -163,14 +343,14 @@ int main(void)
     snprintf(expected, sizeof(expected), "%s%s", header,
         "QSO: 14074 DG 2024-01-02 0304 AG6AQ 1B SCV W6ABC 2A ORG\nEND-OF-LOG:\n");
     CHECK(strcmp(files[1].text, expected) == 0);
-    CHECK(files[1].syncs == 2 && files[1].closes == 2);
+    CHECK(files[1].syncs == 1 && files[1].closes == 1);
     station.band_index = 1;
     CHECK(log_service_write_cabrillo(&log, &station, &qso));
     snprintf(expected, sizeof(expected), "%s%s", header,
         "QSO: 14074 DG 2024-01-02 0304 AG6AQ 1B SCV W6ABC 2A ORG\n"
         "QSO: 7074 DG 2024-01-02 0304 AG6AQ 1B SCV W6ABC 2A ORG\nEND-OF-LOG:\n");
     CHECK(strcmp(files[1].text, expected) == 0);
-    CHECK(files[1].syncs == 3 && files[1].closes == 3);
+    CHECK(files[1].syncs == 2 && files[1].closes == 2);
 
     fail_open = 0;
     CHECK(!log_service_write_adif(&log, &station, &qso));
@@ -186,6 +366,7 @@ int main(void)
     fail_close = true;
     CHECK(!log_service_write_cabrillo(&log, &station, &qso));
     CHECK(!files[1].opened);
+    test_persistence(&log, &station, &qso);
     puts("ft8_log_service_test: PASS");
     return 0;
 }
