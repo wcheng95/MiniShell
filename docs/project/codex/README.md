@@ -7,12 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T017-adv-usb-uac-rx.md   READY
+T017-adv-usb-uac-rx.md   TESTING
 ```
 
 T017 brings the pinned MiniFT8-V2 QMX USB-host UAC mechanics into the ADV backend while preserving MiniShell ownership: native 48k/S24 stereo becomes canonical 12k/S16 stereo below the Audio API, continuous capture survives synchronous decode, bare ADV ft8 defaults to uac:qmx, and the hardware gate is live decoded RX messages across consecutive slots. CDC-ACM is included as a companion if current IDF/component APIs remain compatible, but no CAT policy commands are sent in this task.
 
-Workflow: implement authorized USB PHY + GPIO4/5 debug-console amendment -> re-run Linux/unit/ADV build -> supervisor re-review -> QMX live hardware validation -> acceptance/merge -> delete T017 branch.
+Workflow: supervisor re-review PASS -> QMX live hardware validation -> acceptance/merge -> delete T017 branch.
 
 ## Rule
 
