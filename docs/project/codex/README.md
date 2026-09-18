@@ -7,10 +7,10 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none
+T019-linux-qmx-cat.md   READY
 ```
 
-T018 is COMPLETE. On pc-1, bare `ft8` now selects the ADV presentation and live QMX `alsa:hw:2,0` RX path; live decode, clean exit, explicit WAV RX override, and explicit DESKTOP override are validated.
+T019 adds a MiniShell-owned Serial/CDC byte-stream boundary on Linux and a MiniFT8-owned QMX CAT adapter. This first slice is receive-safe only: explicit CAT endpoint, mode/VFO/frequency synchronization, no TX/RX/TA commands.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
