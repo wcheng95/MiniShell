@@ -9,10 +9,10 @@ Roles are defined in repository-root `AGENTS.md`.
 ```text
 T022-linux-qmx-first-qso.md   TESTING
 T023-cq-beacon-ui.md          COMPLETE
-T024-offset-source-random.md    TESTING
+T024-offset-source-random.md    COMPLETE
 ```
 
-T022 remains TESTING with real on-air TX/RxTxLog proven. T023 is COMPLETE. T024 is READY and makes the architect's existing `offset_src=0` station setting V2-compatible Random (500-2500 Hz), with portable app-owned resolution and no T022/T023 TX/UI regression.
+T022 remains TESTING with real on-air TX/RxTxLog proven. T023 and T024 are COMPLETE: CQ/POTA beacon controls and V2-compatible Random/Fixed/RX offset resolution both passed real QMX operator validation. The stacked Linux feature set is ready for WinBook/TW700 portability testing.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
