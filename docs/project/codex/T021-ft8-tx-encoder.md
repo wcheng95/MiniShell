@@ -1,6 +1,6 @@
 # T021 — FT8 TX encoder and immutable tone plan
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -638,6 +638,83 @@ Codex handoff. No PR is opened.
 Supervisor reviews the actual `main..<commit>` diff and fixed vectors. Since
 T021 is pure/deterministic and has no hardware gate, a clean review plus required
 tests is sufficient for COMPLETE and fast-forward to main.
+
+
+## Supervisor review — T021 COMPLETE
+
+PASS on `cbce28ae8ffcaec9661758c37dbcd16df36d8f99`.
+
+Reviewed the single implementation commit from task head
+`37f4e6472f7d1f5a4bef084181ec5d7d6267864f` and the full branch delta.
+
+Accepted architecture:
+
+```text
+AutoSeqTxIntent
+    -> tx_encoder
+    -> typed FT8 message
+    -> ft8_protocol_encode()
+    -> CRC/LDPC/channel encoder
+    -> immutable Ft8TxPlan
+```
+
+No MiniShell API, platform, clock, filesystem, UI, Audio, Serial, CAT, or radio
+dependency enters the encoder. No heap is used. AutoSeq remains semantic policy
+and app_controller remains uninvolved in physical TX.
+
+Accepted semantic behavior:
+
+- TX1..TX5 project according to the pinned V2 text rules;
+- CQ/CQ SOTA/CQ POTA/CQ QRP/CQ FD are supported;
+- explicit free text uses FT8 free-text encoding;
+- Field Day TX2/TX3 use the typed ARRL Field Day payload;
+- six-character station grids are intentionally reduced to the 4-character FT8
+  locator used by the V2 standard message;
+- unsupported hashed/nonstandard calls fail explicitly with no fallback message;
+- encode failure clears the complete output plan.
+
+Accepted channel behavior:
+
+```text
+79 tones
+160 ms/symbol
+6.25 Hz spacing
+tone range 0..7
+Costas 3 1 4 0 6 5 2
+positions 0..6, 36..42, 72..78
+Gray map 0 1 3 2 5 6 4 7
+```
+
+The 83x12 LDPC generator is the pinned V2 table; the existing V3 decoder
+parity-check implementation is unchanged.
+
+Reference-vector review:
+
+- 25 payload + 79-tone expectations are checked in;
+- the vector generator extracts source directly from pinned V2 commit
+  `491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`;
+- the oracle compiles only the extracted V2 message/encode/constants/CRC/text
+  sources and does not use V3 production output to generate expected values;
+- checked-in vector SHA-256 is documented as
+  `0561eac9414eb91829f7e91168d0d1b50221542cae17197d33c7ba5afe6c3a51`.
+
+Accepted test evidence:
+
+```text
+Linux CTest          52/52 PASS
+unit suite           15/15 PASS
+architecture checks  PASS
+ASan/UBSan encoder   PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+No hardware gate exists for T021. The remaining limitation—nonstandard/hashed-call
+TX—is explicit and acceptable for the first standard-call QSO path.
+
+T021 is COMPLETE. T022 may now consume `Ft8TxPlan` for real slot-anchored QMX
+CAT transmission and must also implement/enable the required V2-compatible
+RxTxLog for integrated QSO debugging.
 
 ## Architect test result
 
