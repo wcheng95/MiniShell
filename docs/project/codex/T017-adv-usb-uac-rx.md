@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: TESTING
+Status: READY
 
 ## Objective
 
@@ -1106,6 +1106,58 @@ Scope/behavior:
 - if practical, permit RX input on GPIO5 for diagnostic shell/control only where ownership is unambiguous, but do not create a second competing FT8 UI policy;
 - restore the pre-FT8 console state on every clean exit and on recoverable prepare failure;
 - if USB Host teardown has not released the PHY, keep USB Serial/JTAG suspended, but the GPIO4/5 debug path may remain available to report the cleanup failure.
+
+## Hardware finding — lazy 16384-frame ring still too large
+
+The lazy-allocation correction successfully moved execution past the original FT8
+workspace failure. On real ADV hardware, `Audio.open("uac:qmx")` now reports:
+
+```text
+ring allocation request bytes=65572 heap-free=96616 largest-block=39936
+ring allocation failure bytes=65572 heap-free=96616 largest-block=39936
+ft8: failed to start RX audio
+app: ft8 returned 8
+```
+
+This confirms the FT8 workspace is now successfully allocated before Audio.open().
+The remaining failure is specifically the UAC ring: a 65572-byte contiguous
+allocation cannot fit in a 39936-byte largest block.
+
+Architect decision for the next hardware iteration:
+
+```text
+ADV_UAC_RING_FRAMES = 2048
+sample storage       = 8192 bytes
+stream duration      = ~170.7 ms at 12 kHz
+complete object      = ~8 KiB plus metadata
+```
+
+Rationale: T017 is a streaming path, so the ring should be sized from measured
+producer/consumer backlog rather than used as bulk audio storage. However, MiniFT8 V3
+decodes synchronously in the foreground, so the ring must absorb not only ordinary
+USB/task jitter but also the interval during which decode temporarily prevents
+foreground Audio.read() calls. Therefore do not jump directly to 2 KiB until real
+decode high-water is known.
+
+Required amendment:
+
+1. Change the private ADV canonical ring capacity from 16384 to **2048 frames**.
+2. Keep the lazy allocation model unchanged.
+3. Update all capacity-dependent tests/log strings; no hard-coded `/16384` remains.
+4. Prefer deriving the diagnostic capacity from `ADV_UAC_RING_FRAMES`.
+5. Preserve conversion, epoch, overflow and discontinuity semantics unchanged.
+6. Re-run Linux full CTest, units, architecture checks and real ADV build.
+7. Record the exact runtime allocation size expected for the 2048-frame ring.
+8. Return to hardware testing and capture:
+   - ring allocation before/after heap + largest block;
+   - USB Host/UAC/CDC startup;
+   - high-water after at least three real FT8 decode slots;
+   - overflow/discontinuity counts.
+9. If high-water remains comfortably below capacity, later trim toward 1024 or
+   512 frames (about 4 KiB / 2 KiB sample storage). If overflow occurs during
+   synchronous decode, grow from measured need.
+
+Do not change shared MiniFT8 or decode behavior for this memory adjustment.
 
 ## Supervisor lazy-ring re-review
 
