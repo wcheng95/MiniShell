@@ -1,6 +1,6 @@
 # T017 — ADV QMX USB-host UAC RX vertical slice
 
-Status: REVIEW
+Status: BLOCKED
 
 ## Objective
 
@@ -829,8 +829,23 @@ subsequent hardware testing. No PR and no GitHub Actions wait.
 
 ## Supervisor review
 
-Supervisor reviews platform ownership, buffering, lifecycle, default endpoint packaging,
-and absence of V2 application coupling before hardware testing.
+BLOCKED before hardware testing on USB PHY ownership.
+
+The implementation is otherwise well-shaped: UAC/CDC remain platform-private, the provider emits canonical 12 kHz/S16/stereo, the 16K-frame ring/epoch logic preserves continuity facts, WAV delegation is retained, bare ADV ft8 injects uac:qmx only at composition, Linux 39/39 and units 14/14 pass, and the real ADV build succeeds.
+
+However, current MiniShell ADV boot installs the ESP32-S3 USB Serial/JTAG driver in adv_console_prepare(). T017 then calls usb_host_install() without first releasing that console. Espressif documents that ESP32-S3 USB-OTG and USB-Serial/JTAG share one internal PHY and only one can operate at a time without an external PHY. The Cardputer ADV documentation does not identify an external USB PHY, and the pinned MiniFT8-V2 configuration avoided this conflict by using a custom UART console (GPIO4/5), not USB Serial/JTAG.
+
+Required amendment:
+1. Before usb_host_install(), call the existing adv_console_suspend_for_usb() and record provider ownership of that suspension.
+2. If preparation fails after suspension, restore the console during cleanup once USB host ownership is gone.
+3. During normal stop/close, restore the console only after UAC/CDC clients are uninstalled and usb_host_uninstall() has actually released the PHY.
+4. If USB host teardown is incomplete, do not re-enable USB Serial/JTAG over a still-owned PHY; retain the suspended state and return IO so the existing retry path can finish cleanup later.
+5. Repeated ft8 -> quit -> ft8 must suspend/resume cleanly each time.
+6. Keep usbmsc's existing handoff behavior unchanged; do not attempt simultaneous UAC-host and device-mode MSC.
+7. Add a narrow state-machine/unit/source regression if practical so prepare/release cannot accidentally resume the console before host release.
+8. Re-run Linux 39/39, units 14/14, architecture checks, and the real ADV build.
+
+After this amendment, return a new implementation SHA for supervisor re-review. Do not begin hardware acceptance on 454368fe570e1f2df2efa1505242c50a0f0c4b6d.
 
 ## Architect hardware result
 
