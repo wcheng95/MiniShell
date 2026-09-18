@@ -827,6 +827,41 @@ Single T017 implementation commit on `codex/T017-adv-usb-uac-rx`; exact pushed S
 is returned in the Codex handoff. Status is REVIEW for supervisor diff review and
 subsequent hardware testing. No PR and no GitHub Actions wait.
 
+## Architect USB ownership decision
+
+Accepted ownership model:
+
+```text
+M$> shell
+    USB Serial/JTAG active
+    usbmsc command available
+        |
+        +-- run ft8
+        |      suspend/uninstall USB Serial/JTAG console
+        |      take ESP32-S3 USB PHY for USB Host
+        |      run UAC/CDC host while ft8 is active
+        |      fully stop UAC/CDC + uninstall USB Host on ft8 exit
+        |      restore USB Serial/JTAG console
+        |      return to M$>
+        |
+        `-- run usbmsc
+               existing device-mode handoff
+               suspend USB Serial/JTAG
+               use TinyUSB MSC temporarily
+               restore USB Serial/JTAG on return
+```
+
+Rules:
+
+- only one USB PHY owner at a time;
+- `M$>` normally owns USB Serial/JTAG;
+- `ft8` owns USB Host only while the live UAC endpoint is open/active;
+- `usbmsc` keeps its existing temporary TinyUSB device-mode ownership;
+- do not attempt UAC host and MSC simultaneously;
+- local Cardputer display/keyboard remain available while USB Serial/JTAG is suspended;
+- if USB Host teardown is incomplete, do not restore USB Serial/JTAG until the PHY is actually released;
+- after clean FT8 exit, USB Serial/JTAG must return before control is considered back at the normal shell state.
+
 ## Supervisor review
 
 BLOCKED before hardware testing on USB PHY ownership.
