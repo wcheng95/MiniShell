@@ -7,10 +7,10 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T021-ft8-tx-encoder.md   READY
+none
 ```
 
-T021 adds the pure FT8 transmit encoder: AutoSeq semantic intent -> canonical TX text -> 77-bit payload -> CRC/LDPC -> immutable 79-tone FT8 plan. No CAT, clock, platform API, or hardware is involved; T020 RF validation remains deferred to T022.
+T021 is COMPLETE. Pure V2-compatible FT8 TX encoding now produces immutable 79-tone plans from AutoSeq intents, verified against 25 pinned V2 payload/tone vectors. T020 RF validation and RxTxLog remain inherited T022 requirements.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
