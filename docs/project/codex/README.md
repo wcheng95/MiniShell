@@ -7,14 +7,22 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T003-station-load-result.md   READY
+T006-log-service.md   READY
 ```
 
-T001 architecture audit is merged in PR #33. T002 fixed F03 and is merged in PR #34.
+Accepted cleanup now on `main`:
 
-T003 addresses F02: an existing station file must never be replaced merely because loading it failed.
+```text
+T001  architecture audit
+T002  F03 stale Filesystem handles
+T003  F02 station-load error semantics
+T004  F01 persistent vs runtime grid ownership
+T005  F04 normalized-path writer ownership
+```
 
-No unrelated feature implementation should proceed while the accepted Wave-1 integrity cleanup is active.
+T006 addresses F06: extract ADIF/Cabrillo representation and file policy from `app_controller` into one application-owned logging module.
+
+Normal cleanup flow is now **local build/test -> pushed commit -> supervisor diff review -> fast-forward main**. Pull requests are optional and GitHub Actions are non-blocking smoke evidence.
 
 ## Rule
 
@@ -57,25 +65,25 @@ Codex returns:
 - implementation summary
 - exact files changed
 - notable design/implementation choices
-- tests run and results
+- local tests run and results
 - validation still required
 - limitations/risks
-- commit SHA / PR
+- commit SHA
 
-Supervisor then reviews the actual diff/PR, not only the implementation note.
+Supervisor then reviews the actual `main..<commit>` diff, not only the implementation note.
 
 Architect/tester supplies real-system results. The supervisor records accepted evidence and updates current-state documentation after acceptance.
 
-## Branching
+## Branching / handoff
 
 Preferred:
 
 ```text
 branch: codex/T###-short-name
-PR:     T###: short task name
+handoff: one pushed commit SHA
 ```
 
-Keep unrelated cleanup out of the task branch.
+Do not open a PR unless a task explicitly requests one. Run the required build/tests locally before handoff. Keep unrelated cleanup out of the task branch.
 
 ## Template
 
