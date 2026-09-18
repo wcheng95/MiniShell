@@ -1,6 +1,6 @@
 # T023 — O -> 4 CQ / Beacon controls
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -697,6 +697,39 @@ git diff --check     PASS
 ```
 
 No blocking finding. T023 is TESTING for the short real-QMX operator validation.
+
+## Architect result — operator controls validated
+
+The architect confirmed the real operator test passed.
+
+Accepted hardware/operator evidence:
+
+```text
+O -> 4 CQ / Beacon menu      PASS
+CQ / CQ POTA selection       PASS
+OFF / EVEN / ODD selection   PASS
+real T022 physical TX path   preserved
+on-air use                   PASS
+```
+
+T023 is COMPLETE.
+
+The architect also added:
+
+```text
+offset_src=0
+```
+
+to `/flash/ft8/station.txt`.
+
+Important: current V3 ConfigService does not yet parse/use `offset_src`, so this
+line is presently ignored. It is harmless and may remain in the file as the
+intended V2-compatible setting for the next offset-source task. Until that support
+is implemented, beacon/CQ transmit offset behavior remains unchanged from T022.
+
+Because T023 is stacked on T022, do not fast-forward `main` through this branch
+until the underlying T022 full-QSO acceptance policy is resolved or explicitly
+changed by the architect.
 
 ## Architect test result
 
