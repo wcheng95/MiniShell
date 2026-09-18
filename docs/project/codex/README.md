@@ -7,23 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-none — branch consolidation / cleanup
+T007-log-persistence.md   READY
 ```
 
-Accepted cleanup now on `main`:
+T007 addresses F07: committed ADIF/Cabrillo files must survive known persistence failures unchanged, using temp-file copy-on-write and rename as the commit point.
 
-```text
-T001  architecture audit
-T002  F03 stale Filesystem handles
-T003  F02 station-load error semantics
-T004  F01 persistent vs runtime grid ownership
-T005  F04 normalized-path writer ownership
-T006  F06 logging ownership extraction
-```
-
-The repository is being consolidated to a single long-lived branch: `main`.
-
-Normal cleanup flow remains **local build/test -> pushed commit -> supervisor diff review -> fast-forward main**. Temporary task branches should be deleted immediately after their reviewed commit reaches `main`.
+Workflow: local build/test -> one pushed commit -> supervisor diff review -> merge/fast-forward main -> delete T007 branch.
 
 ## Rule
 
