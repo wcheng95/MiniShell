@@ -8,10 +8,10 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ```text
 T022-linux-qmx-first-qso.md   TESTING
-T023-cq-beacon-ui.md          TESTING
+T023-cq-beacon-ui.md          COMPLETE
 ```
 
-T022 is TESTING with real on-air TX/RxTxLog proven. T023 is stacked on T022 and adds only the missing O->4 operator controls: CQ/CQ POTA and beacon OFF/EVEN/ODD, so the architect can originate CQs and complete normal on-air use.
+T022 remains TESTING with real on-air TX/RxTxLog proven. T023 is COMPLETE: O->4 CQ/CQ POTA and OFF/EVEN/ODD beacon controls passed real operator validation. The architect added `offset_src=0` to station.txt, but V3 does not yet parse/use it.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
