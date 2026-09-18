@@ -345,9 +345,24 @@ V3 currently has no V2 comment/radio-macro configuration; the comment is therefo
 
 The V2 ARRL Field Day header and `QSO:` line format are preserved. QSO lines are inserted before `END-OF-LOG:`.
 
-### Optional RT log
+### RxTxLog / RT trace
 
-V2's `RTYYMMDD.txt` RX/TX trace is controlled by `rxtx_log`. V3 does not yet expose that setting, so it remains intentionally unported rather than becoming silently always-on.
+V2's `RT[YYMMDD].txt` RX/TX trace is not yet implemented in V3.
+
+It is now a required part of T022, because the first integrated Linux/QMX QSO must
+leave enough evidence to debug slot timing, decoded messages, transmitted text,
+reports and frequency offsets.
+
+T022 must enable RxTxLog for the whole on-air integration test and preserve the
+V2-compatible line semantics:
+
+```text
+T [YYYYMMDD HHMMSS][freq_MHz] <text> <offset_hz>
+R [YYYYMMDD HHMMSS][freq_MHz] <text> <snr_db> <offset_hz>
+```
+
+using daily `RT[YYMMDD].txt` storage. The generated RT trace becomes part of the
+T022 hardware acceptance evidence.
 
 ## UI contract
 
