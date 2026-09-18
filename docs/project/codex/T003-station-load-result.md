@@ -1,6 +1,6 @@
 # T003 — Preserve station.txt on load failure
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -527,8 +527,8 @@ architect/coordinator's decision.
 
 ## Supervisor review
 
-Supervisor reviews the actual diff, ownership split, all error/resource paths, integration behavior, and tests.
+PASS. The typed FOUND / NOT_FOUND / ERROR boundary preserves storage facts, keeps default-creation policy in app_controller, closes acquired handles on all paths, and prevents destructive replacement on load/parse failure. PR #35 was reviewed at commit `9794036` and merged as `c111925cd240cb145293e07131eaf69b8a179130`.
 
 ## Architect test result
 
-No hardware test is expected. Architect records acceptance/rejection after supervisor review.
+ACCEPTED. No hardware validation required. Architect authorized merge of PR #35.
