@@ -1,6 +1,6 @@
 # T026 — responder RR73 must advance to 73
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect evidence
 
@@ -423,5 +423,73 @@ the full pushed SHA is returned in the handoff. No PR or Actions wait.
 ## Supervisor review
 
 Review exact diff from task head to implementation.
+
+
+## Supervisor review — RR73 responder fix accepted
+
+PASS on `16c24c16841880449549ddb75587b5d727ca1856`.
+
+Reviewed the single implementation commit from task head
+`965f6bbc2261dcf8d192172342066b71477cf1ba`.
+
+Root cause is accepted:
+
+```text
+wire field decodes as:
+    extra_kind = GRID
+    extra      = "RR73"
+
+old RxResultBuilder:
+    valid_grid4("RR73") -> TX1
+
+AutoSeq while in ROGER_REPORT:
+    RX TX1 -> no state advance
+    next TX remains TX3 / R+report
+```
+
+`RR73` is both the FT8 terminal keyword and a syntactically valid four-character
+Maidenhead locator. Pinned V2 resolves this ambiguity by testing RR73/RRR keywords
+before grid syntax. T026 restores that same precedence at the earliest incorrect
+V3 structured fact: `RxResultBuilder.qso_kind`.
+
+Accepted production change is narrowly limited to the existing standard GRID
+classification branch:
+
+```text
+GRID + exact "RR73" -> RX_QSO_MSG_TX4
+other valid grid    -> RX_QSO_MSG_TX1
+```
+
+No canonical-text fallback, protocol-codec rewrite, AutoSeq state-table change,
+scheduler change, CAT change, or logging-format change was introduced.
+
+Accepted regression evidence:
+
+- exact KF7SEY responder sequence reproduced before the fix through
+  encode -> decode -> RxResultBuilder -> AppController -> AutoSeq;
+- GRID-coded RR73 previously produced `qso_kind=TX1` and repeated R+00;
+- after the fix it produces `qso_kind=TX4`, SIGNOFF state and TX5;
+- physical mocked-QMX plan is exactly `KF7SEY AG6AQ 73`;
+- RT T record carries the same 73 text and resolved base offset;
+- repeated RR73 before TX5 does not regress to TX3;
+- TOKEN-coded RR73 remains correct;
+- neighboring GRID `RR74` remains TX1;
+- `R RR73` remains non-TX1;
+- resolved/nonresolved nonstandard RR73 behavior remains gated correctly;
+- originator CQ -> report -> R+report -> RR73 -> 73 path remains green.
+
+Accepted automated evidence:
+
+```text
+Linux CTest          58/58 PASS
+portable units       15/15 PASS
+ASan/UBSan focused   PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+No blocking software finding. T026 is TESTING for architect on-air confirmation of
+the responder RR73 -> 73 transition.
 
 ## Architect test result
