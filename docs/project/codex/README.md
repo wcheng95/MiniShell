@@ -7,12 +7,11 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T027-nonstandard-tx.md           READY
+T027-nonstandard-tx.md           TESTING
 ```
 
 T027 is the T021 follow-up that adds V2-compatible non-standard / hashed-call TX.
-The live regression is selecting `W1AW/9`: V3 currently queues the QSO but the
-T021 encoder rejects the non-standard callsign, so physical TX never starts.
+T027 implementation `8ee2d32144af4aa167138dd71d8cf1151e6646e6` passed supervisor review. Fixed V2-compatible vectors and the mocked physical path pass; optional Linux/QMX RF confirmation remains.
 
 Primary required result:
 
