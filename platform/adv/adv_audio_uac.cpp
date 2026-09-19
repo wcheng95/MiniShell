@@ -191,7 +191,9 @@ void capture_task(void *)
             config.addr = item.address;
             config.iface_num = item.interface;
             config.buffer_size = 9216;
-            config.buffer_threshold = 2304;
+            /* Match MiniFT8-V2's ~2.1 ms native UAC service threshold while
+             * retaining V3's larger 32 ms driver ring. */
+            config.buffer_threshold = 600;
             config.callback = device_event;
             if (uac_host_device_open(&config, &device) != ESP_OK) continue;
             uac_host_dev_info_t info = {};

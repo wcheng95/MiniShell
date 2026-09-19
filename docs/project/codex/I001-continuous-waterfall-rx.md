@@ -195,6 +195,11 @@ loss source: `native-ring-overflow`, `bad-isoc`, `native-ring-push`, or
 `resubmit`. The driver's pre-existing general transfer failure log covers the
 fifth case where the completed USB transfer itself has an error status.
 
+A follow-up UAC experiment keeps V3's 9216-byte (~32 ms) native driver ring but
+changes `buffer_threshold` from 2304 bytes (~8 ms) to 600 bytes (~2.1 ms),
+matching MiniFT8-V2's service threshold. This isolates threshold latency without
+changing the downstream canonical ring or decode scheduling.
+
 ## Files changed
 
 Production:
