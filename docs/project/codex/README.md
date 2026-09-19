@@ -6,13 +6,13 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-T030-adv-qmx-cat.md              READY
+T030-adv-qmx-cat.md              IMPLEMENTING
 
 T030 brings QMX CDC CAT to Cardputer ADV using the existing V2-proven composite
 USB-host path. Scope is deliberately narrow: no portable MiniFT8 changes, no
 public API changes, QMX UAC-IN + CDC only, and no USB Audio OUT/QDX work.
 Audio-RX stop/start becomes a logical pause/resume while CDC stays alive for CAT
-TX. Final hardware acceptance is the first real ADV/QMX QSO.
+TX. Final hardware acceptance is the first real ADV/QMX QSO. Supervisor review of implementation `1837f476` passed except R1 disconnected-start/late first-attach preservation, which must be fixed before hardware validation.
 
 Recently completed:
 
