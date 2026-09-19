@@ -10,6 +10,9 @@
 #define FT8_LENGTH_SYNC 7
 #define FT8_NUM_SYNC 3
 #define FT8_SYNC_OFFSET 36
+#define FT8_SEARCH_FIRST_BLOCK (-10)
+#define FT8_SEARCH_LAST_BLOCK 97
+#define FT8_SEARCH_ROW_COUNT ((FT8_SEARCH_LAST_BLOCK - FT8_SEARCH_FIRST_BLOCK) + 1)
 
 static const uint8_t kCostasPattern[7] = { 3, 1, 4, 0, 6, 5, 2 };
 static const uint8_t kGrayMap[8] = { 0, 1, 3, 2, 5, 6, 4, 7 };
@@ -75,24 +78,70 @@ static const uint8_t *candidate_symbol(const Ft8WaterfallView *wf,
     return wf->mag + offset;
 }
 
-static int ft8_sync_score(const Ft8WaterfallView *wf, const Ft8Candidate *candidate)
+static int build_search_rows(const Ft8WaterfallView *wf,
+                             const uint8_t *rows[FT8_SEARCH_ROW_COUNT])
+{
+    int64_t retained_end;
+
+    if (!waterfall_valid(wf) || rows == NULL)
+        return 0;
+
+    retained_end = (int64_t)wf->first_block + (int64_t)wf->num_blocks;
+    for (int logical = FT8_SEARCH_FIRST_BLOCK;
+         logical <= FT8_SEARCH_LAST_BLOCK;
+         ++logical) {
+        const uint8_t *row = NULL;
+
+        if ((int64_t)logical >= (int64_t)wf->first_block &&
+            (int64_t)logical < retained_end) {
+            int64_t physical = (int64_t)wf->anchor_index + (int64_t)logical;
+
+            physical %= (int64_t)wf->max_blocks;
+            if (physical < 0)
+                physical += (int64_t)wf->max_blocks;
+
+            row = wf->mag + (size_t)physical * wf->block_stride;
+        }
+
+        rows[logical - FT8_SEARCH_FIRST_BLOCK] = row;
+    }
+    return 1;
+}
+
+static int ft8_sync_score_search(const Ft8WaterfallView *wf,
+                                 const Ft8Candidate *candidate,
+                                 const uint8_t *const rows[FT8_SEARCH_ROW_COUNT])
 {
     int score = 0;
     int num_average = 0;
+    size_t lane_offset;
+
+    if (!wf || !candidate || !rows ||
+        candidate->time_sub >= wf->time_osr ||
+        candidate->freq_sub >= wf->freq_osr ||
+        candidate->freq_offset < 0 ||
+        candidate->freq_offset + 7 >= (int)wf->num_bins)
+        return 0;
+
+    lane_offset = (size_t)candidate->time_sub * wf->freq_osr * wf->num_bins;
+    lane_offset += (size_t)candidate->freq_sub * wf->num_bins;
+    lane_offset += (size_t)candidate->freq_offset;
 
     for (int m = 0; m < FT8_NUM_SYNC; ++m) {
         for (int k = 0; k < FT8_LENGTH_SYNC; ++k) {
             int symbol = FT8_SYNC_OFFSET * m + k;
-            const uint8_t *p8 = candidate_symbol(wf, candidate, symbol);
+            int logical = candidate->time_offset + symbol;
+            int row_index = logical - FT8_SEARCH_FIRST_BLOCK;
+            const uint8_t *row;
+            const uint8_t *p8;
             int sm;
 
-            /*
-             * I001 intentionally allows negative logical blocks when the
-             * circular waterfall retains pre-slot history. Missing head/tail
-             * symbols are simply omitted from the normalized sync score.
-             */
-            if (!p8)
+            if (row_index < 0 || row_index >= FT8_SEARCH_ROW_COUNT)
                 continue;
+            row = rows[row_index];
+            if (!row)
+                continue;
+            p8 = row + lane_offset;
 
             sm = kCostasPattern[k];
             if (sm > 0) {
@@ -103,19 +152,17 @@ static int ft8_sync_score(const Ft8WaterfallView *wf, const Ft8Candidate *candid
                 score += (int)p8[sm] - (int)p8[sm + 1];
                 ++num_average;
             }
-            if (k > 0) {
-                const uint8_t *prev = candidate_symbol(wf, candidate, symbol - 1);
-                if (prev) {
-                    score += (int)p8[sm] - (int)prev[sm];
-                    ++num_average;
-                }
+            if (k > 0 && row_index > 0 && rows[row_index - 1]) {
+                const uint8_t *prev = rows[row_index - 1] + lane_offset;
+                score += (int)p8[sm] - (int)prev[sm];
+                ++num_average;
             }
-            if ((k + 1) < FT8_LENGTH_SYNC) {
-                const uint8_t *next = candidate_symbol(wf, candidate, symbol + 1);
-                if (next) {
-                    score += (int)p8[sm] - (int)next[sm];
-                    ++num_average;
-                }
+            if ((k + 1) < FT8_LENGTH_SYNC &&
+                row_index + 1 < FT8_SEARCH_ROW_COUNT &&
+                rows[row_index + 1]) {
+                const uint8_t *next = rows[row_index + 1] + lane_offset;
+                score += (int)p8[sm] - (int)next[sm];
+                ++num_average;
             }
         }
     }
@@ -222,6 +269,7 @@ Ft8DecoderStatus ft8_decoder_candidate_search_step(
     int *out_completed,
     size_t *out_count)
 {
+    const uint8_t *rows[FT8_SEARCH_ROW_COUNT];
     size_t processed = 0u;
 
     if (out_completed)
@@ -233,6 +281,9 @@ Ft8DecoderStatus ft8_decoder_candidate_search_step(
         out_completed == NULL || out_count == NULL) {
         return FT8_DECODER_ERR_INVALID;
     }
+
+    if (!build_search_rows(wf, rows))
+        return FT8_DECODER_ERR_INVALID;
 
     if (state->completed) {
         *out_completed = 1;
@@ -247,7 +298,7 @@ Ft8DecoderStatus ft8_decoder_candidate_search_step(
         candidate.freq_sub = state->freq_sub;
         candidate.time_offset = state->time_offset;
         candidate.freq_offset = state->freq_offset;
-        candidate.score = (int16_t)ft8_sync_score(wf, &candidate);
+        candidate.score = (int16_t)ft8_sync_score_search(wf, &candidate, rows);
 
         if (candidate.score >= state->min_score) {
             if (state->heap_size == state->capacity &&

@@ -37,7 +37,8 @@ HARNESS = r'''
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 enum { USB_TRANSFER_STATUS_COMPLETED, USB_TRANSFER_STATUS_CANCELED,
-       USB_TRANSFER_STATUS_NO_DEVICE, USB_TRANSFER_STATUS_ERROR };
+       USB_TRANSFER_STATUS_SKIPPED, USB_TRANSFER_STATUS_NO_DEVICE,
+       USB_TRANSFER_STATUS_ERROR };
 enum { UAC_INTERFACE_STATE_ACTIVE = 1, UAC_HOST_DEVICE_EVENT_RX_DONE,
        UAC_HOST_DEVICE_EVENT_TRANSFER_ERROR };
 typedef struct { int status, num_bytes, actual_num_bytes; } packet_t;
@@ -81,7 +82,7 @@ CASES = r'''
 int main(void)
 {
     uint8_t data[12] = {0};
-    for (unsigned test = 0; test < 10; ++test) {
+    for (unsigned test = 0; test < 11; ++test) {
         memset(&canonical, 0, sizeof(canonical));
         errors = pushes = submits = 0;
         push_result = submit_result = 0;
@@ -99,14 +100,15 @@ int main(void)
         case 7: transfer.status = USB_TRANSFER_STATUS_NO_DEVICE; break;
         case 8: iface.state = 0; break;
         case 9: transfer.isoc_packet_desc[0].actual_num_bytes = 0; break;
+        case 10: transfer.isoc_packet_desc[0].status = USB_TRANSFER_STATUS_SKIPPED; break;
         }
         adv_uac_ticket_t in_flight = adv_uac_begin(&canonical);
         stream_rx_xfer_done(&transfer);
         bool lost = test >= 1 && test <= 5;
         assert(errors == (unsigned)lost);
         assert(canonical.pending == lost);
-        assert(submits == (unsigned)(test < 5 || test == 9));
-        if (test == 0 || test == 4 || test == 9) assert(pushes == 2);
+        assert(submits == (unsigned)(test < 5 || test == 9 || test == 10));
+        if (test == 0 || test == 4 || test == 9 || test == 10) assert(pushes == 2);
         if (test == 1 || (test >= 5 && test <= 8)) assert(pushes == 0);
         if (test == 2 || test == 3) assert(pushes == 1);
         if (lost) {

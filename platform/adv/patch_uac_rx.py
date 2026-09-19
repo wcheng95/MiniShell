@@ -25,11 +25,29 @@ def patch_callback(source):
         ('            ESP_LOGD(TAG, "RX Ringbuffer overflow");',
          '            ESP_LOGW(TAG, "T017 RX loss: native-ring-overflow");\n'
          '            ' + NOTIFY),
-        ('                    continue;',
-         '                    ESP_LOGW(TAG, "T017 RX loss: bad-isoc packet=%d status=%d",\n'
-         '                             i, in_xfer->isoc_packet_desc[i].status);\n'
-         '                    ' + NOTIFY + '\n'
-         '                    continue;'),
+        ('                if (in_xfer->isoc_packet_desc[i].status != USB_TRANSFER_STATUS_COMPLETED) {\n'
+         '                    // copy data to ringbuffer\n'
+         '                    ESP_LOGD(TAG, "Bad RX Isoc packet %d status %d", i, in_xfer->isoc_packet_desc[i].status);\n'
+         '                    continue;\n'
+         '                }',
+         '                if (in_xfer->isoc_packet_desc[i].status != USB_TRANSFER_STATUS_COMPLETED) {\n'
+         '                    int requested_num_bytes = in_xfer->isoc_packet_desc[i].num_bytes;\n'
+         '                    if (in_xfer->isoc_packet_desc[i].status == USB_TRANSFER_STATUS_SKIPPED) {\n'
+         '                        uint8_t *packet = in_xfer->data_buffer + i * requested_num_bytes;\n'
+         '                        memset(packet, 0, requested_num_bytes);\n'
+         '                        ESP_LOGW(TAG, "T017 RX pad: skipped-isoc packet=%d bytes=%d",\n'
+         '                                 i, requested_num_bytes);\n'
+         '                        if (_ring_buffer_push(iface->ringbuf, packet, requested_num_bytes, 0) != ESP_OK) {\n'
+         '                            ESP_LOGW(TAG, "T017 RX loss: native-ring-push");\n'
+         '                            ' + NOTIFY + '\n'
+         '                        }\n'
+         '                    } else {\n'
+         '                        ESP_LOGW(TAG, "T017 RX loss: bad-isoc packet=%d status=%d",\n'
+         '                                 i, in_xfer->isoc_packet_desc[i].status);\n'
+         '                        ' + NOTIFY + '\n'
+         '                    }\n'
+         '                    continue;\n'
+         '                }'),
         ('                _ring_buffer_push(iface->ringbuf, in_xfer->data_buffer + i * requested_num_bytes, actual_num_bytes, 0);',
          '                if (_ring_buffer_push(iface->ringbuf, in_xfer->data_buffer + i * requested_num_bytes, actual_num_bytes, 0) != ESP_OK) {\n'
          '                    ESP_LOGW(TAG, "T017 RX loss: native-ring-push");\n'

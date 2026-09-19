@@ -190,15 +190,19 @@ overflow/loss counters, and USB read/transfer-error counters before the stream
 restart. This distinguishes consumer starvation from a transport failure at the
 point where a receive slot can be lost.
 
-The T017 build-local UAC patch also emits a distinct warning for each patched
-loss source: `native-ring-overflow`, `bad-isoc`, `native-ring-push`, or
-`resubmit`. The driver's pre-existing general transfer failure log covers the
-fifth case where the completed USB transfer itself has an error status.
+The T017 build-local UAC patch distinguishes recoverable skipped isochronous
+packets from true transport loss. A `USB_TRANSFER_STATUS_SKIPPED` packet is
+replaced in the native UAC ring by exactly its requested byte count of zeros,
+preserving the sample timeline without restarting UAC. For QMX 48 kHz,
+24-bit stereo this is normally 288 bytes = 48 frames = 1 ms. Other bad-isoc
+statuses, native-ring overflow/push failure, resubmit failure, and general
+transfer errors still report a discontinuity.
 
-A follow-up UAC experiment keeps V3's 9216-byte (~32 ms) native driver ring but
-changes `buffer_threshold` from 2304 bytes (~8 ms) to 600 bytes (~2.1 ms),
-matching MiniFT8-V2's service threshold. This isolates threshold latency without
-changing the downstream canonical ring or decode scheduling.
+The 600-byte native-ring threshold experiment did not change the skipped-isoc
+behavior; V2 was subsequently observed to receive the same status-6 skipped
+packets while continuing normally. The fault therefore predates V3's restart
+policy. V3 now preserves timing by padding skipped packets rather than promoting
+them into a whole-stream discontinuity.
 
 ## Files changed
 
@@ -255,3 +259,13 @@ ADV/QMX hardware acceptance:
 - record candidate-search and per-candidate/total LDPC timing;
 - record UAC high-water/overflow/discontinuity counters;
 - normal QSO RX/TX behavior remains intact.
+
+
+Candidate-search performance note: the continuous circular waterfall originally
+resolved logical-to-physical ring addressing for every Costas-symbol access,
+including 64-bit modulo in the scoring hot path. V2 uses direct row pointer
+arithmetic and measured about 138 ms for the same 25,560-position search,
+versus about 1.51 s in V3. The V3 search now precomputes the required logical
+waterfall row pointers once per search step, leaving circular modulo outside the
+per-candidate scoring loop while preserving the same search order and heap
+semantics.
