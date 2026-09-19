@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T026-rr73-signoff.md             TESTING
+T026-rr73-signoff.md             COMPLETE
 ```
 
 Recently completed:
