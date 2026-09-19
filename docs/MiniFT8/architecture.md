@@ -305,21 +305,29 @@ The MiniShell serial/CDC service owns only the byte transport and resource lifec
 
 ## 7. TX realization remains capability-driven
 
-Physical TX realization remains future work. The intended boundary is for
-`app_controller` to choose a realization after a protocol TX signal plan is
-available; the current production lifecycle is simulated.
+Linux/QMX physical TX is implemented and hardware validated. `app_controller`
+owns the slot-anchored physical lifecycle after AutoSeq supplies semantic intent
+and `tx_encoder` produces an immutable 79-tone `Ft8TxPlan`.
 
-QMX control-frequency path:
+Current QMX control-frequency path:
 
 ```text
-FT8 policy / desired radio action
+AutoSeq TxIntent
+    -> tx_encoder / Ft8TxPlan
+    -> app_controller absolute symbol scheduler
     -> MiniFT8 radio_control / radio_qmx
-    -> CAT bytes
+       MD6; TX;
+       TAxxxx.xx; per changed symbol tone
+       RX;
     -> MiniShell Serial/CDC
     -> QMX
 ```
 
-Audio-modulated path:
+RX capture is paused/restarted around physical TX and re-anchored to UTC/sample
+timing before subsequent decode. Failed/uncertain TX attempts conservatively
+attempt QMX `RX;` restoration and do not consume semantic completion.
+
+Audio-modulated path remains future capability:
 
 ```text
 FT8 symbols
@@ -342,7 +350,10 @@ they terminate on the same physical QMX.
 
 MiniShell Filesystem owns logical namespace and paths, handles, lifecycle cleanup, quota policy, and platform/native file operations through its backend.
 
-`ft8_main` selects `/flash/ft8/station.txt` by default, and `config_service` owns configuration parsing/serialization. Thus this path is MiniFT8 policy, while how `/flash` maps to Linux, LittleFS, NuttX, or another backend is MiniShell policy. The optional V2 `RxTxLog` traffic log is not enabled in V3. ADIF/Cabrillo path policy belongs to `log_service`, using the station configuration directory.
+`ft8_main` selects `/flash/ft8/station.txt` by default, and `config_service` owns configuration parsing/serialization. Thus this path is MiniFT8 policy, while how `/flash` maps to Linux, LittleFS, NuttX, or another backend is MiniShell policy. The V2-compatible `RxTxLog` traffic log is enabled by default in V3 (configurable
+with `rxtx_log` in `station.txt`) and is persisted by `log_service` as
+`/flash/ft8/RTYYMMDD.txt`. ADIF/Cabrillo/RxTxLog path and serialization policy
+belong to `log_service`, using MiniShell Filesystem and Time/Location only.
 
 AutoSeq owns pure log eligibility/events and per-format ACK state. At TX start,
 `app_controller` snapshots station/QSO facts, calls `log_service`, and ACKs only
@@ -423,8 +434,11 @@ rx_audio_adapter -> rx_frontend -> rx_slot_framer
 continuous multi-slot live RX with V2-compatible 12.64-second decoding
 real on-air ADV/QMX FT8 decode at ESP32-S3 240 MHz
 ADV engine profile: time_osr=2, freq_osr=1
-AutoSeq AS-0..AS-8 and simulated TX lifecycle
-ADIF and Field Day Cabrillo logging through log_service
+AutoSeq AS-0..AS-8
+pure FT8 TX encoder and immutable 79-tone plans
+Linux/QMX slot-anchored physical CAT TX with RX recovery
+V2-compatible RxTxLog plus ADIF and Field Day Cabrillo logging through log_service
+completed real two-way Linux/QMX QSO
 ```
 
 The RX pipeline transports 12 kHz S16 stereo through MiniShell, converts to 6 kHz
@@ -437,12 +451,19 @@ The ADV `freq_osr=2` comparison is not part of the production profile: it remain
 alive but consumed roughly 103 KiB more application memory and did not decode during
 the hardware comparison. The accepted ADV profile remains `freq_osr=1`.
 
-QMX receive CAT synchronization, CAT TX primitives, and the pure FT8 79-tone
-encoder are implemented. Real slot-anchored physical FT8 transmission remains the
-next integration boundary. The diagrams describe the accepted ownership: T022
-coordinates the existing TxLifecycle, AutoSeq intent, Ft8TxPlan, and MiniFT8-owned
-QMX CAT adapter without moving protocol or radio semantics into MiniShell. A future I/Q source would use
-the same Audio API with an application-owned I/Q processing path.
+QMX receive CAT synchronization, CAT TX primitives, the pure FT8 79-tone encoder,
+and real slot-anchored physical FT8 transmission are implemented. T022-T024
+validated this path on pc-1/QMX; WinBook/TW700 also runs the same pc-1-built
+Linux binaries with QMX RX and CAT/TX. T026 adds a temporary pinned-V2
+compatibility exception for the ambiguous exact string `RR73`: a standard GRID
+field containing `RR73` is classified as terminal TX4 before ordinary grid
+classification. Because `RR73` is also a legitimate Maidenhead locator, permanent
+disambiguation remains deferred.
+
+The accepted ownership remains unchanged: TxLifecycle, AutoSeq intent, Ft8TxPlan,
+and QMX CAT semantics stay inside MiniFT8 while MiniShell owns transport/resource
+lifecycle. A future I/Q source would use the same Audio API with an
+application-owned I/Q processing path.
 
 ## 12. Boundary rules
 
