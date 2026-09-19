@@ -6,21 +6,20 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-T028-rx-message-order.md           TESTING
-
-T028 implementation `bb3e74bfcf4ef6bcff9ab3ae7277f825bae19fa8` passed supervisor review. RX display/selection ordering is controller-owned; the factual RxBatch and automatic-processing/log order remain unchanged. Live visual validation remains; color coding is deferred.
+None.
 
 Recently completed:
 
 ```text
-T025-shell-aliases.md            COMPLETE
 T026-rr73-signoff.md             COMPLETE — temporary compatibility workaround
 T027-nonstandard-tx.md           COMPLETE — V2-compatible hash/type-4 TX
+T028-rx-message-order.md         COMPLETE — controller-owned RX priority/SNR order
 ```
 
-T027 adds V2-compatible hashed directed QSO TX and type-4 plain CQ for
-non-standard callsigns. Software acceptance is complete; RF confirmation is
-opportunistic when a compound callsign appears naturally.
+T028 live validation passed. RX display/selection order is reply-to-me, CQ,
+regular, with strongest-to-weakest SNR inside each group. The factual RxBatch
+and automatic-processing/log order remain unchanged. Color coding remains
+deferred.
 
 Earlier consolidated MiniFT8 tasks:
 
