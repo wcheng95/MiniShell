@@ -1,6 +1,6 @@
 # T026 — responder RR73 must advance to 73
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect evidence
 
@@ -491,5 +491,36 @@ git diff --check     PASS
 
 No blocking software finding. T026 is TESTING for architect on-air confirmation of
 the responder RR73 -> 73 transition.
+
+## Architect result — temporary workaround accepted
+
+The architect accepts T026 as a **temporary compatibility solution** without waiting
+for further on-air confirmation.
+
+Accepted temporary rule:
+
+```text
+standard GRID field + exact "RR73" -> TX4 / terminal RR73
+other valid GRID values            -> TX1 / locator
+```
+
+Known ambiguity:
+
+`RR73` is itself a syntactically valid Maidenhead locator. Therefore a legitimate
+TX1 carrying grid `RR73` would be interpreted as terminal RR73 by this workaround.
+
+This tradeoff matches pinned V2 keyword-before-grid behavior and fixes the reproduced
+responder failure, but it is not treated as a permanent protocol-disambiguation
+design.
+
+Deferred follow-up:
+
+- revisit permanent RR73-vs-grid disambiguation;
+- determine the actual on-air payload/structured representation when practical;
+- avoid broadening this exception beyond exact `RR73`;
+- preserve normal grids such as `RR74` as TX1.
+
+No further T026 implementation is required. T026 is COMPLETE as an explicitly
+temporary solution.
 
 ## Architect test result
