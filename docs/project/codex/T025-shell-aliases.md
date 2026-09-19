@@ -1,6 +1,6 @@
 # T025 — MiniShell alias.txt command aliases
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -595,5 +595,65 @@ the full pushed SHA is returned in the handoff. No PR or Actions wait.
 ## Supervisor review
 
 Review exact diff from task head to implementation.
+
+
+## Supervisor review — alias implementation accepted
+
+PASS on `dab03df7c1778bd867234d4cd63445b6d55b76f1`.
+
+Reviewed the single implementation commit from task head
+`2d8d69575447a5b1de1c16b1b0e34129142f7342`.
+
+Accepted ownership:
+
+```text
+resident shell
+  -> MiniShell Filesystem
+  -> /flash/minishell/alias.txt
+```
+
+No public API, platform backend, app-manager protocol, MiniFT8, datetime, or history
+behavior was changed.
+
+Accepted parser/dispatch behavior:
+
+- first `=` is the only separator;
+- additional `=` characters on the RHS are preserved;
+- alias names containing shell whitespace are rejected;
+- blank/comment/invalid records are ignored;
+- duplicate valid aliases use the last definition;
+- built-ins `exit/help/status/apps/run` retain precedence;
+- alias targets may be built-ins or applications;
+- user arguments append after alias defaults;
+- expansion occurs exactly once and is never recursive;
+- `run <app>` continues to bypass alias lookup for the app name;
+- expansion overflow is rejected without partial execution.
+
+Accepted reload/failure behavior:
+
+- no resident alias table or heap allocation;
+- every non-built-in lookup reopens/scans/closes the alias file;
+- edits therefore take effect on the next command;
+- missing/unavailable alias storage is silent;
+- unexpected open/read/close errors emit one concise diagnostic and dispatch the
+  original command;
+- overlong/embedded-NUL logical records are skipped and later valid definitions
+  remain discoverable.
+
+Implementation uses fixed buffers and MiniShell Filesystem only. Linux and ADV
+share the same resident source.
+
+Accepted automated evidence:
+
+```text
+Linux CTest          57/57 PASS
+portable units       15/15 PASS
+ASan/UBSan alias     PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+No blocking software finding. T025 is TESTING for architect/operator validation.
 
 ## Architect test result
