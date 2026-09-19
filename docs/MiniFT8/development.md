@@ -48,6 +48,7 @@ first real two-way QSO               COMPLETE — Linux/QMX, 2026-09-18 UTC
 T026 RR73 responder compatibility    COMPLETE — temporary V2 keyword-before-grid rule
 T027 non-standard/hash TX             COMPLETE — V2-compatible hashed QSO + type-4 CQ
 T028 RX display/selection ordering     COMPLETE — live validated
+T029 RX display lifetime                COMPLETE — live validated
 ```
 
 Working live Linux/QMX command:
@@ -169,6 +170,7 @@ T024        COMPLETE — Random/Fixed/RX TX-offset source
 T026        COMPLETE — temporary GRID-coded RR73 -> TX4 compatibility fix
 T027        COMPLETE — V2-compatible non-standard/hash TX + type-4 plain CQ
 T028        COMPLETE — reply-to-me/CQ/regular RX order + descending SNR
+T029        COMPLETE — preserve RX rows through TX; clear at TX completion
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -436,6 +438,13 @@ RxMessage. Automatic addressed-message processing and RT logging continue in
 raw batch order. Live Linux/QMX validation passed. Color coding remains
 deferred.
 
+T029 defines display lifetime independently from RX transport resets: the most
+recent decoded/sorted RX rows remain visible and selectable through a following TX
+slot and ordinary audio/framer reset events. Successful TX completion/RX resume
+clears those prior-slot rows because the just-finished slot had no RX decode. A
+new completed RX batch replaces the old display; an empty completed batch clears
+it. Live Linux/QMX validation passed.
+
 ## UI contract
 
 ADV remains the canonical compact presentation:
@@ -507,7 +516,7 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 ## Deferred follow-up boundaries
 
 The first complete Linux/QMX QSO and the physical transmitter lifecycle are done.
-T027 non-standard/hash TX and T028 RX display ordering are complete. No new task is active.
+T027 non-standard/hash TX, T028 RX display ordering, and T029 RX display lifetime are complete. No new task is active.
 
 Deferred items:
 
