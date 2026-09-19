@@ -230,8 +230,12 @@ static void classify_standard_qso(const Ft8ProtocolStandard *standard,
 
     switch (standard->extra_kind) {
     case FT8_PROTOCOL_FIELD_GRID:
+        /* RR73 also fits a locator on the wire. V2 gives the terminal keyword
+         * precedence over grid syntax when classifying the received QSO stage. */
+        if (strcmp(standard->extra, "RR73") == 0)
+            out->qso_kind = RX_QSO_MSG_TX4;
         /* Preserve V2: "R FN42" is not treated as an ordinary TX1 grid. */
-        if (valid_grid4(standard->extra))
+        else if (valid_grid4(standard->extra))
             out->qso_kind = RX_QSO_MSG_TX1;
         break;
 

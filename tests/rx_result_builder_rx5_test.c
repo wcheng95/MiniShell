@@ -106,6 +106,22 @@ int main(void)
     CHECK(output[1].qso_kind == RX_QSO_MSG_TX4);
     CHECK(output[1].report_db == RX_RESULT_REPORT_UNKNOWN);
 
+    /* A decoded grid-coded RR73 has the same V2 terminal meaning. */
+    protocol[1].data.standard.extra_kind = FT8_PROTOCOL_FIELD_GRID;
+    CHECK(rx_result_builder_build(&builder, &slot, output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_TX4 && output[1].is_to_me);
+    CHECK(output[1].report_db == RX_RESULT_REPORT_UNKNOWN);
+    strcpy(protocol[1].data.standard.extra, "RR74");
+    CHECK(rx_result_builder_build(&builder, &slot, output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_TX1);
+    strcpy(protocol[1].data.standard.extra, "R RR73");
+    CHECK(rx_result_builder_build(&builder, &slot, output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_NONE);
+    strcpy(protocol[1].data.standard.extra, "RRR");
+    protocol[1].data.standard.extra_kind = FT8_PROTOCOL_FIELD_TOKEN;
+    CHECK(rx_result_builder_build(&builder, &slot, output, 3u, &batch) == RX_RESULT_OK);
+    CHECK(output[1].qso_kind == RX_QSO_MSG_TX4);
+
     strcpy(protocol[1].data.standard.extra, "73");
     protocol[1].data.standard.extra_kind = FT8_PROTOCOL_FIELD_TOKEN;
     CHECK(rx_result_builder_build(&builder, &slot,

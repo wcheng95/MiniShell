@@ -550,8 +550,153 @@ static void offset_integration(void)
     assert(app.tx.offset_rng==tx_offset_seed(0,0,0)); cleanup(&app);
 }
 
+static void decoded_standard(AppController *app, const char *to, const char *from,
+                             const char *extra, Ft8ProtocolFieldKind kind, int8_t snr,
+                             int64_t slot_id)
+{
+    Ft8ProtocolMessage typed={.type=FT8_PROTOCOL_STANDARD}, decoded;
+    strcpy(typed.data.standard.call_to,to); strcpy(typed.data.standard.call_de,from);
+    strcpy(typed.data.standard.extra,extra); typed.data.standard.extra_kind=kind;
+    Ft8DecodedPayload payload; memset(&payload,0,sizeof(payload));
+    assert(ft8_protocol_encode(&typed,payload.payload)==FT8_PROTOCOL_CODEC_OK);
+    assert(ft8_protocol_decode(&payload,NULL,&decoded)==FT8_PROTOCOL_CODEC_OK);
+    decoded.snr_db=snr; decoded.offset_hz=1647; /* engine-supplied measurements */
+    assert(decoded.type==FT8_PROTOCOL_STANDARD && decoded.parse_status==FT8_PROTOCOL_PARSE_OK);
+    assert(!decoded.has_unresolved_hash && decoded.data.standard.extra_kind==kind);
+    assert(strcmp(decoded.data.standard.call_to,to)==0 && strcmp(decoded.data.standard.call_de,from)==0);
+    assert(strcmp(decoded.data.standard.extra,extra)==0);
+    Ft8ProtocolSlot slot; ft8_protocol_slot_init(&slot,slot_id,&decoded,1);
+    slot.message_count=1; slot.status=FT8_PROTOCOL_SLOT_OK;
+    assert(rx_result_builder_build(&app->rx->builder,&slot,app->rx->rx_messages,
+                                    FT8_DECODER_CANDIDATE_CAPACITY,&app->rx->batch)==RX_RESULT_OK);
+    app->rx->have_batch=true; ++app->rx->batch_generation;
+    RxMessage *rx=&app->rx->rx_messages[0];
+    assert(rx->protocol_type==decoded.type && rx->parse_status==FT8_PROTOCOL_PARSE_OK && !rx->has_unresolved_hash);
+    assert(strcmp(rx->call_to,to)==0 && strcmp(rx->call_de,from)==0 && strcmp(rx->extra,extra)==0);
+    assert(rx->is_to_me==(strcmp(to,"AG6AQ")==0));
+    if (strcmp(extra,"RR73")==0) {
+        AutoSeqRxEvent event_rx;
+        bool projected=addressed_rx_to_event(&app->rx->batch,rx,&event_rx);
+        printf("RR73 boundary: protocol=%d parse=%d unresolved=%d to=%s de=%s extra=%s extra_kind=%d to_me=%d qso_kind=%u projected=%d event_kind=%u\n",
+               rx->protocol_type,rx->parse_status,rx->has_unresolved_hash,rx->call_to,rx->call_de,
+               rx->extra,kind,rx->is_to_me,rx->qso_kind,projected,projected ? event_rx.kind : 0);
+        fflush(stdout);
+    }
+    assert(app_process_addressed_batch(app));
+}
+
+static void expected_tx(AppController *app, bool physical, const char *text, AutoSeqMessageKind kind)
+{
+    AutoSeqTxIntent intent; Ft8TxPlan plan;
+    assert(auto_seq_prepare_tx_intent(&app->auto_seq,&intent));
+    assert(ft8_tx_encode(&intent,&plan)==FT8_TX_ENCODE_OK);
+    printf("next TX: %s (kind %u)\n",plan.canonical_text,intent.message_kind); fflush(stdout);
+    assert(intent.message_kind==kind && strcmp(plan.canonical_text,text)==0);
+    if (!physical) { assert(auto_seq_tick(&app->auto_seq,(int64_t)(now_us/1000))); return; }
+    bool changed; assert(app_controller_step_tx(app,&changed) && app->tx.active);
+    assert(app->tx.last_intent.message_kind==kind && strcmp(app->tx.plan.canonical_text,text)==0);
+    assert(app->tx.plan.base_hz>=500 && app->tx.plan.base_hz<=2500);
+    char rt[100]; snprintf(rt,sizeof(rt),"] %s %d\n",text,app->tx.plan.base_hz);
+    assert(strstr(rt_contents(),rt));
+    now_us+=12640000; assert(app_controller_step_tx(app,&changed) && changed && !app->tx.active);
+}
+
+static void responder_rr73(bool physical, Ft8ProtocolFieldKind terminal_kind)
+{
+    AppController app; setup(&app,true); app.config.offset_src=FT8_OFFSET_RANDOM;
+    assert(auto_seq_drop_index(&app.auto_seq,0,0));
+    int64_t rx_slot=(1789776000+1005)/15-1;
+    decoded_standard(&app,"CQ","KF7SEY","CN84",FT8_PROTOCOL_FIELD_GRID,0,rx_slot);
+    AppAction select={.type=APP_ACTION_SELECT_RX_MESSAGE,.value.index=0};
+    assert(app_controller_apply_action(&app,&select));
+    expected_tx(&app,physical,"KF7SEY AG6AQ CM97",AUTO_SEQ_MSG_TX1);
+    bool changed;
+    now_us=anchor+15000000;
+    if (physical) assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
+    decoded_standard(&app,"AG6AQ","KF7SEY","+02",FT8_PROTOCOL_FIELD_REPORT,1,rx_slot+2);
+    now_us=anchor+30000000;
+    expected_tx(&app,physical,"KF7SEY AG6AQ R+00",AUTO_SEQ_MSG_TX3);
+    now_us=anchor+45000000;
+    if (physical) assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
+    decoded_standard(&app,"AG6AQ","KF7SEY","RR73",terminal_kind,2,rx_slot+4);
+    AutoSeqTxIntent after_rr73; Ft8TxPlan after_plan;
+    assert(auto_seq_prepare_tx_intent(&app.auto_seq,&after_rr73));
+    assert(ft8_tx_encode(&after_rr73,&after_plan)==FT8_TX_ENCODE_OK);
+    printf("after RR73: state=%d last_rx=%u next=%s\n",app.auto_seq.queue[0].state,
+           app.auto_seq.queue[0].last_rx_kind,after_plan.canonical_text); fflush(stdout);
+    assert(app.auto_seq.queue[0].last_rx_kind==AUTO_SEQ_MSG_TX4);
+    assert(app.auto_seq.queue[0].state==AUTO_SEQ_STATE_SIGNOFF);
+    /* Repeated terminal decode never returns the responder to TX3. */
+    decoded_standard(&app,"AG6AQ","KF7SEY","RR73",terminal_kind,5,rx_slot+4);
+    now_us=anchor+60000000;
+    expected_tx(&app,physical,"KF7SEY AG6AQ 73",AUTO_SEQ_MSG_TX5);
+    assert(auto_seq_active_count(&app.auto_seq)==0);
+    cleanup(&app);
+}
+
+static void originator_signoff(void)
+{
+    AppController app; setup(&app,true); app.config.offset_src=FT8_OFFSET_RANDOM;
+    expected_tx(&app,true,"CQ AG6AQ CM97",AUTO_SEQ_MSG_TX6);
+    int64_t rx_slot=(1789776000+1005)/15+1;
+    bool changed; now_us=anchor+15000000;
+    assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
+    decoded_standard(&app,"AG6AQ","KF7SEY","CN84",FT8_PROTOCOL_FIELD_GRID,0,rx_slot);
+    now_us=anchor+30000000;
+    expected_tx(&app,true,"KF7SEY AG6AQ +00",AUTO_SEQ_MSG_TX2);
+    now_us=anchor+45000000; assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
+    decoded_standard(&app,"AG6AQ","KF7SEY","R+02",FT8_PROTOCOL_FIELD_REPORT,1,rx_slot+2);
+    now_us=anchor+60000000;
+    expected_tx(&app,true,"KF7SEY AG6AQ RR73",AUTO_SEQ_MSG_TX4);
+    decoded_standard(&app,"AG6AQ","KF7SEY","73",FT8_PROTOCOL_FIELD_TOKEN,2,rx_slot+4);
+    assert(auto_seq_active_count(&app.auto_seq)==0); cleanup(&app);
+}
+
+static void nonstandard_rr73_metadata(void)
+{
+    /* Existing RX-1F nonstandard CQ vector, changed to directed RR73 with
+     * AG6AQ's 12-bit destination hash. No nonstandard TX support is added. */
+    Ft8DecodedPayload payload; memset(&payload,0,sizeof(payload));
+    const uint8_t bytes[]={0x00,0x00,0x3E,0x4A,0x34,0xA8,0x6E,0xEB,0x85,0x20};
+    memcpy(payload.payload,bytes,sizeof(bytes));
+    uint32_t hash; assert(ft8_protocol_callsign_hash22("AG6AQ",&hash)==FT8_PROTOCOL_CODEC_OK);
+    uint16_t hash12=(uint16_t)(hash>>10);
+    payload.payload[0]=(uint8_t)(hash12>>4);
+    payload.payload[1]=(uint8_t)((payload.payload[1]&0x0f)|((hash12&0x0f)<<4));
+    Ft8HashStore store; ft8_hash_store_init(&store);
+    assert(ft8_hash_store_save(&store,"AG6AQ",hash)==FT8_HASH_STORE_OK);
+    AppController app; setup(&app,true);
+    for (unsigned resolved=0;resolved<2;++resolved) {
+        Ft8ProtocolMessage message;
+        assert(ft8_protocol_decode(&payload,resolved ? &store : NULL,&message)==FT8_PROTOCOL_CODEC_OK);
+        assert(message.type==FT8_PROTOCOL_NONSTD_CALL && message.parse_status==FT8_PROTOCOL_PARSE_OK);
+        assert(message.has_unresolved_hash==!resolved && message.data.nonstandard.terminal==FT8_PROTOCOL_TERMINAL_RR73);
+        assert(strcmp(message.data.nonstandard.call_to,resolved ? "<AG6AQ>" : "<...>")==0);
+        assert(strcmp(message.data.nonstandard.call_de,"PJ4/KA1ABC")==0);
+        Ft8ProtocolSlot slot; ft8_protocol_slot_init(&slot,1,&message,1);
+        slot.message_count=1; slot.status=FT8_PROTOCOL_SLOT_OK;
+        RxMessage rx; RxBatch batch;
+        assert(rx_result_builder_build(&app.rx->builder,&slot,&rx,1,&batch)==RX_RESULT_OK);
+        assert(rx.qso_kind==RX_QSO_MSG_TX4 && rx.is_to_me==!!resolved);
+        assert(rx.protocol_type==message.type && rx.parse_status==message.parse_status && rx.has_unresolved_hash==!resolved);
+        assert(rx.extra[0]==0); /* terminal is represented by qso_kind for this family */
+        AutoSeqRxEvent event_rx; assert(addressed_rx_to_event(&batch,&rx,&event_rx)==!!resolved);
+        if (resolved) {
+            assert(event_rx.kind==AUTO_SEQ_MSG_TX4 && strcmp(event_rx.dxcall,"PJ4/KA1ABC")==0);
+            rx.has_unresolved_hash=true; assert(!addressed_rx_to_event(&batch,&rx,&event_rx));
+        }
+    }
+    cleanup(&app);
+}
+
 int main(void)
 {
+    responder_rr73(false,FT8_PROTOCOL_FIELD_TOKEN);
+    responder_rr73(false,FT8_PROTOCOL_FIELD_GRID);
+    responder_rr73(true,FT8_PROTOCOL_FIELD_GRID);
+    responder_rr73(true,FT8_PROTOCOL_FIELD_TOKEN);
+    originator_signoff();
+    nonstandard_rr73_metadata();
     success(1,0,0); success(5,20,3000); success(10,499,0); success(20,33,0);
     failures(); freshness_and_stalls(); qso_completion(); rt_logging(); cq_beacon_settings(); offset_integration();
     puts("physical FT8: absolute timing, exact CAT, station identity, completion, failure cleanup, RX recovery and RT logging PASS");

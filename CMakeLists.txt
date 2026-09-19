@@ -768,3 +768,10 @@ target_compile_options(shell_alias_unit PRIVATE -Wall -Wextra -Werror -Wpedantic
 add_test(NAME shell_alias_unit COMMAND shell_alias_unit)
 add_test(NAME linux_aliases COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/linux_aliases.py
     $<TARGET_FILE:minishell> $<TARGET_FILE_DIR:hello>)
+
+add_executable(ft8_rx_result_builder_unit tests/rx_result_builder_rx5_test.c
+    apps/ft8/src/rx_result_builder/rx_result_builder.c)
+target_include_directories(ft8_rx_result_builder_unit PRIVATE apps/ft8/src/rx_result_builder)
+target_link_libraries(ft8_rx_result_builder_unit PRIVATE ft8_protocol_core)
+target_compile_options(ft8_rx_result_builder_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME ft8_rx_result_builder_unit COMMAND ft8_rx_result_builder_unit)
