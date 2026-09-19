@@ -1,6 +1,6 @@
 # T027 — Non-standard / hashed FT8 TX support
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -625,7 +625,96 @@ exact SHA is returned in the handoff. No PR or Actions wait.
 
 ## Supervisor review
 
-Review the exact task-head .. implementation diff, not only these notes.
+PASS on implementation commit `8ee2d32144af4aa167138dd71d8cf1151e6646e6`.
+
+Reviewed the exact single implementation commit from task head
+`78a4eb5df09f8ab49c910b412334dc5ee1a87f07`. No blocking finding.
+
+Accepted protocol behavior:
+
+```text
+directed W1AW/9 QSO:
+    AutoSeq full call W1AW/9
+      -> STANDARD type 1/2 family
+      -> V2-compatible 22-bit hash in c28
+      -> grid/report/RR73/73 field remains available
+
+plain CQ from non-standard local call:
+    CQ W1AW/9
+      -> NONSTD_CALL / i3=4
+      -> full 58-bit W1AW/9
+      -> no grid on air
+```
+
+The production diff is appropriately bounded:
+
+- `ft8_message_codec.c` adds V2-compatible deterministic c28 hash fallback and
+  typed i3=4 packing; no persistent TX hash state is introduced.
+- Standard `/P` and `/R` handling remains ahead of hash fallback and existing
+  standard vectors remain unchanged.
+- The type-4 CQ decoder no longer treats its unused n12 bits as an unresolved
+  destination hash. This is accepted as a necessary factual decoder correction:
+  the CQ source is fully carried in n58 and n12 has no station identity to resolve.
+- `tx_encoder.c` converts only plain non-standard CQ to type 4. Modified
+  SOTA/POTA/QRP/FD CQ returns UNSUPPORTED rather than silently losing semantics.
+- Hash-bearing STANDARD/ARRL-FD self-validation remains strict: decode, restore
+  only the known transmitted calls, repack, and require exact payload equality.
+- Directed-plan canonical text preserves the transmitter-known full call
+  (`W1AW/9 AG6AQ CM97`) while RX with an empty store may correctly display
+  `<...>`.
+- No AutoSeq, CAT, scheduler, offset, logging-format, UI, config, MiniShell API,
+  or platform ownership change is present.
+
+Accepted V2 oracle evidence:
+
+```text
+36 exact payload + 79-tone vectors
+original T021 vectors: 25, unchanged
+new T027 vectors:      11
+vector SHA-256:
+de9782c88f12e42ecfddb1206e5cd5e6edbc189aa2e5bacfe84d33adc1db47cb
+```
+
+Required directed cases TX1..TX5, opposite hashed STANDARD field, plain
+non-standard CQ, and typed type-4 NONE/RRR/RR73/73 all match the pinned
+MiniFT8-V2 commit `491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`.
+
+Accepted live-path regression:
+
+```text
+CQ W1AW/9
+ -> production protocol decode
+ -> RxResultBuilder
+ -> SELECT_RX_MESSAGE
+ -> AutoSeq TX1
+ -> Ft8TxPlan = W1AW/9 AG6AQ CM97
+ -> STANDARD payload
+ -> mocked QMX keys
+ -> RT T line keeps full W1AW/9 text
+ -> all 79 absolute symbols complete
+```
+
+The reported pre-fix TX-plan failure is therefore covered at the correct boundary;
+the test does not substitute a pre-classified AutoSeq event.
+
+Accepted local evidence:
+
+```text
+Linux CTest          58/58 PASS
+portable units       15/15 PASS
+focused ASan/UBSan   2/2 PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+The one initial `linux_serial_unit` timeout is non-blocking: isolated retry and
+the subsequent complete suite passed, and T027 does not touch Serial code.
+
+T027 is TESTING. Optional architect hardware confirmation is to select a real
+non-standard station on Linux/QMX and observe actual keying plus a full-call RT
+record. No RF evidence is required to accept the software implementation.
+
 
 ## Architect test result
 
