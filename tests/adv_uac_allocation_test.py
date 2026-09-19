@@ -30,6 +30,7 @@ assert prepare.index("adv_console_begin_usb_host()") < prepare.index("usb_host_i
 
 HARNESS = r'''
 #include <atomic>
+#include <algorithm>
 #include <cassert>
 #include <cstdarg>
 #include <cstdio>
@@ -44,8 +45,12 @@ const char *tag = "adv_uac";
 minishell_services_port_t base = {};
 adv_uac_buffer_t *ring;
 std::atomic<bool> reserved{false}, started{false};
+bool connected = true;
+static int64_t esp_timer_get_time() { return 0; }
+static void vTaskDelay(int) {}
 std::atomic<unsigned> read_errors{0}, transfer_errors{0};
-bool capture_running;
+bool capture_running, serial_reserved, session_ready, session_dirty;
+uint32_t rx_generation;
 #define portENTER_CRITICAL(unused) ((void)0)
 #define portEXIT_CRITICAL(unused) ((void)0)
 constexpr uint32_t MALLOC_CAP_INTERNAL = 1, MALLOC_CAP_8BIT = 2;
@@ -73,7 +78,7 @@ static size_t heap_caps_get_largest_free_block(uint32_t caps)
 { return heap_caps_get_free_size(caps); }
 static void *heap_caps_malloc(size_t bytes, uint32_t caps)
 {
-    assert(!usb_owned && !live_allocation);
+    assert(!live_allocation);
     assert(bytes == sizeof(adv_uac_buffer_t));
     assert(caps == (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     ++allocations;
@@ -85,16 +90,17 @@ static void *heap_caps_malloc(size_t bytes, uint32_t caps)
 }
 static void heap_caps_free(void *pointer)
 {
-    assert(!usb_owned);
-    assert(pointer && pointer == live_allocation);
+    if (!pointer) return;
+    assert(pointer == live_allocation);
     free(pointer);
     live_allocation = nullptr;
     ++frees;
 }
 static bool prepare()
 {
-    assert(ring && ring == live_allocation && !usb_owned);
-    if (expect_zero) {
+    assert(!usb_owned);
+    assert(!ring || ring == live_allocation);
+    if (expect_zero && ring) {
         auto bytes = reinterpret_cast<const unsigned char *>(ring);
         for (size_t i = 0; i < sizeof(*ring); ++i) assert(bytes[i] == 0);
         expect_zero = false;
@@ -157,50 +163,102 @@ int main()
         auto saved = ring;
         unsigned before = allocations;
         assert(rx_start(nullptr, audio) == MINI_OK);
+        // Establish delivery, then race an in-flight packet with pause/resume.
+        uint32_t count = 99;
+        int16_t frames[2];
+        assert(rx_read(nullptr, audio, frames, 1, &count, MINI_WAIT_NONE) == MINI_ERR_DISCONTINUITY);
+        ring->reset_required = false; // Worker acknowledged/reset native queue.
+        auto ticket = adv_uac_begin(ring);
+        const uint8_t native[] = {0, 1, 0, 0, 2, 0};
+        assert(adv_uac_feed(ring, ticket, native, sizeof(native)));
+        assert(ring->head - ring->tail == 1);
         ring->high_water = 42;
         assert(rx_stop(nullptr, audio) == MINI_OK);
         assert(logs.back().find("high-water=42/" + std::to_string(ADV_UAC_RING_FRAMES) + " ") != std::string::npos);
-        assert(ring == saved && !usb_owned && reserved && ring->pending);
+        assert(ring == saved && usb_owned && reserved && ring->pending);
+        assert(rx_read(nullptr, audio, frames, 1, &count, MINI_WAIT_NONE) == MINI_ERR_NOT_READY);
+        assert(count == 0 && ring->head == ring->tail);
         assert(rx_start(nullptr, audio) == MINI_OK);
         assert(ring == saved && ring->high_water == 42 && ring->pending);
         assert(allocations == before);
+        assert(rx_read(nullptr, audio, frames, 1, &count, MINI_WAIT_NONE) == MINI_ERR_DISCONTINUITY);
+        ring->reset_required = false;
+        assert(adv_uac_feed(ring, ticket, native, sizeof(native))); // Old epoch discarded.
+        assert(ring->head == ring->tail);
+        assert(adv_uac_feed(ring, adv_uac_begin(ring), native, sizeof(native)));
+        assert(rx_read(nullptr, audio, frames, 1, &count, MINI_WAIT_NONE) == MINI_OK);
+        assert(count == 1 && frames[0] == 1 && frames[1] == 2);
         assert(rx_close(nullptr, audio) == MINI_OK);
         assert(!ring && !live_allocation && !reserved && !usb_owned);
         assert(rx_close(nullptr, audio) == MINI_ERR_BAD_HANDLE);
     }
+
+    // Serial-first uses no RX allocation; Audio joins the same installation.
+    unsigned before_prepare = prepares;
+    expect_zero = false;
+    assert(acquire_session());
+    serial_reserved = true;
+    assert(!ring && usb_owned && prepares == before_prepare + 1);
+    fail_alloc = true;
+    assert(open_uac(&audio) == MINI_ERR_NO_MEMORY);
+    assert(!ring && serial_reserved && usb_owned);
+    fail_alloc = false;
+    assert(open_uac(&audio) == MINI_OK);
+    assert(prepares == before_prepare + 1);
+    minishell_backend_audio_t duplicate;
+    assert(open_uac(&duplicate) == MINI_ERR_TOO_MANY_OPEN);
+    assert(rx_start(nullptr, audio) == MINI_OK);
+    unsigned before_release = releases;
+    assert(rx_stop(nullptr, audio) == MINI_OK);
+    assert(serial_reserved && usb_owned && releases == before_release);
+    assert(rx_start(nullptr, audio) == MINI_OK);
+    serial_reserved = false;
+    assert(release_unused() && usb_owned && releases == before_release);
+    assert(rx_close(nullptr, audio) == MINI_OK);
+    assert(!usb_owned && releases == before_release + 1);
+
+    // Audio closes first; retain the session but release its ring safely.
+    assert(open_uac(&audio) == MINI_OK);
+    serial_reserved = true;
+    assert(rx_start(nullptr, audio) == MINI_OK);
+    assert(rx_close(nullptr, audio) == MINI_OK);
+    assert(!ring && usb_owned && !reserved);
+    assert(open_uac(&audio) == MINI_OK);
+    assert(rx_close(nullptr, audio) == MINI_OK);
+    serial_reserved = false;
+    assert(release_unused());
+    before_release = releases;
+    assert(release_unused() && releases == before_release);
 
     prepare_ok = false;
     assert(open_uac(&audio) == MINI_ERR_IO);
     assert(!ring && !reserved && !usb_owned && !live_allocation);
     cleanup_ok = false;
     assert(open_uac(&audio) == MINI_ERR_IO);
-    auto retained = ring;
-    assert(retained && reserved && usb_owned);
-    unsigned before_alloc = allocations, before_free = frees, before_prepare = prepares;
+    assert(!ring && !reserved && usb_owned && session_dirty);
+    before_prepare = prepares;
     assert(open_uac(&audio) == MINI_ERR_IO);
-    assert(ring == retained && allocations == before_alloc && frees == before_free);
-    assert(prepares == before_prepare);
+    assert(!ring && prepares == before_prepare);
     cleanup_ok = true;
     prepare_ok = true;
     assert(open_uac(&audio) == MINI_OK);
-    assert(frees == before_free + 1 && allocations == before_alloc + 1);
     assert(rx_start(nullptr, audio) == MINI_OK);
-    retained = ring;
     cleanup_ok = false;
     assert(rx_close(nullptr, audio) == MINI_ERR_IO);
-    assert(ring == retained && reserved && usb_owned);
-    assert(frees == before_free + 1);
+    assert(!ring && !reserved && usb_owned && session_dirty);
+    assert(rx_close(nullptr, audio) == MINI_ERR_BAD_HANDLE);
     cleanup_ok = true;
-    assert(rx_close(nullptr, audio) == MINI_OK);
+    assert(release_unused());
     assert(!ring && !reserved && !usb_owned && !live_allocation);
-    assert(allocations == frees + 1); // Only the injected allocation failure.
+    assert(allocations == frees + 2); // The two injected allocation failures.
     puts("UAC lazy allocation/lifecycle: PASS");
 }
 '''
 
 functions = "\n".join(function(signature) for signature in (
-    "bool allocate_ring()", "void free_ring()", "mini_result_t rx_open(",
-    "mini_result_t rx_start(", "mini_result_t rx_stop(", "mini_result_t rx_close("))
+    "bool allocate_ring()", "void free_ring()", "void loss()",
+    "bool release_unused()", "bool acquire_session()", "mini_result_t rx_open(",
+    "mini_result_t rx_start(", "mini_result_t rx_read(", "mini_result_t rx_stop(", "mini_result_t rx_close("))
 with tempfile.TemporaryDirectory(prefix="t017-ring-allocation-") as directory:
     source = Path(directory) / "lifecycle.cpp"
     binary = Path(directory) / "lifecycle"

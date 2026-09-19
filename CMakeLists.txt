@@ -782,3 +782,10 @@ add_executable(ft8_rx_order_unit tests/ft8_rx_order_test.c
 target_include_directories(ft8_rx_order_unit PRIVATE $<TARGET_PROPERTY:ft8,INCLUDE_DIRECTORIES>)
 target_compile_options(ft8_rx_order_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME ft8_rx_order_unit COMMAND ft8_rx_order_unit)
+
+add_test(NAME adv_ft8_defaults
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_ft8_defaults_test.py
+            ${CMAKE_C_COMPILER})
+add_test(NAME adv_qmx_serial
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_qmx_serial_test.py
+            ${CMAKE_CXX_COMPILER})

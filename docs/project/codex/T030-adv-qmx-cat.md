@@ -1,6 +1,6 @@
 # T030 — ADV QMX CAT + shared UAC/CDC USB session + first ADV QSO
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -765,20 +765,20 @@ After FT8 exit:
 
 ## Acceptance criteria
 
-- [ ] portable `apps/ft8/**` production code is unchanged;
-- [ ] no MiniShell public API change;
-- [ ] no USB Audio OUT / MiniShell Audio TX work is added;
-- [ ] ADV exposes MiniShell Serial WRITE service for `serial:qmx`;
-- [ ] provider uses existing QMX CDC interface 0;
-- [ ] no second USB Host stack is created;
-- [ ] Serial can open before Audio;
-- [ ] UAC and CDC share one ADV QMX USB session;
-- [ ] Audio.stop quiesces UAC only and preserves CDC Serial;
-- [ ] Audio.start resumes UAC without reopening public Serial;
-- [ ] final-owner teardown restores console ownership;
-- [ ] bare ADV `ft8` defaults to both `uac:qmx` and `serial:qmx`;
-- [ ] explicit WAV RX does not silently open QMX CAT;
-- [ ] CAT test mode can run without implicit RX;
+- [x] portable `apps/ft8/**` production code is unchanged;
+- [x] no MiniShell public API change;
+- [x] no USB Audio OUT / MiniShell Audio TX work is added;
+- [x] ADV exposes MiniShell Serial WRITE service for `serial:qmx`;
+- [x] provider uses existing QMX CDC interface 0;
+- [x] no second USB Host stack is created;
+- [x] Serial can open before Audio;
+- [x] UAC and CDC share one ADV QMX USB session;
+- [x] Audio.stop quiesces UAC only and preserves CDC Serial;
+- [x] Audio.start resumes UAC without reopening public Serial;
+- [x] final-owner teardown restores console ownership;
+- [x] bare ADV `ft8` defaults to both `uac:qmx` and `serial:qmx`;
+- [x] explicit WAV RX does not silently open QMX CAT;
+- [x] CAT test mode can run without implicit RX;
 - [ ] receive-safe CAT band synchronization works on real ADV/QMX;
 - [ ] live UAC decode continues with CAT enabled;
 - [ ] physical CAT TX works while UAC is paused;
@@ -789,13 +789,13 @@ After FT8 exit:
 - [ ] repeated FT8 lifecycle is clean;
 - [ ] post-FT8 `usbmsc` still works;
 - [ ] first real ADV/QMX two-way FT8 QSO completed;
-- [ ] no portable MiniFT8 platform dependency added;
-- [ ] Linux regression suite remains green aside from documented serial flake;
-- [ ] portable units pass;
-- [ ] architecture checks pass;
-- [ ] ADV build passes;
-- [ ] `git diff --check` passes;
-- [ ] no unrelated cleanup.
+- [x] no portable MiniFT8 platform dependency added;
+- [x] Linux regression suite remains green aside from documented serial flake;
+- [x] portable units pass;
+- [x] architecture checks pass;
+- [x] ADV build passes;
+- [x] `git diff --check` passes;
+- [x] no unrelated cleanup.
 
 ## Non-goals
 
@@ -870,27 +870,199 @@ Prefer a minimal patch over abstraction work.
 
 ### Implementation summary
 
+Implemented the minimal shared QMX session in the existing ADV UAC provider.
+ADV now publishes Serial WRITE for `serial:qmx` using the existing QMX CDC
+interface 0. Audio pause/resume keeps the USB session and CDC handle alive.
+The ADV wrapper supplies QMX RX/CAT defaults without changing portable MiniFT8.
+No new USB abstraction, component upgrade, UAC OUT, QDX, or speaker change.
+
+Primary hardware reference inspected locally with `git show` at MiniFT8-V2
+`491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`: `main/stream_uac.cpp`,
+`main/stream_uac.h`, `main/radio_control_qmx.cpp`, `main/radio_control.cpp`,
+and `main/main.cpp`. Retained VID/PID 0483:a34c, interface 0, FIFO 91/18/91,
+CDC stack 3072/priority 4, disabled CDC RX, and blocking CDC TX. V2's QMX
+TX path mutes RX presentation without tearing down the UAC session.
+
 ### Files changed
+
+- `platform/adv/adv_audio_uac.cpp`: shared ownership, Serial callbacks,
+  CDC lifetime mutex, logical RX pause/resume and safe ring detachment.
+- `platform/adv/main/ft8_static.c`: ADV RX/CAT defaults and tone-test handling.
+- `tests/adv_uac_allocation_test.py`: execute production ownership/RX callbacks
+  with allocation, cleanup, and stale-sample faults.
+- `tests/adv_qmx_serial_test.py`: execute production Serial/session callbacks
+  with mocked CDC, clock, and semaphore operations; assert worker lock ordering.
+- `tests/adv_ft8_defaults_test.py`: execute the ADV wrapper against a recording
+  entry point, including overrides, malformed options, and argument bounds.
+- `tests/adv_usb_console_boundary.py`: update the old physical-stop assumption
+  to require continued draining of an already-running stream during logical stop.
+- `CMakeLists.txt`: register the two new tests.
+- This task packet: review handoff and evidence.
+
+### Behavior/invariants preserved
+
+`apps/ft8/**`, `include/minishell/api.h`, public service semantics, Linux defaults,
+CAT command ownership, persisted formats, UI, TX scheduling/encoding, and the
+local speaker provider are unchanged. One host and one instance of each class
+driver remain. The pinned UAC 1.3.3 and CDC 2.2.0 dependencies are unchanged.
+No production deviation from the final supervisor scope.
 
 ### Shared USB ownership design
 
+Foreground Audio and Serial ownership are distinct from session readiness and
+incomplete cleanup. Serial may acquire the session without allocating an Audio
+ring; Audio joins it later. Either close order works. Audio close detaches/frees
+its ring under the capture lock; callbacks tolerate a missing ring. A generation
+check prevents an in-flight worker read from feeding a newly allocated ring.
+
+Only final-owner release joins workers, closes devices, uninstalls classes/host,
+and restores the console. Worker completion waits now have five-second bounds;
+failed cleanup retains infrastructure for retry on the next acquisition without
+retaining consumed public handles. Existing class-close/host cleanup retry order
+and console handoff are preserved. No new worker or worker-stack allocation.
+
 ### Serial provider behavior
+
+`serial:qmx` only, WRITE only, no RX parser or protocol commands. Open waits up to
+three seconds for asynchronous CDC readiness after session preparation; absent
+CDC unwinds only an otherwise-unowned session. An existing Audio owner survives
+a failed Serial open. Public single-open enforcement remains resident-owned.
+
+The new session mutex covers worker open/close and foreground blocking TX,
+preventing CDC use-after-close. Disconnect callbacks only flag loss; the worker
+closes/reconnects under that mutex. Writes subtract mutex wait from the finite
+transport budget, report full count on success and zero on error, and never
+consume the public handle or retry an ambiguous transfer.
+
+The pinned driver's millisecond-to-tick multiplication is 32-bit. Large waits
+are capped at `UINT32_MAX / configTICK_RATE_HZ` to avoid overflow; for
+`MINI_WAIT_FOREVER`, mutex acquisition waits indefinitely and a driver watchdog
+expiry reports I/O error instead of retrying potentially transmitted bytes.
+Normal MiniFT8 CAT timeouts are much shorter. Actual USB cancellation/cleanup
+latency remains driver-dependent and requires hardware evidence.
 
 ### Audio stop/start behavior
 
+Audio.stop atomically disables delivery and invalidates/clears the RX ring;
+it does not call session release. An already-streaming UAC device keeps draining,
+with paused samples discarded. Audio.start invalidates in-flight paused reads.
+The existing discontinuity acknowledgment/reset path flushes native queued data
+before fresh samples can reach MiniFT8; it may restart the UAC stream during that
+reset, without touching CDC or USB Host. First Audio open also requests a fresh
+boundary, including when joining a session retained by Serial.
+
+H3's wording about a stopped UAC stream should be interpreted as **logical RX
+stopped**, consistent with the final scope and preferred V2 drain/discard policy.
+The hardware capture stream can stay active throughout the TX slot.
+
 ### Composition/default behavior
+
+Bare `ft8` adds `--rx uac:qmx --cat serial:qmx`. Explicit CAT remains intact.
+Explicit `uac:qmx` RX receives the CAT default; WAV/non-QMX RX does not.
+CAT tone-test options suppress implicit RX and receive the CAT default when no
+explicit CAT or RX was given. Malformed explicit options remain for the portable
+parser to reject. No Linux packaging changes.
 
 ### Failing-before / passing-after evidence
 
+The new wrapper regression run against the saved task-head `ft8_static.c`
+failed its recorded argument-count assertion on bare `ft8` (missing CAT default).
+The same test passes against the implementation.
+
+Before: ADV configured no Serial callbacks and Audio.stop called `release()`.
+After: executable mock tests prove Serial-first acquisition, same-session Audio
+join, both close orders, audio-only operation, pause/resume without host release,
+failed allocation while Serial remains active, idempotent final release, cleanup
+failure/retry, invalid endpoints, absent CDC, count/error semantics, finite lock
+budget, disconnect/reconnect, and post-error handle reuse. RX tests verify
+stopped reads yield NOT_READY, resume yields discontinuity, old-epoch samples
+are rejected, and fresh samples become readable after reset acknowledgment.
+
+The previous allocation test expected stop to uninstall USB and failed close to
+retain the Audio ring/public reservation. Those assumptions are intentionally
+updated for shared ownership and consumed-on-close handles; fault coverage is
+retained and expanded. Mock transport success is not hardware proof.
+
 ### Memory/size evidence
+
+Built task head `c20268b` and the implementation with the same local ESP-IDF 5.5
+toolchain/configuration. `idf.py -C platform/adv size`:
+
+| Metric | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| DIRAM .data | 19,304 B | 19,304 B | 0 B |
+| DIRAM .bss | 16,864 B | 16,880 B | +16 B |
+| Flash code | 542,810 B | 544,690 B | +1,880 B |
+| Flash data | 156,476 B | 156,524 B | +48 B |
+| Total image | 772,249 B | 774,177 B | +1,928 B |
+
+One session-lifetime mutex is the additional runtime allocation. Existing ring
+capacity, static capture stack, dynamic worker stacks, and class buffers remain
+unchanged. Serial-only startup needs no canonical Audio ring.
+
+Shell-ready and FT8-live free heap/largest block **not measured locally**: no
+Cardputer/QMX hardware run was performed. Record matched before/after hardware
+measurements in H1/H2/H7; firmware section sizes are not a substitute.
 
 ### Local tests run
 
+```bash
+git status --short
+# Clean at task start; final changes limited to the eight files listed above.
+
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 61/61, including linux_serial_unit; no flake retry needed.
+
+cmake -S tests/unit -B /tmp/T030-build-unit
+cmake --build /tmp/T030-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T030-build-unit --output-on-failure
+# PASS 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+idf.py -C platform/adv size
+# PASS baseline and implementation. Initial sandbox build could not access
+# component registry; authorized network-enabled baseline build succeeded.
+
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux \
+  -R 'adv_uac_allocation|adv_qmx_serial' --output-on-failure
+# PASS 2/2 after adding explicit stale-sample/allocation-fault coverage.
+
+git diff --check
+# PASS.
+```
+
 ### Hardware validation still required
+
+All H1–H7 remain pending supervisor review: shell/live heap measurements,
+receive-safe band synchronization with concurrent live decoding, logical RX
+pause with CDC survival, controlled tone test, absolute 79-symbol TX/RX recovery,
+first two-way ADV QSO/RT trace, repeated lifecycle/unplug behavior, restored
+console and post-FT8 `usbmsc`. No RF validation or flash operation was performed.
 
 ### Known limitations / risks
 
+Host mock tests do not emulate ESP-IDF scheduling, real USB disconnects, endpoint
+cancellation, QMX command acceptance, or RF timing. Hardware validation remains
+the completion gate. A driver cleanup failure can retain the USB lease until
+retry; the console is never restored over a still-installed host/class driver.
+CDC readiness wait is three seconds, so a radio attached later requires another
+open if no Audio owner keeps discovery alive. No general device discovery or CAT
+response parser is added. See Serial watchdog detail above.
+
 ### Commit
+
+One implementation commit on `codex/T030-adv-qmx-cat`, based on task head
+`c20268b`. The commit containing these notes is the implementation reference;
+its exact SHA is returned in the Codex handoff. No PR or GitHub Actions wait.
 
 ## Supervisor review
 
