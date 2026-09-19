@@ -429,6 +429,29 @@ Equal-SNR entries preserve original decode order. Manual selection maps the
 displayed row back to the original factual RxMessage. Live validation passed.
 Color coding remains deferred.
 
+## RX display lifetime
+
+T029 separates decoded-message display lifetime from RX transport state.
+
+```text
+completed RX batch
+    -> display sorted rows
+
+following TX slot
+    -> keep previous RX rows visible during TX
+    -> TX completion / RX resume clears them
+
+ordinary RX audio/framer reset
+    -> keep current displayed rows
+
+next completed RX batch
+    -> replace current display
+    -> empty batch clears display
+```
+
+This avoids losing useful context at TX start while also avoiding stale prior-slot
+messages after a TX slot has completed. Live Linux/QMX validation passed.
+
 ## Current follow-up boundaries
 
 The Linux/QMX physical-TX boundary is complete:
