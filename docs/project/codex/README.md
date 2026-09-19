@@ -6,17 +6,16 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-```text
-T026-rr73-signoff.md             COMPLETE
-```
+None.
 
 Recently completed:
 
 ```text
 T025-shell-aliases.md            COMPLETE
+T026-rr73-signoff.md             COMPLETE — temporary compatibility workaround
 ```
 
-Recently completed:
+Earlier consolidated MiniFT8 tasks:
 
 ```text
 T022-linux-qmx-first-qso.md      COMPLETE
@@ -24,9 +23,14 @@ T023-cq-beacon-ui.md             COMPLETE
 T024-offset-source-random.md     COMPLETE
 ```
 
-T026 is READY: fix the live responder-path bug where a decoded addressed RR73 leaves MiniFT8 retransmitting TX3/R+report instead of advancing to TX5/73. The pure AutoSeq table already has the correct transition, so T026 must reproduce the failure through RxResultBuilder/AppController before changing production logic.
+Current baseline is on `main`. T025 provides resident aliases from
+`/flash/minishell/alias.txt`. T026 is explicitly accepted as a temporary
+pinned-V2 keyword-before-grid workaround for exact `RR73`; permanent
+RR73-vs-locator disambiguation is deferred.
 
-Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
+Workflow remains: one temporary task branch -> local build/tests -> supervisor
+diff review -> real-system validation when required -> fast-forward `main` ->
+delete the temporary branch.
 
 ## Rule
 
