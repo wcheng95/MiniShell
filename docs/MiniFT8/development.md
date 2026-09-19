@@ -47,6 +47,7 @@ WinBook/TW700 QMX CAT/TX            PASS — requires user membership in dialout
 first real two-way QSO               COMPLETE — Linux/QMX, 2026-09-18 UTC
 T026 RR73 responder compatibility    COMPLETE — temporary V2 keyword-before-grid rule
 T027 non-standard/hash TX             COMPLETE — V2-compatible hashed QSO + type-4 CQ
+T028 RX display/selection ordering     COMPLETE — live validated
 ```
 
 Working live Linux/QMX command:
@@ -167,6 +168,7 @@ T023        COMPLETE — CQ/CQ POTA + beacon OFF/EVEN/ODD
 T024        COMPLETE — Random/Fixed/RX TX-offset source
 T026        COMPLETE — temporary GRID-coded RR73 -> TX4 compatibility fix
 T027        COMPLETE — V2-compatible non-standard/hash TX + type-4 plain CQ
+T028        COMPLETE — reply-to-me/CQ/regular RX order + descending SNR
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -417,6 +419,23 @@ R [YYYYMMDD HHMMSS][freq_MHz] <text> <snr_db> <offset_hz>
 using daily `RT[YYMMDD].txt` storage. The generated RT trace becomes part of the
 T022 hardware acceptance evidence.
 
+## RX display ordering
+
+T028 makes RX ordering an app_controller-owned presentation/selection policy
+without reordering the factual RxBatch.
+
+```text
+reply-to-me   strongest -> weakest
+CQ            strongest -> weakest
+regular       strongest -> weakest
+```
+
+Equal-SNR entries retain original decode order. UiModel uses the controller's
+display-index map, and manual selection maps back to the original factual
+RxMessage. Automatic addressed-message processing and RT logging continue in
+raw batch order. Live Linux/QMX validation passed. Color coding remains
+deferred.
+
 ## UI contract
 
 ADV remains the canonical compact presentation:
@@ -488,7 +507,7 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 ## Deferred follow-up boundaries
 
 The first complete Linux/QMX QSO and the physical transmitter lifecycle are done.
-T027 non-standard/hash TX is also complete. No new task is active.
+T027 non-standard/hash TX and T028 RX display ordering are complete. No new task is active.
 
 Deferred items:
 
