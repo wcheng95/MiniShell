@@ -185,6 +185,11 @@ how many 160-ms waterfall blocks remain before logical block -10 would be
 overwritten by the circular ring. A zero or negative margin means the decode
 job outlived the full timing-search retention guarantee.
 
+Every live UAC discontinuity now also reports the ring high-water mark,
+overflow/loss counters, and USB read/transfer-error counters before the stream
+restart. This distinguishes consumer starvation from a transport failure at the
+point where a receive slot can be lost.
+
 ## Files changed
 
 Production:

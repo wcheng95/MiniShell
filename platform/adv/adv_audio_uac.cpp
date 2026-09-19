@@ -486,11 +486,29 @@ mini_result_t rx_read(void *ctx, minishell_backend_audio_t audio, void *frames,
     if (!frames) return MINI_ERR_INVALID;
     int64_t deadline = esp_timer_get_time() + (int64_t)timeout * 1000;
     for (;;) {
+        uint32_t high_water = 0, overflows = 0, losses = 0;
         portENTER_CRITICAL(&lock);
         bool discontinuity = adv_uac_ack(ring);
-        uint32_t count = discontinuity ? 0 : adv_uac_take(ring, (int16_t *)frames, std::min<uint32_t>(capacity, 256u));
+        if (discontinuity) {
+            high_water = ring->high_water;
+            overflows = ring->overflows;
+            losses = ring->losses;
+        }
+        uint32_t count = discontinuity ? 0 : adv_uac_take(
+            ring, (int16_t *)frames, std::min<uint32_t>(capacity, 256u));
         portEXIT_CRITICAL(&lock);
-        if (discontinuity) return MINI_ERR_DISCONTINUITY;
+        if (discontinuity) {
+            ESP_LOGW(tag,
+                     "RX discontinuity high-water=%lu/%lu overflow=%lu losses=%lu "
+                     "read-errors=%u transfer-errors=%u",
+                     (unsigned long)high_water,
+                     (unsigned long)ADV_UAC_RING_FRAMES,
+                     (unsigned long)overflows,
+                     (unsigned long)losses,
+                     read_errors.load(),
+                     transfer_errors.load());
+            return MINI_ERR_DISCONTINUITY;
+        }
         if (count) { *out = count; return MINI_OK; }
         if (!connected) return MINI_ERR_NOT_READY;
         if (timeout == MINI_WAIT_NONE || (timeout != MINI_WAIT_FOREVER && esp_timer_get_time() >= deadline)) return MINI_ERR_TIMEOUT;
