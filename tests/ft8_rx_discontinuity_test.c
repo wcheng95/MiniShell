@@ -69,10 +69,15 @@ int main(void)
     assert(rx->frontend.decimation_phase == 1 && rx->framer.block_fill == 129);
     assert(rx->engine.window_active);
     rx->batch.messages = rx->rx_messages;
-    rx->batch.message_count = 1;
+    rx->batch.message_count = 2;
+    strcpy(rx->rx_messages[0].canonical_text, "weak");
+    strcpy(rx->rx_messages[1].canonical_text, "strong");
+    rx->rx_messages[0].snr_db = -10;
+    rx->rx_messages[1].snr_db = 2;
     rx->batch_generation = 6;
     rx_complete_batch(rx);
-    assert(rx->display_count == 1 && rx->display_generation == 7);
+    assert(rx->display_count == 2 && rx->display_generation == 7);
+    UiModel before, after; app_controller_build_model(&app, &before);
     rx->selected_rx_valid = true;
     RxBatch historical = rx->batch;
     assert(ft8_hash_store_save(&rx->engine.hash_store, "AG6AQ", 12345) == FT8_HASH_STORE_OK);
@@ -80,10 +85,12 @@ int main(void)
     rx->engine.monitor.history[0] = 0.5f;
     read_result = MINI_ERR_DISCONTINUITY;
     assert(app_controller_step_rx(&app, &changed));
-    assert(changed && rx->active && rx->timing_pending && rx->framer_initialized);
-    assert(rx->display_count == 0 && !rx->selected_rx_valid);
+    assert(!changed && rx->active && rx->timing_pending && rx->framer_initialized);
+    assert(rx->display_count == 2 && rx->selected_rx_valid);
+    app_controller_build_model(&app, &after);
+    assert(after.rx_count == 2 && memcmp(before.rx_lines, after.rx_lines, sizeof(before.rx_lines)) == 0);
     AppAction select = {.type = APP_ACTION_SELECT_RX_MESSAGE, .value.index = 0};
-    assert(!app_controller_apply_action(&app, &select));
+    assert(app_controller_apply_action(&app, &select) && rx->selected_rx_index == 1);
     assert(rx->frontend.decimation_phase == 0);
     assert(app_controller_step_rx(&app, &changed)); /* repeated gap before data */
     assert(!changed);
@@ -96,6 +103,9 @@ int main(void)
     assert(memcmp(&hashes, &rx->engine.hash_store, sizeof(hashes)) == 0);
     assert(rx->have_batch && rx->batch_generation == 7);
     assert(memcmp(&historical, &rx->batch, sizeof(historical)) == 0);
+    app_controller_build_model(&app, &after);
+    assert(after.rx_count == 2 && memcmp(before.rx_lines, after.rx_lines, sizeof(before.rx_lines)) == 0);
+    assert(rx->display_generation == 7 && app_controller_apply_action(&app, &select));
     assert(opens == 1 && starts == 1 && stops == 0 && closes == 0);
     unsigned steps = 0;
     while (rx->batch_generation == 7) {
@@ -106,6 +116,8 @@ int main(void)
     assert(rx->framer.slot_id == 101 && rx->framer.decode_emitted);
     assert(rx->batch_generation == 8); /* first subsequent complete window decoded */
     assert(rx->display_generation == 8 && rx->display_count == rx->batch.message_count);
+    assert(rx->display_count == 0 && !rx->selected_rx_valid); /* completed silent window */
+    app_controller_build_model(&app, &after); assert(after.rx_count == 0);
     read_result = MINI_ERR_DISCONTINUITY;
     assert(app_controller_step_rx(&app, &changed));
     read_result = MINI_OK;

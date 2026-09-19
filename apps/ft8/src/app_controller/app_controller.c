@@ -360,7 +360,6 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
     }
 
     case RX_SLOT_FRAMER_EVENT_STREAM_RESET:
-        rx_invalidate_order(rx);
         return ft8_engine_reset_stream(&rx->engine) == FT8_ENGINE_OK ? 0 : -1;
     }
 
@@ -558,8 +557,6 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
     audio_status = rx_audio_adapter_read(&rx->audio, rx->transport_frames,
                                          RX_TRANSPORT_FRAMES, &got, 20u);
     if (audio_status == RX_AUDIO_ADAPTER_DISCONTINUITY) {
-        *out_model_changed = rx->display_count != 0;
-        rx_invalidate_order(rx);
         rx_frontend_reset_stream(&rx->frontend);
         rx->timing_pending = true;
         return true;
@@ -850,7 +847,6 @@ bool app_controller_pause_rx_for_tx(AppController *app)
     if (rx_audio_adapter_stop(&app->rx->audio) != RX_AUDIO_ADAPTER_OK) return false;
     app->tx.rx_paused = true;
     app->rx->active = false;
-    rx_invalidate_order(app->rx);
     rx_frontend_reset_stream(&app->rx->frontend);
     app->rx->timing_pending = true;
     return true;

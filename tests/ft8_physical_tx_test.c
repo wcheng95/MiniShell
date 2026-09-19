@@ -816,18 +816,74 @@ static void rx_display_order(void)
     }
     select.value.index=49; assert(app_controller_apply_action(&app,&select));
     assert(app.rx->selected_rx_index==0);
+    UiModel preserved=model;
+    uint64_t generation=app.rx->batch_generation;
     RxSlotFramerEvent reset_event={.type=RX_SLOT_FRAMER_EVENT_STREAM_RESET};
     assert(rx_emit_event(app.rx,&reset_event)==0);
     app_controller_build_model(&app,&model);
-    assert(model.rx_count==0 && !app.rx->selected_rx_valid);
-    assert(!app_controller_apply_action(&app,&select));
+    assert(model.rx_count==50 && app.rx->selected_rx_valid);
+    assert(memcmp(model.rx_lines,preserved.rx_lines,sizeof(model.rx_lines))==0);
+    assert(app_controller_apply_action(&app,&select) && app.rx->selected_rx_index==0);
+    assert(app.rx->batch_generation==generation && app.rx->display_generation==generation);
+    /* A real replacement changes both order and selection lifetime exactly once. */
+    app.rx->rx_messages[0]=original[3]; app.rx->rx_messages[1]=original[1];
+    app.rx->batch.message_count=2; rx_complete_batch(app.rx);
+    app_controller_build_model(&app,&model);
+    assert(model.rx_count==2 && strcmp(model.rx_lines[0],original[3].canonical_text)==0);
+    assert(app.rx->display_order[0]==0 && app.rx->display_order[1]==1);
+    assert(app.rx->batch_generation==generation+1 && !app.rx->selected_rx_valid);
+    app_controller_build_model(&app,&model); assert(app.rx->batch_generation==generation+1);
     app.rx->batch.message_count=0; rx_complete_batch(app.rx);
     app_controller_build_model(&app,&model); assert(model.rx_count==0);
     cleanup(&app);
 }
 
+static void rx_display_tx_lifetime(void)
+{
+    AppController app; setup(&app,true);
+    for (size_t i=0;i<2;++i) {
+        RxMessage *message=&app.rx->rx_messages[i];
+        memset(message,0,sizeof(*message));
+        message->is_cq=true; message->snr_db=i ? 2 : -10;
+        strcpy(message->canonical_text,i ? "CQ W1BBB FN42" : "CQ W1AAA FN42");
+    }
+    app.rx->batch.messages=app.rx->rx_messages; app.rx->batch.message_count=2;
+    rx_complete_batch(app.rx);
+    UiModel before, during, after; app_controller_build_model(&app,&before);
+    assert(before.rx_count==2 && strcmp(before.rx_lines[0],"CQ W1BBB FN42")==0);
+    AppAction select={.type=APP_ACTION_SELECT_RX_MESSAGE,.value.index=0};
+    assert(app_controller_apply_action(&app,&select));
+    assert(app.rx->selected_rx_valid && app.rx->selected_rx_index==1);
+    RxMessage original[2]; memcpy(original,app.rx->rx_messages,sizeof(original));
+    uint64_t generation=app.rx->batch_generation;
+    bool changed; assert(app_controller_step_tx(&app,&changed) && app.tx.active);
+    app_controller_build_model(&app,&during);
+    printf("RX lifetime: before=%zu during TX=%zu\n",before.rx_count,during.rx_count); fflush(stdout);
+    assert(during.rx_count==before.rx_count);
+    AutoSeq frozen=app.auto_seq;
+    select.value.index=1; assert(app_controller_apply_action(&app,&select));
+    assert(memcmp(&frozen,&app.auto_seq,sizeof(frozen))==0 && app.rx->selected_rx_index==1);
+    uint64_t start=now_us;
+    for (unsigned i=0;i<79;++i) {
+        now_us=start+i*160000u; assert(app_controller_step_tx(&app,&changed) && app.tx.active);
+        app_controller_build_model(&app,&during);
+        assert(during.rx_count==2 && memcmp(before.rx_lines,during.rx_lines,sizeof(before.rx_lines))==0);
+        assert(app.rx->display_count==2 && app.rx->display_generation==generation);
+        assert(app.rx->batch_generation==generation && app.rx->selected_rx_valid);
+    }
+    now_us=start+79*160000u;
+    assert(app_controller_step_tx(&app,&changed) && !app.tx.active && app.tx.physical_tx_count==1);
+    app_controller_build_model(&app,&after);
+    assert(after.rx_count==0 && app.rx->display_count==0 && !app.rx->selected_rx_valid);
+    assert(app.rx->active && app.rx->batch_generation==generation && app.rx->batch.message_count==2);
+    assert(memcmp(original,app.rx->rx_messages,sizeof(original))==0);
+    assert(!app_controller_apply_action(&app,&select));
+    cleanup(&app);
+}
+
 int main(void)
 {
+    rx_display_tx_lifetime();
     rx_display_order();
     nonstandard_cq_reply();
     responder_rr73(false,FT8_PROTOCOL_FIELD_TOKEN);
