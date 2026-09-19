@@ -117,6 +117,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_wav.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_speaker.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_audio_uac.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_ft8_decode.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_digital_io.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_usbmsc.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_elf_loader.c"

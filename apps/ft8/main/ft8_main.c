@@ -25,6 +25,11 @@
 #define FT8_DEFAULT_RX_ENDPOINT NULL
 #endif
 
+#ifndef FT8_PLATFORM_DECODE_WORKER_START
+#define FT8_PLATFORM_DECODE_WORKER_START(app_) (true)
+#define FT8_PLATFORM_DECODE_WORKER_STOP(app_) ((void)(app_))
+#endif
+
 typedef struct {
     ft8_presentation_profile_t presentation;
     const char *rx_endpoint;
@@ -125,6 +130,7 @@ int main(int argc, char **argv)
     UiModel model;
     UiFrame rendered_frame;
     bool adapter_initialized = false;
+    bool decode_worker_started = false;
     bool have_rendered_frame = false;
     bool running = true;
     int result = 0;
@@ -187,6 +193,12 @@ int main(int argc, char **argv)
             result = 8;
             goto cleanup;
         }
+        if (!FT8_PLATFORM_DECODE_WORKER_START(app)) {
+            say_system(api, "ft8: failed to start decode worker\n");
+            result = 14;
+            goto cleanup;
+        }
+        decode_worker_started = true;
     }
 
     ui_shell_init(&ui, options.presentation);
@@ -265,6 +277,7 @@ int main(int argc, char **argv)
     }
 
 cleanup:
+    if (decode_worker_started) FT8_PLATFORM_DECODE_WORKER_STOP(app);
     if (adapter_initialized) ft8_ui_adapter_shutdown(&adapter);
     app_controller_destroy(app);
     if (result != 0) say_system(api, "ft8: application error\n");

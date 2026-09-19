@@ -63,6 +63,7 @@ typedef struct {
     Ft8EngineConfig config;
     Ft8Monitor monitor;
     Ft8HashStore hash_store;
+    uint32_t pending_hash_ages;
 
     /* One decode job at a time, with bounded search work before LDPC. */
     int decode_active;
@@ -121,6 +122,9 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
                                        Ft8ProtocolSlot *out_slot);
 
 int ft8_engine_decode_active(const Ft8Engine *engine);
+
+/* Cancel the worker-owned decode job without touching monitor continuity. */
+Ft8EngineStatus ft8_engine_cancel_decode(Ft8Engine *engine);
 
 /*
  * Compatibility synchronous decode for tools/tests. It performs the candidate

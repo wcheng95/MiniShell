@@ -35,6 +35,15 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
 bool app_controller_step_rx(AppController *app, bool *out_model_changed);
 bool app_controller_rx_active(const AppController *app);
 
+/*
+ * Optional external decode executor. Portable/Linux builds leave this disabled
+ * and app_controller_step_rx() services decode inline. ADV enables it and calls
+ * decode_worker_step() from its core-1 worker.
+ */
+bool app_controller_enable_decode_worker(AppController *app, bool enabled);
+bool app_controller_decode_worker_step(AppController *app, bool *out_did_work);
+void app_controller_decode_worker_abort(AppController *app);
+
 /* Public TX progression stays behind the controller facade. TxLifecycle is a
  * private eligibility helper and must not become a dependency of ft8_main. */
 bool app_controller_step_tx(AppController *app, bool *out_model_changed);

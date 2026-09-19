@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <stddef.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,6 +19,16 @@
 #define RX_TRANSPORT_FRAMES 257u
 #define RX_FRONTEND_OUT_CAPACITY ((RX_TRANSPORT_FRAMES + 1u) / 2u)
 #define RX_READY_DRAIN_LIMIT 8u
+
+typedef enum {
+    RX_DECODE_ASYNC_IDLE = 0,
+    RX_DECODE_ASYNC_RUNNING,
+    RX_DECODE_ASYNC_RESULT,
+    RX_DECODE_ASYNC_CANCEL_REQUESTED,
+    RX_DECODE_ASYNC_CANCELED,
+    RX_DECODE_ASYNC_ERROR
+} RxDecodeAsyncState;
+
 
 /* Application composition may select a smaller monitor workspace. The engine's
  * portable baseline and time oversampling remain unchanged. */
@@ -69,11 +80,46 @@ struct AppRxState {
     uint64_t rt_log_failures;
     uint64_t batch_generation;
 
+    bool decode_external;
+    atomic_int decode_async_state;
+    Ft8ProtocolSlot decode_completed_slot;
+
     /* UI selection is an index into the retained batch, never a retained pointer. */
     bool selected_rx_valid;
     size_t selected_rx_index;
     uint64_t selected_rx_generation;
 };
+
+static RxDecodeAsyncState rx_decode_state(AppRxState *rx)
+{
+    return (RxDecodeAsyncState)atomic_load_explicit(
+        &rx->decode_async_state, memory_order_acquire);
+}
+
+static void rx_request_decode_cancel(AppRxState *rx)
+{
+    int expected;
+
+    if (rx == NULL || !rx->decode_external)
+        return;
+
+    expected = RX_DECODE_ASYNC_RUNNING;
+    (void)atomic_compare_exchange_strong_explicit(
+        &rx->decode_async_state, &expected, RX_DECODE_ASYNC_CANCEL_REQUESTED,
+        memory_order_acq_rel, memory_order_acquire);
+}
+
+static int rx_decode_blocks_stream_reset(AppRxState *rx)
+{
+    RxDecodeAsyncState state;
+
+    if (rx == NULL || !rx->decode_external)
+        return 0;
+
+    state = rx_decode_state(rx);
+    return state == RX_DECODE_ASYNC_RUNNING ||
+           state == RX_DECODE_ASYNC_CANCEL_REQUESTED;
+}
 
 static void rx_invalidate_order(AppRxState *rx)
 {
@@ -346,14 +392,25 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
         return ft8_engine_process_block(&rx->engine, event->samples) == FT8_ENGINE_OK ? 0 : -1;
 
     case RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW:
+        if (rx->decode_external &&
+            rx_decode_state(rx) != RX_DECODE_ASYNC_IDLE) {
+            /* One worker job/result at a time. A slow previous slot costs
+             * decode yield, never capture continuity. */
+            return 0;
+        }
         status = ft8_engine_start_decode(&rx->engine,
                                          rx->protocol_messages,
                                          FT8_ENGINE_JOB_CANDIDATE_CAPACITY);
-        /* One decode job at a time. A slow previous slot costs decode yield,
-         * never capture continuity. */
+        if (status == FT8_ENGINE_OK && rx->decode_external) {
+            atomic_store_explicit(&rx->decode_async_state,
+                                  RX_DECODE_ASYNC_RUNNING,
+                                  memory_order_release);
+        }
         return (status == FT8_ENGINE_OK || status == FT8_ENGINE_BUSY) ? 0 : -1;
 
     case RX_SLOT_FRAMER_EVENT_STREAM_RESET:
+        if (rx_decode_blocks_stream_reset(rx))
+            return -1;
         return ft8_engine_reset_stream(&rx->engine) == FT8_ENGINE_OK ? 0 : -1;
     }
 
@@ -389,6 +446,45 @@ static bool app_process_addressed_batch(AppController *app)
     app->rx->applied_slot = app->rx->batch.slot_id;
     if (log_failed && app->api->system && app->api->system->write)
         app->api->system->write("ft8: RX RT log failed; receive processing continues\n");
+    return true;
+}
+
+static bool app_publish_external_decode(AppController *app)
+{
+    AppRxState *rx;
+    RxDecodeAsyncState state;
+    RxResultStatus result_status;
+
+    if (app == NULL || app->rx == NULL)
+        return true;
+    rx = app->rx;
+    if (!rx->decode_external)
+        return true;
+
+    state = rx_decode_state(rx);
+    if (state == RX_DECODE_ASYNC_ERROR)
+        return false;
+    if (state == RX_DECODE_ASYNC_CANCELED) {
+        atomic_store_explicit(&rx->decode_async_state,
+                              RX_DECODE_ASYNC_IDLE,
+                              memory_order_release);
+        return true;
+    }
+    if (state != RX_DECODE_ASYNC_RESULT)
+        return true;
+
+    result_status = rx_result_builder_build(&rx->builder,
+                                            &rx->decode_completed_slot,
+                                            rx->rx_messages,
+                                            FT8_ENGINE_JOB_CANDIDATE_CAPACITY,
+                                            &rx->batch);
+    if (result_status != RX_RESULT_OK)
+        return false;
+
+    rx_complete_batch(rx);
+    atomic_store_explicit(&rx->decode_async_state,
+                          RX_DECODE_ASYNC_IDLE,
+                          memory_order_release);
     return true;
 }
 
@@ -432,8 +528,12 @@ static bool app_finish_rx_step(AppController *app,
                                uint64_t generation_before,
                                bool *out_model_changed)
 {
-    if (!app_service_decode(app))
+    if (app->rx != NULL && app->rx->decode_external) {
+        if (!app_publish_external_decode(app))
+            return false;
+    } else if (!app_service_decode(app)) {
         return false;
+    }
 
     if (app->rx != NULL && app->rx->batch_generation != generation_before) {
         if (!app_process_addressed_batch(app))
@@ -526,6 +626,7 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
         return false;
     }
     memset(rx, 0, sizeof(*rx));
+    atomic_init(&rx->decode_async_state, RX_DECODE_ASYNC_IDLE);
     app->rx = rx;
     rx->live = !config->has_explicit_timing;
 
@@ -595,6 +696,16 @@ static bool app_process_rx_frames(AppController *app, size_t got)
     if (got == 0u)
         return true;
 
+    if (rx->timing_pending && rx_decode_blocks_stream_reset(rx))
+        return true;
+
+    if (rx->decode_external &&
+        rx_decode_state(rx) == RX_DECODE_ASYNC_CANCELED) {
+        atomic_store_explicit(&rx->decode_async_state,
+                              RX_DECODE_ASYNC_IDLE,
+                              memory_order_release);
+    }
+
     if (rx_frontend_process(&rx->frontend, rx->transport_frames, got,
                             rx->frontend_samples, RX_FRONTEND_OUT_CAPACITY,
                             &out_count) != RX_FRONTEND_OK) {
@@ -654,7 +765,8 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
     if (audio_status == RX_AUDIO_ADAPTER_DISCONTINUITY) {
         rx_frontend_reset_stream(&rx->frontend);
         rx->timing_pending = true;
-        return true;
+        rx_request_decode_cancel(rx);
+        return app_finish_rx_step(app, generation_before, out_model_changed);
     }
     if (audio_status == RX_AUDIO_ADAPTER_END_OF_STREAM) {
         if (rx_audio_adapter_close(&rx->audio) != RX_AUDIO_ADAPTER_OK) return false;
@@ -674,11 +786,10 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
     /*
      * I001 capture-before-decode policy.
      *
-     * A live provider may have accumulated audio while one LDPC candidate was
-     * being attempted. Drain immediately available chunks with zero wait before
-     * spending time on the next candidate. The loop is bounded so a permanently
-     * ready source cannot starve LDPC forever; after at most eight immediate
-     * chunks, one candidate may run and the next application step drains again.
+     * A live provider may have accumulated audio while decode or UI work ran.
+     * Drain immediately available chunks with zero wait. Portable inline decode
+     * gets one bounded service unit after this drain; ADV's external decode
+     * worker runs independently on the other core.
      */
     if (rx->live) {
         for (unsigned drain = 0u; drain < RX_READY_DRAIN_LIMIT; ++drain) {
@@ -691,7 +802,8 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
             if (audio_status == RX_AUDIO_ADAPTER_DISCONTINUITY) {
                 rx_frontend_reset_stream(&rx->frontend);
                 rx->timing_pending = true;
-                return true;
+                rx_request_decode_cancel(rx);
+                return app_finish_rx_step(app, generation_before, out_model_changed);
             }
             if (audio_status == RX_AUDIO_ADAPTER_END_OF_STREAM) {
                 if (rx_audio_adapter_close(&rx->audio) != RX_AUDIO_ADAPTER_OK)
@@ -718,6 +830,109 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
 bool app_controller_rx_active(const AppController *app)
 {
     return app != NULL && app->rx != NULL && app->rx->active;
+}
+
+bool app_controller_enable_decode_worker(AppController *app, bool enabled)
+{
+    AppRxState *rx;
+    RxDecodeAsyncState state;
+
+    if (app == NULL || app->rx == NULL)
+        return false;
+    rx = app->rx;
+    state = rx_decode_state(rx);
+
+    if (enabled) {
+        if (rx->decode_external)
+            return true;
+        if (state != RX_DECODE_ASYNC_IDLE ||
+            ft8_engine_decode_active(&rx->engine)) {
+            return false;
+        }
+        rx->decode_external = true;
+        return true;
+    }
+
+    if (!rx->decode_external)
+        return true;
+    if (state != RX_DECODE_ASYNC_IDLE)
+        return false;
+    rx->decode_external = false;
+    return true;
+}
+
+bool app_controller_decode_worker_step(AppController *app, bool *out_did_work)
+{
+    AppRxState *rx;
+    RxDecodeAsyncState state;
+    Ft8ProtocolSlot slot;
+    Ft8EngineStatus status;
+    int completed = 0;
+
+    if (out_did_work == NULL)
+        return false;
+    *out_did_work = false;
+    if (app == NULL || app->rx == NULL || !app->rx->decode_external)
+        return false;
+    rx = app->rx;
+    state = rx_decode_state(rx);
+
+    if (state == RX_DECODE_ASYNC_ERROR)
+        return false;
+
+    if (state == RX_DECODE_ASYNC_CANCEL_REQUESTED) {
+        *out_did_work = true;
+        if (ft8_engine_cancel_decode(&rx->engine) != FT8_ENGINE_OK) {
+            atomic_store_explicit(&rx->decode_async_state,
+                                  RX_DECODE_ASYNC_ERROR,
+                                  memory_order_release);
+            return false;
+        }
+        atomic_store_explicit(&rx->decode_async_state,
+                              RX_DECODE_ASYNC_CANCELED,
+                              memory_order_release);
+        return true;
+    }
+
+    if (state != RX_DECODE_ASYNC_RUNNING)
+        return true;
+
+    *out_did_work = true;
+    status = ft8_engine_decode_step(&rx->engine, &completed, &slot);
+    if (status != FT8_ENGINE_OK && status != FT8_ENGINE_NO_MESSAGES) {
+        atomic_store_explicit(&rx->decode_async_state,
+                              RX_DECODE_ASYNC_ERROR,
+                              memory_order_release);
+        return false;
+    }
+    if (!completed)
+        return true;
+
+    rx->decode_completed_slot = slot;
+    atomic_store_explicit(&rx->decode_async_state,
+                          RX_DECODE_ASYNC_RESULT,
+                          memory_order_release);
+    return true;
+}
+
+void app_controller_decode_worker_abort(AppController *app)
+{
+    AppRxState *rx;
+    RxDecodeAsyncState state;
+
+    if (app == NULL || app->rx == NULL || !app->rx->decode_external)
+        return;
+    rx = app->rx;
+    state = rx_decode_state(rx);
+
+    if (state == RX_DECODE_ASYNC_RUNNING ||
+        state == RX_DECODE_ASYNC_CANCEL_REQUESTED) {
+        (void)ft8_engine_cancel_decode(&rx->engine);
+    }
+    memset(&rx->decode_completed_slot, 0, sizeof(rx->decode_completed_slot));
+    atomic_store_explicit(&rx->decode_async_state,
+                          RX_DECODE_ASYNC_IDLE,
+                          memory_order_release);
 }
 
 static void build_utc_model(const AppController *app, UiModel *model)
@@ -950,6 +1165,7 @@ bool app_controller_pause_rx_for_tx(AppController *app)
     app->rx->active = false;
     rx_frontend_reset_stream(&app->rx->frontend);
     app->rx->timing_pending = true;
+    rx_request_decode_cancel(app->rx);
     return true;
 }
 

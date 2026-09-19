@@ -99,8 +99,8 @@ Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id)
     if (!engine->initialized)
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
 
-    if (engine->slot_anchor_valid)
-        ft8_hash_store_age_slot(&engine->hash_store);
+    if (engine->slot_anchor_valid && engine->pending_hash_ages != UINT32_MAX)
+        ++engine->pending_hash_ages;
 
     engine->slot_id = slot_id;
     engine->slot_anchor_seq = ft8_monitor_next_block_sequence(&engine->monitor);
@@ -301,6 +301,14 @@ static Ft8EngineStatus decode_one_candidate(Ft8Engine *engine,
     return FT8_ENGINE_OK;
 }
 
+static void apply_pending_hash_ages(Ft8Engine *engine)
+{
+    while (engine->pending_hash_ages > 0u) {
+        ft8_hash_store_age_slot(&engine->hash_store);
+        --engine->pending_hash_ages;
+    }
+}
+
 Ft8EngineStatus ft8_engine_start_decode(
     Ft8Engine *engine,
     Ft8ProtocolMessage *message_storage,
@@ -327,6 +335,7 @@ Ft8EngineStatus ft8_engine_start_decode(
                                            engine->config.min_score) != FT8_DECODER_OK)
         return FT8_ENGINE_ERR_INTERNAL;
 
+    apply_pending_hash_ages(engine);
     engine->decode_slot_id = engine->slot_id;
     engine->decode_anchor_seq = engine->slot_anchor_seq;
     engine->decode_search_waterfall = waterfall;
@@ -391,10 +400,7 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
     }
 
     if (engine->decode_next_candidate < engine->decode_candidate_count) {
-        if (ft8_monitor_get_waterfall_at(&engine->monitor,
-                                         engine->decode_anchor_seq,
-                                         &waterfall) != FT8_MONITOR_OK)
-            return FT8_ENGINE_ERR_INTERNAL;
+        waterfall = engine->decode_search_waterfall;
 
         status = decode_one_candidate(engine,
                                       &waterfall,
@@ -421,6 +427,23 @@ int ft8_engine_decode_active(const Ft8Engine *engine)
     return engine != NULL && engine->initialized && engine->decode_active;
 }
 
+Ft8EngineStatus ft8_engine_cancel_decode(Ft8Engine *engine)
+{
+    if (engine == NULL)
+        return FT8_ENGINE_ERR_INVALID;
+    if (!engine->initialized)
+        return FT8_ENGINE_ERR_NOT_INITIALIZED;
+
+    engine->decode_active = 0;
+    engine->decode_search_active = 0;
+    memset(&engine->decode_search, 0, sizeof(engine->decode_search));
+    memset(&engine->decode_search_waterfall, 0, sizeof(engine->decode_search_waterfall));
+    engine->decode_candidate_count = 0u;
+    engine->decode_next_candidate = 0u;
+    memset(&engine->decode_slot, 0, sizeof(engine->decode_slot));
+    return FT8_ENGINE_OK;
+}
+
 Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
                                            Ft8ProtocolMessage *message_storage,
                                            size_t message_capacity,
@@ -438,6 +461,7 @@ Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
     if (!engine->slot_anchor_valid || engine->decode_active)
         return FT8_ENGINE_ERR_STATE;
 
+    apply_pending_hash_ages(engine);
     ft8_protocol_slot_init(out_slot,
                            engine->slot_id,
                            message_storage,

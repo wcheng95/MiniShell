@@ -1,7 +1,11 @@
 /* P2 packages the existing portable MiniFT8 application statically on ADV.
  * Composition selects ADV as the default presentation without teaching the
  * application core about Cardputer or ESP-IDF. */
+#include "../adv_ft8_decode.h"
+
 #define FT8_DEFAULT_PRESENTATION FT8_PRESENTATION_ADV
+#define FT8_PLATFORM_DECODE_WORKER_START(app_) adv_ft8_decode_worker_start(app_)
+#define FT8_PLATFORM_DECODE_WORKER_STOP(app_) adv_ft8_decode_worker_stop(app_)
 #define main adv_ft8_entry
 #include "../../../apps/ft8/main/ft8_main.c"
 

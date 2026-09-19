@@ -38,7 +38,13 @@ or QMX transport fix.
    decode may be skipped. Capture continuity must never wait for LDPC.
 10. Startup has no special partial-slot decode. Audio/waterfall history may fill
     immediately, but decoding starts only after the first valid UTC boundary.
-11. Do not change ADV task core/priority as part of I001.
+11. Initial single-core scheduling was evaluated first. ADV hardware decoded,
+    but decode work still disturbed the adjacent slot. The follow-up experiment
+    therefore keeps the FT8 app/RX path on core 0 and moves only candidate
+    search + LDPC to a priority-1 worker pinned to core 1.
+12. The UAC capture worker remains priority 4 and unpinned, so it can preempt
+    the core-1 decode worker. No UAC priority, FIFO, ring size, or driver-core
+    policy changes are part of this experiment.
 
 ### Removed refinement experiment
 
@@ -108,32 +114,38 @@ a full FT8 slot at freq_osr=2.
 
 ## Decode scheduling
 
+ADV experimental split:
+
 ```text
-UTC boundary
-    -> latch slot anchor
+core 0                                  core 1
+-----------------------------------     ------------------------------
+UAC consumer / frontend                 FT8 decode worker, priority 1
+960-sample framing                      candidate search
+FFT / continuous waterfall              LDPC / CRC / message decode
+UTC slot anchoring
+UI/application loop
 
-anchor + 79 blocks
-    -> latch search waterfall view
-    -> initialize candidate-search cursor
-
-each RX service step
-    -> drain live audio first
-    -> score <= 1024 search positions until top 50 are complete
-    -> then attempt <= 1 LDPC candidate
-
-audio capture / waterfall fill
-    -> never waits for the whole LDPC job
+UAC capture worker: priority 4, unpinned; may preempt decode on core 1.
 ```
+
+At anchor +79 blocks, core 0 snapshots the slot-relative waterfall metadata and
+starts one decode job. Core 1 services the existing incremental candidate search
+and one-candidate LDPC steps. Core 0 remains the only writer of monitor/FFT state.
+
+The worker reads only the fixed +79 waterfall view. It no longer calls
+`ft8_monitor_get_waterfall_at()` while decoding. Callsign-hash aging is deferred
+until the next accepted decode job so a UTC boundary on core 0 does not mutate
+the hash store while core 1 is decoding.
 
 The application services only one bounded decode unit per RX step instead of
 running either candidate search or all LDPC candidates synchronously. During
 search that unit is at most 1,024 score positions; after search it is at most
 one LDPC candidate.
 
-Before every decode service unit, live RX drains up to eight immediately
-available transport chunks with zero wait. On ADV each read is capped at 256
-frames, so eight drains can empty the complete 2,048-frame UAC ring before
-search/LDPC gets CPU time.
+The existing live-RX drain remains on core 0 and can empty up to eight
+immediately available transport chunks per application step. Decode no longer
+depends on those drain opportunities for scheduling because it runs
+independently on core 1.
 
 ## Files changed
 
@@ -185,6 +197,8 @@ ADV/QMX hardware acceptance:
   other slot; this is not an odd/even-specific test;
 - candidate search occurs after 79 anchored blocks;
 - the UI clock no longer freezes for multiple seconds during decode;
+- decoded messages may appear after the following UTC boundary, but the
+  following slot's RX/FFT/clock must remain smooth;
 - record candidate-search and per-candidate/total LDPC timing;
 - record UAC high-water/overflow/discontinuity counters;
 - normal QSO RX/TX behavior remains intact.
