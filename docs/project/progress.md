@@ -13,7 +13,11 @@
 - MiniFT8 live Cardputer ADV/QMX USB-host RX is fully hardware-validated at 240 MHz with the V2-compatible `time_osr=2, freq_osr=1` engine profile: live decode, consecutive slots, initial late attach, repeated FT8 lifecycle, provider continuity, and post-FT8 `usbmsc` all pass.
 - MiniFT8 V2-style ADIF and Field Day Cabrillo logging are implemented through MiniShell APIs.
 - Linux MiniShell Serial/CDC plus MiniFT8-owned receive-safe QMX CAT is hardware-validated on pc-1: mode/VFO/dial-frequency sync works with live RX and no transmit.
-- With ADV RAM/USB-host viability now proven, MiniFT8 completion returns to Linux; the first real MiniFT8-V3 QSO is targeted on Linux/QMX. ADV remains a validated embedded deployment target, not the active TX-development platform.
+- Linux/pc-1 + QMX now has a completed real two-way MiniFT8-V3 QSO. Physical CAT keying, immutable 79-tone plans, RX recovery, RxTxLog, CQ/POTA beacon operation, and V2-compatible Random/Fixed/RX offset selection are accepted production behavior.
+- WinBook/TW700 runs the pc-1-built Linux MiniShell/ft8 binaries with QMX ALSA RX/decode and CDC CAT/TX validated; the login user must have normal `dialout` access.
+- T025 adds resident MiniShell aliases from `/flash/minishell/alias.txt` with first-`=` parsing, one-level expansion, and live reload.
+- T026 temporarily restores V2 keyword-before-grid precedence for exact `RR73`. Because `RR73` is also a valid Maidenhead locator, permanent disambiguation remains a deferred design follow-up.
+- ADV remains a validated embedded RX deployment target. Physical FT8 TX is currently accepted on Linux/QMX; carrying the proven TX boundary to ADV is future work rather than an active task.
 
 ## Current MiniFT8 baseline
 
@@ -49,7 +53,10 @@ app_controller
 AutoSeq      log_service -> MiniShell FS/Time
   |
   v
-TxIntent / simulated TX lifecycle
+TxIntent -> Ft8TxPlan
+  |
+  v
+radio_qmx -> MiniShell Serial/CDC -> QMX CAT TX/RX/TA
 ```
 
 Live FT8 timing follows the pinned MiniFT8-V2 behavior:
@@ -71,7 +78,9 @@ ADV:   M$> ft8
 
 On Linux/pc-1, bare `ft8` composes to the ADV presentation and
 `alsa:hw:2,0`. Explicit `--profile` and `--rx` options remain available for
-desktop presentation, WAV fixtures, or alternate devices.
+desktop presentation, WAV fixtures, or alternate devices. The ALSA card number
+and Linux tty number are host-enumeration details and may change after reboot;
+stable QMX endpoint discovery remains a deferred portability improvement.
 
 The packaged ADV application defaults bare `ft8` to `uac:qmx`. Real hardware now passes USB-host/UAC bring-up and live on-air decode at 240 MHz. The accepted ADV engine profile remains `time_osr=2, freq_osr=1`. A temporary `freq_osr=2` experiment remained alive but reduced free/largest heap to about 58.8/31.0 KiB. Decode time/candidate load were not measured, so the lack of observed messages is inconclusive; its higher RAM/compute cost is deferred to a later performance study. It is not the production baseline.
 
@@ -92,6 +101,9 @@ LOG-1        COMPLETE — daily ADIF + Field Day Cabrillo
 T022         COMPLETE — integrated Linux/QMX physical FT8 TX + RX recovery + RxTxLog
 T023         COMPLETE — CQ/CQ POTA + beacon OFF/EVEN/ODD, hardware validated
 T024         COMPLETE — V2-compatible Random/Fixed/RX TX offset, hardware validated
+T025         COMPLETE — resident MiniShell aliases from /flash/minishell/alias.txt
+T026         COMPLETE — temporary V2-compatible RR73-before-grid responder fix
+First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 ```
 
@@ -122,7 +134,7 @@ Field Day Cabrillo:
 
 AutoSeq owns pure log eligibility/events and per-format ACK state. `app_controller` coordinates TX-start ordering and passes station/QSO facts to `log_service`, which owns ADIF/Cabrillo serialization, date/frequency/path policy and copy-on-write persistence through injected MiniShell Filesystem and Time/Location APIs (T006/T007). Sync/close precede rename as the commit point; the controller ACKs only successful persistence.
 
-V2-compatible `RTYYMMDD.txt` RxTxLog is implemented and hardware validated through T022-T024; `rxtx_log` defaults ON and is configurable in `station.txt`.
+V2-compatible `RTYYMMDD.txt` RxTxLog is implemented and hardware validated through T022-T026; `rxtx_log` defaults ON and is configurable in `station.txt`. It captured the first completed two-way QSO and the responder RR73 regression evidence.
 
 ## Keyer baseline
 
@@ -163,8 +175,9 @@ Real Cardputer ADV hardware validation passed for physical GPIO KeyIn/KeyOut, cl
 ## Configuration ownership
 
 ```text
-/flash/config.txt          MiniShell-owned resident/platform configuration
-/flash/<app>/setting.txt   application-owned configuration/deployment settings
+/flash/config.txt           MiniShell-owned resident/platform configuration
+/flash/minishell/alias.txt  MiniShell resident command aliases
+/flash/<app>/setting.txt    application-owned configuration/deployment settings
 ```
 
 MiniFT8 currently retains its established path:
