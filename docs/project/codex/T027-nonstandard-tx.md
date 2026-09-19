@@ -1,6 +1,6 @@
 # T027 — Non-standard / hashed FT8 TX support
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -393,27 +393,27 @@ Do not add generalized arbitrary message parsing. This task extends the existing
 
 ## Acceptance criteria
 
-- [ ] exact live `W1AW/9` queue -> TX failure reproduced before the fix;
-- [ ] directed non-standard DX calls use V2-compatible 22-bit hash packing in STANDARD messages;
-- [ ] TX1..TX5 for `W1AW/9` all encode;
-- [ ] exact V2 payload/tone vectors match;
-- [ ] plain non-standard CQ uses type-4 and exposes the full non-standard call;
-- [ ] non-standard CQ plan text reflects the actual no-grid type-4 message;
-- [ ] unsupported modified CQ is rejected rather than degraded;
-- [ ] legitimate unresolved self-check hashes no longer invalidate TX;
-- [ ] plan canonical text retains full intended directed callsign;
-- [ ] physical mocked-QMX path keys for the reported `W1AW/9` case;
-- [ ] RT T line contains `W1AW/9 AG6AQ CM97`;
-- [ ] all existing standard vectors remain unchanged;
-- [ ] T026 regressions remain green;
-- [ ] no heap / platform dependency added;
-- [ ] Linux full CTest passes;
-- [ ] portable unit suite passes;
-- [ ] architecture checks pass;
-- [ ] focused sanitizers pass;
-- [ ] real ADV build passes;
-- [ ] `git diff --check` passes;
-- [ ] no unrelated cleanup.
+- [x] exact live `W1AW/9` queue -> TX failure reproduced before the fix;
+- [x] directed non-standard DX calls use V2-compatible 22-bit hash packing in STANDARD messages;
+- [x] TX1..TX5 for `W1AW/9` all encode;
+- [x] exact V2 payload/tone vectors match;
+- [x] plain non-standard CQ uses type-4 and exposes the full non-standard call;
+- [x] non-standard CQ plan text reflects the actual no-grid type-4 message;
+- [x] unsupported modified CQ is rejected rather than degraded;
+- [x] legitimate unresolved self-check hashes no longer invalidate TX;
+- [x] plan canonical text retains full intended directed callsign;
+- [x] physical mocked-QMX path keys for the reported `W1AW/9` case;
+- [x] RT T line contains `W1AW/9 AG6AQ CM97`;
+- [x] all existing standard vectors remain unchanged;
+- [x] T026 regressions remain green;
+- [x] no heap / platform dependency added;
+- [x] Linux full CTest passes;
+- [x] portable unit suite passes;
+- [x] architecture checks pass;
+- [x] focused sanitizers pass;
+- [x] real ADV build passes;
+- [x] `git diff --check` passes;
+- [x] no unrelated cleanup.
 
 ## Automated tests
 
@@ -491,21 +491,137 @@ Codex:
 
 ### Implementation summary
 
+Added deterministic 22-bit hash fallback to STANDARD/Field Day callsign packing,
+typed type-4 packing, and plain non-standard local CQ projection without a grid.
+Modified non-standard CQ remains unsupported. Post-encode validation decodes,
+restores the known typed calls, and repacks for exact payload equality; canonical
+text keeps full intended calls and decoder-normalized report/exchange spelling.
+No RX hash store is needed or mutated by TX.
+
+One necessary additional codec correction: type-4 CQ previously tried to resolve
+its unused destination hash and marked the CQ unresolved. This prevented the
+required empty-store decode/select regression from reaching AutoSeq. CQ now skips
+that irrelevant lookup; directed RX hash lookup and store ownership are unchanged.
+No architectural or AutoSeq policy change was needed.
+
 ### Files changed
+
+- `apps/ft8/src/ft8_engine/ft8_message_codec.[ch]`: hash fallback, type-4 packing,
+  and unused CQ hash correction.
+- `apps/ft8/src/tx_encoder/tx_encoder.c`: CQ projection, hash-aware structural
+  validation, full intended TX text.
+- `tests/ft8_tx_encoder_test.c`: fixed vectors, empty/seeded RX store semantics,
+  type checks, type-4 terminals, hashed FD and rejection/cleared-plan coverage.
+- `tests/ft8_physical_tx_test.c`: real decoded CQ -> builder -> selection ->
+  AutoSeq -> encoder -> mocked QMX -> RT regression.
+- `tests/ft8_tx_vectors/{generate.py,vectors.h,README.md}`: independent oracle
+  extension and provenance.
+- This task packet: implementation and validation handoff.
 
 ### Behavior/invariants preserved
 
+Original 25 payload/tone vectors unchanged; standard /P and /R, report spelling,
+free text and T026 regressions pass. No heap, platform dependency, persistent TX
+state, public API, config/UI/log format, CAT, offset policy, scheduling or AutoSeq
+state transition change. Type-4 full typed calls use V2's default iflip=0 (source
+full and destination hashed); no bracketed display-text input parser was added.
+
+Old negative fixtures were narrowed because `INVALID`, `TEST`, `PJ4/K9XYZ`,
+`A1BCDE`, and `ABC1DEF` now legitimately hash. The physical failure fixture uses
+`INVALID!`; encoder rejection fixtures cover short/long/invalid-alphabet calls.
+
 ### V2 vector provenance
+
+Oracle sources extracted with `git show` from local `/home/wei/projects/Mini-FT8`
+at `491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`. Inspected pinned pack28,
+encode_nonstd, pack58 and hash behavior. No V2 source is vendored or required at
+test runtime. 36 exact payload/79-tone vectors include the original 25, seven
+required non-standard QSO/CQ cases and four typed directed type-4 terminal cases.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_tx_vectors/generate.py /home/wei/projects/Mini-FT8 > tests/ft8_tx_vectors/vectors.h
+sha256sum tests/ft8_tx_vectors/vectors.h
+# de9782c88f12e42ecfddb1206e5cd5e6edbc189aa2e5bacfe84d33adc1db47cb
+```
+
+Unmodified V2 debug formatting emits the existing LP64 `%llx` warnings.
 
 ### Failing-before / passing-after evidence
 
+Before any production change, the regression failed at `auto_seq_prepare_tx_intent`
+because of the unused CQ destination hash described above. After correcting only
+that RX flag, with TX packing still unchanged, it reached the reported failure:
+
+```text
+W1AW/9 regression: encode=-2 active=0 text=
+assertion rc==FT8_TX_ENCODE_OK && app.tx.active failed (exit 134)
+```
+
+After TX changes:
+
+```text
+W1AW/9 regression: encode=0 active=1 text=W1AW/9 AG6AQ CM97
+```
+
+The regression starts from the pinned CQ payload, uses production protocol decode,
+RxResultBuilder and SELECT_RX_MESSAGE, checks the full DX/TX1 intent and STANDARD
+payload, keys mocked QMX, verifies `] W1AW/9 AG6AQ CM97 1500` in RT, and completes
+all 79 absolute symbol intervals. Existing exact CAT/offset/timing tests pass.
+No pre-classified AutoSeq event substitutes for the CQ boundary.
+
 ### Local tests run
+
+```bash
+git status --short
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 58/58
+cmake -S tests/unit -B /tmp/T027-build-unit
+cmake --build /tmp/T027-build-unit -j8
+ctest --test-dir /tmp/T027-build-unit --output-on-failure
+# PASS 15/15
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All PASS
+cmake -S . -B /tmp/T027-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+  -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build /tmp/T027-build-sanitize --target ft8_physical_tx_unit ft8_tx_encoder_unit -j8
+ctest --test-dir /tmp/T027-build-sanitize --output-on-failure -R 'ft8_physical_tx|ft8_tx_encoder'
+# PASS 2/2 outside sandbox (LeakSanitizer cannot operate under sandbox ptrace)
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real ESP32-S3 build
+ git diff --check
+# PASS
+```
+
+The initial full run had an unrelated `linux_serial_unit` timeout assertion at
+line 67; its isolated retry and subsequent complete suite passed. No serial code
+or test was changed. Existing untracked Python cache directories were left alone.
 
 ### Hardware/manual validation still required
 
+No RF or hardware transmission performed. After supervisor review, architect may
+repeat Linux/QMX reception/selection of a non-standard station and verify actual
+keying plus matching full-call R/T records. Software gate uses fixed independent
+vectors and mocked physical execution as specified.
+
 ### Known limitations / risks
 
+FT8 hash collision/empty receiver-store ambiguity is inherent; TX knows the full
+call and retains it in its log. Modified non-standard local CQ intentionally
+returns unsupported. No arbitrary message parser or FT4 support added. The CQ RX
+flag correction is the only addition beyond TX packing/projection and tests.
+
 ### Commit
+
+One implementation commit on `codex/T027-nonstandard-tx`, based on task head
+`78a4eb5`. The commit containing these notes is the implementation reference;
+exact SHA is returned in the handoff. No PR or Actions wait.
 
 ## Supervisor review
 

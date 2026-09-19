@@ -125,9 +125,47 @@ Ft8TxEncodeStatus ft8_tx_encode(const AutoSeqTxIntent *intent, Ft8TxPlan *out_pl
     if (status != FT8_PROTOCOL_CODEC_OK) return FT8_TX_ENCODE_INVALID;
     Ft8DecodedPayload decoded = {0};
     memcpy(decoded.payload, plan.payload, sizeof(plan.payload));
-    if (ft8_protocol_decode(&decoded, NULL, &message) != FT8_PROTOCOL_CODEC_OK || message.has_unresolved_hash)
-        return FT8_TX_ENCODE_INVALID;
-    memcpy(plan.canonical_text, message.canonical_text, sizeof(plan.canonical_text));
+    Ft8ProtocolMessage check = {0};
+    if (ft8_protocol_decode(&decoded, NULL, &check) != FT8_PROTOCOL_CODEC_OK ||
+        check.type != message.type) return FT8_TX_ENCODE_INVALID;
+    if (intent->type == AUTO_SEQ_TX_INTENT_CQ && message.type == FT8_PROTOCOL_STANDARD &&
+        check.has_unresolved_hash) {
+        if (intent->cq_type != AUTO_SEQ_CQ) return FT8_TX_ENCODE_UNSUPPORTED;
+        char call[FT8_PROTOCOL_CALL_CAP];
+        strcpy(call, message.data.standard.call_de);
+        memset(&message, 0, sizeof(message));
+        message.type = FT8_PROTOCOL_NONSTD_CALL;
+        message.data.nonstandard.is_cq = true;
+        strcpy(message.data.nonstandard.call_to, "CQ");
+        strcpy(message.data.nonstandard.call_de, call);
+        if (ft8_protocol_encode(&message, plan.payload) != FT8_PROTOCOL_CODEC_OK)
+            return FT8_TX_ENCODE_INVALID;
+        memcpy(decoded.payload, plan.payload, sizeof(plan.payload));
+        if (ft8_protocol_decode(&decoded, NULL, &check) != FT8_PROTOCOL_CODEC_OK ||
+            check.type != message.type) return FT8_TX_ENCODE_INVALID;
+    }
+    if (check.has_unresolved_hash) {
+        char *to, *de;
+        const char *known_to, *known_de;
+        if (message.type == FT8_PROTOCOL_STANDARD) {
+            to = check.data.standard.call_to; de = check.data.standard.call_de;
+            known_to = message.data.standard.call_to; known_de = message.data.standard.call_de;
+        } else if (message.type == FT8_PROTOCOL_ARRL_FD) {
+            to = check.data.arrl_fd.call_to; de = check.data.arrl_fd.call_de;
+            known_to = message.data.arrl_fd.call_to; known_de = message.data.arrl_fd.call_de;
+        } else return FT8_TX_ENCODE_INVALID;
+        /* Retain decoder-normalized extra fields, replacing only known TX hashes.
+         * Repacking below verifies those full calls reproduce the exact payload. */
+        const char *extra = check.canonical_text + strlen(to) + 1 + strlen(de);
+        int n = snprintf(plan.canonical_text, sizeof(plan.canonical_text), "%s %s%s",
+                         known_to, known_de, extra);
+        if (n < 0 || (size_t)n >= sizeof(plan.canonical_text)) return FT8_TX_ENCODE_INVALID;
+        strcpy(to, known_to);
+        strcpy(de, known_de);
+    } else memcpy(plan.canonical_text, check.canonical_text, sizeof(plan.canonical_text));
+    uint8_t verified[FT8_PAYLOAD_BYTES];
+    if (ft8_protocol_encode(&check, verified) != FT8_PROTOCOL_CODEC_OK ||
+        memcmp(verified, plan.payload, sizeof(verified)) != 0) return FT8_TX_ENCODE_INVALID;
     ft8_tx_channel_encode(plan.payload, plan.tones);
     plan.base_hz = intent->offset_hz;
     plan.tx_parity = intent->tx_parity;

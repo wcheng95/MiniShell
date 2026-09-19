@@ -13,8 +13,14 @@ the FT8 message selections in `tests/tx_e2e/gen_golden.cpp` and
 Additional vectors cover SOTA/POTA/QRP/FD CQ, explicit free text, Field Day
 exchanges on both sides of the 16/17-transmitter type boundary, 32 transmitters,
 standard `/P` and `/R` suffix bits, the V2 `3DA0`/`3X` standard-prefix mappings,
-and report/free-text boundary values. All 25 cases are compared against directly
+and report/free-text boundary values. The original 25 cases plus seven T027 hash/CQ cases are compared against directly
 constructed `AutoSeqTxIntent` values in `../ft8_tx_encoder_test.c`.
+
+T027 adds W1AW/9 TX1..TX5, plain type-4 CQ, the opposite STANDARD
+callsign-field direction, and four explicitly typed directed type-4 terminal
+cases (NONE/RRR/RR73/73). The latter use the pinned `ftx_message_encode_nonstd()`
+and are checked through the typed codec and channel encoder. There are 36 vectors;
+the original 25 entries remain byte-for-byte unchanged.
 
 `generate.py` is a one-time reproducibility tool. It extracts the exact pinned
 `components/ft8_lib/ft8/{message,text,encode,constants,crc}.[ch]`, `debug.h`, and
@@ -36,7 +42,7 @@ sha256sum tests/ft8_tx_vectors/vectors.h
 Expected SHA-256:
 
 ```text
-0561eac9414eb91829f7e91168d0d1b50221542cae17197d33c7ba5afe6c3a51
+de9782c88f12e42ecfddb1206e5cd5e6edbc189aa2e5bacfe84d33adc1db47cb
 ```
 
 Production ports only the required FT8 message packing/channel algorithms and

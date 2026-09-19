@@ -242,7 +242,7 @@ static void failures(void)
         if(which==5) fail_command=4;
         if(which==6) fail_command=4;
         if(which==7) restart_fail=true;
-        if(which==8) strcpy(app.auto_seq.config.callsign,"INVALID");
+        if(which==8) strcpy(app.auto_seq.config.callsign,"INVALID!");
         if(which==9) stop_delay_ms=1100;
         bool changed; assert(app_controller_step_tx(&app,&changed));
         if(which==5) { now_us=anchor+160000; assert(app_controller_step_tx(&app,&changed)); }
@@ -655,7 +655,7 @@ static void originator_signoff(void)
 static void nonstandard_rr73_metadata(void)
 {
     /* Existing RX-1F nonstandard CQ vector, changed to directed RR73 with
-     * AG6AQ's 12-bit destination hash. No nonstandard TX support is added. */
+     * AG6AQ's 12-bit destination hash. */
     Ft8DecodedPayload payload; memset(&payload,0,sizeof(payload));
     const uint8_t bytes[]={0x00,0x00,0x3E,0x4A,0x34,0xA8,0x6E,0xEB,0x85,0x20};
     memcpy(payload.payload,bytes,sizeof(bytes));
@@ -689,8 +689,49 @@ static void nonstandard_rr73_metadata(void)
     cleanup(&app);
 }
 
+static void nonstandard_cq_reply(void)
+{
+    AppController app; setup(&app,true);
+    assert(auto_seq_drop_index(&app.auto_seq,0,0));
+    #include "ft8_tx_vectors/vectors.h"
+    Ft8DecodedPayload payload={0}; Ft8ProtocolMessage decoded;
+    memcpy(payload.payload,vectors[30].payload,sizeof(payload.payload));
+    assert(ft8_protocol_decode(&payload,NULL,&decoded)==FT8_PROTOCOL_CODEC_OK);
+    assert(decoded.type==FT8_PROTOCOL_NONSTD_CALL);
+    assert(strcmp(decoded.canonical_text,"CQ W1AW/9")==0);
+    decoded.offset_hz=1647; decoded.snr_db=-12;
+    Ft8ProtocolSlot slot;
+    ft8_protocol_slot_init(&slot,(1789776000+1005)/15-1,&decoded,1);
+    slot.message_count=1; slot.status=FT8_PROTOCOL_SLOT_OK;
+    assert(rx_result_builder_build(&app.rx->builder,&slot,app.rx->rx_messages,
+           FT8_DECODER_CANDIDATE_CAPACITY,&app.rx->batch)==RX_RESULT_OK);
+    app.rx->have_batch=true; ++app.rx->batch_generation;
+    AppAction select={.type=APP_ACTION_SELECT_RX_MESSAGE,.value.index=0};
+    assert(app_controller_apply_action(&app,&select));
+    AutoSeqTxIntent intent; Ft8TxPlan plan;
+    assert(auto_seq_prepare_tx_intent(&app.auto_seq,&intent));
+    assert(strcmp(intent.dxcall,"W1AW/9")==0 && intent.message_kind==AUTO_SEQ_MSG_TX1);
+    int rc=ft8_tx_encode(&intent,&plan);
+    bool changed; assert(app_controller_step_tx(&app,&changed));
+    printf("W1AW/9 regression: encode=%d active=%d text=%s\n",rc,app.tx.active,plan.canonical_text);
+    fflush(stdout);
+    assert(rc==FT8_TX_ENCODE_OK && app.tx.active);
+    assert(strcmp(plan.canonical_text,"W1AW/9 AG6AQ CM97")==0);
+    assert(ft8_protocol_get_type(plan.payload)==FT8_PROTOCOL_STANDARD);
+    assert(app.tx.plan.base_hz==1500 && strstr(cat,"MD6;TX;TA"));
+    assert(strstr(rt_contents(),"] W1AW/9 AG6AQ CM97 1500\n"));
+    uint64_t start=now_us;
+    for (unsigned i=1;i<=79;++i) {
+        now_us=start+i*160000u;
+        assert(app_controller_step_tx(&app,&changed));
+    }
+    assert(!app.tx.active && app.tx.physical_tx_count==1);
+    cleanup(&app);
+}
+
 int main(void)
 {
+    nonstandard_cq_reply();
     responder_rr73(false,FT8_PROTOCOL_FIELD_TOKEN);
     responder_rr73(false,FT8_PROTOCOL_FIELD_GRID);
     responder_rr73(true,FT8_PROTOCOL_FIELD_GRID);

@@ -1,4 +1,5 @@
 #include "tx_encoder.h"
+#include "tx_channel.h"
 #include "ft8_message_codec.h"
 #include "ft8_crc.h"
 #include "ft8_ldpc.h"
@@ -49,6 +50,13 @@ static AutoSeqTxIntent vector_intent(unsigned i)
     } else if (i >= 19 && i <= 22) {
         const int8_t reports[] = {-30, 0, 49, 99};
         intent.message_kind = AUTO_SEQ_MSG_TX2; intent.report_db = reports[i - 19];
+    } else if (i >= 25 && i <= 31) {
+        strcpy(intent.dxcall, i == 31 ? "AG6AQ" : "W1AW/9");
+        strcpy(intent.callsign, i >= 30 ? "W1AW/9" : "AG6AQ");
+        strcpy(intent.grid, "CM97");
+        if (i <= 29) intent.message_kind = (AutoSeqMessageKind)(i - 24);
+        if (i == 27) intent.report_db = -8;
+        if (i == 30) { intent.type = AUTO_SEQ_TX_INTENT_CQ; intent.cq_type = AUTO_SEQ_CQ; }
     } else CHECK(false);
     return intent;
 }
@@ -85,7 +93,7 @@ static void check_channel(const Ft8TxPlan *plan)
 
 static void check_vectors(void)
 {
-    for (unsigned i = 0; i < sizeof(vectors) / sizeof(vectors[0]); ++i) {
+    for (unsigned i = 0; i < 32; ++i) {
         AutoSeqTxIntent intent = vector_intent(i), original = intent;
         Ft8TxPlan plan, again;
         memset(&plan, 0xa5, sizeof(plan));
@@ -102,7 +110,16 @@ static void check_vectors(void)
         memcpy(payload.payload, plan.payload, sizeof(payload.payload));
         Ft8ProtocolMessage message;
         CHECK(ft8_protocol_decode(&payload, NULL, &message) == FT8_PROTOCOL_CODEC_OK);
-        CHECK(!message.has_unresolved_hash && strcmp(message.canonical_text, vectors[i].text) == 0);
+        if (i >= 25 && i != 30) {
+            CHECK(message.type == FT8_PROTOCOL_STANDARD && message.has_unresolved_hash);
+            CHECK(strstr(message.canonical_text, "<...>"));
+            Ft8HashStore store; ft8_hash_store_init(&store); uint32_t hash;
+            CHECK(ft8_protocol_callsign_hash22("W1AW/9", &hash) == FT8_PROTOCOL_CODEC_OK);
+            CHECK(ft8_hash_store_save(&store, "W1AW/9", hash) == FT8_HASH_STORE_OK);
+            CHECK(ft8_protocol_decode(&payload, &store, &message) == FT8_PROTOCOL_CODEC_OK);
+            CHECK(!message.has_unresolved_hash && strstr(message.canonical_text, "<W1AW/9>"));
+        } else CHECK(!message.has_unresolved_hash && strcmp(message.canonical_text, vectors[i].text) == 0);
+        if (i == 30) CHECK(message.type == FT8_PROTOCOL_NONSTD_CALL && ft8_protocol_get_i3(plan.payload) == 4);
         if (i >= 11 && i <= 14) CHECK(message.type == FT8_PROTOCOL_ARRL_FD);
         if (i == 10 || i == 23 || i == 24) CHECK(message.type == FT8_PROTOCOL_FREE_TEXT);
         intent.offset_hz = -123; intent.tx_parity = 0;
@@ -120,7 +137,9 @@ static void invalid(const AutoSeqTxIntent *intent, Ft8TxEncodeStatus expected)
 {
     struct { uint32_t before; Ft8TxPlan plan; uint32_t after; } guarded = {.before = 42, .after = 43};
     memset(&guarded.plan, 0xa5, sizeof(guarded.plan));
-    CHECK(ft8_tx_encode(intent, &guarded.plan) == expected);
+    Ft8TxEncodeStatus status = ft8_tx_encode(intent, &guarded.plan);
+    if (status != expected) fprintf(stderr, "invalid call=%s status=%d expected=%d\n", intent ? intent->callsign : "NULL", status, expected);
+    CHECK(status == expected);
     CHECK(guarded.before == 42 && guarded.after == 43);
     const unsigned char *bytes = (const unsigned char *)&guarded.plan;
     for (size_t i = 0; i < sizeof(guarded.plan); ++i) CHECK(bytes[i] == 0);
@@ -140,7 +159,7 @@ static void check_failures(void)
     intent = qso(AUTO_SEQ_MSG_TX1); intent.dxcall[0] = 0; invalid(&intent, FT8_TX_ENCODE_INVALID);
     intent = qso(AUTO_SEQ_MSG_TX1); memset(intent.callsign, 'A', sizeof(intent.callsign)); invalid(&intent, FT8_TX_ENCODE_INVALID);
     intent = qso(AUTO_SEQ_MSG_TX1); memset(intent.dxcall, 'A', sizeof(intent.dxcall)); invalid(&intent, FT8_TX_ENCODE_INVALID);
-    const char *bad_calls[] = {"TEST", "PJ4/K9XYZ", "<K9XYZ>", "CQ", "CQ FD", "A1BCDE", "ABC1DEF"};
+    const char *bad_calls[] = {"AB", "A", "ABCDEFGHIJKL", "<K9XYZ>", "CQ", "CQ FD", "W1!AW", "W1 AW"};
     for (unsigned i = 0; i < sizeof(bad_calls) / sizeof(bad_calls[0]); ++i) {
         intent = qso(AUTO_SEQ_MSG_TX2); strcpy(intent.callsign, bad_calls[i]);
         invalid(&intent, FT8_TX_ENCODE_UNSUPPORTED);
@@ -169,10 +188,45 @@ static void check_failures(void)
     intent = vector_intent(10); strcpy(intent.text, "   \t \n"); invalid(&intent, FT8_TX_ENCODE_INVALID);
     intent = vector_intent(10); strcpy(intent.text, "HELLO!"); invalid(&intent, FT8_TX_ENCODE_INVALID);
     intent = vector_intent(10); memset(intent.text, 'A', sizeof(intent.text)); invalid(&intent, FT8_TX_ENCODE_INVALID);
+    for (unsigned cq = AUTO_SEQ_CQ_SOTA; cq <= AUTO_SEQ_CQ_FD; ++cq) {
+        intent = vector_intent(30); intent.cq_type = (AutoSeqCqType)cq;
+        invalid(&intent, FT8_TX_ENCODE_UNSUPPORTED);
+    }
     uint8_t payload[10]; Ft8ProtocolMessage message = {.type = FT8_PROTOCOL_NONSTD_CALL};
     memset(payload, 0xa5, sizeof(payload));
     CHECK(ft8_protocol_encode(&message, payload) == FT8_PROTOCOL_CODEC_UNSUPPORTED);
     for (unsigned i = 0; i < sizeof(payload); ++i) CHECK(!payload[i]);
+}
+
+static void check_nonstandard_typed(void)
+{
+    Ft8ProtocolMessage typed = {.type = FT8_PROTOCOL_NONSTD_CALL}, decoded;
+    strcpy(typed.data.nonstandard.call_to, "AG6AQ");
+    strcpy(typed.data.nonstandard.call_de, "W1AW/9");
+    Ft8DecodedPayload payload = {0};
+    for (unsigned t = 0; t <= FT8_PROTOCOL_TERMINAL_73; ++t) {
+        typed.data.nonstandard.terminal = (Ft8ProtocolTerminal)t;
+        CHECK(ft8_protocol_encode(&typed, payload.payload) == FT8_PROTOCOL_CODEC_OK);
+        CHECK(ft8_protocol_decode(&payload, NULL, &decoded) == FT8_PROTOCOL_CODEC_OK);
+        CHECK(memcmp(payload.payload, vectors[32 + t].payload, sizeof(payload.payload)) == 0);
+        uint8_t tones[79]; ft8_tx_channel_encode(payload.payload, tones);
+        for (unsigned i = 0; i < 79; ++i) CHECK(tones[i] == vectors[32 + t].tones[i] - '0');
+        CHECK(decoded.type == typed.type && decoded.has_unresolved_hash);
+        CHECK(decoded.data.nonstandard.terminal == t);
+        CHECK(strcmp(decoded.data.nonstandard.call_de, "W1AW/9") == 0);
+    }
+    typed.data.nonstandard.terminal = (Ft8ProtocolTerminal)4;
+    CHECK(ft8_protocol_encode(&typed, payload.payload) == FT8_PROTOCOL_CODEC_MALFORMED);
+    for (unsigned i = 0; i < sizeof(payload.payload); ++i) CHECK(!payload.payload[i]);
+    typed.data.nonstandard.is_cq = true;
+    strcpy(typed.data.nonstandard.call_to, "CQ");
+    typed.data.nonstandard.terminal = FT8_PROTOCOL_TERMINAL_73;
+    CHECK(ft8_protocol_encode(&typed, payload.payload) == FT8_PROTOCOL_CODEC_MALFORMED);
+    AutoSeqTxIntent intent = vector_intent(11); Ft8TxPlan plan;
+    strcpy(intent.dxcall, "W1AW/9");
+    CHECK(ft8_tx_encode(&intent, &plan) == FT8_TX_ENCODE_OK);
+    CHECK(ft8_protocol_get_type(plan.payload) == FT8_PROTOCOL_ARRL_FD);
+    CHECK(strcmp(plan.canonical_text, "W1AW/9 K9XYZ 1D DX") == 0);
 }
 
 int main(void)
@@ -181,6 +235,7 @@ int main(void)
     const float hz[] = {1500, 1506.25f, 1512.5f, 1518.75f, 1525, 1531.25f, 1537.5f, 1543.75f};
     for (unsigned i = 0; i < 8; ++i) CHECK(ft8_tx_tone_hz(1500, (uint8_t)i) == hz[i]);
     check_vectors();
+    check_nonstandard_typed();
     check_failures();
     AutoSeqTxIntent intent = qso(AUTO_SEQ_MSG_TX1); Ft8TxPlan plan;
     strcpy(intent.callsign, "k9xyz"); strcpy(intent.grid, "fn42ab");
@@ -193,6 +248,6 @@ int main(void)
         CHECK(ft8_tx_encode(&intent, &plan) == FT8_TX_ENCODE_OK);
         CHECK(strcmp(plan.canonical_text, vectors[kind].text) == 0);
     }
-    puts("FT8 TX: 25 fixed V2 payload/tone vectors, semantic projection, LDPC/CRC roundtrip, invalid-plan and immutable snapshot checks PASS");
+    puts("FT8 TX: 36 fixed V2 payload/tone vectors, semantic projection, LDPC/CRC roundtrip, invalid-plan and immutable snapshot checks PASS");
     return 0;
 }

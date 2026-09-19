@@ -554,7 +554,9 @@ static Ft8ProtocolCodecStatus decode_nonstandard(const uint8_t payload[FT8_PAYLO
     icq = (uint16_t)((payload[9] >> 6) & 0x01u);
 
     (void)unpack58(n58, store, decoded);
-    resolve_hash(store, FT8_HASH_12_BITS, n12, hashed, &out->has_unresolved_hash);
+    /* CQ has no hashed destination; its n12 bits carry no callsign. */
+    hashed[0] = '\0';
+    if (!icq) resolve_hash(store, FT8_HASH_12_BITS, n12, hashed, &out->has_unresolved_hash);
 
     call1 = iflip != 0u ? decoded : hashed;
     call2 = iflip != 0u ? hashed : decoded;
@@ -831,7 +833,7 @@ Ft8ProtocolSlotAddStatus ft8_protocol_slot_decode_add(Ft8ProtocolSlot *slot,
 
 /* TX packing adapted from MiniFT8-V2 message.c at
  * 491e757ae6b1e4cfd2b9a6ba10f48b35643849e0. Reuse RX alphabets/section tables;
- * deliberately reject nonstandard calls instead of V2's implicit hash fallback. */
+ * including deterministic hash fallback without persistent TX state. */
 static void set_bits_be(uint8_t *bytes, unsigned start, unsigned count, uint32_t value)
 {
     for (unsigned i = 0; i < count; ++i) {
@@ -897,12 +899,25 @@ static Ft8ProtocolCodecStatus pack_call(const char call[FT8_PROTOCOL_CALL_CAP],
         *suffix = call[length - 1];
         length -= 2;
     }
-    for (size_t i = 0; i < length; ++i)
-        if (!((call[i] >= 'A' && call[i] <= 'Z') || (call[i] >= '0' && call[i] <= '9')))
-            return FT8_PROTOCOL_CODEC_UNSUPPORTED;
     int32_t base = pack_basecall(call, length);
-    if (base < 0) return FT8_PROTOCOL_CODEC_UNSUPPORTED;
-    *value = FT8_NTOKENS + FT8_MAX22 + (uint32_t)base;
+    for (size_t i = 0; i < length; ++i)
+        if (!((call[i] >= 'A' && call[i] <= 'Z') ||
+              (call[i] >= '0' && call[i] <= '9'))) base = -1;
+    if (base >= 0) {
+        *value = FT8_NTOKENS + FT8_MAX22 + (uint32_t)base;
+    } else {
+        length = strlen(call);
+        if (length < 3 || length > 11) return FT8_PROTOCOL_CODEC_UNSUPPORTED;
+        for (size_t i = 0; i < length; ++i)
+            if (!((call[i] >= 'A' && call[i] <= 'Z') ||
+                  (call[i] >= '0' && call[i] <= '9') || call[i] == '/'))
+                return FT8_PROTOCOL_CODEC_UNSUPPORTED;
+        uint32_t hash;
+        if (ft8_protocol_callsign_hash22(call, &hash) != FT8_PROTOCOL_CODEC_OK)
+            return FT8_PROTOCOL_CODEC_UNSUPPORTED;
+        *suffix = '\0';
+        *value = FT8_NTOKENS + hash;
+    }
     return FT8_PROTOCOL_CODEC_OK;
 }
 
@@ -991,6 +1006,40 @@ static Ft8ProtocolCodecStatus encode_arrl_fd(const Ft8ProtocolArrlFd *fd, uint8_
     return FT8_PROTOCOL_CODEC_OK;
 }
 
+static bool nonstandard_call(const char call[FT8_PROTOCOL_CALL_CAP])
+{
+    if (!memchr(call, '\0', FT8_PROTOCOL_CALL_CAP)) return false;
+    size_t length = strlen(call);
+    if (length < 3 || length > 11) return false;
+    for (size_t i = 0; i < length; ++i)
+        if (!((call[i] >= 'A' && call[i] <= 'Z') ||
+              (call[i] >= '0' && call[i] <= '9') || call[i] == '/')) return false;
+    return true;
+}
+
+static Ft8ProtocolCodecStatus encode_nonstandard(const Ft8ProtocolNonstandard *data, uint8_t *payload)
+{
+    if ((unsigned)data->terminal > FT8_PROTOCOL_TERMINAL_73 ||
+        (data->is_cq && (data->terminal != FT8_PROTOCOL_TERMINAL_NONE ||
+         !memchr(data->call_to, '\0', sizeof(data->call_to)) || strcmp(data->call_to, "CQ") != 0)))
+        return FT8_PROTOCOL_CODEC_MALFORMED;
+    if (!nonstandard_call(data->call_de) || (!data->is_cq && !nonstandard_call(data->call_to)))
+        return FT8_PROTOCOL_CODEC_UNSUPPORTED;
+    /* Full typed calls use V2's default iflip=0: source full, destination hashed. */
+    uint32_t hash = 0;
+    if (!data->is_cq) (void)ft8_protocol_callsign_hash22(data->call_to, &hash);
+    uint64_t full = 0;
+    for (const char *p = data->call_de; *p; ++p)
+        full = full * 38u + (unsigned)nchar_local(*p, CHAR_TABLE_ALPHANUM_SPACE_SLASH);
+    set_bits_be(payload, 0, 12, hash >> 10);
+    set_bits_be(payload, 12, 26, (uint32_t)(full >> 32));
+    set_bits_be(payload, 38, 32, (uint32_t)full);
+    set_bits_be(payload, 71, 2, (unsigned)data->terminal);
+    set_bits_be(payload, 73, 1, data->is_cq);
+    set_bits_be(payload, 74, 3, 4);
+    return FT8_PROTOCOL_CODEC_OK;
+}
+
 static Ft8ProtocolCodecStatus encode_free(const Ft8ProtocolFreeText *text, uint8_t *payload)
 {
     if (!memchr(text->text, '\0', sizeof(text->text)) || !text->text[0])
@@ -1023,6 +1072,7 @@ Ft8ProtocolCodecStatus ft8_protocol_encode(const Ft8ProtocolMessage *message,
     switch (message->type) {
     case FT8_PROTOCOL_STANDARD: status = encode_standard(&message->data.standard, payload); break;
     case FT8_PROTOCOL_ARRL_FD: status = encode_arrl_fd(&message->data.arrl_fd, payload); break;
+    case FT8_PROTOCOL_NONSTD_CALL: status = encode_nonstandard(&message->data.nonstandard, payload); break;
     case FT8_PROTOCOL_FREE_TEXT: status = encode_free(&message->data.free_text, payload); break;
     default: status = FT8_PROTOCOL_CODEC_UNSUPPORTED; break;
     }

@@ -14,6 +14,7 @@ HARNESS = r'''
 #include "ft8/message.h"
 #include "ft8/encode.h"
 #include <stdio.h>
+#include <string.h>
 static const struct { const char *text; int free_text; } cases[] = {
     {"CQ W1XYZ FN42", 0},
     {"W1ABC K9XYZ FN42", 0},
@@ -39,14 +40,27 @@ static const struct { const char *text; int free_text; } cases[] = {
     {"W1ABC K9XYZ +49", 0},
     {"W1ABC K9XYZ +99", 0},
     {"0123456789+-?", 1},
-    {"TEST CQ", 1}
+    {"TEST CQ", 1},
+    {"W1AW/9 AG6AQ CM97", 0},
+    {"W1AW/9 AG6AQ -12", 0},
+    {"W1AW/9 AG6AQ R-08", 0},
+    {"W1AW/9 AG6AQ RR73", 0},
+    {"W1AW/9 AG6AQ 73", 0},
+    {"CQ W1AW/9", 0},
+    {"AG6AQ W1AW/9 CM97", 0},
+    {"AG6AQ W1AW/9", 2},
+    {"AG6AQ W1AW/9 RRR", 2},
+    {"AG6AQ W1AW/9 RR73", 2},
+    {"AG6AQ W1AW/9 73", 2}
 };
 int main(void) {
     puts("/* Generated from wcheng95/Mini-FT8 " PIN ". See README.md. */");
     puts("static const struct { const char *text; uint8_t payload[10]; const char *tones; } vectors[] = {");
     for (unsigned c = 0; c < sizeof(cases) / sizeof(cases[0]); ++c) {
         ftx_message_t message = {0};
-        int rc = cases[c].free_text ? ftx_message_encode_free(&message, cases[c].text) :
+        int rc = cases[c].free_text == 2 ?
+            ftx_message_encode_nonstd(&message, NULL, "AG6AQ", "W1AW/9",
+                strlen(cases[c].text) > 12 ? cases[c].text + 13 : "") : cases[c].free_text ? ftx_message_encode_free(&message, cases[c].text) :
                                      ftx_message_encode(&message, NULL, cases[c].text);
         if (rc != FTX_MESSAGE_RC_OK) return 1;
         uint8_t tones[79];
