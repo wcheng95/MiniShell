@@ -1,6 +1,6 @@
 # T028 — RX message ordering for display and selection
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -472,6 +472,85 @@ exact SHA is returned in the handoff. No PR.
 
 ## Supervisor review
 
-Review exact task-head to implementation diff.
+PASS on implementation commit `bb3e74bfcf4ef6bcff9ab3ae7277f825bae19fa8`.
+
+Reviewed the exact single implementation commit from task head
+`47768adcb7f9b41b4e02f999fc660e4af35d7f48`. No blocking finding.
+
+Accepted ownership and data flow:
+
+```text
+RxBatch factual order
+    |-- app_process_addressed_batch -> RT log / AutoSeq in raw order
+    |
+    `-- app_rx_order -> display_order[] index map
+                         |-- UiModel RX rows
+                         `-- manual selection -> factual batch index
+```
+
+The new `app_rx_order` module is correctly private to `app_controller`, pure,
+fixed-size, heap-free, and uses only the approved factual keys:
+
+```text
+primary    is_to_me -> is_cq -> regular
+secondary  snr_db descending
+tertiary   original index ascending
+```
+
+This deliberately preserves the pinned V2 group precedence while extending
+strongest-to-weakest ordering to all three groups per architect direction.
+`is_to_me` wins when both flags are true.
+
+Accepted lifecycle behavior:
+
+- a completed batch publishes a new order map with the same generation;
+- UI rendering uses only a map matching the current batch generation;
+- manual selection maps the displayed/global index back to the original factual
+  index before creating the AutoSeq event;
+- stream reset, audio discontinuity, TX pause and RX resume invalidate visible
+  selection/order state;
+- factual batch/history is not reordered or destroyed merely to clear display
+  state;
+- a new completed batch rebuilds the full mapping;
+- pagination remains based on all up-to-50 ordered rows.
+
+Accepted regressions:
+
+- exact mixed map `[4,2,3,1,5,0]`;
+- descending SNR in reply-to-me, CQ and regular groups;
+- explicit stable equal-SNR ordering by original index;
+- full 50-entry bounded projection;
+- immutable input array;
+- displayed strong CQ selection maps to the correct raw message/DX;
+- weaker reply-to-me remains ahead of stronger CQ;
+- raw automatic-processing result matches sequential raw-batch processing;
+- RT RX records remain in raw batch order and are not duplicated by display
+  sorting;
+- T026/T027 physical/protocol regressions remain green;
+- discontinuity invalidates visible mapping and rebuilds after the next completed
+  window.
+
+The implementation does not move policy into `ui_shell`, does not parse
+canonical text for grouping, and introduces no color/style change, decoder
+reordering, AutoSeq queue change, SNR computation change, or public API change.
+
+Accepted local evidence:
+
+```text
+Linux CTest          59/59 PASS
+portable units       15/15 PASS
+focused ASan/UBSan   3/3 PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+The reported intermittent `linux_serial_unit` timeout is non-blocking: the final
+complete suite passed and T028 does not touch Serial code.
+
+T028 is TESTING. Manual acceptance is visual/live only: confirm reply-to-me, CQ,
+regular group order; descending strength within each group; and that selecting a
+displayed CQ replies to that exact station. No RF transmission is required.
+
 
 ## Architect test result
