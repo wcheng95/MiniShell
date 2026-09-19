@@ -66,6 +66,7 @@ MiniFT8
     physical QMX TX               COMPLETE — Linux/QMX
     first two-way QSO             COMPLETE — 2026-09-18 UTC
     WinBook QMX RX/CAT/TX         PASS
+    rpi3-2 AArch64 QMX RX/CAT/TX  PASS — native build
 
 Keyer
     runtime ADV ELF               COMPLETE
