@@ -1,6 +1,6 @@
 # T029 — RX display lifetime across TX and discontinuity
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -531,3 +531,14 @@ T029 is TESTING. Remaining acceptance is the live visual check:
 
 
 ## Architect test result
+
+PASS. Live Linux/QMX validation completed successfully.
+
+Accepted observed behavior:
+
+- previous sorted RX rows remain visible throughout TX;
+- they clear when TX finishes and RX resumes;
+- the next RX decode repopulates the sorted list normally;
+- ordinary RX transport resets do not prematurely clear the displayed snapshot.
+
+T029 is COMPLETE.
