@@ -8,7 +8,8 @@ Current implemented receive path:
 6 kHz mono float
     -> Ft8Engine
        -> ft8_monitor
-          compact waterfall
+          continuous circular waterfall
+          slot-relative logical views
        -> ft8_decoder
           candidate search
           likelihood extraction
@@ -49,31 +50,37 @@ Ownership rules:
 
 - no MiniShell API calls inside the DSP/protocol core;
 - no Linux, ESP-IDF, NuttX, board, UI, storage, AutoSeq, or TX dependency;
-- one caller-owned `Ft8Engine` owns monitor state, candidate storage, the persistent `Ft8HashStore`, and current window identity;
+- one caller-owned `Ft8Engine` owns continuous monitor state, candidate/job storage, the persistent `Ft8HashStore`, and slot-anchor identity;
 - monitor mutable DSP memory uses caller-supplied/queryable workspace; the engine does not allocate;
 - candidate/LDPC/CRC scratch has no mutable decoder singleton;
 - callsign-hash knowledge is per engine; no global/static hash table exists in the cleaned module;
 - `Ft8HashStore` persists across windows and stream resets;
-- beginning a new window after a completed window ages the hash store exactly once;
+- each new UTC slot anchor ages persistent hash knowledge once;
 - message decoding consumes `Ft8HashStore` context directly; no process-global callback adapter is required;
 - typed protocol fields are authoritative; `canonical_text` is derived convenience data rather than a string to re-tokenize;
 - hash misses remain valid protocol parses rendered as `<...>` and are marked with `has_unresolved_hash`;
 - `Ft8ProtocolSlot` uses caller-supplied message storage and exact 10-byte payload comparison for dedupe;
 - station-aware CQ/to-me/DXpedition application classification remains outside `ft8_engine` in future `rx_result_builder`.
 
-The engine lifecycle is:
+I001 live RX uses a continuous lifecycle:
 
 ```text
 query requirements
     -> caller allocates workspace
     -> init
-    -> begin_window(slot_id)
-    -> process 960-sample blocks
-    -> finalize_window -> Ft8ProtocolSlot
-    -> repeat
-    -> reset_stream on discontinuity when needed
+    -> process 960-sample blocks continuously
+    -> begin_window(slot_id) latches a slot anchor; it does not reset the monitor
+    -> +79: start_decode() performs Search #1 (top 50)
+    -> decode_step() attempts at most one candidate per service call
+    -> +86: refine_decode() appends up to five new candidate identities
+    -> complete -> Ft8ProtocolSlot
+    -> repeat while the circular waterfall keeps filling
+    -> reset_stream only on a real stream discontinuity
     -> destroy
 ```
+
+`finalize_window()` remains as a synchronous compatibility path for host/golden
+tools. It no longer resets the waterfall.
 
 The engine-native public RX aliases are:
 
@@ -84,7 +91,14 @@ FT8_ENGINE_BLOCK_SIZE     = 960
 
 These preserve the RX structural baseline while allowing callers such as RX-2 to depend on the engine edge rather than private monitor naming.
 
-`reset_stream()` clears monitor/DSP continuity and cancels the active window while deliberately preserving callsign-hash knowledge.
+`reset_stream()` clears monitor/DSP continuity, invalidates the current slot anchor,
+and cancels an active decode job while deliberately preserving callsign-hash knowledge.
+
+I001 waterfall retention is `max(96 KiB, 94 * block_stride)`. With the
+ADV 2x1 profile this yields 113 complete 160-ms blocks (~18.08 s); the portable
+2x2 profile retains 94 blocks. Candidate search remains `time_offset=-10..19`
+with existing time/frequency oversampling semantics. No likelihood buffer is
+introduced.
 
 The current hash-store baseline preserves the pinned V2 production policy:
 

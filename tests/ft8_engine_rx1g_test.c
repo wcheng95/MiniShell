@@ -31,6 +31,7 @@ static void test_requirements_and_lifecycle(void)
     Ft8ProtocolSlot slot;
     float zero_block[FT8_MONITOR_BLOCK_SIZE] = {0};
     void *workspace;
+    int completed = 0;
 
     CHECK(ft8_engine_query_requirements(&config, &req) == FT8_ENGINE_OK);
     CHECK(req.workspace_bytes > 0u);
@@ -39,6 +40,7 @@ static void test_requirements_and_lifecycle(void)
     CHECK(req.engine_instance_bytes == sizeof(Ft8Engine));
     CHECK(req.candidate_storage_bytes == sizeof(engine.candidates));
     CHECK(req.hash_store_bytes == sizeof(Ft8HashStore));
+    CHECK(FT8_ENGINE_JOB_CANDIDATE_CAPACITY == 55u);
 
     workspace = alloc_workspace(&req);
     CHECK(workspace != NULL);
@@ -55,25 +57,33 @@ static void test_requirements_and_lifecycle(void)
     CHECK(engine.initialized == 1);
     CHECK(ft8_hash_store_count(&engine.hash_store) == 0u);
 
-    CHECK(ft8_engine_process_block(&engine, zero_block) == FT8_ENGINE_ERR_STATE);
+    /* Continuous capture is valid before the first UTC slot anchor. */
+    CHECK(ft8_engine_process_block(&engine, zero_block) == FT8_ENGINE_OK);
+    CHECK(engine.monitor.next_block_seq == 1u);
     CHECK(ft8_engine_finalize_window(&engine, NULL, 0u, &slot) == FT8_ENGINE_ERR_STATE);
 
     CHECK(ft8_engine_begin_window(&engine, 41) == FT8_ENGINE_OK);
-    CHECK(ft8_engine_begin_window(&engine, 42) == FT8_ENGINE_ERR_STATE);
+    CHECK(engine.slot_anchor_seq == 1u);
     CHECK(ft8_engine_process_block(&engine, zero_block) == FT8_ENGINE_OK);
     CHECK(ft8_engine_finalize_window(&engine, NULL, 0u, &slot) == FT8_ENGINE_NO_MESSAGES);
     CHECK(slot.slot_id == 41);
     CHECK(slot.message_count == 0u);
     CHECK(slot.status == FT8_PROTOCOL_SLOT_EMPTY);
 
+    /* A later UTC boundary may be latched regardless of previous slot state. */
     CHECK(ft8_engine_begin_window(&engine, 42) == FT8_ENGINE_OK);
-    CHECK(ft8_engine_reset_stream(&engine) == FT8_ENGINE_OK);
-    CHECK(ft8_engine_process_block(&engine, zero_block) == FT8_ENGINE_ERR_STATE);
+    CHECK(ft8_engine_start_decode(&engine, NULL, 0u) == FT8_ENGINE_OK);
+    CHECK(ft8_engine_decode_active(&engine));
+    CHECK(ft8_engine_refine_decode(&engine, 42) == FT8_ENGINE_OK);
+    CHECK(ft8_engine_decode_step(&engine, &completed, &slot) == FT8_ENGINE_NO_MESSAGES);
+    CHECK(completed);
+    CHECK(slot.slot_id == 42);
+    CHECK(!ft8_engine_decode_active(&engine));
 
-    CHECK(ft8_engine_begin_window(&engine, 43) == FT8_ENGINE_OK);
+    CHECK(ft8_engine_reset_stream(&engine) == FT8_ENGINE_OK);
+    CHECK(!engine.slot_anchor_valid);
+    CHECK(engine.monitor.next_block_seq == 0u);
     CHECK(ft8_engine_process_block(&engine, zero_block) == FT8_ENGINE_OK);
-    CHECK(ft8_engine_finalize_window(&engine, NULL, 0u, &slot) == FT8_ENGINE_NO_MESSAGES);
-    CHECK(slot.slot_id == 43);
 
     ft8_engine_destroy(&engine);
     CHECK(engine.initialized == 0);

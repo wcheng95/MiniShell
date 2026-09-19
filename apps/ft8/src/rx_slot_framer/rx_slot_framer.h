@@ -14,9 +14,13 @@ extern "C" {
     (RX_SLOT_FRAMER_SAMPLE_RATE_HZ * RX_SLOT_FRAMER_SLOT_SECONDS)
 #define RX_SLOT_FRAMER_BLOCK_SAMPLES 960u
 
-/* MiniFT8-V2 live RX decodes after all 79 FT8 symbols have arrived:
- * 79 * 960 samples / 6000 Hz = 12.64 seconds. */
+/* Primary candidate search begins as soon as 79 logical FT8 blocks have
+ * completed relative to the latched UTC slot anchor. */
 #define RX_SLOT_FRAMER_DECODE_BLOCKS 79u
+
+/* A cheap second candidate search is always emitted after 86 logical blocks.
+ * It improves sync scoring for late stations without delaying primary decode. */
+#define RX_SLOT_FRAMER_REFINE_BLOCKS 86u
 
 typedef enum {
     RX_SLOT_FRAMER_OK = 0,
@@ -28,12 +32,22 @@ typedef enum {
 } RxSlotFramerStatus;
 
 typedef enum {
+    /* Latch the beginning of the currently filling 960-sample block as the
+     * logical decode origin for this UTC slot. */
     RX_SLOT_FRAMER_EVENT_BEGIN_WINDOW = 0,
+
+    /* One continuous 960-sample engine block. Blocks never reset at UTC slot
+     * boundaries; a block may straddle two adjacent 15-second slots. */
     RX_SLOT_FRAMER_EVENT_ENGINE_BLOCK = 1,
-    /* Historical name: for live FT8 this is the V2-compatible decode-ready
-     * event emitted immediately after block 79, not at the 15 s boundary. */
+
+    /* Historical name retained for compatibility: primary search ready. */
     RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW = 2,
-    RX_SLOT_FRAMER_EVENT_STREAM_RESET = 3
+
+    /* Second candidate-only search ready. */
+    RX_SLOT_FRAMER_EVENT_REFINE_WINDOW = 3,
+
+    /* Real stream discontinuity: discard partial block/DSP continuity. */
+    RX_SLOT_FRAMER_EVENT_STREAM_RESET = 4
 } RxSlotFramerEventType;
 
 typedef struct {
@@ -56,23 +70,26 @@ typedef struct {
     int64_t slot_id;
     uint32_t sample_offset;
 
-    /* A non-zero initial offset means the first partial slot is discarded. */
-    int waiting_for_full_boundary;
-    int window_active;
+    /* The blockizer runs continuously even before the first usable slot
+     * boundary. A non-zero initial sample_offset therefore fills history but
+     * does not create a decode anchor until the next UTC boundary. */
+    int slot_anchor_valid;
+    int begin_pending;
 
     uint32_t slot_block_count;
-    int decode_emitted;
+    int primary_emitted;
+    int refine_emitted;
+
     size_t block_fill;
     float block[RX_SLOT_FRAMER_BLOCK_SAMPLES];
 } RxSlotFramer;
 
 /*
- * Establish the timing reference for the first input sample.
+ * Establish the UTC timing reference for the first input sample.
  *
- * slot_id identifies the FT8 15-second UTC slot containing that sample.
- * sample_offset is the sample position inside that slot, 0..89999.
- * If sample_offset is non-zero, the first partial slot is discarded and the
- * first BEGIN_WINDOW is emitted only at the next complete slot boundary.
+ * If sample_offset is zero, the next process call emits BEGIN_WINDOW before
+ * consuming data. If non-zero, audio is still blockized continuously, but the
+ * first decode anchor is latched only at the next UTC slot boundary.
  */
 RxSlotFramerStatus rx_slot_framer_init(RxSlotFramer *framer,
                                        int64_t slot_id,
@@ -82,11 +99,11 @@ void rx_slot_framer_destroy(RxSlotFramer *framer);
 
 /*
  * Consume a continuous 6 kHz mono-float stream. Input chunk boundaries have no
- * framing meaning. The framer emits complete 960-sample engine blocks only.
- * A V2-compatible FINALIZE_WINDOW/decode-ready event follows block 79
- * (12.64 s). Audio continues through the rest of the 15-second slot. The
- * 720-sample remainder at the slot boundary is discarded rather than carried
- * into the next slot.
+ * framing meaning. The 960-sample blockizer is independent of UTC boundaries;
+ * the former 720-sample slot remainder is never discarded.
+ *
+ * BEGIN_WINDOW latches a slot anchor, FINALIZE_WINDOW follows the 79th completed
+ * block relative to that anchor, and REFINE_WINDOW follows the 86th.
  */
 RxSlotFramerStatus rx_slot_framer_process(RxSlotFramer *framer,
                                           const float *samples,
@@ -95,10 +112,9 @@ RxSlotFramerStatus rx_slot_framer_process(RxSlotFramer *framer,
                                           void *emit_ctx);
 
 /*
- * Declare a stream discontinuity and establish a new timing reference.
- * Partial block/window state is discarded and STREAM_RESET is emitted so the
- * downstream Ft8Engine can clear DSP continuity while preserving protocol
- * knowledge. As at init, a non-zero offset suppresses the first partial slot.
+ * Declare a real stream discontinuity and establish a new UTC reference.
+ * Partial block state is discarded and STREAM_RESET is emitted. Continuous
+ * slot-boundary operation never calls this function.
  */
 RxSlotFramerStatus rx_slot_framer_reset_stream(RxSlotFramer *framer,
                                                int64_t slot_id,

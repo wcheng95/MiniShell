@@ -16,10 +16,42 @@ static const uint8_t kGrayMap[8] = { 0, 1, 3, 2, 5, 6, 4, 7 };
 
 static int waterfall_valid(const Ft8WaterfallView *wf)
 {
-    if (!wf || !wf->mag || wf->num_blocks > wf->max_blocks ||
+    int64_t last_block;
+
+    if (!wf || !wf->mag || wf->max_blocks == 0u ||
+        wf->num_blocks > wf->max_blocks ||
+        wf->anchor_index >= wf->max_blocks ||
         wf->num_bins < 8u || wf->time_osr == 0u || wf->freq_osr == 0u)
         return 0;
-    return wf->block_stride == wf->time_osr * wf->freq_osr * wf->num_bins;
+    if (wf->block_stride != wf->time_osr * wf->freq_osr * wf->num_bins)
+        return 0;
+
+    last_block = (int64_t)wf->first_block + (int64_t)wf->num_blocks;
+    return last_block >= (int64_t)wf->first_block;
+}
+
+static int waterfall_physical_block(const Ft8WaterfallView *wf,
+                                    int logical_block,
+                                    uint32_t *out_block)
+{
+    int64_t last_block;
+    int64_t physical;
+
+    if (!waterfall_valid(wf) || !out_block)
+        return 0;
+
+    last_block = (int64_t)wf->first_block + (int64_t)wf->num_blocks;
+    if ((int64_t)logical_block < (int64_t)wf->first_block ||
+        (int64_t)logical_block >= last_block)
+        return 0;
+
+    physical = (int64_t)wf->anchor_index + (int64_t)logical_block;
+    physical %= (int64_t)wf->max_blocks;
+    if (physical < 0)
+        physical += (int64_t)wf->max_blocks;
+
+    *out_block = (uint32_t)physical;
+    return 1;
 }
 
 static const uint8_t *candidate_symbol(const Ft8WaterfallView *wf,
@@ -27,15 +59,16 @@ static const uint8_t *candidate_symbol(const Ft8WaterfallView *wf,
                                        int symbol_index)
 {
     int block = candidate->time_offset + symbol_index;
+    uint32_t physical_block;
     size_t offset;
 
-    if (block < 0 || block >= (int)wf->num_blocks)
-        return NULL;
-    if (candidate->time_sub >= wf->time_osr || candidate->freq_sub >= wf->freq_osr ||
-        candidate->freq_offset < 0 || candidate->freq_offset + 7 >= (int)wf->num_bins)
+    if (!wf || !candidate ||
+        candidate->time_sub >= wf->time_osr || candidate->freq_sub >= wf->freq_osr ||
+        candidate->freq_offset < 0 || candidate->freq_offset + 7 >= (int)wf->num_bins ||
+        !waterfall_physical_block(wf, block, &physical_block))
         return NULL;
 
-    offset = (size_t)block * wf->block_stride;
+    offset = (size_t)physical_block * wf->block_stride;
     offset += (size_t)candidate->time_sub * wf->freq_osr * wf->num_bins;
     offset += (size_t)candidate->freq_sub * wf->num_bins;
     offset += (size_t)candidate->freq_offset;
@@ -50,16 +83,14 @@ static int ft8_sync_score(const Ft8WaterfallView *wf, const Ft8Candidate *candid
     for (int m = 0; m < FT8_NUM_SYNC; ++m) {
         for (int k = 0; k < FT8_LENGTH_SYNC; ++k) {
             int symbol = FT8_SYNC_OFFSET * m + k;
-            int block_abs = candidate->time_offset + symbol;
-            const uint8_t *p8;
+            const uint8_t *p8 = candidate_symbol(wf, candidate, symbol);
             int sm;
 
-            if (block_abs < 0)
-                continue;
-            if (block_abs >= (int)wf->num_blocks)
-                break;
-
-            p8 = candidate_symbol(wf, candidate, symbol);
+            /*
+             * I001 intentionally allows negative logical blocks when the
+             * circular waterfall retains pre-slot history. Missing head/tail
+             * symbols are simply omitted from the normalized sync score.
+             */
             if (!p8)
                 continue;
 
@@ -72,14 +103,14 @@ static int ft8_sync_score(const Ft8WaterfallView *wf, const Ft8Candidate *candid
                 score += (int)p8[sm] - (int)p8[sm + 1];
                 ++num_average;
             }
-            if ((k > 0) && (block_abs > 0)) {
+            if (k > 0) {
                 const uint8_t *prev = candidate_symbol(wf, candidate, symbol - 1);
                 if (prev) {
                     score += (int)p8[sm] - (int)prev[sm];
                     ++num_average;
                 }
             }
-            if (((k + 1) < FT8_LENGTH_SYNC) && ((block_abs + 1) < (int)wf->num_blocks)) {
+            if ((k + 1) < FT8_LENGTH_SYNC) {
                 const uint8_t *next = candidate_symbol(wf, candidate, symbol + 1);
                 if (next) {
                     score += (int)p8[sm] - (int)next[sm];

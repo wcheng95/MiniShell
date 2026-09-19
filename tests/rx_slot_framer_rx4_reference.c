@@ -17,6 +17,7 @@ typedef struct {
     size_t begin_count;
     size_t block_count;
     size_t finalize_count;
+    size_t refine_count;
     Ft8EngineStatus finalize_status;
 } EngineSink;
 
@@ -128,6 +129,13 @@ static int engine_event(void *ctx, const RxSlotFramerEvent *event)
         sink->finalize_status = status;
         return (status == FT8_ENGINE_OK || status == FT8_ENGINE_NO_MESSAGES) ? 0 : -1;
 
+    case RX_SLOT_FRAMER_EVENT_REFINE_WINDOW:
+        /* This pinned golden harness intentionally exercises the compatibility
+         * synchronous finalize path. The live I001 path consumes refinement
+         * through ft8_engine_refine_decode(). */
+        sink->refine_count++;
+        return 0;
+
     case RX_SLOT_FRAMER_EVENT_STREAM_RESET:
         return ft8_engine_reset_stream(sink->engine) == FT8_ENGINE_OK ? 0 : -1;
 
@@ -213,12 +221,13 @@ int main(int argc, char **argv)
         consumed += n;
     }
 
-    if (sink.begin_count != 1u || sink.block_count != 93u || sink.finalize_count != 1u ||
+    if (sink.begin_count != 1u || sink.block_count != 93u ||
+        sink.finalize_count != 1u || sink.refine_count != 1u ||
         sink.finalize_status != FT8_ENGINE_OK) {
         fprintf(stderr,
-                "RX-4 lifecycle mismatch: begin=%zu blocks=%zu finalize=%zu status=%d\n",
+                "RX-4 lifecycle mismatch: begin=%zu blocks=%zu finalize=%zu refine=%zu status=%d\n",
                 sink.begin_count, sink.block_count, sink.finalize_count,
-                (int)sink.finalize_status);
+                sink.refine_count, (int)sink.finalize_status);
         goto cleanup_engine;
     }
     if (sink.slot.slot_id != 12345 || sink.slot.message_count != 1u) {

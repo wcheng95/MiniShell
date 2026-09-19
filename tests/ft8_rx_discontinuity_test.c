@@ -67,7 +67,7 @@ int main(void)
     assert(app_controller_step_rx(&app, &changed));
     AppRxState *rx = app.rx;
     assert(rx->frontend.decimation_phase == 1 && rx->framer.block_fill == 129);
-    assert(rx->engine.window_active);
+    assert(rx->engine.slot_anchor_valid);
     rx->batch.messages = rx->rx_messages;
     rx->batch.message_count = 2;
     strcpy(rx->rx_messages[0].canonical_text, "weak");
@@ -97,8 +97,8 @@ int main(void)
     read_result = MINI_OK;
     assert(app_controller_step_rx(&app, &changed));
     assert(rx->framer.slot_id == 100 && rx->framer.sample_offset == 30000);
-    assert(rx->framer.waiting_for_full_boundary && rx->framer.block_fill == 0);
-    assert(!rx->timing_pending && !rx->engine.window_active);
+    assert(!rx->framer.slot_anchor_valid && rx->framer.block_fill == 129);
+    assert(!rx->timing_pending && !rx->engine.slot_anchor_valid);
     assert(rx->engine.monitor.history[0] == 0.0f);
     assert(memcmp(&hashes, &rx->engine.hash_store, sizeof(hashes)) == 0);
     assert(rx->have_batch && rx->batch_generation == 7);
@@ -111,9 +111,9 @@ int main(void)
     while (rx->batch_generation == 7) {
         assert(++steps < 2000);
         assert(app_controller_step_rx(&app, &changed));
-        if (rx->framer.slot_id == 100) assert(!rx->engine.window_active);
+        if (rx->framer.slot_id == 100) assert(!rx->engine.slot_anchor_valid);
     }
-    assert(rx->framer.slot_id == 101 && rx->framer.decode_emitted);
+    assert(rx->framer.slot_id == 101 && rx->framer.refine_emitted);
     assert(rx->batch_generation == 8); /* first subsequent complete window decoded */
     assert(rx->display_generation == 8 && rx->display_count == rx->batch.message_count);
     assert(rx->display_count == 0 && !rx->selected_rx_valid); /* completed silent window */

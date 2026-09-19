@@ -1,5 +1,6 @@
 #include "ft8_monitor.h"
 
+#include <limits.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -12,7 +13,6 @@
 #endif
 
 #define FT8_SYMBOL_PERIOD_SEC 0.160f
-#define FT8_SLOT_TIME_SEC 15.0f
 
 static size_t align_up_size(size_t value, size_t alignment)
 {
@@ -43,6 +43,8 @@ static Ft8MonitorStatus derive_requirements(const Ft8MonitorConfig *config,
     uint32_t num_bins;
     uint32_t max_blocks;
     uint32_t block_stride;
+    size_t waterfall_bytes;
+    size_t min_block_bytes;
 
     if (!config || !out_req || !valid_power_of_two_alignment(alignment))
         return FT8_MONITOR_ERR_INVALID;
@@ -65,8 +67,17 @@ static Ft8MonitorStatus derive_requirements(const Ft8MonitorConfig *config,
         return FT8_MONITOR_ERR_INVALID;
 
     num_bins = max_bin - min_bin;
-    max_blocks = (uint32_t)(FT8_SLOT_TIME_SEC / FT8_SYMBOL_PERIOD_SEC);
     block_stride = config->time_osr * config->freq_osr * num_bins;
+    if (block_stride == 0u)
+        return FT8_MONITOR_ERR_INVALID;
+
+    min_block_bytes = (size_t)FT8_MONITOR_RING_MIN_BLOCKS * block_stride;
+    waterfall_bytes = FT8_MONITOR_RING_MIN_BYTES;
+    if (waterfall_bytes < min_block_bytes)
+        waterfall_bytes = min_block_bytes;
+    max_blocks = (uint32_t)(waterfall_bytes / block_stride);
+    if (max_blocks < FT8_MONITOR_RING_MIN_BLOCKS)
+        return FT8_MONITOR_ERR_INVALID;
 
     if ((max_bin * config->freq_osr) > (nfft / 2u + 1u))
         return FT8_MONITOR_ERR_INVALID;
@@ -78,7 +89,7 @@ static Ft8MonitorStatus derive_requirements(const Ft8MonitorConfig *config,
     memset(out_req, 0, sizeof(*out_req));
     out_req->alignment = alignment;
     out_req->fft_plan_bytes = fft_plan_bytes;
-    out_req->waterfall_bytes = (size_t)max_blocks * block_stride;
+    out_req->waterfall_bytes = waterfall_bytes;
     out_req->window_bytes = (size_t)nfft * sizeof(float);
     out_req->history_bytes = (size_t)nfft * sizeof(float);
     out_req->time_scratch_bytes = (size_t)nfft * sizeof(kiss_fft_scalar);
@@ -204,6 +215,7 @@ Ft8MonitorStatus ft8_monitor_init(Ft8Monitor *monitor,
     memset(monitor->history, 0, req.history_bytes);
     memset(monitor->waterfall, 0, req.waterfall_bytes);
     monitor->max_mag_db = -120.0f;
+    monitor->next_block_seq = 0u;
     monitor->num_blocks = 0u;
     monitor->initialized = 1;
     return FT8_MONITOR_OK;
@@ -218,18 +230,19 @@ void ft8_monitor_destroy(Ft8Monitor *monitor)
 
 void ft8_monitor_begin_window(Ft8Monitor *monitor)
 {
-    if (!monitor || !monitor->initialized)
-        return;
-    monitor->num_blocks = 0u;
-    monitor->max_mag_db = -120.0f;
+    (void)monitor;
 }
 
 void ft8_monitor_reset_stream(Ft8Monitor *monitor)
 {
     if (!monitor || !monitor->initialized)
         return;
-    ft8_monitor_begin_window(monitor);
+
+    monitor->next_block_seq = 0u;
+    monitor->num_blocks = 0u;
+    monitor->max_mag_db = -120.0f;
     memset(monitor->history, 0, monitor->req.history_bytes);
+    memset(monitor->waterfall, 0, monitor->req.waterfall_bytes);
 }
 
 Ft8MonitorStatus ft8_monitor_process_block(Ft8Monitor *monitor,
@@ -238,17 +251,18 @@ Ft8MonitorStatus ft8_monitor_process_block(Ft8Monitor *monitor,
     uint32_t offset;
     uint32_t frame_pos = 0u;
     uint32_t time_sub;
+    uint32_t physical_block;
     kiss_fft_cpx *freqdata;
 
     if (!monitor || !monitor->initialized || !samples)
         return FT8_MONITOR_ERR_NOT_INITIALIZED;
-    if (monitor->req.block_size != FT8_MONITOR_BLOCK_SIZE)
+    if (monitor->req.block_size != FT8_MONITOR_BLOCK_SIZE ||
+        monitor->req.max_blocks == 0u)
         return FT8_MONITOR_ERR_INVALID;
-    if (monitor->num_blocks >= monitor->req.max_blocks)
-        return FT8_MONITOR_WATERFALL_FULL;
 
     freqdata = (kiss_fft_cpx *)monitor->freq_scratch;
-    offset = monitor->num_blocks * monitor->req.block_stride;
+    physical_block = (uint32_t)(monitor->next_block_seq % monitor->req.max_blocks);
+    offset = physical_block * monitor->req.block_stride;
 
     for (time_sub = 0u; time_sub < monitor->config.time_osr; ++time_sub) {
         uint32_t pos;
@@ -283,15 +297,37 @@ Ft8MonitorStatus ft8_monitor_process_block(Ft8Monitor *monitor,
         }
     }
 
-    ++monitor->num_blocks;
+    ++monitor->next_block_seq;
+    if (monitor->num_blocks < monitor->req.max_blocks)
+        ++monitor->num_blocks;
     return FT8_MONITOR_OK;
 }
 
-Ft8MonitorStatus ft8_monitor_get_waterfall(const Ft8Monitor *monitor,
-                                           Ft8WaterfallView *out_view)
+static Ft8MonitorStatus fill_view(const Ft8Monitor *monitor,
+                                  uint64_t anchor_seq,
+                                  Ft8WaterfallView *out_view)
 {
-    if (!monitor || !monitor->initialized || !out_view)
+    uint64_t oldest_seq;
+    int64_t first_block;
+
+    if (!monitor || !monitor->initialized || !out_view ||
+        monitor->req.max_blocks == 0u)
         return FT8_MONITOR_ERR_NOT_INITIALIZED;
+    if (anchor_seq > monitor->next_block_seq)
+        return FT8_MONITOR_ERR_INVALID;
+
+    oldest_seq = monitor->next_block_seq - monitor->num_blocks;
+    if (oldest_seq >= anchor_seq) {
+        uint64_t delta = oldest_seq - anchor_seq;
+        if (delta > (uint64_t)INT32_MAX)
+            return FT8_MONITOR_ERR_INVALID;
+        first_block = (int64_t)delta;
+    } else {
+        uint64_t delta = anchor_seq - oldest_seq;
+        if (delta > (uint64_t)INT32_MAX)
+            return FT8_MONITOR_ERR_INVALID;
+        first_block = -(int64_t)delta;
+    }
 
     out_view->mag = monitor->waterfall;
     out_view->max_blocks = monitor->req.max_blocks;
@@ -300,5 +336,33 @@ Ft8MonitorStatus ft8_monitor_get_waterfall(const Ft8Monitor *monitor,
     out_view->time_osr = monitor->config.time_osr;
     out_view->freq_osr = monitor->config.freq_osr;
     out_view->block_stride = monitor->req.block_stride;
+    out_view->anchor_index = (uint32_t)(anchor_seq % monitor->req.max_blocks);
+    out_view->first_block = (int32_t)first_block;
     return FT8_MONITOR_OK;
+}
+
+Ft8MonitorStatus ft8_monitor_get_waterfall(const Ft8Monitor *monitor,
+                                           Ft8WaterfallView *out_view)
+{
+    uint64_t oldest_seq;
+
+    if (!monitor || !monitor->initialized || !out_view)
+        return FT8_MONITOR_ERR_NOT_INITIALIZED;
+
+    oldest_seq = monitor->next_block_seq - monitor->num_blocks;
+    return fill_view(monitor, oldest_seq, out_view);
+}
+
+Ft8MonitorStatus ft8_monitor_get_waterfall_at(const Ft8Monitor *monitor,
+                                              uint64_t anchor_seq,
+                                              Ft8WaterfallView *out_view)
+{
+    return fill_view(monitor, anchor_seq, out_view);
+}
+
+uint64_t ft8_monitor_next_block_sequence(const Ft8Monitor *monitor)
+{
+    if (!monitor || !monitor->initialized)
+        return 0u;
+    return monitor->next_block_seq;
 }

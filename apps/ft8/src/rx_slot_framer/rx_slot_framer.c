@@ -38,10 +38,78 @@ static RxSlotFramerStatus advance_slot(RxSlotFramer *framer)
         return RX_SLOT_FRAMER_ERR_RANGE;
     }
 
-    framer->slot_id++;
+    ++framer->slot_id;
     framer->sample_offset = 0u;
+    framer->slot_anchor_valid = 0;
+    framer->begin_pending = 1;
     framer->slot_block_count = 0u;
-    framer->decode_emitted = 0;
+    framer->primary_emitted = 0;
+    framer->refine_emitted = 0;
+    return RX_SLOT_FRAMER_OK;
+}
+
+static RxSlotFramerStatus emit_begin_if_pending(RxSlotFramer *framer,
+                                                RxSlotFramerEmitFn emit,
+                                                void *emit_ctx)
+{
+    RxSlotFramerStatus status;
+
+    if (!framer->begin_pending)
+        return RX_SLOT_FRAMER_OK;
+
+    status = emit_event(framer, emit, emit_ctx,
+                        RX_SLOT_FRAMER_EVENT_BEGIN_WINDOW,
+                        framer->slot_id, NULL, 0u);
+    if (status != RX_SLOT_FRAMER_OK)
+        return status;
+
+    framer->begin_pending = 0;
+    framer->slot_anchor_valid = 1;
+    framer->slot_block_count = 0u;
+    framer->primary_emitted = 0;
+    framer->refine_emitted = 0;
+    return RX_SLOT_FRAMER_OK;
+}
+
+static RxSlotFramerStatus on_completed_block(RxSlotFramer *framer,
+                                             RxSlotFramerEmitFn emit,
+                                             void *emit_ctx)
+{
+    RxSlotFramerStatus status;
+
+    status = emit_event(framer, emit, emit_ctx,
+                        RX_SLOT_FRAMER_EVENT_ENGINE_BLOCK,
+                        framer->slot_id,
+                        framer->block,
+                        RX_SLOT_FRAMER_BLOCK_SAMPLES);
+    if (status != RX_SLOT_FRAMER_OK)
+        return status;
+
+    if (!framer->slot_anchor_valid)
+        return RX_SLOT_FRAMER_OK;
+
+    ++framer->slot_block_count;
+
+    if (!framer->primary_emitted &&
+        framer->slot_block_count >= RX_SLOT_FRAMER_DECODE_BLOCKS) {
+        status = emit_event(framer, emit, emit_ctx,
+                            RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW,
+                            framer->slot_id, NULL, 0u);
+        if (status != RX_SLOT_FRAMER_OK)
+            return status;
+        framer->primary_emitted = 1;
+    }
+
+    if (!framer->refine_emitted &&
+        framer->slot_block_count >= RX_SLOT_FRAMER_REFINE_BLOCKS) {
+        status = emit_event(framer, emit, emit_ctx,
+                            RX_SLOT_FRAMER_EVENT_REFINE_WINDOW,
+                            framer->slot_id, NULL, 0u);
+        if (status != RX_SLOT_FRAMER_OK)
+            return status;
+        framer->refine_emitted = 1;
+    }
+
     return RX_SLOT_FRAMER_OK;
 }
 
@@ -55,7 +123,7 @@ RxSlotFramerStatus rx_slot_framer_init(RxSlotFramer *framer,
     memset(framer, 0, sizeof(*framer));
     framer->slot_id = slot_id;
     framer->sample_offset = sample_offset;
-    framer->waiting_for_full_boundary = (sample_offset != 0u);
+    framer->begin_pending = (sample_offset == 0u);
     framer->initialized = 1;
     return RX_SLOT_FRAMER_OK;
 }
@@ -87,99 +155,49 @@ RxSlotFramerStatus rx_slot_framer_process(RxSlotFramer *framer,
         return RX_SLOT_FRAMER_ERR_INVALID;
 
     while (input_index < sample_count) {
-        if (framer->waiting_for_full_boundary) {
-            uint32_t to_boundary = RX_SLOT_FRAMER_SLOT_SAMPLES - framer->sample_offset;
-            size_t available = sample_count - input_index;
-            size_t skip = available < (size_t)to_boundary ? available : (size_t)to_boundary;
+        uint32_t slot_remaining;
+        size_t input_remaining;
+        size_t block_remaining;
+        size_t take;
+        RxSlotFramerStatus status;
 
-            input_index += skip;
-            framer->sample_offset += (uint32_t)skip;
+        status = emit_begin_if_pending(framer, emit, emit_ctx);
+        if (status != RX_SLOT_FRAMER_OK)
+            return status;
 
-            if (framer->sample_offset == RX_SLOT_FRAMER_SLOT_SAMPLES) {
-                RxSlotFramerStatus status = advance_slot(framer);
-                if (status != RX_SLOT_FRAMER_OK)
-                    return status;
-                framer->waiting_for_full_boundary = 0;
-            }
-            continue;
-        }
+        slot_remaining = RX_SLOT_FRAMER_SLOT_SAMPLES - framer->sample_offset;
+        input_remaining = sample_count - input_index;
+        block_remaining = RX_SLOT_FRAMER_BLOCK_SAMPLES - framer->block_fill;
+        take = input_remaining;
 
-        if (!framer->window_active) {
-            RxSlotFramerStatus status;
+        if (take > (size_t)slot_remaining)
+            take = (size_t)slot_remaining;
+        if (take > block_remaining)
+            take = block_remaining;
 
-            if (framer->sample_offset != 0u) {
-                framer->faulted = 1;
-                return RX_SLOT_FRAMER_ERR_STATE;
-            }
+        memcpy(&framer->block[framer->block_fill],
+               &samples[input_index],
+               take * sizeof(float));
+        framer->block_fill += take;
+        framer->sample_offset += (uint32_t)take;
+        input_index += take;
 
-            status = emit_event(framer, emit, emit_ctx,
-                                RX_SLOT_FRAMER_EVENT_BEGIN_WINDOW,
-                                framer->slot_id, NULL, 0u);
+        /*
+         * Complete the 960-sample block before processing an exactly coincident
+         * UTC boundary. That makes the next block the new slot anchor when the
+         * boundary falls exactly between two monitor blocks.
+         */
+        if (framer->block_fill == RX_SLOT_FRAMER_BLOCK_SAMPLES) {
+            status = on_completed_block(framer, emit, emit_ctx);
             if (status != RX_SLOT_FRAMER_OK)
                 return status;
-            framer->window_active = 1;
+            framer->block_fill = 0u;
         }
 
-        while (input_index < sample_count &&
-               framer->sample_offset < RX_SLOT_FRAMER_SLOT_SAMPLES) {
-            uint32_t slot_remaining = RX_SLOT_FRAMER_SLOT_SAMPLES - framer->sample_offset;
-            size_t input_remaining = sample_count - input_index;
-            size_t block_remaining = RX_SLOT_FRAMER_BLOCK_SAMPLES - framer->block_fill;
-            size_t take = input_remaining;
-
-            if (take > (size_t)slot_remaining)
-                take = (size_t)slot_remaining;
-            if (take > block_remaining)
-                take = block_remaining;
-
-            memcpy(&framer->block[framer->block_fill],
-                   &samples[input_index],
-                   take * sizeof(float));
-            framer->block_fill += take;
-            framer->sample_offset += (uint32_t)take;
-            input_index += take;
-
-            if (framer->block_fill == RX_SLOT_FRAMER_BLOCK_SAMPLES) {
-                RxSlotFramerStatus status = emit_event(
-                    framer, emit, emit_ctx,
-                    RX_SLOT_FRAMER_EVENT_ENGINE_BLOCK,
-                    framer->slot_id,
-                    framer->block,
-                    RX_SLOT_FRAMER_BLOCK_SAMPLES);
-                if (status != RX_SLOT_FRAMER_OK)
-                    return status;
-
-                framer->block_fill = 0u;
-                ++framer->slot_block_count;
-
-                /* MiniFT8-V2 live RX decodes as soon as all 79 FT8 symbol
-                 * blocks are present (12.64 s), then resets only the
-                 * waterfall and keeps consuming the rest of the slot. */
-                if (!framer->decode_emitted &&
-                    framer->slot_block_count >= RX_SLOT_FRAMER_DECODE_BLOCKS) {
-                    status = emit_event(framer, emit, emit_ctx,
-                                        RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW,
-                                        framer->slot_id, NULL, 0u);
-                    if (status != RX_SLOT_FRAMER_OK)
-                        return status;
-                    framer->decode_emitted = 1;
-                }
-            }
-
-            if (framer->sample_offset == RX_SLOT_FRAMER_SLOT_SAMPLES) {
-                RxSlotFramerStatus status;
-
-                /* V2 keeps consuming audio after decode. Do the same here;
-                 * at the UTC boundary only discard the incomplete 720-sample
-                 * block and advance to the next slot. */
-                framer->block_fill = 0u;
-                framer->window_active = 0;
-
-                status = advance_slot(framer);
-                if (status != RX_SLOT_FRAMER_OK)
-                    return status;
-                break;
-            }
+        if (framer->sample_offset == RX_SLOT_FRAMER_SLOT_SAMPLES) {
+            status = advance_slot(framer);
+            if (status != RX_SLOT_FRAMER_OK)
+                return status;
         }
     }
 
@@ -192,8 +210,6 @@ RxSlotFramerStatus rx_slot_framer_reset_stream(RxSlotFramer *framer,
                                                RxSlotFramerEmitFn emit,
                                                void *emit_ctx)
 {
-    RxSlotFramerStatus status;
-
     if (!framer || !emit || sample_offset >= RX_SLOT_FRAMER_SLOT_SAMPLES)
         return RX_SLOT_FRAMER_ERR_INVALID;
     if (!framer->initialized)
@@ -202,14 +218,14 @@ RxSlotFramerStatus rx_slot_framer_reset_stream(RxSlotFramer *framer,
     framer->faulted = 0;
     framer->slot_id = slot_id;
     framer->sample_offset = sample_offset;
-    framer->waiting_for_full_boundary = (sample_offset != 0u);
-    framer->window_active = 0;
+    framer->slot_anchor_valid = 0;
+    framer->begin_pending = (sample_offset == 0u);
     framer->slot_block_count = 0u;
-    framer->decode_emitted = 0;
+    framer->primary_emitted = 0;
+    framer->refine_emitted = 0;
     framer->block_fill = 0u;
 
-    status = emit_event(framer, emit, emit_ctx,
-                        RX_SLOT_FRAMER_EVENT_STREAM_RESET,
-                        slot_id, NULL, 0u);
-    return status;
+    return emit_event(framer, emit, emit_ctx,
+                      RX_SLOT_FRAMER_EVENT_STREAM_RESET,
+                      slot_id, NULL, 0u);
 }

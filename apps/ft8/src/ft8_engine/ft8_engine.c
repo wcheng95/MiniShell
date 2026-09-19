@@ -99,23 +99,12 @@ Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id)
     if (!engine->initialized)
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
 
-    /* MiniFT8-V2 decodes at 12.64 s, resets only the waterfall, and then
-     * continues feeding the tail of that same 15-second slot. Therefore an
-     * engine may still be active when the next slot begins. That transition is
-     * valid only after the previous slot has already been decoded. */
-    if (engine->window_active &&
-        (!engine->has_completed_window || slot_id == engine->slot_id)) {
-        return FT8_ENGINE_ERR_STATE;
-    }
-
-    if (engine->has_completed_window)
+    if (engine->slot_anchor_valid)
         ft8_hash_store_age_slot(&engine->hash_store);
 
-    /* Like V2 monitor_reset(): clear waterfall state but preserve FFT history. */
-    ft8_monitor_begin_window(&engine->monitor);
     engine->slot_id = slot_id;
-    engine->window_active = 1;
-    engine->has_completed_window = 0;
+    engine->slot_anchor_seq = ft8_monitor_next_block_sequence(&engine->monitor);
+    engine->slot_anchor_valid = 1;
     return FT8_ENGINE_OK;
 }
 
@@ -127,8 +116,13 @@ Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine)
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
 
     ft8_monitor_reset_stream(&engine->monitor);
-    engine->window_active = 0;
-    engine->has_completed_window = 0;
+    engine->slot_anchor_valid = 0;
+    engine->decode_active = 0;
+    engine->decode_refined = 0;
+    engine->primary_candidate_count = 0u;
+    engine->decode_candidate_count = 0u;
+    engine->decode_next_candidate = 0u;
+    memset(&engine->decode_slot, 0, sizeof(engine->decode_slot));
     return FT8_ENGINE_OK;
 }
 
@@ -142,8 +136,6 @@ Ft8EngineStatus ft8_engine_process_block(
         return FT8_ENGINE_ERR_INVALID;
     if (!engine->initialized)
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
-    if (!engine->window_active)
-        return FT8_ENGINE_ERR_STATE;
 
     status = ft8_monitor_process_block(&engine->monitor, samples);
     if (status == FT8_MONITOR_OK)
@@ -155,16 +147,38 @@ Ft8EngineStatus ft8_engine_process_block(
     return FT8_ENGINE_ERR_INTERNAL;
 }
 
+static const uint8_t *waterfall_block_ptr(const Ft8WaterfallView *waterfall,
+                                          int logical_block)
+{
+    int64_t last_block;
+    int64_t physical;
+
+    if (waterfall == NULL || waterfall->mag == NULL || waterfall->max_blocks == 0u ||
+        waterfall->anchor_index >= waterfall->max_blocks ||
+        waterfall->num_blocks > waterfall->max_blocks)
+        return NULL;
+
+    last_block = (int64_t)waterfall->first_block + (int64_t)waterfall->num_blocks;
+    if ((int64_t)logical_block < (int64_t)waterfall->first_block ||
+        (int64_t)logical_block >= last_block)
+        return NULL;
+
+    physical = (int64_t)waterfall->anchor_index + (int64_t)logical_block;
+    physical %= (int64_t)waterfall->max_blocks;
+    if (physical < 0)
+        physical += (int64_t)waterfall->max_blocks;
+
+    return waterfall->mag + (size_t)physical * waterfall->block_stride;
+}
+
 /*
- * Preserve the MiniFT8-V2 RX SNR definition at the engine boundary.
- * The waterfall is owned by Ft8Engine and must not leak into RxResultBuilder
- * or AutoSeq. V2 uses the 25th-percentile waterfall magnitude as noise floor,
- * then subtracts it from the candidate-bin magnitude and clamps to -30..99 dB.
+ * Preserve the MiniFT8-V2 RX SNR definition at the engine boundary. For I001
+ * the percentile is taken over the currently retained circular view.
  */
 static float rx_noise_floor_db(const Ft8WaterfallView *waterfall)
 {
     uint32_t hist[256] = {0};
-    size_t total;
+    size_t total = 0u;
     uint64_t target;
     uint64_t accum = 0u;
     int noise_scaled = 0;
@@ -173,12 +187,18 @@ static float rx_noise_floor_db(const Ft8WaterfallView *waterfall)
     if (waterfall == NULL || waterfall->mag == NULL || waterfall->num_blocks == 0u)
         return -120.0f;
 
-    total = (size_t)waterfall->num_blocks * waterfall->block_stride;
+    for (uint32_t b = 0u; b < waterfall->num_blocks; ++b) {
+        int logical = waterfall->first_block + (int)b;
+        const uint8_t *block = waterfall_block_ptr(waterfall, logical);
+        if (block == NULL)
+            continue;
+        for (uint32_t i = 0u; i < waterfall->block_stride; ++i)
+            ++hist[block[i]];
+        total += waterfall->block_stride;
+    }
+
     if (total == 0u)
         return -120.0f;
-
-    for (size_t i = 0u; i < total; ++i)
-        ++hist[waterfall->mag[i]];
 
     target = ((uint64_t)total * 25u) / 100u;
     for (v = 0; v < 256; ++v) {
@@ -195,40 +215,26 @@ static int8_t rx_candidate_snr_db(const Ft8WaterfallView *waterfall,
                                   const Ft8Candidate *candidate,
                                   float noise_db)
 {
-    int t_index;
-    int f_index;
-    int t_count;
-    int f_count;
+    const uint8_t *block;
     size_t offset;
-    size_t total;
     float candidate_db = noise_db;
     int snr;
 
     if (waterfall == NULL || candidate == NULL || waterfall->mag == NULL)
         return 0;
 
-    t_index = candidate->time_offset * (int)waterfall->time_osr + candidate->time_sub;
-    t_count = (int)(waterfall->num_blocks * waterfall->time_osr);
-    if (t_count > 0) {
-        if (t_index < 0) t_index = 0;
-        if (t_index >= t_count) t_index = t_count - 1;
-    } else {
-        t_index = 0;
+    block = waterfall_block_ptr(waterfall, candidate->time_offset);
+    if (block != NULL &&
+        candidate->time_sub < waterfall->time_osr &&
+        candidate->freq_sub < waterfall->freq_osr &&
+        candidate->freq_offset >= 0 &&
+        candidate->freq_offset < (int)waterfall->num_bins) {
+        offset = (size_t)candidate->time_sub * waterfall->freq_osr * waterfall->num_bins;
+        offset += (size_t)candidate->freq_sub * waterfall->num_bins;
+        offset += (size_t)candidate->freq_offset;
+        if (offset < waterfall->block_stride)
+            candidate_db = 0.5f * ((float)block[offset] - 240.0f);
     }
-
-    f_index = candidate->freq_sub * (int)waterfall->num_bins + candidate->freq_offset;
-    f_count = (int)(waterfall->freq_osr * waterfall->num_bins);
-    if (f_count > 0) {
-        if (f_index < 0) f_index = 0;
-        if (f_index >= f_count) f_index = f_count - 1;
-    } else {
-        f_index = 0;
-    }
-
-    offset = (size_t)t_index * (size_t)f_count + (size_t)f_index;
-    total = (size_t)waterfall->num_blocks * waterfall->block_stride;
-    if (offset < total)
-        candidate_db = 0.5f * ((float)waterfall->mag[offset] - 240.0f);
 
     snr = (int)lrintf(candidate_db - noise_db);
     if (snr < -30) snr = -30;
@@ -258,14 +264,203 @@ static int16_t rx_candidate_offset_hz(const Ft8Engine *engine,
     return (int16_t)rounded;
 }
 
-Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
-                                            Ft8ProtocolMessage *message_storage,
-                                            size_t message_capacity,
-                                            Ft8ProtocolSlot *out_slot)
+static int candidate_same_identity(const Ft8Candidate *a, const Ft8Candidate *b)
+{
+    return a != NULL && b != NULL &&
+           a->time_offset == b->time_offset &&
+           a->time_sub == b->time_sub &&
+           a->freq_offset == b->freq_offset &&
+           a->freq_sub == b->freq_sub;
+}
+
+static int candidate_in_primary_set(const Ft8Engine *engine,
+                                    const Ft8Candidate *candidate)
+{
+    for (size_t i = 0u; i < engine->primary_candidate_count; ++i) {
+        if (candidate_same_identity(&engine->candidates[i], candidate))
+            return 1;
+    }
+    return 0;
+}
+
+static Ft8EngineStatus decode_one_candidate(Ft8Engine *engine,
+                                            const Ft8WaterfallView *waterfall,
+                                            const Ft8Candidate *candidate,
+                                            Ft8ProtocolSlot *slot,
+                                            float noise_db)
+{
+    Ft8DecodedPayload decoded;
+    Ft8ProtocolCodecStatus codec_status;
+    Ft8ProtocolSlotAddStatus add_status;
+
+    if (ft8_decoder_decode_candidate(waterfall,
+                                     candidate,
+                                     engine->config.max_ldpc_iterations,
+                                     &decoded) != FT8_DECODER_OK)
+        return FT8_ENGINE_OK;
+
+    add_status = ft8_protocol_slot_decode_add(slot,
+                                             &decoded,
+                                             &engine->hash_store,
+                                             &codec_status);
+    if (add_status == FT8_PROTOCOL_SLOT_DUPLICATE)
+        return FT8_ENGINE_OK;
+    if (add_status == FT8_PROTOCOL_SLOT_ERR_FULL)
+        return FT8_ENGINE_ERR_OUTPUT_FULL;
+    if (add_status == FT8_PROTOCOL_SLOT_ERR_INVALID ||
+        codec_status == FT8_PROTOCOL_CODEC_ERR_INVALID)
+        return FT8_ENGINE_ERR_INTERNAL;
+
+    if (add_status == FT8_PROTOCOL_SLOT_ADDED && slot->message_count > 0u) {
+        Ft8ProtocolMessage *message = &slot->messages[slot->message_count - 1u];
+        message->snr_db = rx_candidate_snr_db(waterfall, &decoded.candidate, noise_db);
+        message->offset_hz = rx_candidate_offset_hz(engine, &decoded.candidate);
+    }
+    return FT8_ENGINE_OK;
+}
+
+Ft8EngineStatus ft8_engine_start_decode(
+    Ft8Engine *engine,
+    Ft8ProtocolMessage *message_storage,
+    size_t message_capacity)
 {
     Ft8WaterfallView waterfall;
     size_t candidate_count = 0u;
-    size_t i;
+
+    if (engine == NULL || (message_capacity > 0u && message_storage == NULL))
+        return FT8_ENGINE_ERR_INVALID;
+    if (!engine->initialized)
+        return FT8_ENGINE_ERR_NOT_INITIALIZED;
+    if (!engine->slot_anchor_valid)
+        return FT8_ENGINE_ERR_STATE;
+    if (engine->decode_active)
+        return FT8_ENGINE_BUSY;
+
+    if (ft8_monitor_get_waterfall_at(&engine->monitor,
+                                     engine->slot_anchor_seq,
+                                     &waterfall) != FT8_MONITOR_OK)
+        return FT8_ENGINE_ERR_INTERNAL;
+
+    if (ft8_decoder_find_candidates(&waterfall,
+                                    engine->candidates,
+                                    engine->config.candidate_capacity,
+                                    engine->config.min_score,
+                                    &candidate_count) != FT8_DECODER_OK)
+        return FT8_ENGINE_ERR_INTERNAL;
+
+    engine->decode_slot_id = engine->slot_id;
+    engine->decode_anchor_seq = engine->slot_anchor_seq;
+    engine->primary_candidate_count = candidate_count;
+    engine->decode_candidate_count = candidate_count;
+    engine->decode_next_candidate = 0u;
+    engine->decode_refined = 0;
+    engine->decode_noise_db = rx_noise_floor_db(&waterfall);
+    ft8_protocol_slot_init(&engine->decode_slot,
+                           engine->decode_slot_id,
+                           message_storage,
+                           message_capacity);
+    engine->decode_active = 1;
+    return FT8_ENGINE_OK;
+}
+
+Ft8EngineStatus ft8_engine_refine_decode(Ft8Engine *engine, int64_t slot_id)
+{
+    Ft8WaterfallView waterfall;
+    Ft8Candidate refined[FT8_DECODER_CANDIDATE_CAPACITY];
+    size_t refined_count = 0u;
+    size_t appended = 0u;
+
+    if (engine == NULL)
+        return FT8_ENGINE_ERR_INVALID;
+    if (!engine->initialized)
+        return FT8_ENGINE_ERR_NOT_INITIALIZED;
+    if (!engine->decode_active || engine->decode_slot_id != slot_id)
+        return FT8_ENGINE_BUSY;
+    if (engine->decode_refined)
+        return FT8_ENGINE_OK;
+
+    if (ft8_monitor_get_waterfall_at(&engine->monitor,
+                                     engine->decode_anchor_seq,
+                                     &waterfall) != FT8_MONITOR_OK)
+        return FT8_ENGINE_ERR_INTERNAL;
+
+    if (ft8_decoder_find_candidates(&waterfall,
+                                    refined,
+                                    engine->config.candidate_capacity,
+                                    engine->config.min_score,
+                                    &refined_count) != FT8_DECODER_OK)
+        return FT8_ENGINE_ERR_INTERNAL;
+
+    for (size_t i = 0u;
+         i < refined_count && appended < FT8_ENGINE_REFINEMENT_CANDIDATES;
+         ++i) {
+        if (candidate_in_primary_set(engine, &refined[i]))
+            continue;
+        if (engine->decode_candidate_count >= FT8_ENGINE_JOB_CANDIDATE_CAPACITY)
+            break;
+        engine->candidates[engine->decode_candidate_count++] = refined[i];
+        ++appended;
+    }
+
+    engine->decode_refined = 1;
+    return FT8_ENGINE_OK;
+}
+
+Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
+                                       int *out_completed,
+                                       Ft8ProtocolSlot *out_slot)
+{
+    Ft8WaterfallView waterfall;
+    Ft8EngineStatus status;
+
+    if (out_completed)
+        *out_completed = 0;
+    if (engine == NULL || out_completed == NULL || out_slot == NULL)
+        return FT8_ENGINE_ERR_INVALID;
+    if (!engine->initialized)
+        return FT8_ENGINE_ERR_NOT_INITIALIZED;
+    if (!engine->decode_active)
+        return FT8_ENGINE_ERR_STATE;
+
+    if (engine->decode_next_candidate < engine->decode_candidate_count) {
+        if (ft8_monitor_get_waterfall_at(&engine->monitor,
+                                         engine->decode_anchor_seq,
+                                         &waterfall) != FT8_MONITOR_OK)
+            return FT8_ENGINE_ERR_INTERNAL;
+
+        status = decode_one_candidate(engine,
+                                      &waterfall,
+                                      &engine->candidates[engine->decode_next_candidate],
+                                      &engine->decode_slot,
+                                      engine->decode_noise_db);
+        ++engine->decode_next_candidate;
+        if (status != FT8_ENGINE_OK)
+            return status;
+    }
+
+    if (engine->decode_refined &&
+        engine->decode_next_candidate >= engine->decode_candidate_count) {
+        *out_slot = engine->decode_slot;
+        *out_completed = 1;
+        engine->decode_active = 0;
+        return out_slot->message_count == 0u ? FT8_ENGINE_NO_MESSAGES : FT8_ENGINE_OK;
+    }
+
+    return FT8_ENGINE_OK;
+}
+
+int ft8_engine_decode_active(const Ft8Engine *engine)
+{
+    return engine != NULL && engine->initialized && engine->decode_active;
+}
+
+Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
+                                           Ft8ProtocolMessage *message_storage,
+                                           size_t message_capacity,
+                                           Ft8ProtocolSlot *out_slot)
+{
+    Ft8WaterfallView waterfall;
+    size_t candidate_count = 0u;
     float noise_db;
 
     if (engine == NULL || out_slot == NULL ||
@@ -273,7 +468,7 @@ Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
         return FT8_ENGINE_ERR_INVALID;
     if (!engine->initialized)
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
-    if (!engine->window_active || engine->has_completed_window)
+    if (!engine->slot_anchor_valid || engine->decode_active)
         return FT8_ENGINE_ERR_STATE;
 
     ft8_protocol_slot_init(out_slot,
@@ -281,7 +476,9 @@ Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
                            message_storage,
                            message_capacity);
 
-    if (ft8_monitor_get_waterfall(&engine->monitor, &waterfall) != FT8_MONITOR_OK)
+    if (ft8_monitor_get_waterfall_at(&engine->monitor,
+                                     engine->slot_anchor_seq,
+                                     &waterfall) != FT8_MONITOR_OK)
         return FT8_ENGINE_ERR_INTERNAL;
 
     noise_db = rx_noise_floor_db(&waterfall);
@@ -293,43 +490,15 @@ Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
                                     &candidate_count) != FT8_DECODER_OK)
         return FT8_ENGINE_ERR_INTERNAL;
 
-    for (i = 0u; i < candidate_count; ++i) {
-        Ft8DecodedPayload decoded;
-        Ft8ProtocolCodecStatus codec_status;
-        Ft8ProtocolSlotAddStatus add_status;
-
-        if (ft8_decoder_decode_candidate(&waterfall,
-                                         &engine->candidates[i],
-                                         engine->config.max_ldpc_iterations,
-                                         &decoded) != FT8_DECODER_OK)
-            continue;
-
-        add_status = ft8_protocol_slot_decode_add(out_slot,
-                                                  &decoded,
-                                                  &engine->hash_store,
-                                                  &codec_status);
-        if (add_status == FT8_PROTOCOL_SLOT_DUPLICATE)
-            continue;
-        if (add_status == FT8_PROTOCOL_SLOT_ERR_FULL)
-            return FT8_ENGINE_ERR_OUTPUT_FULL;
-        if (add_status == FT8_PROTOCOL_SLOT_ERR_INVALID ||
-            codec_status == FT8_PROTOCOL_CODEC_ERR_INVALID)
-            return FT8_ENGINE_ERR_INTERNAL;
-
-        if (add_status == FT8_PROTOCOL_SLOT_ADDED && out_slot->message_count > 0u) {
-            Ft8ProtocolMessage *message = &out_slot->messages[out_slot->message_count - 1u];
-            message->snr_db = rx_candidate_snr_db(&waterfall, &decoded.candidate, noise_db);
-            message->offset_hz = rx_candidate_offset_hz(engine, &decoded.candidate);
-        }
+    for (size_t i = 0u; i < candidate_count; ++i) {
+        Ft8EngineStatus status = decode_one_candidate(engine,
+                                                      &waterfall,
+                                                      &engine->candidates[i],
+                                                      out_slot,
+                                                      noise_db);
+        if (status != FT8_ENGINE_OK)
+            return status;
     }
 
-    /* Match MiniFT8-V2 monitor_reset(): decoding consumes the current
-     * waterfall, then the waterfall starts over immediately while FFT history
-     * remains intact. Tail audio from 12.64 s to 15.0 s is still processed. */
-    ft8_monitor_begin_window(&engine->monitor);
-    engine->has_completed_window = 1;
-
-    if (out_slot->message_count == 0u)
-        return FT8_ENGINE_NO_MESSAGES;
-    return FT8_ENGINE_OK;
+    return out_slot->message_count == 0u ? FT8_ENGINE_NO_MESSAGES : FT8_ENGINE_OK;
 }

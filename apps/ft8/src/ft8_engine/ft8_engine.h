@@ -17,10 +17,15 @@ extern "C" {
 #define FT8_ENGINE_SAMPLE_RATE_HZ FT8_MONITOR_SAMPLE_RATE_HZ
 #define FT8_ENGINE_BLOCK_SIZE FT8_MONITOR_BLOCK_SIZE
 
+#define FT8_ENGINE_REFINEMENT_CANDIDATES 5u
+#define FT8_ENGINE_JOB_CANDIDATE_CAPACITY \
+    (FT8_DECODER_CANDIDATE_CAPACITY + FT8_ENGINE_REFINEMENT_CANDIDATES)
+
 typedef enum {
     FT8_ENGINE_OK = 0,
     FT8_ENGINE_NO_MESSAGES = 1,
     FT8_ENGINE_WATERFALL_FULL = 2,
+    FT8_ENGINE_BUSY = 3,
     FT8_ENGINE_ERR_INVALID = -1,
     FT8_ENGINE_ERR_WORKSPACE = -2,
     FT8_ENGINE_ERR_NOT_INITIALIZED = -3,
@@ -49,14 +54,29 @@ typedef struct {
 
 typedef struct {
     int initialized;
-    int window_active;
-    int has_completed_window;
+
+    /* Most recently latched UTC slot. The anchor is the absolute monitor block
+     * sequence of the 960-sample block containing that boundary. */
+    int slot_anchor_valid;
     int64_t slot_id;
+    uint64_t slot_anchor_seq;
 
     Ft8EngineConfig config;
     Ft8Monitor monitor;
     Ft8HashStore hash_store;
-    Ft8Candidate candidates[FT8_DECODER_CANDIDATE_CAPACITY];
+
+    /* One decode job at a time. Search #1 contributes up to 50 candidates;
+     * Search #2 appends up to five identities absent from the original set. */
+    int decode_active;
+    int decode_refined;
+    int64_t decode_slot_id;
+    uint64_t decode_anchor_seq;
+    size_t primary_candidate_count;
+    size_t decode_candidate_count;
+    size_t decode_next_candidate;
+    float decode_noise_db;
+    Ft8ProtocolSlot decode_slot;
+    Ft8Candidate candidates[FT8_ENGINE_JOB_CANDIDATE_CAPACITY];
 } Ft8Engine;
 
 Ft8EngineConfig ft8_engine_baseline_config(void);
@@ -69,32 +89,54 @@ Ft8EngineStatus ft8_engine_init(Ft8Engine *engine,
 void ft8_engine_destroy(Ft8Engine *engine);
 
 /*
- * Begin a UTC FT8 slot. After a V2-compatible early decode, the previous slot
- * may still be active while its 12.64..15.00 s tail is consumed; beginning the
- * next slot resets only waterfall state and preserves FFT sample history.
+ * Latch the current continuous-waterfall block as the logical origin for one
+ * UTC FT8 slot. This never resets the waterfall and is valid while a previous
+ * slot's LDPC job is still finishing.
  */
 Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id);
 
-/* Reset sample/DSP continuity without discarding persistent protocol knowledge. */
+/* Reset DSP/ring continuity after a real stream discontinuity. */
 Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine);
 
-/* Process exactly one engine-native 960-sample / 6 kHz mono-float block. */
+/* Process exactly one continuous 960-sample / 6 kHz mono-float block. */
 Ft8EngineStatus ft8_engine_process_block(
     Ft8Engine *engine,
     const float samples[FT8_ENGINE_BLOCK_SIZE]);
 
 /*
- * Decode the current waterfall into caller-supplied protocol-message storage.
- * MiniFT8-V2 live RX calls this after 79 FT8 symbol blocks (12.64 s), not at
- * the 15-second slot boundary. On return the waterfall is reset but FFT sample
- * history and the active stream are preserved so tail audio can still be
- * processed. Valid payloads are deduplicated by exact 10-byte payload identity.
- * A successful no-decode window returns FT8_ENGINE_NO_MESSAGES.
+ * Start Search #1 for the currently latched slot. A busy previous decode job
+ * returns FT8_ENGINE_BUSY; capture remains independent.
+ */
+Ft8EngineStatus ft8_engine_start_decode(
+    Ft8Engine *engine,
+    Ft8ProtocolMessage *message_storage,
+    size_t message_capacity);
+
+/*
+ * Always called at +86 logical blocks. Appends up to five highest-score
+ * candidates whose exact search identity was absent from the original Search
+ * #1 set. A missing/skipped job returns FT8_ENGINE_BUSY.
+ */
+Ft8EngineStatus ft8_engine_refine_decode(Ft8Engine *engine, int64_t slot_id);
+
+/*
+ * Attempt at most one pending candidate. out_completed becomes non-zero only
+ * after Search #2 has occurred and every queued candidate has been attempted.
+ */
+Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
+                                       int *out_completed,
+                                       Ft8ProtocolSlot *out_slot);
+
+int ft8_engine_decode_active(const Ft8Engine *engine);
+
+/*
+ * Compatibility synchronous decode for tools/tests. It decodes Search #1 from
+ * the current anchor in one call, but no longer resets the continuous ring.
  */
 Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
-                                            Ft8ProtocolMessage *message_storage,
-                                            size_t message_capacity,
-                                            Ft8ProtocolSlot *out_slot);
+                                           Ft8ProtocolMessage *message_storage,
+                                           size_t message_capacity,
+                                           Ft8ProtocolSlot *out_slot);
 
 #ifdef __cplusplus
 }

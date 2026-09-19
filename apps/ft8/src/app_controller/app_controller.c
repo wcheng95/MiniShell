@@ -17,6 +17,7 @@
 
 #define RX_TRANSPORT_FRAMES 257u
 #define RX_FRONTEND_OUT_CAPACITY ((RX_TRANSPORT_FRAMES + 1u) / 2u)
+#define RX_READY_DRAIN_LIMIT 8u
 
 /* Application composition may select a smaller monitor workspace. The engine's
  * portable baseline and time oversampling remain unchanged. */
@@ -40,10 +41,10 @@ struct AppRxState {
     Ft8Engine engine;
     RxResultBuilder builder;
 
-    Ft8ProtocolMessage protocol_messages[FT8_DECODER_CANDIDATE_CAPACITY];
-    RxMessage rx_messages[FT8_DECODER_CANDIDATE_CAPACITY];
+    Ft8ProtocolMessage protocol_messages[FT8_ENGINE_JOB_CANDIDATE_CAPACITY];
+    RxMessage rx_messages[FT8_ENGINE_JOB_CANDIDATE_CAPACITY];
     RxBatch batch;
-    size_t display_order[FT8_DECODER_CANDIDATE_CAPACITY];
+    size_t display_order[FT8_ENGINE_JOB_CANDIDATE_CAPACITY];
     size_t display_count;
     uint64_t display_generation;
 
@@ -86,7 +87,7 @@ static void rx_complete_batch(AppRxState *rx)
     rx->selected_rx_valid = false;
     ++rx->batch_generation;
     rx->display_count = app_rx_order_build(rx->batch.messages, rx->batch.message_count,
-                                           rx->display_order, FT8_DECODER_CANDIDATE_CAPACITY);
+                                           rx->display_order, FT8_ENGINE_JOB_CANDIDATE_CAPACITY);
     rx->display_generation = rx->batch_generation;
 }
 
@@ -333,6 +334,7 @@ static bool backdate_slot_reference(int64_t *slot_id,
 static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
 {
     AppRxState *rx = (AppRxState *)ctx;
+    Ft8EngineStatus status;
 
     if (rx == NULL || event == NULL) return -1;
 
@@ -343,21 +345,19 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
     case RX_SLOT_FRAMER_EVENT_ENGINE_BLOCK:
         return ft8_engine_process_block(&rx->engine, event->samples) == FT8_ENGINE_OK ? 0 : -1;
 
-    case RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW: {
-        Ft8ProtocolSlot slot;
-        Ft8EngineStatus engine_status = ft8_engine_finalize_window(
-            &rx->engine, rx->protocol_messages, FT8_DECODER_CANDIDATE_CAPACITY, &slot);
-        RxResultStatus result_status;
+    case RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW:
+        status = ft8_engine_start_decode(&rx->engine,
+                                         rx->protocol_messages,
+                                         FT8_ENGINE_JOB_CANDIDATE_CAPACITY);
+        /* One decode job at a time. A slow previous slot costs decode yield,
+         * never capture continuity. */
+        return (status == FT8_ENGINE_OK || status == FT8_ENGINE_BUSY) ? 0 : -1;
 
-        if (engine_status != FT8_ENGINE_OK && engine_status != FT8_ENGINE_NO_MESSAGES) return -1;
-        result_status = rx_result_builder_build(&rx->builder, &slot,
-                                                rx->rx_messages,
-                                                FT8_DECODER_CANDIDATE_CAPACITY,
-                                                &rx->batch);
-        if (result_status != RX_RESULT_OK) return -1;
-        rx_complete_batch(rx);
-        return 0;
-    }
+    case RX_SLOT_FRAMER_EVENT_REFINE_WINDOW:
+        status = ft8_engine_refine_decode(&rx->engine, event->slot_id);
+        /* If Search #1 was skipped because the previous job was still busy,
+         * there is intentionally nothing to refine for this slot. */
+        return (status == FT8_ENGINE_OK || status == FT8_ENGINE_BUSY) ? 0 : -1;
 
     case RX_SLOT_FRAMER_EVENT_STREAM_RESET:
         return ft8_engine_reset_stream(&rx->engine) == FT8_ENGINE_OK ? 0 : -1;
@@ -395,6 +395,57 @@ static bool app_process_addressed_batch(AppController *app)
     app->rx->applied_slot = app->rx->batch.slot_id;
     if (log_failed && app->api->system && app->api->system->write)
         app->api->system->write("ft8: RX RT log failed; receive processing continues\n");
+    return true;
+}
+
+static bool app_service_decode(AppController *app)
+{
+    AppRxState *rx;
+    Ft8ProtocolSlot slot;
+    Ft8EngineStatus engine_status;
+    RxResultStatus result_status;
+    int completed = 0;
+
+    if (app == NULL || app->rx == NULL)
+        return true;
+    rx = app->rx;
+
+    /* A discontinuity invalidates the waterfall/timing reference. Wait for the
+     * framer reset on fresh data instead of spending CPU on a stale job. */
+    if (rx->timing_pending || !ft8_engine_decode_active(&rx->engine))
+        return true;
+
+    engine_status = ft8_engine_decode_step(&rx->engine, &completed, &slot);
+    if (engine_status != FT8_ENGINE_OK &&
+        engine_status != FT8_ENGINE_NO_MESSAGES) {
+        return false;
+    }
+    if (!completed)
+        return true;
+
+    result_status = rx_result_builder_build(&rx->builder, &slot,
+                                            rx->rx_messages,
+                                            FT8_ENGINE_JOB_CANDIDATE_CAPACITY,
+                                            &rx->batch);
+    if (result_status != RX_RESULT_OK)
+        return false;
+
+    rx_complete_batch(rx);
+    return true;
+}
+
+static bool app_finish_rx_step(AppController *app,
+                               uint64_t generation_before,
+                               bool *out_model_changed)
+{
+    if (!app_service_decode(app))
+        return false;
+
+    if (app->rx != NULL && app->rx->batch_generation != generation_before) {
+        if (!app_process_addressed_batch(app))
+            return false;
+        *out_model_changed = true;
+    }
     return true;
 }
 
@@ -538,12 +589,62 @@ fail:
     return false;
 }
 
+static bool app_process_rx_frames(AppController *app, size_t got)
+{
+    AppRxState *rx;
+    size_t out_count = 0u;
+
+    if (app == NULL || app->rx == NULL)
+        return false;
+    rx = app->rx;
+
+    if (got == 0u)
+        return true;
+
+    if (rx_frontend_process(&rx->frontend, rx->transport_frames, got,
+                            rx->frontend_samples, RX_FRONTEND_OUT_CAPACITY,
+                            &out_count) != RX_FRONTEND_OK) {
+        return false;
+    }
+
+    if (rx->timing_pending && out_count > 0u) {
+        int64_t first_slot_id;
+        uint32_t first_sample_offset;
+
+        if (!utc_to_slot_reference(app->api->time_location,
+                                   &first_slot_id,
+                                   &first_sample_offset) ||
+            !backdate_slot_reference(&first_slot_id,
+                                     &first_sample_offset,
+                                     out_count)) {
+            return false;
+        }
+
+        RxSlotFramerStatus status = rx->framer_initialized
+            ? rx_slot_framer_reset_stream(&rx->framer, first_slot_id,
+                                           first_sample_offset, rx_emit_event, rx)
+            : rx_slot_framer_init(&rx->framer, first_slot_id, first_sample_offset);
+        if (status != RX_SLOT_FRAMER_OK)
+            return false;
+        rx->framer_initialized = true;
+        rx->timing_pending = false;
+    }
+
+    if (out_count > 0u &&
+        (!rx->framer_initialized ||
+         rx_slot_framer_process(&rx->framer, rx->frontend_samples, out_count,
+                                rx_emit_event, rx) != RX_SLOT_FRAMER_OK)) {
+        return false;
+    }
+
+    return true;
+}
+
 bool app_controller_step_rx(AppController *app, bool *out_model_changed)
 {
     AppRxState *rx;
     RxAudioAdapterStatus audio_status;
     size_t got = 0u;
-    size_t out_count = 0u;
     uint64_t generation_before;
 
     if (out_model_changed == NULL) return false;
@@ -564,54 +665,60 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
     if (audio_status == RX_AUDIO_ADAPTER_END_OF_STREAM) {
         if (rx_audio_adapter_close(&rx->audio) != RX_AUDIO_ADAPTER_OK) return false;
         rx->active = false;
-        return true;
+        return app_finish_rx_step(app, generation_before, out_model_changed);
     }
     if (audio_status != RX_AUDIO_ADAPTER_OK) {
         mini_result_t last = rx_audio_adapter_last_result(&rx->audio);
-        if (last == MINI_ERR_TIMEOUT || last == MINI_ERR_NOT_READY) return true;
-        return false;
-    }
-    if (got == 0u) return true;
-
-    if (rx_frontend_process(&rx->frontend, rx->transport_frames, got,
-                            rx->frontend_samples, RX_FRONTEND_OUT_CAPACITY,
-                            &out_count) != RX_FRONTEND_OK) {
+        if (last == MINI_ERR_TIMEOUT || last == MINI_ERR_NOT_READY)
+            return app_finish_rx_step(app, generation_before, out_model_changed);
         return false;
     }
 
-    if (rx->timing_pending && out_count > 0u) {
-        int64_t first_slot_id;
-        uint32_t first_sample_offset;
+    if (!app_process_rx_frames(app, got))
+        return false;
 
-        if (!utc_to_slot_reference(app->api->time_location,
-                                   &first_slot_id,
-                                   &first_sample_offset) ||
-            !backdate_slot_reference(&first_slot_id,
-                                     &first_sample_offset,
-                                     out_count)) {
-            return false;
+    /*
+     * I001 capture-before-decode policy.
+     *
+     * A live provider may have accumulated audio while one LDPC candidate was
+     * being attempted. Drain immediately available chunks with zero wait before
+     * spending time on the next candidate. The loop is bounded so a permanently
+     * ready source cannot starve LDPC forever; after at most eight immediate
+     * chunks, one candidate may run and the next application step drains again.
+     */
+    if (rx->live) {
+        for (unsigned drain = 0u; drain < RX_READY_DRAIN_LIMIT; ++drain) {
+            got = 0u;
+            audio_status = rx_audio_adapter_read(&rx->audio,
+                                                 rx->transport_frames,
+                                                 RX_TRANSPORT_FRAMES,
+                                                 &got,
+                                                 MINI_WAIT_NONE);
+            if (audio_status == RX_AUDIO_ADAPTER_DISCONTINUITY) {
+                rx_frontend_reset_stream(&rx->frontend);
+                rx->timing_pending = true;
+                return true;
+            }
+            if (audio_status == RX_AUDIO_ADAPTER_END_OF_STREAM) {
+                if (rx_audio_adapter_close(&rx->audio) != RX_AUDIO_ADAPTER_OK)
+                    return false;
+                rx->active = false;
+                break;
+            }
+            if (audio_status != RX_AUDIO_ADAPTER_OK) {
+                mini_result_t last = rx_audio_adapter_last_result(&rx->audio);
+                if (last == MINI_ERR_TIMEOUT || last == MINI_ERR_NOT_READY)
+                    break;
+                return false;
+            }
+            if (got == 0u)
+                break;
+            if (!app_process_rx_frames(app, got))
+                return false;
         }
-        RxSlotFramerStatus status = rx->framer_initialized
-            ? rx_slot_framer_reset_stream(&rx->framer, first_slot_id,
-                                           first_sample_offset, rx_emit_event, rx)
-            : rx_slot_framer_init(&rx->framer, first_slot_id, first_sample_offset);
-        if (status != RX_SLOT_FRAMER_OK) return false;
-        rx->framer_initialized = true;
-        rx->timing_pending = false;
     }
 
-    if (out_count > 0u &&
-        (!rx->framer_initialized ||
-         rx_slot_framer_process(&rx->framer, rx->frontend_samples, out_count,
-                                rx_emit_event, rx) != RX_SLOT_FRAMER_OK)) {
-        return false;
-    }
-
-    if (rx->batch_generation != generation_before) {
-        if (!app_process_addressed_batch(app)) return false;
-        *out_model_changed = true;
-    }
-    return true;
+    return app_finish_rx_step(app, generation_before, out_model_changed);
 }
 
 bool app_controller_rx_active(const AppController *app)

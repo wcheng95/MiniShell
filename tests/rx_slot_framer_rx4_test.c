@@ -17,9 +17,11 @@ typedef struct {
     size_t begin_count;
     size_t block_count;
     size_t finalize_count;
+    size_t refine_count;
     size_t reset_count;
     int64_t begin_slots[8];
     int64_t finalize_slots[8];
+    int64_t refine_slots[8];
     int64_t reset_slots[8];
     uint64_t sample_hash;
     size_t block_samples;
@@ -71,6 +73,14 @@ static int log_event(void *ctx, const RxSlotFramerEvent *event)
         if (log->finalize_count < 8u)
             log->finalize_slots[log->finalize_count] = event->slot_id;
         log->finalize_count++;
+        if (event->samples != NULL || event->sample_count != 0u)
+            return -1;
+        break;
+
+    case RX_SLOT_FRAMER_EVENT_REFINE_WINDOW:
+        if (log->refine_count < 8u)
+            log->refine_slots[log->refine_count] = event->slot_id;
+        log->refine_count++;
         if (event->samples != NULL || event->sample_count != 0u)
             return -1;
         break;
@@ -157,13 +167,15 @@ static int test_exact_slot_and_remainder(void)
     CHECK(log.block_samples == 93u * RX_SLOT_FRAMER_BLOCK_SAMPLES);
     CHECK(log.finalize_count == 1u);
     CHECK(log.finalize_slots[0] == 7);
+    CHECK(log.refine_count == 1u);
+    CHECK(log.refine_slots[0] == 7);
     CHECK(log.reset_count == 0u);
 
     CHECK(framer.slot_id == 8);
     CHECK(framer.sample_offset == 0u);
-    CHECK(framer.block_fill == 0u);
-    CHECK(framer.window_active == 0);
-    CHECK(framer.waiting_for_full_boundary == 0);
+    CHECK(framer.block_fill == 720u);
+    CHECK(framer.slot_anchor_valid == 0);
+    CHECK(framer.begin_pending == 1);
     return 0;
 }
 
@@ -179,18 +191,21 @@ static int test_partial_first_slot(void)
     CHECK(rx_slot_framer_init(&framer, 10, 30000u) == RX_SLOT_FRAMER_OK);
     CHECK(feed_generated(&framer, 60000u, 311u, 0u, &log) == 0);
     CHECK(log.begin_count == 0u);
-    CHECK(log.block_count == 0u);
+    CHECK(log.block_count == 62u);
     CHECK(log.finalize_count == 0u);
+    CHECK(log.refine_count == 0u);
     CHECK(framer.slot_id == 11);
     CHECK(framer.sample_offset == 0u);
+    CHECK(framer.block_fill == 480u);
 
     CHECK(rx_slot_framer_process(&framer, &one, 1u, log_event, &log) == RX_SLOT_FRAMER_OK);
     CHECK(log.begin_count == 1u);
     CHECK(log.begin_slots[0] == 11);
-    CHECK(log.block_count == 0u);
+    CHECK(log.block_count == 62u);
 
     CHECK(rx_slot_framer_process(&framer, rest, 959u, log_event, &log) == RX_SLOT_FRAMER_OK);
-    CHECK(log.block_count == 1u);
+    CHECK(log.block_count == 63u);
+    CHECK(framer.block_fill == 480u);
     return 0;
 }
 
@@ -210,17 +225,21 @@ static int test_chunk_invariance_and_multi_slot(void)
     CHECK(feed_generated(&b, 2u * RX_SLOT_FRAMER_SLOT_SAMPLES, 13u, 0u, &log_b) == 0);
 
     CHECK(log_a.begin_count == 2u);
-    CHECK(log_a.block_count == 186u);
+    CHECK(log_a.block_count == 187u);
     CHECK(log_a.finalize_count == 2u);
+    CHECK(log_a.refine_count == 2u);
     CHECK(log_a.begin_slots[0] == 100 && log_a.begin_slots[1] == 101);
     CHECK(log_a.finalize_slots[0] == 100 && log_a.finalize_slots[1] == 101);
+    CHECK(log_a.refine_slots[0] == 100 && log_a.refine_slots[1] == 101);
 
     CHECK(log_b.begin_count == log_a.begin_count);
     CHECK(log_b.block_count == log_a.block_count);
     CHECK(log_b.finalize_count == log_a.finalize_count);
+    CHECK(log_b.refine_count == log_a.refine_count);
     CHECK(log_b.block_samples == log_a.block_samples);
     CHECK(log_b.sample_hash == log_a.sample_hash);
     CHECK(b.slot_id == 102 && b.sample_offset == 0u);
+    CHECK(b.block_fill == 480u && b.begin_pending == 1);
     return 0;
 }
 
@@ -242,17 +261,20 @@ static int test_stream_reset(void)
     CHECK(log.reset_count == 1u);
     CHECK(log.reset_slots[0] == 20);
     CHECK(framer.block_fill == 0u);
-    CHECK(framer.window_active == 0);
-    CHECK(framer.waiting_for_full_boundary == 1);
+    CHECK(framer.slot_anchor_valid == 0);
+    CHECK(framer.begin_pending == 0);
 
     CHECK(feed_generated(&framer, RX_SLOT_FRAMER_SLOT_SAMPLES - 100u,
                          701u, 0u, &log) == 0);
     CHECK(log.begin_count == 1u);
+    CHECK(log.block_count == 95u);
     CHECK(framer.slot_id == 21 && framer.sample_offset == 0u);
+    CHECK(framer.block_fill == 620u && framer.begin_pending == 1);
 
     CHECK(rx_slot_framer_process(&framer, &one, 1u, log_event, &log) == RX_SLOT_FRAMER_OK);
     CHECK(log.begin_count == 2u);
     CHECK(log.begin_slots[1] == 21);
+    CHECK(framer.block_fill == 621u);
     return 0;
 }
 

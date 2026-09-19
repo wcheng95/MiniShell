@@ -5,6 +5,8 @@
 
 #include "ft8_engine.h"
 
+#define FT8_HOST_MAX_WINDOW_BLOCKS 93u
+
 typedef struct {
     FILE *file;
     uint32_t sample_count;
@@ -189,6 +191,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "WAV does not contain one complete FT8 engine block\n");
         goto cleanup;
     }
+    if (full_blocks > FT8_HOST_MAX_WINDOW_BLOCKS) {
+        fprintf(stderr,
+                "WAV contains more than one RX-2 decode window; multi-slot WAVs belong to RX-4\n");
+        goto cleanup;
+    }
 
     for (block_index = 0u; block_index < full_blocks; ++block_index) {
         if (read_engine_block(&wav, block) != 0) {
@@ -197,11 +204,6 @@ int main(int argc, char **argv)
         }
 
         status = ft8_engine_process_block(&engine, block);
-        if (status == FT8_ENGINE_WATERFALL_FULL) {
-            fprintf(stderr,
-                    "WAV contains more than one RX-2 decode window; multi-slot WAVs belong to RX-4\n");
-            goto cleanup;
-        }
         if (status != FT8_ENGINE_OK) {
             fprintf(stderr, "FT8 engine rejected block %u (status %d)\n",
                     block_index, (int)status);
