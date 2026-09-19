@@ -147,6 +147,29 @@ immediately available transport chunks per application step. Decode no longer
 depends on those drain opportunities for scheduling because it runs
 independently on core 1.
 
+## ADV decode timing diagnostics
+
+The packaged ADV build enables decode diagnostics through MiniShell
+`System.write`. During the QMX USB-host session this is the dedicated UART0
+diagnostic path at 115200 8N1 on TX=GPIO3 / RX=GPIO6. The UI is unchanged.
+
+Representative records:
+
+```text
+FT8D start       slot=123 ms=0    cand=0  msg=0 state=1
+FT8D search-done slot=123 ms=420  cand=50 msg=0 state=1
+FT8D done        slot=123 ms=3270 cand=50 msg=4 state=2
+FT8D publish     slot=123 ms=3280 cand=50 msg=4 state=0
+FT8D skip-busy   slot=124 ms=15000 cand=0 msg=0 state=1
+```
+
+All `ms=` values are elapsed from the slot's +79-block decode trigger. Thus
+`search-done` measures candidate-search latency, while
+`done - search-done` approximates total likelihood/LDPC/message-decode time.
+A `skip-busy` line is direct evidence that the previous slot was still
+occupying the core-1 decode worker when the next slot reached its own +79
+trigger.
+
 ## Files changed
 
 Production:

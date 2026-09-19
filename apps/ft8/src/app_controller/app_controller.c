@@ -36,6 +36,10 @@ typedef enum {
 #define FT8_DEFAULT_FREQ_OSR FT8_MONITOR_BASELINE_FREQ_OSR
 #endif
 
+#ifndef FT8_DECODE_DIAGNOSTICS
+#define FT8_DECODE_DIAGNOSTICS 0
+#endif
+
 _Static_assert(APP_MAX_TX_LINES >= AUTO_SEQ_MAX_QUEUE,
                "UiModel must hold the complete active AutoSeq queue");
 _Static_assert(FT8_CONFIG_CQ == AUTO_SEQ_CQ, "CQ type mapping drifted");
@@ -46,6 +50,7 @@ _Static_assert(FT8_CONFIG_CQ_FD == AUTO_SEQ_CQ_FD, "CQ type mapping drifted");
 _Static_assert(FT8_CONFIG_CQ_FREETEXT == AUTO_SEQ_CQ_FREETEXT, "CQ type mapping drifted");
 
 struct AppRxState {
+    const mini_api_t *api;
     RxAudioAdapter audio;
     RxFrontend frontend;
     RxSlotFramer framer;
@@ -83,6 +88,8 @@ struct AppRxState {
     bool decode_external;
     atomic_int decode_async_state;
     Ft8ProtocolSlot decode_completed_slot;
+    int64_t decode_diag_start_ms;
+    bool decode_diag_search_reported;
 
     /* UI selection is an index into the retained batch, never a retained pointer. */
     bool selected_rx_valid;
@@ -94,6 +101,54 @@ static RxDecodeAsyncState rx_decode_state(AppRxState *rx)
 {
     return (RxDecodeAsyncState)atomic_load_explicit(
         &rx->decode_async_state, memory_order_acquire);
+}
+
+static int64_t rx_monotonic_ms(const AppRxState *rx)
+{
+    uint64_t us;
+    uint64_t ms;
+
+    if (rx == NULL || rx->api == NULL || rx->api->time_location == NULL ||
+        rx->api->time_location->monotonic_us == NULL) {
+        return 0;
+    }
+
+    us = rx->api->time_location->monotonic_us();
+    ms = us / 1000u;
+    return ms > (uint64_t)INT64_MAX ? INT64_MAX : (int64_t)ms;
+}
+
+static void rx_decode_diag(AppRxState *rx, const char *event,
+                           int64_t slot_id, int64_t elapsed_ms,
+                           size_t candidates, size_t messages,
+                           int state)
+{
+#if FT8_DECODE_DIAGNOSTICS
+    char line[128];
+
+    if (rx == NULL || event == NULL || rx->api == NULL ||
+        rx->api->system == NULL || rx->api->system->write == NULL) {
+        return;
+    }
+
+    (void)snprintf(line, sizeof(line),
+                   "FT8D %s slot=%lld ms=%lld cand=%u msg=%u state=%d\n",
+                   event,
+                   (long long)slot_id,
+                   (long long)elapsed_ms,
+                   (unsigned)candidates,
+                   (unsigned)messages,
+                   state);
+    rx->api->system->write(line);
+#else
+    (void)rx;
+    (void)event;
+    (void)slot_id;
+    (void)elapsed_ms;
+    (void)candidates;
+    (void)messages;
+    (void)state;
+#endif
 }
 
 static void rx_request_decode_cancel(AppRxState *rx)
@@ -394,6 +449,13 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
     case RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW:
         if (rx->decode_external &&
             rx_decode_state(rx) != RX_DECODE_ASYNC_IDLE) {
+            RxDecodeAsyncState state = rx_decode_state(rx);
+            int64_t now_ms = rx_monotonic_ms(rx);
+            int64_t elapsed = rx->decode_diag_start_ms > 0
+                                  ? now_ms - rx->decode_diag_start_ms
+                                  : 0;
+            rx_decode_diag(rx, "skip-busy", event->slot_id, elapsed,
+                           0u, 0u, (int)state);
             /* One worker job/result at a time. A slow previous slot costs
              * decode yield, never capture continuity. */
             return 0;
@@ -401,6 +463,14 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
         status = ft8_engine_start_decode(&rx->engine,
                                          rx->protocol_messages,
                                          FT8_ENGINE_JOB_CANDIDATE_CAPACITY);
+        if (status == FT8_ENGINE_OK) {
+            rx->decode_diag_start_ms = rx_monotonic_ms(rx);
+            rx->decode_diag_search_reported = false;
+            rx_decode_diag(rx, "start", event->slot_id, 0,
+                           0u, 0u,
+                           rx->decode_external ? RX_DECODE_ASYNC_RUNNING
+                                               : RX_DECODE_ASYNC_IDLE);
+        }
         if (status == FT8_ENGINE_OK && rx->decode_external) {
             atomic_store_explicit(&rx->decode_async_state,
                                   RX_DECODE_ASYNC_RUNNING,
@@ -482,6 +552,11 @@ static bool app_publish_external_decode(AppController *app)
         return false;
 
     rx_complete_batch(rx);
+    rx_decode_diag(rx, "publish", rx->batch.slot_id,
+                   rx_monotonic_ms(rx) - rx->decode_diag_start_ms,
+                   rx->engine.decode_candidate_count,
+                   rx->batch.message_count,
+                   RX_DECODE_ASYNC_IDLE);
     atomic_store_explicit(&rx->decode_async_state,
                           RX_DECODE_ASYNC_IDLE,
                           memory_order_release);
@@ -626,6 +701,7 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
         return false;
     }
     memset(rx, 0, sizeof(*rx));
+    rx->api = app->api;
     atomic_init(&rx->decode_async_state, RX_DECODE_ASYNC_IDLE);
     app->rx = rx;
     rx->live = !config->has_explicit_timing;
@@ -888,6 +964,11 @@ bool app_controller_decode_worker_step(AppController *app, bool *out_did_work)
                                   memory_order_release);
             return false;
         }
+        rx_decode_diag(rx, "cancel", rx->engine.decode_slot_id,
+                       rx_monotonic_ms(rx) - rx->decode_diag_start_ms,
+                       rx->engine.decode_candidate_count,
+                       rx->engine.decode_slot.message_count,
+                       RX_DECODE_ASYNC_CANCELED);
         atomic_store_explicit(&rx->decode_async_state,
                               RX_DECODE_ASYNC_CANCELED,
                               memory_order_release);
@@ -898,17 +979,36 @@ bool app_controller_decode_worker_step(AppController *app, bool *out_did_work)
         return true;
 
     *out_did_work = true;
-    status = ft8_engine_decode_step(&rx->engine, &completed, &slot);
-    if (status != FT8_ENGINE_OK && status != FT8_ENGINE_NO_MESSAGES) {
-        atomic_store_explicit(&rx->decode_async_state,
-                              RX_DECODE_ASYNC_ERROR,
-                              memory_order_release);
-        return false;
+    {
+        int search_was_active = rx->engine.decode_search_active;
+        status = ft8_engine_decode_step(&rx->engine, &completed, &slot);
+
+        if (status != FT8_ENGINE_OK && status != FT8_ENGINE_NO_MESSAGES) {
+            atomic_store_explicit(&rx->decode_async_state,
+                                  RX_DECODE_ASYNC_ERROR,
+                                  memory_order_release);
+            return false;
+        }
+
+        if (search_was_active && !rx->engine.decode_search_active &&
+            !rx->decode_diag_search_reported) {
+            int64_t elapsed = rx_monotonic_ms(rx) - rx->decode_diag_start_ms;
+            rx->decode_diag_search_reported = true;
+            rx_decode_diag(rx, "search-done", rx->engine.decode_slot_id,
+                           elapsed, rx->engine.decode_candidate_count,
+                           rx->engine.decode_slot.message_count,
+                           RX_DECODE_ASYNC_RUNNING);
+        }
     }
     if (!completed)
         return true;
 
     rx->decode_completed_slot = slot;
+    rx_decode_diag(rx, "done", slot.slot_id,
+                   rx_monotonic_ms(rx) - rx->decode_diag_start_ms,
+                   rx->engine.decode_candidate_count,
+                   slot.message_count,
+                   RX_DECODE_ASYNC_RESULT);
     atomic_store_explicit(&rx->decode_async_state,
                           RX_DECODE_ASYNC_RESULT,
                           memory_order_release);
