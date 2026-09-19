@@ -1,6 +1,6 @@
 # T030 — ADV QMX CAT + shared UAC/CDC USB session + first ADV QSO
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1252,5 +1252,60 @@ One new implementation commit on `codex/T030-adv-qmx-cat`, based on supervisor
 review head `f6b8950`. The commit containing this R1 handoff is the reference;
 its exact SHA is returned to the architect. Task returned to REVIEW. No PR or
 GitHub Actions wait.
+
+### R1 supervisor re-review — PASS
+
+Reviewed R1 implementation commit:
+
+```text
+51e45d631d285fb7080c2bee643b1a90a292617e
+```
+
+R1 satisfies the disconnected-start requirement without changing portable
+MiniFT8 or public MiniShell APIs.
+
+Accepted behavior:
+
+```text
+bare ADV ft8, QMX absent
+    -> ADV composition starts/retains the existing private QMX USB discovery session
+    -> wait UI remains active indefinitely
+    -> Q/Esc can cancel cleanly
+    -> no public Serial handle exists yet
+    -> no CAT command is reported/sent as successful
+
+first QMX attachment
+    -> CDC becomes genuinely ready
+    -> portable ft8 entry starts
+    -> public serial:qmx opens normally
+    -> existing radio_qmx performs MD6/FR0/FT0/FA synchronization
+    -> only then does portable RX open/start uac:qmx
+```
+
+The private `adv_qmx_prepare_serial()/adv_qmx_release_unused()` helpers are
+ADV composition-only and do not alter the public API. Repeated NOT_READY polling
+retains one existing USB session rather than reinstalling the Host/class drivers.
+Cancellation/error paths pair preparation with release. Tone-test and non-QMX
+paths preserve their intended behavior.
+
+Regression coverage executes the actual ADV wrapper plus the real portable
+option parser and radio_qmx synchronization, including a simulated first attach
+after four seconds, which is beyond the original three-second Serial-open
+deadline.
+
+Software gates remain PASS:
+
+```text
+Linux CTest       61/61
+portable units    15/15
+architecture      PASS
+ADV build         PASS
+diff check        PASS
+```
+
+R1 image growth is +564 B versus the first reviewed T030 implementation, with
+DIRAM .data/.bss unchanged.
+
+Supervisor review is complete. Proceed to hardware H1-H7.
 
 ## Architect test result
