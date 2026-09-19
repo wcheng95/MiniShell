@@ -14,6 +14,7 @@ wcheng95/Mini-FT8
 ```text
 production TX baseline   Linux/pc-1 + QMX accepted
 portable Linux host      WinBook/TW700 + QMX RX/CAT/TX validated
+portable AArch64 host    rpi3-2 + QMX RX/CAT/TX validated
 embedded deployment      ADV live RX validated; physical TX remains future
 ```
 
@@ -25,6 +26,15 @@ V2-compatible offset-source behavior, and a completed two-way QSO on
 binaries: QMX ALSA RX/decode and QMX CDC CAT/TX both work. The login user must
 have normal `dialout` access to the CDC tty. ALSA card and tty numbering may
 change across boots; stable QMX endpoint discovery remains deferred.
+
+`rpi3-2` provides the current Linux/AArch64 portability reference. It was built
+natively on Raspberry Pi 3 AArch64 Linux and validated end-to-end with QMX:
+MiniShell runtime, portable shared-object apps, MiniFT8 live ALSA RX/decode,
+Serial/CDC CAT band control, and physical TX/RX all pass. Fresh-host prerequisites
+were `cmake`, `build-essential`, and `libasound2-dev`; the ALSA development header
+must be installed before the native build because Linux ALSA support is selected
+at compile time. Preserve this bring-up recipe/evidence for future CardputerZero
+work.
 
 ## Current production baseline
 
@@ -44,6 +54,7 @@ CQ/POTA beacon controls             COMPLETE — T023 hardware validated
 Random/Fixed/RX TX offset           COMPLETE — T024 hardware validated
 WinBook/TW700 live RX               PASS — pc-1 binaries + QMX ALSA decode
 WinBook/TW700 QMX CAT/TX            PASS — requires user membership in dialout
+rpi3-2 AArch64 QMX RX/CAT/TX        PASS — native build, live decode + physical TX
 first real two-way QSO               COMPLETE — Linux/QMX, 2026-09-18 UTC
 T026 RR73 responder compatibility    COMPLETE — temporary V2 keyword-before-grid rule
 T027 non-standard/hash TX             COMPLETE — V2-compatible hashed QSO + type-4 CQ
