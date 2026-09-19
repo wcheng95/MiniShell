@@ -401,6 +401,19 @@ architecture.md    application ownership/dependency architecture
 
 Detailed RX and AS stage documents remain in this directory as implementation history and regression rationale. They are subordinate to the current contracts above when wording conflicts.
 
+## Non-standard / compound callsign TX
+
+T027 completes the T021 deferred non-standard/hash TX path. Directed QSO messages
+to a compound call such as `W1AW/9` remain normal STANDARD FT8 messages with the
+V2-compatible 22-bit callsign hash, preserving the grid/report/terminal field.
+Plain CQ from a non-standard local callsign uses FT8 type-4 and therefore carries
+the full callsign without a grid. Modified non-standard CQ forms that cannot be
+represented safely are rejected rather than degraded.
+
+Software acceptance uses 36 pinned-V2 payload/tone vectors plus the production
+decode -> selection -> AutoSeq -> mocked-QMX physical regression. Real RF
+confirmation is opportunistic when a compound callsign appears naturally on air.
+
 ## Current follow-up boundaries
 
 The Linux/QMX physical-TX boundary is complete:
