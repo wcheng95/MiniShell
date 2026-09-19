@@ -1,6 +1,6 @@
 # T027 — Non-standard / hashed FT8 TX support
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -717,4 +717,20 @@ record. No RF evidence is required to accept the software implementation.
 
 
 ## Architect test result
+
+Architect accepts T027 as COMPLETE based on the reviewed software evidence and
+pinned-V2 vector coverage. Opportunistic Linux/QMX RF confirmation is deferred
+until a compound/non-standard callsign appears naturally on air; it is not a
+completion gate.
+
+When such a station is encountered, useful confirmation remains:
+
+```text
+R ... CQ <compound-call>
+T ... <compound-call> AG6AQ CM97
+```
+
+with actual QMX keying and the full intended callsign preserved in the RT T line.
+Any future hardware discrepancy should open a new bounded task rather than reopen
+T027 automatically.
 
