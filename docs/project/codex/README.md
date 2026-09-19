@@ -7,12 +7,18 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T022-linux-qmx-first-qso.md      COMPLETE
-T023-cq-beacon-ui.md          COMPLETE
-T024-offset-source-random.md    COMPLETE
+T025-shell-aliases.md            READY
 ```
 
-T022-T024 are COMPLETE and accepted for consolidation onto main. pc-1/QMX has real on-air TX, decodability, RX recovery, RxTxLog, CQ/POTA beacon, and Random-offset validation. A completed two-way QSO remains an operational follow-up. WinBook/TW700 runs the pc-1 binaries and decodes QMX audio; WinBook CAT/TX is the next unresolved portability item.
+Recently completed:
+
+```text
+T022-linux-qmx-first-qso.md      COMPLETE
+T023-cq-beacon-ui.md             COMPLETE
+T024-offset-source-random.md     COMPLETE
+```
+
+T025 is READY: resident MiniShell aliases from `/flash/minishell/alias.txt`, first `=` separator, live reload on next command, one-level expansion, no heap/public-API/platform coupling. Compact datetime and command history are explicitly deferred.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
