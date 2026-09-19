@@ -46,6 +46,7 @@ typedef struct {
     int state;
     void *ringbuf;
     size_t ringbuf_size, ringbuf_threshold;
+    size_t packet_size;
 } uac_iface_t;
 typedef struct {
     void *context;
@@ -55,7 +56,7 @@ typedef struct {
 } usb_transfer_t;
 static unsigned errors, pushes, submits;
 static int push_result, submit_result;
-static size_t native_length;
+static size_t native_length, last_push_bytes;
 static adv_uac_buffer_t canonical;
 static size_t _ring_buffer_get_len(void *ringbuf)
 { (void)ringbuf; return native_length; }
@@ -63,6 +64,7 @@ static int _ring_buffer_push(void *ringbuf, uint8_t *bytes, size_t count, int wa
 {
     (void)ringbuf; (void)bytes; (void)wait;
     ++pushes;
+    last_push_bytes = count;
     if (!push_result) native_length += count;
     return push_result;
 }
@@ -86,8 +88,8 @@ int main(void)
         memset(&canonical, 0, sizeof(canonical));
         errors = pushes = submits = 0;
         push_result = submit_result = 0;
-        native_length = 0;
-        uac_iface_t iface = {UAC_INTERFACE_STATE_ACTIVE, NULL, 64, 12};
+        native_length = last_push_bytes = 0;
+        uac_iface_t iface = {UAC_INTERFACE_STATE_ACTIVE, NULL, 64, 12, 6};
         usb_transfer_t transfer = {&iface, USB_TRANSFER_STATUS_COMPLETED, 12, 2,
                                    data, {{0, 6, 6}, {0, 6, 6}}};
         switch (test) {
@@ -109,6 +111,7 @@ int main(void)
         assert(canonical.pending == lost);
         assert(submits == (unsigned)(test < 5 || test == 9 || test == 10));
         if (test == 0 || test == 4 || test == 9 || test == 10) assert(pushes == 2);
+        if (test == 10) assert(last_push_bytes == iface.packet_size);
         if (test == 1 || (test >= 5 && test <= 8)) assert(pushes == 0);
         if (test == 2 || test == 3) assert(pushes == 1);
         if (lost) {
