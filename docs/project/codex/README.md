@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T025-shell-aliases.md            READY
+T025-shell-aliases.md            TESTING
 ```
 
 Recently completed:
