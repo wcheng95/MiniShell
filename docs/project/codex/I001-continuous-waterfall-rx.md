@@ -147,6 +147,15 @@ immediately available transport chunks per application step. Decode no longer
 depends on those drain opportunities for scheduling because it runs
 independently on core 1.
 
+### Core-1 worker stack correction
+
+The first ADV core-split build allocated an 8 KiB static stack buffer but passed
+`sizeof(stack) / sizeof(StackType_t)` to `xTaskCreateStaticPinnedToCore()`.
+ESP-IDF defines that argument in bytes, so the task was configured for only
+2048 bytes. That can cause stack overflow or memory corruption despite the
+larger backing array. The worker now passes `sizeof(stack)` (8192 bytes) and
+reports `uxTaskGetStackHighWaterMark(NULL)` minimum-free bytes on UART.
+
 ## ADV decode timing diagnostics
 
 The packaged ADV build enables decode diagnostics through MiniShell
