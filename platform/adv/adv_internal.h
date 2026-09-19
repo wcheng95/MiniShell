@@ -48,6 +48,10 @@ bool adv_filesystem_sd_ready(void);
 void adv_filesystem_configure(minishell_services_port_t *port);
 void adv_audio_wav_configure(minishell_services_port_t *port);
 void adv_audio_uac_configure(minishell_services_port_t *port);
+/* Foreground composition probe retains discovery on NOT_READY. Always pair
+ * with release_unused, including cancellation or portable startup failure. */
+mini_result_t adv_qmx_prepare_serial(void);
+mini_result_t adv_qmx_release_unused(void);
 void adv_audio_speaker_configure(minishell_services_port_t *port);
 void adv_time_location_configure(minishell_services_port_t *port);
 void adv_digital_io_configure(minishell_services_port_t *port);

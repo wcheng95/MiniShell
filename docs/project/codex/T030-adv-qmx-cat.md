@@ -1,6 +1,6 @@
 # T030 — ADV QMX CAT + shared UAC/CDC USB session + first ADV QSO
 
-Status: IMPLEMENTING
+Status: REVIEW
 
 ## Architect intent
 
@@ -1054,9 +1054,10 @@ Host mock tests do not emulate ESP-IDF scheduling, real USB disconnects, endpoin
 cancellation, QMX command acceptance, or RF timing. Hardware validation remains
 the completion gate. A driver cleanup failure can retain the USB lease until
 retry; the console is never restored over a still-installed host/class driver.
-CDC readiness wait is three seconds, so a radio attached later requires another
-open if no Audio owner keeps discovery alive. No general device discovery or CAT
-response parser is added. See Serial watchdog detail above.
+The initial implementation required another open after the three-second CDC
+readiness deadline; R1 below supersedes that limitation for normal ADV FT8
+startup. No general device discovery or CAT response parser is added. See
+Serial watchdog detail above.
 
 ### Commit
 
@@ -1133,5 +1134,123 @@ the regression as a known limitation.
 
 All other reviewed implementation areas are approved pending R1 and hardware
 H1-H7.
+
+## Codex R1 implementation notes
+
+### Implementation summary / files changed
+
+Addressed R1 with a cancellable ADV composition wait before portable CAT-first
+startup. `platform/adv/main/ft8_static.c` validates the composed options using
+the existing parser, then normal `serial:qmx` startup polls readiness while
+showing `ft8: waiting for QMX` and `Q/Esc: cancel`. No first-attach deadline is
+imposed by this composition wait. Tone tests, malformed options, non-QMX CAT,
+and RX without QMX CAT bypass the wait and preserve their previous behavior.
+
+`platform/adv/adv_audio_uac.cpp` adds two private foreground composition helpers,
+declared only in `platform/adv/adv_internal.h`: prepare/poll the existing shared
+session without opening a public handle, and release it if no public owner
+remains. NOT_READY retains USB discovery. On readiness the portable entry opens
+Serial, performs actual CAT synchronization, and starts RX normally. Every
+wrapper exit pairs preparation with release, including cancellation, missing
+input, driver failure, and portable initialization failure before CAT ownership.
+There is no new session abstraction, worker, owner flag, or runtime allocation.
+
+`tests/adv_ft8_defaults_test.py` now uses the real portable option parser and
+checks which composed invocations prepare/release the waiting session.
+`tests/adv_qmx_serial_test.py` adds the late-attach and unwind regression described
+below. This task packet is the sixth changed file.
+
+### Behavior/invariants preserved
+
+No `apps/ft8/**` or public API changes. Serial.open still has its bounded readiness
+wait, and writes still report actual CDC transfer success/error. No unsent CAT
+command is accepted, buffered, or retried by composition. Commands remain in the
+existing portable radio adapter. UAC-IN/CDC ownership, Audio pause/resume,
+component pins, Linux defaults, speaker, UAC OUT exclusion, and QDX exclusion
+are unchanged. The wait screen is ADV composition; the portable FT8 UI begins
+after attachment. This implements the review's allowed usable/waiting behavior
+without broadening portable application startup policy.
+
+### Failing-before / passing-after regression evidence
+
+The executable regression links the **actual** ADV wrapper, portable parser,
+`radio_control.c`, `radio_qmx.c`, and production ADV session/Serial/Audio lifecycle
+callbacks. The application entry is a small harness performing CAT-open/sync
+then Audio-open/start in the existing portable order. USB discovery, CDC transfer,
+keyboard, clock, heap, and driver preparation/release are mocked.
+
+Bare `ft8` starts with no CDC device. Forty 100-ms input waits assert that the
+same session remains alive, no app-entry/CAT write has occurred, and the wait
+message is shown once. First attachment at four seconds then permits real radio
+adapter synchronization (`MD6; FR0; FT0; FA00007074000;`) before RX opens/starts.
+Exactly one preparation and one final release occur. Additional cases cover Q
+and Escape cancellation, input failure, preparation failure, unavailable CDC
+worker, portable pre-CAT initialization failure, and failed CAT synchronization
+without false write success or RX startup. Existing Serial/lifecycle fault tests
+remain intact.
+
+Running that regression with the previous wrapper saved from `f6b8950` fails the
+normal-return assertion: it reaches the old CAT startup error instead of waiting
+for late attach. The revised wrapper passes all cases.
+
+### Tests run and results
+
+```bash
+git status --short
+# Clean before R1 implementation.
+
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 61/61; no linux_serial_unit flake.
+
+cmake -S tests/unit -B /tmp/T030-build-unit
+cmake --build /tmp/T030-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T030-build-unit --output-on-failure
+# PASS 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+idf.py -C platform/adv size
+# PASS. R1 image 774741 B (+564 B versus reviewed T030 implementation).
+# DIRAM .data 19304 B and .bss 16880 B both unchanged.
+
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux \
+  -R 'adv_ft8_defaults|adv_qmx_serial' --output-on-failure
+# PASS 2/2 after adding composition probe-count assertions.
+
+git diff --check
+# PASS after removing a trailing space in the test harness.
+```
+
+### Hardware/manual validation still required
+
+H1–H7 remain pending. In particular, start bare `ft8` with QMX unplugged, wait
+longer than three seconds, attach it, and verify receive-safe frequency/mode
+synchronization followed by live decoding. Also verify Q/Escape cancellation
+restores the resident console and post-cancel `usbmsc`, then retry FT8. No
+hardware/RF test or flashing was performed. Shell/live heap free and largest
+block remain hardware measurements; R1 adds no runtime allocation.
+
+### Known limitations / risks
+
+The host regression proves composition and callback ordering, not actual USB
+attachment timing or DSP decoding. A fresh unplug between readiness detection
+and portable CAT synchronization can still produce a truthful startup transport
+error; R1 does not add automatic retries of ambiguous commands. Driver/cleanup
+failures remain reported, with the existing retained-session cleanup retry.
+
+### Commit reference
+
+One new implementation commit on `codex/T030-adv-qmx-cat`, based on supervisor
+review head `f6b8950`. The commit containing this R1 handoff is the reference;
+its exact SHA is returned to the architect. Task returned to REVIEW. No PR or
+GitHub Actions wait.
 
 ## Architect test result

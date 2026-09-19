@@ -521,6 +521,18 @@ mini_result_t rx_close(void *ctx, minishell_backend_audio_t audio)
     return release_unused() ? MINI_OK : MINI_ERR_IO;
 }
 } // namespace
+extern "C" mini_result_t adv_qmx_prepare_serial(void)
+{
+    if (!acquire_session() || !cdc_running) return MINI_ERR_IO;
+    if (xSemaphoreTake(cdc_mutex, 0) != pdTRUE) return MINI_ERR_NOT_READY;
+    bool ready = cdc_device && !cdc_unplugged;
+    xSemaphoreGive(cdc_mutex);
+    return ready ? MINI_OK : MINI_ERR_NOT_READY;
+}
+extern "C" mini_result_t adv_qmx_release_unused(void)
+{
+    return release_unused() ? MINI_OK : MINI_ERR_IO;
+}
 extern "C" void adv_audio_uac_configure(minishell_services_port_t *port)
 {
     base = *port;
