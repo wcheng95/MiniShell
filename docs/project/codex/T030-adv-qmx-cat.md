@@ -7,6 +7,10 @@ Status: READY
 Bring the proven Linux/QMX CAT + physical FT8 TX boundary to Cardputer ADV so
 ADV can make its first real MiniFT8-V3 QSO.
 
+**Portable MiniFT8 must not change in T030.** The existing MiniFT8 Serial/CAT/TX
+code is already the accepted implementation. T030 is an ADV MiniShell platform
+transport/composition task.
+
 The portable MiniFT8 CAT/TX stack is already complete and hardware-proven on
 Linux. Do not redesign it.
 
@@ -35,7 +39,7 @@ ADV wrapper:
 
 QMX composite USB device
     |
-    +-- UAC capture -> MiniShell Audio -> MiniFT8 RX
+    +-- UAC IN -> MiniShell Audio RX -> MiniFT8 RX
     |
     `-- CDC interface 0 -> MiniShell Serial -> radio_qmx CAT
                                    |
@@ -43,6 +47,8 @@ QMX composite USB device
                                    +-- TX
                                    +-- TA tone updates
                                    `-- RX
+
+No QMX/QDX UAC OUT path is part of T030.
 ```
 
 The final hardware acceptance goal is a completed two-way FT8 QSO using:
@@ -113,6 +119,36 @@ Current V3 ADV already carries most of this exact proven V2 recipe in
 CDC stack/priority, and persistent private CDC handle. T030 should therefore be
 a small adaptation of proven V2 behavior into MiniShell services, not a USB
 architecture redesign.
+
+## Audio direction scope
+
+MiniShell already separates Audio RX and Audio TX. T030 uses only:
+
+```text
+MiniShell Audio RX
+    <- QMX UAC IN
+```
+
+and separately:
+
+```text
+MiniShell Serial
+    -> QMX CDC CAT
+```
+
+T030 must **not** add or modify a USB Audio OUT provider.
+
+The existing ADV local speaker provider is unrelated and must remain untouched.
+
+Future QDX work may add:
+
+```text
+QDX UAC IN  -> MiniShell Audio RX
+QDX UAC OUT <- MiniShell Audio TX
+QDX CDC     -> MiniShell Serial
+```
+
+but that is explicitly deferred.
 
 ## Existing portable source of truth
 
@@ -213,16 +249,16 @@ Prefer the smallest change to the existing `adv_audio_uac.cpp`.
 A new `adv_qmx_usb` abstraction is **not required**. Do not refactor merely for
 architectural neatness.
 
-The current ADV UAC provider already owns the correct shared QMX USB host,
-UAC driver, CDC driver, capture task, CDC task, and console handoff. Extend that
-existing owner so MiniShell Audio and Serial can share it safely.
+The current ADV UAC-IN provider already owns the correct shared QMX USB host,
+UAC RX driver, CDC driver, capture task, CDC task, and console handoff. Extend
+that existing owner so MiniShell Audio RX and Serial can share it safely.
 
 Minimum state distinction needed:
 
 ```text
 QMX USB session alive
-Audio public owner/open
-Audio logical started/stopped
+Audio-RX public owner/open
+Audio-RX logical started/stopped
 Serial public owner/open
 CDC handle ready/disconnected
 ```
@@ -241,6 +277,41 @@ Rules:
    public owner remains;
 9. preserve the already-validated V2/ADV disconnect cleanup behavior;
 10. no second USB stack and no duplicate class-driver instance.
+
+## Portable MiniFT8 must remain unchanged
+
+No files under:
+
+```text
+apps/ft8/
+```
+
+may be changed for production behavior in T030.
+
+In particular, do not modify:
+
+```text
+apps/ft8/main/ft8_main.c
+apps/ft8/src/app_controller/
+apps/ft8/src/radio_control/
+apps/ft8/src/tx_encoder/
+apps/ft8/src/auto_seq/
+```
+
+Tests may of course exercise those existing interfaces.
+
+The existing MiniFT8 behavior is already correct:
+
+```text
+CAT open
+RX open/start
+...
+before TX -> Audio RX stop
+CAT TX/TA/RX
+after TX  -> Audio RX start
+```
+
+ADV must adapt to that contract.
 
 ## ADV Serial provider
 
@@ -317,9 +388,9 @@ If Audio still owns the QMX session, UAC + Host remain alive.
 If Serial was the last owner, perform complete class/host teardown and restore
 normal ADV USB console ownership.
 
-## UAC Audio lifecycle change — preserve V2 concurrent USB behavior
+## UAC-IN / Audio-RX lifecycle change — preserve V2 concurrent USB behavior
 
-Keep endpoint:
+Keep RX endpoint:
 
 ```text
 uac:qmx
@@ -694,6 +765,9 @@ After FT8 exit:
 
 ## Acceptance criteria
 
+- [ ] portable `apps/ft8/**` production code is unchanged;
+- [ ] no MiniShell public API change;
+- [ ] no USB Audio OUT / MiniShell Audio TX work is added;
 - [ ] ADV exposes MiniShell Serial WRITE service for `serial:qmx`;
 - [ ] provider uses existing QMX CDC interface 0;
 - [ ] no second USB Host stack is created;
@@ -716,7 +790,6 @@ After FT8 exit:
 - [ ] post-FT8 `usbmsc` still works;
 - [ ] first real ADV/QMX two-way FT8 QSO completed;
 - [ ] no portable MiniFT8 platform dependency added;
-- [ ] no public MiniShell API change;
 - [ ] Linux regression suite remains green aside from documented serial flake;
 - [ ] portable units pass;
 - [ ] architecture checks pass;
@@ -741,6 +814,9 @@ Do not implement:
 - CDC component upgrades;
 - Linux Serial flake fix;
 - arbitrary USB CDC devices;
+- QMX/QDX UAC OUT;
+- MiniShell Audio TX changes for USB radios;
+- QDX support;
 - broad extraction/refactoring of the ADV USB stack when the existing
   `adv_audio_uac.cpp` can be extended cleanly.
 
@@ -773,6 +849,22 @@ Codex:
 
 Codex does not perform RF validation. Supervisor review precedes H1-H7 hardware
 testing.
+
+## Supervisor scope decision
+
+Final T030 scope agreed with architect:
+
+```text
+portable MiniFT8 changes     NONE
+MiniShell public API changes NONE
+ADV USB Audio IN             keep/use existing QMX UAC-IN path
+ADV Serial                   add serial:qmx over existing CDC handle
+ADV Audio RX stop/start      logical pause/resume; keep shared USB session alive
+ADV USB Audio OUT            NOT IN T030
+QDX                          deferred
+```
+
+Prefer a minimal patch over abstraction work.
 
 ## Codex implementation notes
 
