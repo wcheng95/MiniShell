@@ -1,6 +1,6 @@
 # T025 — MiniShell alias.txt command aliases
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -655,5 +655,29 @@ git diff --check     PASS
 ```
 
 No blocking software finding. T025 is TESTING for architect/operator validation.
+
+## Architect result — alias.txt validated
+
+The architect confirmed the real pc-1 operator test passed.
+
+Accepted manual evidence:
+
+```text
+/flash/minishell/alias.txt lookup   PASS
+app alias dispatch                  PASS
+built-in target alias               PASS
+default arguments                   PASS
+first '=' / RHS preservation        PASS
+live edit/reload without restart    PASS
+```
+
+T025 is COMPLETE.
+
+The deferred resident-shell TODOs remain intentionally untouched:
+
+```text
+compact date/time   DEFERRED
+command history     DEFERRED
+```
 
 ## Architect test result
