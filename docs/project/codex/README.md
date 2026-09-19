@@ -6,7 +6,14 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-None.
+T028-rx-message-order.md           READY
+
+T028 adds controller-owned RX display/selection ordering:
+
+reply-to-me -> CQ -> regular
+
+and strongest-to-weakest SNR ordering within every group. The factual RxBatch
+remains untouched; color coding is deferred.
 
 Recently completed:
 
