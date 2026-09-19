@@ -414,6 +414,21 @@ Software acceptance uses 36 pinned-V2 payload/tone vectors plus the production
 decode -> selection -> AutoSeq -> mocked-QMX physical regression. Real RF
 confirmation is opportunistic when a compound callsign appears naturally on air.
 
+## RX display ordering
+
+T028 adds controller-owned RX display/selection ordering while preserving factual
+decode order for automatic processing and RT logging:
+
+```text
+reply-to-me   strongest -> weakest
+CQ            strongest -> weakest
+regular       strongest -> weakest
+```
+
+Equal-SNR entries preserve original decode order. Manual selection maps the
+displayed row back to the original factual RxMessage. Live validation passed.
+Color coding remains deferred.
+
 ## Current follow-up boundaries
 
 The Linux/QMX physical-TX boundary is complete:
