@@ -7,6 +7,12 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
+T026-rr73-signoff.md             READY
+```
+
+Recently completed:
+
+```text
 T025-shell-aliases.md            COMPLETE
 ```
 
@@ -18,7 +24,7 @@ T023-cq-beacon-ui.md             COMPLETE
 T024-offset-source-random.md     COMPLETE
 ```
 
-T025 is READY: resident MiniShell aliases from `/flash/minishell/alias.txt`, first `=` separator, live reload on next command, one-level expansion, no heap/public-API/platform coupling. Compact datetime and command history are explicitly deferred.
+T026 is READY: fix the live responder-path bug where a decoded addressed RR73 leaves MiniFT8 retransmitting TX3/R+report instead of advancing to TX5/73. The pure AutoSeq table already has the correct transition, so T026 must reproduce the failure through RxResultBuilder/AppController before changing production logic.
 
 Workflow remains: one temporary task branch -> local build/tests -> supervisor diff review -> real-system validation when required -> fast-forward `main` -> delete the temporary branch.
 
