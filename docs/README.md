@@ -78,8 +78,9 @@ docs/architecture/configuration.md
 Configuration ownership:
 
 ```text
-/flash/config.txt          MiniShell-owned resident/platform configuration
-/flash/<app>/setting.txt   application-owned configuration/deployment settings
+/flash/config.txt           MiniShell-owned resident/platform configuration
+/flash/minishell/alias.txt  MiniShell resident command aliases
+/flash/<app>/setting.txt    application-owned configuration/deployment settings
 ```
 
 Hardware-specific application settings are allowed. Application meaning remains outside MiniShell; applications request generic services such as Audio or Digital I/O.
@@ -95,7 +96,12 @@ docs/MiniFT8/ui.md           canonical UI behavior
 docs/MiniFT8/architecture.md ownership/dependency architecture
 ```
 
-Current MiniFT8 baseline includes working continuous Linux/QMX live RX, V2-compatible 12.64-second decoding, AutoSeq AS-0..AS-8, daily ADIF logging, and Field Day Cabrillo logging through MiniShell APIs.
+Current MiniFT8 baseline includes continuous Linux/QMX and ADV/QMX live RX,
+V2-compatible 12.64-second decoding, AutoSeq AS-0..AS-8, Linux/QMX physical
+FT8 TX, a completed real two-way QSO, V2-compatible RxTxLog, daily ADIF,
+Field Day Cabrillo, CQ/POTA beacon control, and Random/Fixed/RX TX-offset
+selection. WinBook/TW700 also runs the pc-1-built Linux binaries with validated
+QMX RX and CAT/TX.
 
 The many `rx-*` and `as-*` documents under `docs/MiniFT8/` are retained as implementation history, design rationale, and regression anchors. They are subordinate to the four current-state documents above when old planning language conflicts with current behavior.
 
