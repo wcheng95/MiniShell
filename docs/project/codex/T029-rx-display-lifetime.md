@@ -1,6 +1,6 @@
 # T029 — RX display lifetime across TX and discontinuity
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -438,6 +438,96 @@ exact SHA is returned in the handoff. No PR.
 
 ## Supervisor review
 
-Review exact task-head to implementation diff.
+PASS on implementation commit `100b1b739cfd082f4ed288a6cf65e1e03d0c4879`.
+
+Reviewed the exact single implementation commit from task head
+`2a1c5e16c9aa4935b81b2b4a5cfa52d370846d6e`. No blocking finding.
+
+The production change is intentionally minimal: four removed lines in
+`app_controller.c`.
+
+Accepted lifetime behavior:
+
+```text
+completed RX batch
+    -> display/order map published
+
+TX starts / RX audio pauses
+    -> preserve displayed RX rows and selection mapping
+
+TX active through all 79 symbols
+    -> preserve same displayed RX rows
+
+TX completes successfully / RX resumes
+    -> existing rx_invalidate_order() clears display + selection
+
+ordinary audio discontinuity
+    -> reset RX transport/timing only
+    -> preserve completed display snapshot
+
+framer STREAM_RESET
+    -> reset engine stream only
+    -> preserve completed display snapshot
+
+next completed RX batch
+    -> replace previous display map
+    -> empty completed batch clears display
+```
+
+This matches the architect rule: the most recent completed RX decode remains
+visible/clickable until a replacement decode arrives, except that a completed TX
+slot explicitly clears the old RX display when RX resumes because that slot had no
+RX decode.
+
+Accepted invariants:
+
+- T028 sorting keys and index mapping are unchanged;
+- factual `RxBatch` is not reordered or destroyed;
+- `display_generation` remains tied to the factual batch generation;
+- active-TX action freeze is unchanged;
+- successful resume remains the sole TX lifecycle clear point;
+- discontinuity still resets frontend/timing and framer/engine state correctly;
+- next completed batch resets prior selection and publishes a new mapping;
+- zero-message completed batch clears the display naturally;
+- no wall-clock TTL, heap, style, protocol, logging, or public API change.
+
+Accepted regression evidence:
+
+```text
+before T029:
+RX lifetime: before=2 during TX=0
+assertion during.rx_count == before.rx_count failed
+
+after T029:
+RX lifetime: before=2 during TX=2
+all 79 active-TX symbol checks preserve the display
+TX completion/resume clears display and selection
+```
+
+Focused tests also prove transport discontinuity and framer reset preserve the
+same sorted visible rows and selectable mapping until a real completed batch
+replaces them.
+
+Accepted local evidence:
+
+```text
+focused T029 tests    4/4 PASS
+portable units       15/15 PASS
+architecture checks  PASS
+real ADV build       PASS
+git diff --check     PASS
+```
+
+Full Linux CTest was 58/59 only because of the previously documented
+`linux_serial_unit` line-67 PTY timeout flake. The isolated retry passed 1/1.
+No Serial source or test changed in T029, so this is non-blocking and remains
+deferred.
+
+T029 is TESTING. Remaining acceptance is the live visual check:
+
+1. previous sorted RX rows remain visible throughout TX;
+2. they clear when TX finishes / RX resumes;
+3. the next RX decode populates the newly sorted list normally.
+
 
 ## Architect test result
