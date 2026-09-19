@@ -6,11 +6,9 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-T029-rx-display-lifetime.md       READY
+T029-rx-display-lifetime.md       TESTING
 
-T029 corrects the T028 display-map lifetime: keep the previous decoded RX list
-visible throughout TX and across ordinary RX transport resets; clear it when TX
-finishes/resumes RX, or replace it when the next completed RX batch arrives.
+T029 implementation `100b1b739cfd082f4ed288a6cf65e1e03d0c4879` passed supervisor review. Previous RX rows now persist through TX and ordinary RX transport resets, then clear on successful TX completion/RX resume. Live visual validation remains.
 
 Recently completed:
 
