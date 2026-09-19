@@ -13,6 +13,9 @@ The core rule is:
 /flash/config.txt
     MiniShell-owned resident/platform configuration
 
+/flash/minishell/alias.txt
+    MiniShell resident shell command aliases
+
 /flash/<app>/setting.txt
     application-owned configuration and deployment settings
 ```
@@ -37,6 +40,18 @@ other platform/runtime settings owned by MiniShell
 If RTC and GPS share a physical connection, MiniShell owns the detection/arbitration because RTC/GPS are resident MiniShell resources.
 
 The exact syntax of `/flash/config.txt` is not frozen by this architecture rule.
+
+Resident shell aliases are separately MiniShell-owned at:
+
+```text
+/flash/minishell/alias.txt
+```
+
+This file is not an application settings file and is not part of
+`/flash/config.txt`. T025 defines its small text contract: one
+`name=replacement` definition per line, first `=` is the separator, built-ins
+retain precedence, expansion is one level only, and edits are observed on the
+next lookup without restarting MiniShell.
 
 MiniShell configuration must not contain application-domain names or meaning such as:
 
@@ -188,6 +203,10 @@ MiniShell must not add Keyer-specific entries to `/flash/config.txt` to support 
 MiniShell config
     /flash/config.txt
     what MiniShell itself needs to operate/adapt the platform
+
+MiniShell resident shell
+    /flash/minishell/alias.txt
+    user-defined command aliases owned by the resident shell
 
 Application settings
     /flash/<app>/setting.txt
