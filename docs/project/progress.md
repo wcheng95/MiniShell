@@ -15,6 +15,7 @@
 - Linux MiniShell Serial/CDC plus MiniFT8-owned receive-safe QMX CAT is hardware-validated on pc-1: mode/VFO/dial-frequency sync works with live RX and no transmit.
 - Linux/pc-1 + QMX now has a completed real two-way MiniFT8-V3 QSO. Physical CAT keying, immutable 79-tone plans, RX recovery, RxTxLog, CQ/POTA beacon operation, and V2-compatible Random/Fixed/RX offset selection are accepted production behavior.
 - WinBook/TW700 runs the pc-1-built Linux MiniShell/ft8 binaries with QMX ALSA RX/decode and CDC CAT/TX validated; the login user must have normal `dialout` access.
+- `rpi3-2` (Raspberry Pi 3, AArch64 Linux) natively builds and runs MiniShell/MiniFT8 with QMX: portable `.so` apps load, live ALSA RX decodes FT8, CDC CAT works, and physical TX/RX operation is validated. Fresh-host build prerequisites were `cmake`, `build-essential`, and `libasound2-dev`; without `libasound2-dev`, MiniShell still builds but the ALSA provider is compiled out. Keep this result as the Linux/AArch64 bring-up reference for future CardputerZero work.
 - T025 adds resident MiniShell aliases from `/flash/minishell/alias.txt` with first-`=` parsing, one-level expansion, and live reload.
 - T026 temporarily restores V2 keyword-before-grid precedence for exact `RR73`. Because `RR73` is also a valid Maidenhead locator, permanent disambiguation remains a deferred design follow-up.
 - T027 completes V2-compatible non-standard/hash FT8 TX: directed compound calls use 22-bit hash packing in normal STANDARD messages, while plain CQ from a non-standard local call uses type-4. Software acceptance is complete; RF confirmation is opportunistic when such a station appears on air.
@@ -111,6 +112,7 @@ T028         COMPLETE — RX display/selection priority groups + descending SNR
 T029         COMPLETE — RX rows persist through TX; clear at TX completion/resume
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
+rpi3-2       RX/TX PASS — native AArch64 build; QMX ALSA decode + CDC CAT + physical TX validated
 ```
 
 Canonical MiniFT8 entry points:
