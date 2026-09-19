@@ -1,5 +1,6 @@
 #include "app_controller.h"
 #include "app_controller_tx.h"
+#include "app_rx_order.h"
 #include "tx_offset.h"
 
 #include <ctype.h>
@@ -42,6 +43,9 @@ struct AppRxState {
     Ft8ProtocolMessage protocol_messages[FT8_DECODER_CANDIDATE_CAPACITY];
     RxMessage rx_messages[FT8_DECODER_CANDIDATE_CAPACITY];
     RxBatch batch;
+    size_t display_order[FT8_DECODER_CANDIDATE_CAPACITY];
+    size_t display_count;
+    uint64_t display_generation;
 
     void *engine_allocation;
     uint32_t engine_allocation_bytes;
@@ -69,6 +73,22 @@ struct AppRxState {
     size_t selected_rx_index;
     uint64_t selected_rx_generation;
 };
+
+static void rx_invalidate_order(AppRxState *rx)
+{
+    rx->display_count = 0;
+    rx->selected_rx_valid = false;
+}
+
+static void rx_complete_batch(AppRxState *rx)
+{
+    rx->have_batch = true;
+    rx->selected_rx_valid = false;
+    ++rx->batch_generation;
+    rx->display_count = app_rx_order_build(rx->batch.messages, rx->batch.message_count,
+                                           rx->display_order, FT8_DECODER_CANDIDATE_CAPACITY);
+    rx->display_generation = rx->batch_generation;
+}
 
 static void copy_ui_text(char out[UI_TEXT_CAP], const char *text)
 {
@@ -335,13 +355,12 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
                                                 FT8_DECODER_CANDIDATE_CAPACITY,
                                                 &rx->batch);
         if (result_status != RX_RESULT_OK) return -1;
-        rx->have_batch = true;
-        rx->selected_rx_valid = false;
-        ++rx->batch_generation;
+        rx_complete_batch(rx);
         return 0;
     }
 
     case RX_SLOT_FRAMER_EVENT_STREAM_RESET:
+        rx_invalidate_order(rx);
         return ft8_engine_reset_stream(&rx->engine) == FT8_ENGINE_OK ? 0 : -1;
     }
 
@@ -539,6 +558,8 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
     audio_status = rx_audio_adapter_read(&rx->audio, rx->transport_frames,
                                          RX_TRANSPORT_FRAMES, &got, 20u);
     if (audio_status == RX_AUDIO_ADAPTER_DISCONTINUITY) {
+        *out_model_changed = rx->display_count != 0;
+        rx_invalidate_order(rx);
         rx_frontend_reset_stream(&rx->frontend);
         rx->timing_pending = true;
         return true;
@@ -652,12 +673,13 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
     model->rx_active = app_controller_rx_active(app);
     build_utc_model(app, model);
 
-    if (app->rx != NULL && app->rx->have_batch) {
-        size_t count = app->rx->batch.message_count;
+    if (app->rx != NULL && app->rx->have_batch &&
+        app->rx->display_generation == app->rx->batch_generation) {
+        size_t count = app->rx->display_count;
         if (count > APP_MAX_RX_LINES) count = APP_MAX_RX_LINES;
         model->rx_count = count;
         for (i = 0u; i < count; ++i) {
-            copy_ui_text(model->rx_lines[i], app->rx->batch.messages[i].canonical_text);
+            copy_ui_text(model->rx_lines[i], app->rx->batch.messages[app->rx->display_order[i]].canonical_text);
         }
     }
 
@@ -723,10 +745,12 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
             AutoSeqResult auto_seq_result;
 
             if (app->rx == NULL || !app->rx->have_batch || action->value.index < 0 ||
-                (size_t)action->value.index >= app->rx->batch.message_count) {
+                app->rx->display_generation != app->rx->batch_generation ||
+                (size_t)action->value.index >= app->rx->display_count ||
+                (size_t)action->value.index >= APP_MAX_RX_LINES) {
                 return false;
             }
-            app->rx->selected_rx_index = (size_t)action->value.index;
+            app->rx->selected_rx_index = app->rx->display_order[(size_t)action->value.index];
             app->rx->selected_rx_generation = app->rx->batch_generation;
             app->rx->selected_rx_valid = true;
 
@@ -826,6 +850,7 @@ bool app_controller_pause_rx_for_tx(AppController *app)
     if (rx_audio_adapter_stop(&app->rx->audio) != RX_AUDIO_ADAPTER_OK) return false;
     app->tx.rx_paused = true;
     app->rx->active = false;
+    rx_invalidate_order(app->rx);
     rx_frontend_reset_stream(&app->rx->frontend);
     app->rx->timing_pending = true;
     return true;
@@ -835,6 +860,7 @@ bool app_controller_resume_rx_after_tx(AppController *app)
 {
     if (!app->tx.rx_paused) return true;
     if (!app->rx || rx_audio_adapter_start(&app->rx->audio) != RX_AUDIO_ADAPTER_OK) return false;
+    rx_invalidate_order(app->rx);
     rx_frontend_reset_stream(&app->rx->frontend);
     app->rx->timing_pending = true;
     app->rx->active = true;

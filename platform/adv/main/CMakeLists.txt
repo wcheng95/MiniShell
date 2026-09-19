@@ -26,6 +26,7 @@ set(MINIFT8_SOURCES
     "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller_tx.c"
     "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller_tx_physical.c"
     "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_tx_schedule.c"
+    "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_rx_order.c"
     "${MINISHELL_ROOT}/apps/ft8/src/auto_seq/auto_seq.c"
     "${MINISHELL_ROOT}/apps/ft8/src/auto_seq/auto_seq_tx_intent.c"
     "${MINISHELL_ROOT}/apps/ft8/src/tx_offset/tx_offset.c"

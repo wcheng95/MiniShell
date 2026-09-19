@@ -112,6 +112,7 @@ add_minishell_app(ft8
     apps/ft8/src/app_controller/app_controller_tx.c
     apps/ft8/src/app_controller/app_controller_tx_physical.c
     apps/ft8/src/app_controller/app_tx_schedule.c
+    apps/ft8/src/app_controller/app_rx_order.c
     apps/ft8/src/auto_seq/auto_seq.c
     apps/ft8/src/auto_seq/auto_seq_tx_intent.c
     apps/ft8/src/tx_offset/tx_offset.c
@@ -775,3 +776,9 @@ target_include_directories(ft8_rx_result_builder_unit PRIVATE apps/ft8/src/rx_re
 target_link_libraries(ft8_rx_result_builder_unit PRIVATE ft8_protocol_core)
 target_compile_options(ft8_rx_result_builder_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME ft8_rx_result_builder_unit COMMAND ft8_rx_result_builder_unit)
+
+add_executable(ft8_rx_order_unit tests/ft8_rx_order_test.c
+    apps/ft8/src/app_controller/app_rx_order.c)
+target_include_directories(ft8_rx_order_unit PRIVATE $<TARGET_PROPERTY:ft8,INCLUDE_DIRECTORIES>)
+target_compile_options(ft8_rx_order_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME ft8_rx_order_unit COMMAND ft8_rx_order_unit)

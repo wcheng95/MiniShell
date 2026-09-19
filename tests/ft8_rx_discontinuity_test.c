@@ -68,17 +68,25 @@ int main(void)
     AppRxState *rx = app.rx;
     assert(rx->frontend.decimation_phase == 1 && rx->framer.block_fill == 129);
     assert(rx->engine.window_active);
-    rx->have_batch = true;
-    rx->batch_generation = 7;
+    rx->batch.messages = rx->rx_messages;
+    rx->batch.message_count = 1;
+    rx->batch_generation = 6;
+    rx_complete_batch(rx);
+    assert(rx->display_count == 1 && rx->display_generation == 7);
+    rx->selected_rx_valid = true;
     RxBatch historical = rx->batch;
     assert(ft8_hash_store_save(&rx->engine.hash_store, "AG6AQ", 12345) == FT8_HASH_STORE_OK);
     Ft8HashStore hashes = rx->engine.hash_store;
     rx->engine.monitor.history[0] = 0.5f;
     read_result = MINI_ERR_DISCONTINUITY;
     assert(app_controller_step_rx(&app, &changed));
-    assert(!changed && rx->active && rx->timing_pending && rx->framer_initialized);
+    assert(changed && rx->active && rx->timing_pending && rx->framer_initialized);
+    assert(rx->display_count == 0 && !rx->selected_rx_valid);
+    AppAction select = {.type = APP_ACTION_SELECT_RX_MESSAGE, .value.index = 0};
+    assert(!app_controller_apply_action(&app, &select));
     assert(rx->frontend.decimation_phase == 0);
     assert(app_controller_step_rx(&app, &changed)); /* repeated gap before data */
+    assert(!changed);
     read_result = MINI_OK;
     assert(app_controller_step_rx(&app, &changed));
     assert(rx->framer.slot_id == 100 && rx->framer.sample_offset == 30000);
@@ -97,6 +105,7 @@ int main(void)
     }
     assert(rx->framer.slot_id == 101 && rx->framer.decode_emitted);
     assert(rx->batch_generation == 8); /* first subsequent complete window decoded */
+    assert(rx->display_generation == 8 && rx->display_count == rx->batch.message_count);
     read_result = MINI_ERR_DISCONTINUITY;
     assert(app_controller_step_rx(&app, &changed));
     read_result = MINI_OK;

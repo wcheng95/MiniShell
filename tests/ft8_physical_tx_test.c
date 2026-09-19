@@ -569,7 +569,7 @@ static void decoded_standard(AppController *app, const char *to, const char *fro
     slot.message_count=1; slot.status=FT8_PROTOCOL_SLOT_OK;
     assert(rx_result_builder_build(&app->rx->builder,&slot,app->rx->rx_messages,
                                     FT8_DECODER_CANDIDATE_CAPACITY,&app->rx->batch)==RX_RESULT_OK);
-    app->rx->have_batch=true; ++app->rx->batch_generation;
+    rx_complete_batch(app->rx);
     RxMessage *rx=&app->rx->rx_messages[0];
     assert(rx->protocol_type==decoded.type && rx->parse_status==FT8_PROTOCOL_PARSE_OK && !rx->has_unresolved_hash);
     assert(strcmp(rx->call_to,to)==0 && strcmp(rx->call_de,from)==0 && strcmp(rx->extra,extra)==0);
@@ -705,7 +705,7 @@ static void nonstandard_cq_reply(void)
     slot.message_count=1; slot.status=FT8_PROTOCOL_SLOT_OK;
     assert(rx_result_builder_build(&app.rx->builder,&slot,app.rx->rx_messages,
            FT8_DECODER_CANDIDATE_CAPACITY,&app.rx->batch)==RX_RESULT_OK);
-    app.rx->have_batch=true; ++app.rx->batch_generation;
+    rx_complete_batch(app.rx);
     AppAction select={.type=APP_ACTION_SELECT_RX_MESSAGE,.value.index=0};
     assert(app_controller_apply_action(&app,&select));
     AutoSeqTxIntent intent; Ft8TxPlan plan;
@@ -729,8 +729,106 @@ static void nonstandard_cq_reply(void)
     cleanup(&app);
 }
 
+static void rx_display_order(void)
+{
+    AppController app; setup(&app,true);
+    assert(auto_seq_drop_index(&app.auto_seq,0,0));
+    Ft8ProtocolMessage messages[6]={0};
+    const char *to[]={"W9XYZ","CQ","AG6AQ","CQ","AG6AQ","W9XYZ"};
+    const char *from[]={"W1AAA","W1BBB","W1CCC","W1DDD","W1EEE","W1FFF"};
+    const int8_t snr[]={-5,-10,-18,2,-3,10};
+    for (size_t i=0;i<6;++i) {
+        Ft8ProtocolMessage typed={.type=FT8_PROTOCOL_STANDARD}; Ft8DecodedPayload payload={0};
+        strcpy(typed.data.standard.call_to,to[i]); strcpy(typed.data.standard.call_de,from[i]);
+        strcpy(typed.data.standard.extra,"FN42"); typed.data.standard.extra_kind=FT8_PROTOCOL_FIELD_GRID;
+        assert(ft8_protocol_encode(&typed,payload.payload)==FT8_PROTOCOL_CODEC_OK);
+        assert(ft8_protocol_decode(&payload,NULL,&messages[i])==FT8_PROTOCOL_CODEC_OK);
+        messages[i].snr_db=snr[i]; messages[i].offset_hz=1500;
+    }
+    Ft8ProtocolSlot slot;
+    ft8_protocol_slot_init(&slot,(1789776000+1005)/15-1,messages,6);
+    slot.message_count=6; slot.status=FT8_PROTOCOL_SLOT_OK;
+    assert(rx_result_builder_build(&app.rx->builder,&slot,app.rx->rx_messages,
+           FT8_DECODER_CANDIDATE_CAPACITY,&app.rx->batch)==RX_RESULT_OK);
+    RxMessage original[6]; memcpy(original,app.rx->batch.messages,sizeof(original));
+    rx_complete_batch(app.rx);
+    const size_t expected[]={4,2,3,1,5,0};
+    UiModel model; app_controller_build_model(&app,&model);
+    assert(model.rx_count==6);
+    for (size_t i=0;i<6;++i) {
+        assert(app.rx->display_order[i]==expected[i]);
+        assert(strcmp(model.rx_lines[i],original[expected[i]].canonical_text)==0);
+    }
+    AutoSeq raw_seq=app.auto_seq;
+    for (size_t i=0;i<6;++i) {
+        AutoSeqRxEvent event_rx;
+        if (addressed_rx_to_event(&app.rx->batch,&original[i],&event_rx))
+            assert(auto_seq_on_addressed_rx(&raw_seq,&event_rx)!=AUTO_SEQ_ERR_INVALID);
+    }
+    unsigned closes_before=file_closes;
+    assert(app_process_addressed_batch(&app));
+    assert(memcmp(&raw_seq,&app.auto_seq,sizeof(raw_seq))==0);
+    assert(file_closes==closes_before+6);
+    const char *log=rt_contents(), *previous=log;
+    for (size_t i=0;i<6;++i) {
+        const char *entry=strstr(previous,original[i].canonical_text);
+        assert(entry); previous=entry+strlen(original[i].canonical_text);
+    }
+    unsigned lines=0;
+    for (const char *p=log;*p;++p) if (*p=='\n') ++lines;
+    assert(lines==6);
+    assert(app_process_addressed_batch(&app) && file_closes==closes_before+6);
+    assert(memcmp(original,app.rx->batch.messages,sizeof(original))==0);
+    AppAction select={.type=APP_ACTION_SELECT_RX_MESSAGE,.value.index=2};
+    assert(app_controller_apply_action(&app,&select));
+    assert(app.rx->selected_rx_index==3);
+    bool found=false;
+    for (size_t i=0;i<auto_seq_active_count(&app.auto_seq);++i)
+        if (strcmp(app.auto_seq.queue[i].dxcall,"W1DDD")==0) found=true;
+    assert(found);
+
+    /* Required weak-A/strong-B example, replacing the completed batch. */
+    while (auto_seq_active_count(&app.auto_seq)) assert(auto_seq_drop_index(&app.auto_seq,0,0));
+    app.rx->rx_messages[0]=original[1]; app.rx->rx_messages[1]=original[3];
+    app.rx->batch.message_count=2; rx_complete_batch(app.rx);
+    assert(!app.rx->selected_rx_valid);
+    app_controller_build_model(&app,&model);
+    assert(model.rx_count==2 && strcmp(model.rx_lines[0],original[3].canonical_text)==0);
+    select.value.index=0; assert(app_controller_apply_action(&app,&select));
+    assert(app.rx->selected_rx_index==1 && strcmp(app.auto_seq.queue[0].dxcall,"W1DDD")==0);
+    select.value.index=2; assert(!app_controller_apply_action(&app,&select));
+    select.value.index=-1; assert(!app_controller_apply_action(&app,&select));
+    ++app.rx->batch_generation; /* a mapping from another generation is unusable */
+    select.value.index=0; assert(!app_controller_apply_action(&app,&select));
+    app_controller_build_model(&app,&model); assert(model.rx_count==0);
+
+    /* Complete 50-row projection preserves global indexes used by pagination. */
+    for (size_t i=0;i<50;++i) {
+        app.rx->rx_messages[i]=original[1];
+        app.rx->rx_messages[i].snr_db=(int8_t)i;
+        snprintf(app.rx->rx_messages[i].canonical_text,RX_RESULT_TEXT_CAP,"row %zu",i);
+    }
+    app.rx->batch.message_count=50; rx_complete_batch(app.rx);
+    app_controller_build_model(&app,&model); assert(model.rx_count==50);
+    for (size_t i=0;i<50;++i) {
+        char text[32]; snprintf(text,sizeof(text),"row %zu",49-i);
+        assert(strcmp(model.rx_lines[i],text)==0);
+    }
+    select.value.index=49; assert(app_controller_apply_action(&app,&select));
+    assert(app.rx->selected_rx_index==0);
+    RxSlotFramerEvent reset_event={.type=RX_SLOT_FRAMER_EVENT_STREAM_RESET};
+    assert(rx_emit_event(app.rx,&reset_event)==0);
+    app_controller_build_model(&app,&model);
+    assert(model.rx_count==0 && !app.rx->selected_rx_valid);
+    assert(!app_controller_apply_action(&app,&select));
+    app.rx->batch.message_count=0; rx_complete_batch(app.rx);
+    app_controller_build_model(&app,&model); assert(model.rx_count==0);
+    cleanup(&app);
+}
+
 int main(void)
 {
+    rx_display_order();
     nonstandard_cq_reply();
     responder_rr73(false,FT8_PROTOCOL_FIELD_TOKEN);
     responder_rr73(false,FT8_PROTOCOL_FIELD_GRID);

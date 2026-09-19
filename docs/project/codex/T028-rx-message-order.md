@@ -1,6 +1,6 @@
 # T028 — RX message ordering for display and selection
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -367,17 +367,108 @@ Codex:
 
 ### Implementation summary
 
+Added private pure `app_rx_order` index insertion sort. Its only comparison keys
+are to-me/CQ/regular group, descending `snr_db`, and ascending original index.
+The pinned V2 `main/main.cpp:dec_sort_cmp` was inspected at the specified commit;
+T028 deliberately extends SNR ordering from CQ to all three groups.
+
+`AppRxState` owns a fixed 50-index map, count and generation. Completed batches
+publish their map together with the new generation. Model projection and manual
+selection use that same map; `selected_rx_index` remains a factual batch index.
+Stream reset, audio discontinuity and TX-related RX reset invalidate the map and
+selection. A discontinuity that clears visible rows reports a model change.
+Retained factual batch/history and automatic-processing freshness are preserved.
+
 ### Files changed
+
+- `apps/ft8/src/app_controller/app_rx_order.[ch]`: pure bounded index ordering.
+- `apps/ft8/src/app_controller/app_controller.c`: map storage, completed-batch
+  lifecycle, reset invalidation, display projection and selection translation.
+- `CMakeLists.txt`, `platform/adv/main/CMakeLists.txt`: production composition and
+  focused Linux test registration.
+- `tests/ft8_rx_order_test.c`: all requested pure sorting cases, full capacity,
+  immutable input, explicit ties and conflicting non-key metadata.
+- `tests/ft8_physical_tx_test.c`: production builder/controller integration,
+  selection, automatic-processing/log ordering, generation/reset and 50-row
+  coverage. T026/T027 fixtures now publish completed batches through the same
+  private helper as production.
+- `tests/ft8_rx_discontinuity_test.c`: visible-map invalidation on gaps while
+  preserving factual history/hash state, then rebuilding at next completion.
+- This task packet: implementation and test handoff.
 
 ### Invariants preserved
 
+No factual RxMessage reordering or mutation. `app_process_addressed_batch` is
+unchanged. Integration asserts its AutoSeq result equals processing the original
+batch sequentially, all six RT RX records remain in raw order, and processing the
+same generation twice does not duplicate records. Exact mixed display map is
+`[4,2,3,1,5,0]`; the weaker addressed entry remains ahead of stronger CQs.
+
+The weak-A/strong-B regression selects displayed index 0, verifies factual index
+1 and AutoSeq DX `W1DDD` (strong B). Additional coverage projects all 50 rows,
+selects global index 49, rejects invalid/stale indexes, and clears empty/reset
+maps. Existing UI absolute-index pagination, Linux/ADV presentation, physical TX,
+T026 RR73 and T027 non-standard path regressions pass.
+
+No new heap allocations, API/config/log format changes, text-based classification,
+UI styling, AutoSeq policy, candidate/SNR computation or protocol changes. Fixed
+map storage adds 50 `size_t` entries plus count and generation to existing RX
+state. No deviation from task scope.
+
 ### Local tests run
+
+```bash
+git status --short
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 59/59
+cmake -S tests/unit -B /tmp/T028-build-unit
+cmake --build /tmp/T028-build-unit -j8
+ctest --test-dir /tmp/T028-build-unit --output-on-failure
+# PASS 15/15
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All PASS
+cmake -S . -B /tmp/T028-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+  -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build /tmp/T028-build-sanitize --target ft8_rx_order_unit ft8_physical_tx_unit ft8_rx_discontinuity_unit -j8
+ctest --test-dir /tmp/T028-build-sanitize --output-on-failure -R 'ft8_rx_order|ft8_physical_tx|ft8_rx_discontinuity'
+# PASS 3/3; run outside sandbox for LeakSanitizer/ptrace compatibility
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS real ESP32-S3 build
+git diff --check
+# PASS
+```
+
+An intermediate Linux suite run hit the existing intermittent `linux_serial_unit`
+timeout assertion (also observed during T027). Final complete rerun passed 59/59;
+no serial implementation or test was changed. Existing untracked Python caches
+were left alone. No GitHub Actions wait.
 
 ### Manual/hardware validation still required
 
+No RF or hardware testing performed. After supervisor review, architect should
+visually confirm live Linux/QMX group order, descending strength within each group,
+and that selecting a displayed CQ replies to that station. Color coding remains
+deferred.
+
 ### Known limitations / risks
 
+Ordering is a per-completed-batch snapshot; no intermediate dynamic re-sort.
+Stream resets clear visible/selectable rows until a new complete batch, while
+retaining factual batch history for existing processing/freshness semantics.
+Insertion sort is O(50 squared), uses fixed storage and allocates no heap.
+
 ### Commit
+
+One implementation commit on `codex/T028-rx-message-order`, based on task head
+`47768ad`. The commit containing these notes is the implementation reference;
+exact SHA is returned in the handoff. No PR.
 
 ## Supervisor review
 
