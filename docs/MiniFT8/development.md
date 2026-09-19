@@ -18,7 +18,7 @@ embedded deployment      ADV live RX validated; physical TX remains future
 ```
 
 The ADV RAM/USB-host feasibility risk is retired by T017. Linux/pc-1 + QMX now
-has an accepted physical FT8 TX baseline through T022-T026: real CAT keying,
+has an accepted physical FT8 TX baseline through T022-T027: real CAT keying,
 on-air decodability, RX recovery, RxTxLog, CQ/POTA beacon operation,
 V2-compatible offset-source behavior, and a completed two-way QSO on
 2026-09-18 UTC. WinBook/TW700 portability is validated with the pc-1-built
@@ -46,6 +46,7 @@ WinBook/TW700 live RX               PASS — pc-1 binaries + QMX ALSA decode
 WinBook/TW700 QMX CAT/TX            PASS — requires user membership in dialout
 first real two-way QSO               COMPLETE — Linux/QMX, 2026-09-18 UTC
 T026 RR73 responder compatibility    COMPLETE — temporary V2 keyword-before-grid rule
+T027 non-standard/hash TX             COMPLETE — V2-compatible hashed QSO + type-4 CQ
 ```
 
 Working live Linux/QMX command:
@@ -165,6 +166,7 @@ T022        COMPLETE — integrated physical QMX FT8 TX + RX recovery + RxTxLog
 T023        COMPLETE — CQ/CQ POTA + beacon OFF/EVEN/ODD
 T024        COMPLETE — Random/Fixed/RX TX-offset source
 T026        COMPLETE — temporary GRID-coded RR73 -> TX4 compatibility fix
+T027        COMPLETE — V2-compatible non-standard/hash TX + type-4 plain CQ
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -308,8 +310,9 @@ AutoSeqTxIntent
 ```
 
 The implementation is platform-free, heap-free, and contains no CAT/radio/clock
-behavior. Exact payload and tone output is checked against 25 fixed vectors
-generated independently from the pinned MiniFT8-V2 encoder source.
+behavior. Exact payload and tone output is checked against 36 fixed vectors
+generated independently from the pinned MiniFT8-V2 encoder source; the original
+25 T021 vectors remain unchanged.
 
 Current plan constants:
 
@@ -320,9 +323,12 @@ tone spacing  6.25 Hz
 tone range    0..7
 ```
 
-Standard calls, current CQ variants, free text, and Field Day TX2/TX3 are
-supported. Nonstandard/hashed-call TX remains intentionally unsupported for the
-first-QSO path.
+Standard calls, current CQ variants, free text, Field Day TX2/TX3, and T027
+non-standard/hash TX are supported. Directed compound calls such as `W1AW/9`
+remain STANDARD FT8 messages with V2-compatible 22-bit hash packing; plain CQ
+from a non-standard local call uses type-4 and therefore omits the grid.
+Modified non-standard local CQ forms (SOTA/POTA/QRP/FD) remain explicitly
+unsupported rather than silently losing their modifier.
 
 T022 completed physical scheduling/integration: slot-anchored CAT tone updates,
 T020 RF validation, real QMX RX restoration, and V2-compatible RxTxLog. The
@@ -482,7 +488,7 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 ## Deferred follow-up boundaries
 
 The first complete Linux/QMX QSO and the physical transmitter lifecycle are done.
-No new task is active after T026.
+T027 non-standard/hash TX is also complete. No new task is active.
 
 Deferred items:
 
