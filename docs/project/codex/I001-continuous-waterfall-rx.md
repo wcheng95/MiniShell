@@ -179,6 +179,12 @@ A `skip-busy` line is direct evidence that the previous slot was still
 occupying the core-1 decode worker when the next slot reached its own +79
 trigger.
 
+The ADV worker also logs its actual core, priority, configured stack bytes, and
+new minimum-free stack watermarks. At publication, `FT8D retention` reports
+how many 160-ms waterfall blocks remain before logical block -10 would be
+overwritten by the circular ring. A zero or negative margin means the decode
+job outlived the full timing-search retention guarantee.
+
 ## Files changed
 
 Production:

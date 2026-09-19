@@ -151,6 +151,46 @@ static void rx_decode_diag(AppRxState *rx, const char *event,
 #endif
 }
 
+static void rx_decode_retention_diag(AppRxState *rx, int64_t slot_id)
+{
+#if FT8_DECODE_DIAGNOSTICS
+    char line[128];
+    int64_t overwrite_seq;
+    int64_t margin_blocks;
+    int64_t margin_ms;
+
+    if (rx == NULL || rx->api == NULL || rx->api->system == NULL ||
+        rx->api->system->write == NULL || rx->engine.monitor.req.max_blocks == 0u) {
+        return;
+    }
+
+    /*
+     * The oldest candidate-search timing hypothesis is logical block -10.
+     * Its physical ring block is overwritten when the producer reaches
+     * anchor + max_blocks - 10.
+     *
+     * This helper is called by core 0 during publication, so reading the live
+     * monitor sequence here does not race the monitor writer.
+     */
+    overwrite_seq = (int64_t)rx->engine.decode_anchor_seq +
+                    (int64_t)rx->engine.monitor.req.max_blocks - 10;
+    margin_blocks = overwrite_seq -
+                    (int64_t)rx->engine.monitor.next_block_seq;
+    margin_ms = margin_blocks * 160;
+
+    (void)snprintf(line, sizeof(line),
+                   "FT8D retention slot=%lld next=%llu margin=%lldblk/%lldms\n",
+                   (long long)slot_id,
+                   (unsigned long long)rx->engine.monitor.next_block_seq,
+                   (long long)margin_blocks,
+                   (long long)margin_ms);
+    rx->api->system->write(line);
+#else
+    (void)rx;
+    (void)slot_id;
+#endif
+}
+
 static void rx_request_decode_cancel(AppRxState *rx)
 {
     int expected;
@@ -557,6 +597,7 @@ static bool app_publish_external_decode(AppController *app)
                    rx->engine.decode_candidate_count,
                    rx->batch.message_count,
                    RX_DECODE_ASYNC_IDLE);
+    rx_decode_retention_diag(rx, rx->batch.slot_id);
     atomic_store_explicit(&rx->decode_async_state,
                           RX_DECODE_ASYNC_IDLE,
                           memory_order_release);

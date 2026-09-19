@@ -29,6 +29,11 @@ static void decode_task(void *arg)
     AppController *app = (AppController *)arg;
     UBaseType_t lowest_free = ADV_FT8_DECODE_STACK_BYTES;
 
+    ESP_LOGI(s_tag, "decode worker core=%d priority=%u stack=%u bytes",
+             xPortGetCoreID(),
+             (unsigned)uxTaskPriorityGet(NULL),
+             (unsigned)ADV_FT8_DECODE_STACK_BYTES);
+
     while (!atomic_load_explicit(&s_decode_stop, memory_order_acquire)) {
         bool did_work = false;
 
