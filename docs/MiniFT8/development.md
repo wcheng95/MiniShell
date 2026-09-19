@@ -13,11 +13,18 @@ wcheng95/Mini-FT8
 
 ```text
 production TX baseline   Linux/pc-1 + QMX accepted
-portability next          WinBook/TW700 + QMX CAT/TX
-embedded validation       ADV only when hardware-specific behavior matters
+portable Linux host      WinBook/TW700 + QMX RX/CAT/TX validated
+embedded deployment      ADV live RX validated; physical TX remains future
 ```
 
-The ADV RAM/USB-host feasibility risk is retired by T017. Linux/pc-1 + QMX now has an accepted physical FT8 TX baseline through T022-T024: real CAT keying, on-air decodability, RX recovery, RxTxLog, CQ/POTA beacon operation, and V2-compatible offset-source behavior. A completed two-way QSO has not yet been observed and remains an operational follow-up. WinBook/TW700 portability is now validated with the pc-1-built binaries: QMX ALSA RX/decode and QMX CDC CAT/TX both work. The only host-specific issue found was Linux device permission: the login user must be a member of `dialout` to open `/dev/ttyACM0`.
+The ADV RAM/USB-host feasibility risk is retired by T017. Linux/pc-1 + QMX now
+has an accepted physical FT8 TX baseline through T022-T026: real CAT keying,
+on-air decodability, RX recovery, RxTxLog, CQ/POTA beacon operation,
+V2-compatible offset-source behavior, and a completed two-way QSO on
+2026-09-18 UTC. WinBook/TW700 portability is validated with the pc-1-built
+binaries: QMX ALSA RX/decode and QMX CDC CAT/TX both work. The login user must
+have normal `dialout` access to the CDC tty. ALSA card and tty numbering may
+change across boots; stable QMX endpoint discovery remains deferred.
 
 ## Current production baseline
 
@@ -37,6 +44,8 @@ CQ/POTA beacon controls             COMPLETE — T023 hardware validated
 Random/Fixed/RX TX offset           COMPLETE — T024 hardware validated
 WinBook/TW700 live RX               PASS — pc-1 binaries + QMX ALSA decode
 WinBook/TW700 QMX CAT/TX            PASS — requires user membership in dialout
+first real two-way QSO               COMPLETE — Linux/QMX, 2026-09-18 UTC
+T026 RR73 responder compatibility    COMPLETE — temporary V2 keyword-before-grid rule
 ```
 
 Working live Linux/QMX command:
@@ -93,7 +102,7 @@ app_controller
         |      `-> TxIntent / log eligibility
         |
         +-> log_service -> MiniShell FS/Time
-        `-> simulated TX lifecycle
+        `-> Ft8TxPlan -> slot-anchored physical QMX CAT TX lifecycle
 ```
 
 `app_controller` remains the sole production coordinator. The ADV path has now decoded real on-air FT8 on Cardputer ADV at 240 MHz using `time_osr=2, freq_osr=1`.
@@ -155,6 +164,7 @@ T021        COMPLETE — pure FT8 TX encoder + immutable 79-tone plan
 T022        COMPLETE — integrated physical QMX FT8 TX + RX recovery + RxTxLog
 T023        COMPLETE — CQ/CQ POTA + beacon OFF/EVEN/ODD
 T024        COMPLETE — Random/Fixed/RX TX-offset source
+T026        COMPLETE — temporary GRID-coded RR73 -> TX4 compatibility fix
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -279,10 +289,10 @@ The V2 floor/round/clamp tone formatting behavior is preserved, and cleanup
 tracks uncertain TX attempts conservatively so Serial close first makes a
 best-effort `RX;` restoration.
 
-The standalone 1500 Hz RF tone test was intentionally skipped by the architect.
-Therefore T020 is software/review complete but is **not yet hardware-validated**.
-Real QMX keying, tone control, RX restoration, and post-TX receive recovery are
-deferred to the integrated T022 Linux/QMX transmit test.
+The standalone 1500 Hz RF tone test was intentionally skipped at T020. Its
+hardware validation was subsequently supplied by T022-T024: real QMX keying,
+per-symbol tone control, RX restoration, post-TX receive recovery and on-air
+FT8 decodability all passed.
 
 ## FT8 TX encoder baseline
 
@@ -314,9 +324,10 @@ Standard calls, current CQ variants, free text, and Field Day TX2/TX3 are
 supported. Nonstandard/hashed-call TX remains intentionally unsupported for the
 first-QSO path.
 
-T022 now owns physical scheduling/integration: slot-anchored CAT tone updates,
-deferred T020 RF validation, real QMX RX restoration, and the required
-V2-compatible RxTxLog trace for the first Linux/QMX QSO.
+T022 completed physical scheduling/integration: slot-anchored CAT tone updates,
+T020 RF validation, real QMX RX restoration, and V2-compatible RxTxLog. The
+first completed Linux/QMX two-way QSO was subsequently captured in the production
+RT trace.
 
 ## AutoSeq ownership
 
@@ -468,27 +479,28 @@ architecture.md current ownership/dependency architecture
 
 Detailed `rx-*` and `as-*` documents are historical implementation records and regression rationale. When their old planning language conflicts with the current baseline, the four documents above take precedence.
 
-## Next major boundary
+## Deferred follow-up boundaries
 
-T017 is complete; no RX redesign is planned. The active goal is now the **first
-MiniFT8-V3 QSO on Linux/QMX**. Physical TX should reuse the already-stable semantic
-pipeline rather than bypassing it:
+The first complete Linux/QMX QSO and the physical transmitter lifecycle are done.
+No new task is active after T026.
+
+Deferred items:
 
 ```text
-AutoSeq TxIntent
-        |
-        v
-app_controller
-        |
-        +-> MiniFT8 radio_qmx -> MiniShell Serial/CDC
-        `-> MiniFT8 waveform -> MiniShell Audio TX
-                                  |
-                                  v
-                                 QMX
+RR73 ambiguity
+    T026 temporarily gives exact "RR73" terminal semantics precedence over
+    GRID syntax, matching V2. A real locator RR73 is therefore ambiguous and
+    needs a permanent design later.
+
+Linux QMX discovery
+    ALSA card numbers (for example hw:2,0 vs hw:1,0) and ttyACM numbers are
+    enumeration details. A future MiniShell Linux provider should offer stable
+    QMX-oriented endpoints rather than making MiniFT8 discover /dev or ALSA.
+
+ADV physical TX
+    Reuse the proven Linux semantic/CAT boundary when embedded TX becomes an
+    active goal; do not redesign AutoSeq or TX encoding for ADV.
 ```
 
-Keep the current UTC slot/parity gate, logging trigger, retry progression, and V2
-behavior while replacing simulated completion with real transmitter lifecycle
-evidence. Do not spend the next phase optimizing ADV-specific RAM or TX mechanics;
-finish and validate the complete QSO path on Linux first, then port the proven TX
-boundary back to ADV.
+Until one of these is promoted to a bounded task, the accepted production
+baseline is Linux/QMX physical RX/TX plus ADV/QMX live RX.
