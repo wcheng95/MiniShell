@@ -92,6 +92,15 @@ run <app> [...]
 exit
 ```
 
+Resident command aliases are read from `/flash/minishell/alias.txt` on each
+non-built-in command lookup. For example, `f=ft8 --profile adv` makes `f` launch
+that command; extra arguments follow the alias defaults. The first `=` separates
+the name from the replacement, so additional `=` characters are preserved.
+Built-ins take precedence, duplicate names use the last definition, and expansion
+happens once. Blank/comment/invalid lines are ignored; a missing file is normal.
+Edits take effect on the next command. Existing whitespace tokenization applies;
+aliases do not add quoting or shell scripting.
+
 Portable applications currently include:
 
 ```text
@@ -212,6 +221,7 @@ General ownership rule:
 
 ```text
 /flash/config.txt          MiniShell-owned platform/resident configuration
+/flash/minishell/alias.txt  MiniShell resident command aliases
 /flash/<app>/setting.txt   application-owned configuration
 ```
 

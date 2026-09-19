@@ -1,6 +1,6 @@
 # T025 — MiniShell alias.txt command aliases
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -376,25 +376,25 @@ ADV build must continue to pass.
 
 ## Acceptance criteria
 
-- [ ] path is exactly `/flash/minishell/alias.txt`;
-- [ ] first `=` only is separator;
-- [ ] RHS preserves additional `=`;
-- [ ] alias may include default arguments;
-- [ ] user arguments append after alias defaults;
-- [ ] built-ins keep precedence;
-- [ ] alias replacement may target built-ins/apps;
-- [ ] exactly one alias expansion;
-- [ ] duplicate names: last wins;
-- [ ] comments/blank/invalid lines safely ignored;
-- [ ] missing file is silent/no-alias normal operation;
-- [ ] edits take effect on next lookup without restart;
-- [ ] overlong expansion is rejected, never truncated;
-- [ ] fixed buffers/no heap;
-- [ ] MiniShell FS only;
-- [ ] Linux tests pass;
-- [ ] architecture checks pass;
-- [ ] real ADV build passes;
-- [ ] no unrelated datetime/history changes.
+- [x] path is exactly `/flash/minishell/alias.txt`;
+- [x] first `=` only is separator;
+- [x] RHS preserves additional `=`;
+- [x] alias may include default arguments;
+- [x] user arguments append after alias defaults;
+- [x] built-ins keep precedence;
+- [x] alias replacement may target built-ins/apps;
+- [x] exactly one alias expansion;
+- [x] duplicate names: last wins;
+- [x] comments/blank/invalid lines safely ignored;
+- [x] missing file is silent/no-alias normal operation;
+- [x] edits take effect on next lookup without restart;
+- [x] overlong expansion is rejected, never truncated;
+- [x] fixed buffers/no heap;
+- [x] MiniShell FS only;
+- [x] Linux tests pass;
+- [x] architecture checks pass;
+- [x] real ADV build passes;
+- [x] no unrelated datetime/history changes.
 
 ## Manual acceptance
 
@@ -464,19 +464,133 @@ Codex:
 
 ### Implementation summary
 
+Implemented resident-shell command aliases with pure line/expansion helpers and
+MiniShell Filesystem lookup in the shell. Direct built-ins bypass alias lookup;
+other command words get at most one replacement before the existing whitespace
+split and dispatch. No application, public API, app-manager, or backend logic
+changes. Help and README document the resident alias file.
+
 ### Files changed
+
+- `core/alias.c`, `core/alias.h`: pure first-separator parser/name matcher and
+  bounded replacement-plus-arguments builder.
+- `core/shell.c`: built-in precedence, streaming lookup, one expansion, concise
+  failure/overflow diagnostics and help line.
+- `CMakeLists.txt`, `platform/adv/main/CMakeLists.txt`: shared resident source
+  composition and two new Linux tests.
+- `tests/shell_alias_test.c`: pure parser/boundary cases and production resident
+  shell harness with injected MiniShell FS failures.
+- `tests/linux_aliases.py`: real Linux shell/FS/portable-app integration in a
+  temporary MINISHELL_ROOT, including live replacement of the alias file.
+- `README.md`: shell alias behavior and Filesystem ownership/path.
+- This task packet: implementation evidence and REVIEW status.
 
 ### Alias parser/lookup semantics
 
+Path is exactly `/flash/minishell/alias.txt`. The first `=` alone separates name
+and replacement; additional `=` characters, spaces and tabs on the RHS remain
+unchanged until existing shell tokenization. Names must be nonempty and contain
+none of the existing shell whitespace characters. Empty replacements, blank,
+comment and invalid lines are ignored. LF/one terminal CR are normalized. A final
+line without newline is processed. Last valid matching definition wins.
+
+The shell streams 128-byte reads into a 256-byte line buffer, with a bounded
+replacement buffer. Overlong or embedded-NUL logical lines are discarded through
+the next newline, allowing later valid definitions. Physical alias records must
+fit 255 bytes before LF (a CR counts toward that input bound). No file-size buffer,
+heap allocation, resident alias table or cache is introduced.
+
+The first input token alone is matched. Remaining user arguments are appended
+with one separator space. Expansion must fit SHELL_LINE_MAX (256 bytes including
+NUL); overflow prints exactly `alias: expansion too long` and skips dispatch.
+The builder leaves its output untouched on failure. Direct exit/help/status/apps/
+run remain authoritative, alias targets can dispatch to built-ins/apps, and
+`run <app>` does not alias-expand its app argument. Aliases never recurse.
+
+Missing file or unavailable FS is silent. Unexpected open/read/close failure
+prints `alias: cannot read alias file` once for that lookup and dispatches the
+original, unmodified command. A read/close failure discards even an earlier match;
+every successful open receives a close attempt before dispatch. No directory or
+file is created automatically.
+
 ### Reload behavior
+
+Every non-built-in command lookup reopens/scans/closes the file. Linux integration
+runs an alias, replaces alias.txt using the existing `cp` application, and proves
+the very next alias invocation uses the new definition in the same shell process.
+The resident harness also changes the backing file data between lookups and checks
+new results without reinitializing shell state.
 
 ### Tests run
 
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R 'shell_alias|linux_aliases'
+# Focused parser/resident and Linux integration: 2/2 PASS
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Full Linux CTest: 57/57 PASS, including smoke, portable apps, nano,
+# directory, resources and architecture checker self-tests
+
+cmake -S tests/unit -B /tmp/T025-build-unit
+cmake --build /tmp/T025-build-unit -j8
+ctest --test-dir /tmp/T025-build-unit --output-on-failure
+# Portable units: 15/15 PASS
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . keyer
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . keyer
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/serial_protocol_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All exit 0. Diff inspection confirms resident alias logic uses only MiniShell FS,
+# fixed buffers and portable C, with no public API or backend behavior changes.
+
+cmake -S . -B /tmp/T025-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+  -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build /tmp/T025-build-sanitize --target shell_alias_unit -j8
+ctest --test-dir /tmp/T025-build-sanitize --output-on-failure -R shell_alias_unit
+# ASan/UBSan/leak detection: 1/1 PASS outside the sandbox's known ptrace limitation
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# Real ESP32-S3 firmware PASS; minishell_adv.bin 0xbc3e0 bytes, 88% partition free
+
+git diff --check
+# PASS
+```
+
+Tests cover CRLF, comments/invalid records, duplicate resolution, arbitrary read
+chunk splits, overlong-line recovery, EOF without newline, exact expansion bounds,
+argument append and extra equals. Linux integration checks help/apps aliases,
+portable cat/cp targets, defaults, built-in precedence including exit, explicit-run
+bypass, no recursion, overflow without executing a partial command, and live reload.
+The harness injects missing/unavailable FS, unexpected open failure, read failure
+after a match, and close failure; all retain original-command dispatch and correct
+close/diagnostic counts.
+
 ### Manual/hardware validation still required
+
+After supervisor review, perform the task's pc-1 operator check with a/f aliases
+and nano edits, and ADV `u=usbmsc` where available. No hardware, USB ownership test,
+RF test or WinBook deployment was performed. WinBook deployment after acceptance
+must include the reviewed shell executable and all runtime app modules.
 
 ### Known limitations / risks
 
+Each lookup scans the entire file to honor last-definition-wins, so unusually
+large files add command latency while using bounded memory. The existing 16-argument
+whitespace parser is unchanged; no quoting, recursion or scripting is added.
+Records beyond the documented input limit are skipped rather than truncated.
+No datetime/history work or task-scope deviations.
+
 ### Commit
+
+One implementation commit on `codex/T025-shell-aliases`, titled
+`T025: add resident shell command aliases`. This packet is included in that commit;
+the full pushed SHA is returned in the handoff. No PR or Actions wait.
 
 ## Supervisor review
 

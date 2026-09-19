@@ -97,6 +97,7 @@ idf_component_register(
         ${MINIFT8_SOURCES}
         "${MINISHELL_ROOT}/core/minishell_runtime.c"
         "${MINISHELL_ROOT}/core/shell.c"
+        "${MINISHELL_ROOT}/core/alias.c"
         "${MINISHELL_ROOT}/core/app_manager.c"
         ${MINISHELL_SERVICE_SOURCES}
         "${CMAKE_CURRENT_LIST_DIR}/../adv_backend.c"

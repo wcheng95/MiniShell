@@ -50,6 +50,7 @@ set(MINISHELL_LINUX_SOURCES
 add_executable(minishell
     core/minishell_runtime.c
     core/shell.c
+    core/alias.c
     core/app_manager.c
     ${MINISHELL_SERVICE_SOURCES}
     ${MINISHELL_LINUX_SOURCES}
@@ -760,3 +761,10 @@ target_include_directories(ft8_tx_offset_unit PRIVATE apps/ft8/src/tx_offset
     apps/ft8/src/config_service apps/ft8/src/auto_seq apps/ft8/src/tx_encoder)
 target_compile_options(ft8_tx_offset_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME ft8_tx_offset_unit COMMAND ft8_tx_offset_unit)
+
+add_executable(shell_alias_unit tests/shell_alias_test.c core/alias.c)
+target_include_directories(shell_alias_unit PRIVATE include core core/minishell_services)
+target_compile_options(shell_alias_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME shell_alias_unit COMMAND shell_alias_unit)
+add_test(NAME linux_aliases COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/linux_aliases.py
+    $<TARGET_FILE:minishell> $<TARGET_FILE_DIR:hello>)

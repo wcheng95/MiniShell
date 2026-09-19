@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app_manager.h"
+#include "alias.h"
 #include "platform_backend.h"
 #include "shell.h"
 
@@ -32,6 +33,77 @@ static void shell_printf(const char *format, ...)
 static int is_shell_space(char ch)
 {
     return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+}
+
+static bool is_builtin(const char *name, size_t length)
+{
+    static const char *const names[] = {"exit", "help", "status", "apps", "run"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
+        if (strlen(names[i]) == length && memcmp(names[i], name, length) == 0) return true;
+    return false;
+}
+
+/* Read the whole stream to honor last-definition-wins; never retain a table. */
+static int lookup_alias(const char *name, size_t length, char replacement[SHELL_LINE_MAX])
+{
+    const mini_api_t *api = mini_api_get();
+    const mini_fs_api_t *fs = api ? api->fs : NULL;
+    if (!fs || !fs->open || !fs->read || !fs->close) return 0;
+    mini_file_t file = MINI_FILE_INVALID;
+    mini_result_t result = fs->open("/flash/minishell/alias.txt", MINI_FS_READ, &file);
+    if (result == MINI_ERR_NOT_FOUND || result == MINI_ERR_UNSUPPORTED) return 0;
+    if (result != MINI_OK) return -1;
+
+    char record[SHELL_LINE_MAX], chunk[128];
+    size_t used = 0;
+    bool skip = false, found = false, ok = true;
+    for (;;) {
+        uint32_t count = 0;
+        result = fs->read(file, chunk, sizeof(chunk), &count);
+        if (result != MINI_OK || count > sizeof(chunk)) { ok = false; break; }
+        for (uint32_t i = 0; i < count; ++i) {
+            if (chunk[i] == '\n') {
+                if (!skip) {
+                    record[used] = '\0';
+                    const char *rhs = minishell_alias_match(record, name, length);
+                    if (rhs) { strcpy(replacement, rhs); found = true; }
+                }
+                used = 0;
+                skip = false;
+            } else if (!skip) {
+                if (chunk[i] == '\0' || used == sizeof(record) - 1) skip = true;
+                else record[used++] = chunk[i];
+            }
+        }
+        if (count == 0) break;
+    }
+    if (ok && !skip && used) {
+        record[used] = '\0';
+        const char *rhs = minishell_alias_match(record, name, length);
+        if (rhs) { strcpy(replacement, rhs); found = true; }
+    }
+    if (fs->close(file) != MINI_OK) ok = false;
+    return ok ? (found ? 1 : 0) : -1;
+}
+
+static int expand_alias(const char *line, char expanded[SHELL_LINE_MAX])
+{
+    const char *name = line;
+    while (is_shell_space(*name)) ++name;
+    const char *end = name;
+    while (*end && !is_shell_space(*end)) ++end;
+    size_t length = (size_t)(end - name);
+    if (!length || is_builtin(name, length)) return 0;
+    char replacement[SHELL_LINE_MAX];
+    int found = lookup_alias(name, length, replacement);
+    if (found < 0) { shell_write("alias: cannot read alias file\n"); return 0; }
+    if (!found) return 0;
+    while (is_shell_space(*end)) ++end;
+    if (!minishell_alias_expand(replacement, end, expanded, SHELL_LINE_MAX)) {
+        shell_write("alias: expansion too long\n");
+        return -1;
+    }
+    return 1;
 }
 
 static int split_args(char *line, char **argv, int max_args)
@@ -66,7 +138,8 @@ static void cmd_help(void)
         "apps              list installed applications\n"
         "run <app> [...]   run an application\n"
         "<app> [...]       run an application directly\n"
-        "exit              leave minishell\n");
+        "exit              leave minishell\n"
+        "aliases           /flash/minishell/alias.txt\n");
 }
 
 static int api_has_audio(const mini_api_t *api)
@@ -116,7 +189,7 @@ static int run_app(const char *name, int argc, char **argv, int command_lookup)
 
 int minishell_shell_run(void)
 {
-    char line[SHELL_LINE_MAX];
+    char line[SHELL_LINE_MAX], expanded[SHELL_LINE_MAX];
     char *argv[SHELL_ARG_MAX];
 
     for (;;) {
@@ -127,7 +200,9 @@ int minishell_shell_run(void)
             return 0;
         }
 
-        int argc = split_args(line, argv, SHELL_ARG_MAX);
+        int expansion = expand_alias(line, expanded);
+        if (expansion < 0) continue;
+        int argc = split_args(expansion ? expanded : line, argv, SHELL_ARG_MAX);
         if (argc == 0) continue;
 
         if (strcmp(argv[0], "exit") == 0) return 0;
