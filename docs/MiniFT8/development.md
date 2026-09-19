@@ -36,7 +36,7 @@ ADV QMX USB-host UAC live RX       COMPLETE — hardware validated
 V2 12.64 s decode cadence          COMPLETE
 continuous multi-slot live RX      COMPLETE
 AutoSeq AS-0..AS-8                 COMPLETE
-simulated TX lifecycle             COMPLETE
+simulation/test TX lifecycle        COMPLETE
 ADIF persistent logging            COMPLETE
 Field Day Cabrillo logging         COMPLETE
 physical QMX TX                    COMPLETE — pc-1/QMX hardware validated
