@@ -6,7 +6,24 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-None.
+```text
+T027-nonstandard-tx.md           READY
+```
+
+T027 is the T021 follow-up that adds V2-compatible non-standard / hashed-call TX.
+The live regression is selecting `W1AW/9`: V3 currently queues the QSO but the
+T021 encoder rejects the non-standard callsign, so physical TX never starts.
+
+Primary required result:
+
+```text
+CQ W1AW/9
+ -> select
+ -> AutoSeq TX1
+ -> W1AW/9 AG6AQ CM97
+ -> STANDARD FT8 payload with V2-compatible 22-bit hashed W1AW/9
+ -> valid Ft8TxPlan / physical mocked-QMX TX
+```
 
 Recently completed:
 
