@@ -6,30 +6,19 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-```text
-T027-nonstandard-tx.md           TESTING
-```
-
-T027 is the T021 follow-up that adds V2-compatible non-standard / hashed-call TX.
-T027 implementation `8ee2d32144af4aa167138dd71d8cf1151e6646e6` passed supervisor review. Fixed V2-compatible vectors and the mocked physical path pass; optional Linux/QMX RF confirmation remains.
-
-Primary required result:
-
-```text
-CQ W1AW/9
- -> select
- -> AutoSeq TX1
- -> W1AW/9 AG6AQ CM97
- -> STANDARD FT8 payload with V2-compatible 22-bit hashed W1AW/9
- -> valid Ft8TxPlan / physical mocked-QMX TX
-```
+None.
 
 Recently completed:
 
 ```text
 T025-shell-aliases.md            COMPLETE
 T026-rr73-signoff.md             COMPLETE — temporary compatibility workaround
+T027-nonstandard-tx.md           COMPLETE — V2-compatible hash/type-4 TX
 ```
+
+T027 adds V2-compatible hashed directed QSO TX and type-4 plain CQ for
+non-standard callsigns. Software acceptance is complete; RF confirmation is
+opportunistic when a compound callsign appears naturally.
 
 Earlier consolidated MiniFT8 tasks:
 
