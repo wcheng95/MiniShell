@@ -19,6 +19,7 @@
 - T026 temporarily restores V2 keyword-before-grid precedence for exact `RR73`. Because `RR73` is also a valid Maidenhead locator, permanent disambiguation remains a deferred design follow-up.
 - T027 completes V2-compatible non-standard/hash FT8 TX: directed compound calls use 22-bit hash packing in normal STANDARD messages, while plain CQ from a non-standard local call uses type-4. Software acceptance is complete; RF confirmation is opportunistic when such a station appears on air.
 - T028 adds controller-owned RX display/selection ordering: reply-to-me, CQ, regular; strongest-to-weakest within each group. The factual RxBatch and automatic processing/logging order remain unchanged. Live validation passed.
+- T029 completes RX display lifetime semantics: previous decoded rows remain visible throughout TX and ordinary RX transport resets, then clear when TX completes/RX resumes or are replaced by the next completed RX batch. Live validation passed.
 - ADV remains a validated embedded RX deployment target. Physical FT8 TX is currently accepted on Linux/QMX; carrying the proven TX boundary to ADV is future work rather than an active task.
 
 ## Current MiniFT8 baseline
@@ -107,6 +108,7 @@ T025         COMPLETE — resident MiniShell aliases from /flash/minishell/alias
 T026         COMPLETE — temporary V2-compatible RR73-before-grid responder fix
 T027         COMPLETE — V2-compatible non-standard/hash TX + type-4 plain CQ
 T028         COMPLETE — RX display/selection priority groups + descending SNR
+T029         COMPLETE — RX rows persist through TX; clear at TX completion/resume
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 ```
