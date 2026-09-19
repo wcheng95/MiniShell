@@ -63,7 +63,9 @@ MiniFT8
     AutoSeq AS-0..AS-8            COMPLETE
     daily ADIF logging            COMPLETE
     Field Day Cabrillo            COMPLETE
-    physical QMX TX               NEXT MAJOR BOUNDARY
+    physical QMX TX               COMPLETE — Linux/QMX
+    first two-way QSO             COMPLETE — 2026-09-18 UTC
+    WinBook QMX RX/CAT/TX         PASS
 
 Keyer
     runtime ADV ELF               COMPLETE
@@ -122,8 +124,8 @@ rmdir
 Example:
 
 ```text
-M$> ft8 --profile adv --rx alsa:hw:2,0
-... MiniFT8 live QMX RX ...
+M$> ft8
+... MiniFT8 live QMX RX/TX ...
 q
 M$>
 ```
@@ -281,7 +283,21 @@ MiniFT8 logs through MiniShell Filesystem + Time/Location only:
 ```text
 /flash/ft8/YYYYMMDD.txt   ADIF
 /flash/ft8/fieldday.txt   ARRL Field Day Cabrillo
+/flash/ft8/RTYYMMDD.txt   V2-compatible RX/TX trace
 ```
+
+Linux/pc-1 + QMX has completed a real two-way FT8 QSO with physical CAT-keyed
+79-symbol transmission, RX recovery, ADIF/RxTxLog persistence, CQ/POTA beacon
+operation, and Random/Fixed/RX offset-source support. The same pc-1-built Linux
+binary/modules also run on WinBook/TW700 with QMX RX and CAT/TX after normal
+Linux `dialout` permission setup.
+
+T026 currently preserves pinned-V2 compatibility for the ambiguous string
+`RR73`: if a standard decoded field is typed as GRID but its exact text is
+`RR73`, MiniFT8 treats it as the terminal TX4 stage before ordinary grid
+classification. This is explicitly a temporary compatibility rule because
+`RR73` is also a syntactically valid Maidenhead locator; permanent
+disambiguation is deferred.
 
 Canonical MiniFT8 documentation:
 
