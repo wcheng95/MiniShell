@@ -29,10 +29,12 @@ continuous multi-slot RX         COMPLETE
 AutoSeq AS-0..AS-8              COMPLETE
 V2-style ADIF logging            COMPLETE
 V2-style Field Day Cabrillo      COMPLETE
-physical TX / CAT / Audio TX     NOT YET PORTED
+physical QMX CAT TX              COMPLETE — Linux/QMX hardware validated
+first real two-way QSO           COMPLETE — 2026-09-18 UTC
+WinBook/TW700 QMX RX/CAT/TX      PASS
 ```
 
-Linux is the active MiniFT8 completion platform and deterministic regression/reference environment. The first real MiniFT8-V3 QSO is targeted on Linux/QMX. ADV remains a fully validated embedded RX deployment target and should be revisited only when work specifically depends on ESP32-S3 USB, memory, display/input, or other embedded-only behavior.
+Linux remains the deterministic regression/reference environment and the accepted physical-TX platform. Linux/pc-1 + QMX has completed a real two-way MiniFT8-V3 QSO, and WinBook/TW700 has independently run the pc-1-built binaries with QMX RX/decode and CAT/TX. ADV remains a fully validated embedded RX deployment target; carrying the proven physical-TX boundary to ADV is future work.
 
 ## Working live QMX path
 
@@ -399,16 +401,25 @@ architecture.md    application ownership/dependency architecture
 
 Detailed RX and AS stage documents remain in this directory as implementation history and regression rationale. They are subordinate to the current contracts above when wording conflicts.
 
-## Next
+## Current follow-up boundaries
 
-The next major production boundary is real TX integration on Linux/QMX, with the first MiniFT8-V3 QSO intentionally happening on Linux before the finished TX path is carried back to ADV:
+The Linux/QMX physical-TX boundary is complete:
 
 ```text
 AutoSeq TxIntent
-    -> app_controller
-    -> MiniFT8 radio_qmx -> MiniShell Serial/CDC
-    -> MiniFT8 waveform -> MiniShell Audio TX
-    -> QMX
+    -> Ft8TxPlan
+    -> app_controller slot-anchored scheduler
+    -> MiniFT8 radio_qmx
+    -> MiniShell Serial/CDC
+    -> QMX CAT TX / TA / RX
 ```
 
-The existing simulated TX lifecycle and logging eligibility should remain the behavioral reference while physical TX is added.
+Two portability/protocol follow-ups are deliberately deferred rather than active:
+
+1. Permanent disambiguation of terminal `RR73` versus the legitimate Maidenhead
+   locator `RR73`. T026 temporarily uses the pinned-V2 keyword-before-grid rule:
+   exact GRID-coded `RR73` is treated as TX4; other grids remain TX1.
+2. Stable Linux QMX endpoint discovery so ALSA card and tty enumeration do not
+   require host-specific numeric endpoints after reboot.
+
+ADV physical TX remains future work after the Linux behavior is considered stable.
