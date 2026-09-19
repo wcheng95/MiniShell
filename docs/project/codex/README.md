@@ -6,7 +6,11 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-None.
+T030-adv-qmx-cat.md              READY
+
+T030 brings QMX CDC CAT to Cardputer ADV using the existing composite USB-host
+session. The key invariant is that Audio.stop() pauses UAC only; CDC/Serial must
+remain alive for CAT TX. Final hardware acceptance is the first real ADV/QMX QSO.
 
 Recently completed:
 
