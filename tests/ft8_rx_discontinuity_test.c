@@ -113,11 +113,12 @@ int main(void)
         assert(app_controller_step_rx(&app, &changed));
         if (rx->framer.slot_id == 100) assert(!rx->engine.slot_anchor_valid);
     }
-    assert(rx->framer.slot_id == 101 && rx->framer.refine_emitted);
+    assert(rx->framer.slot_id == 101 && rx->framer.primary_emitted);
     assert(rx->batch_generation == 8); /* first subsequent complete window decoded */
     assert(rx->display_generation == 8 && rx->display_count == rx->batch.message_count);
     assert(rx->display_count == 0 && !rx->selected_rx_valid); /* completed silent window */
-    app_controller_build_model(&app, &after); assert(after.rx_count == 0);
+    app_controller_build_model(&app, &after);
+    assert(after.rx_count == 0);
     read_result = MINI_ERR_DISCONTINUITY;
     assert(app_controller_step_rx(&app, &changed));
     read_result = MINI_OK;

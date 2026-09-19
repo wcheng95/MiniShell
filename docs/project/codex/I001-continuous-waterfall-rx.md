@@ -1,4 +1,4 @@
-# I001 — Continuous FT8 waterfall + two-stage candidate search
+# I001 — Continuous FT8 waterfall + incremental decode
 
 Status: IMPLEMENTED, SOFTWARE/HARDWARE VALIDATION PENDING
 
@@ -26,23 +26,26 @@ or QMX transport fix.
    The portable 2x2 profile must still retain at least 94 complete blocks.
 5. Keep the existing candidate timing search:
    `time_offset=-10..19`, `time_sub=0..time_osr-1`.
-6. Search #1 always runs after 79 completed logical blocks and produces the
-   original top 50 candidates.
-7. LDPC attempts remain highest-score first.
-8. Search #2 always runs after 86 completed logical blocks.
-9. Search #2 contributes only the five highest-score candidate identities that
-   were not in the original Search #1 top 50. Candidate identity is exactly
-   `(time_offset, time_sub, freq_offset, freq_sub)`.
-10. The five refinement candidates are appended; original candidates are never
-    re-decoded merely because their later score improved.
-11. No likelihood buffer is added. Candidate likelihood extraction and LDPC
-    continue to read the retained live waterfall directly.
-12. Only one slot decode job is active at a time. If a previous job is still
-    active when a new slot reaches Search #1, that new slot's decode may be
-    skipped. Capture continuity must never wait for LDPC.
-13. Startup has no special partial-slot decode. Audio/waterfall history may fill
+6. Candidate search runs after 79 completed logical blocks and keeps the top 50
+   candidates, highest score first.
+7. LDPC is incremental: at most one candidate is attempted per RX service step.
+8. No likelihood buffer is added. Candidate likelihood extraction and LDPC
+   continue to read the retained live waterfall directly.
+9. Only one slot decode job is active at a time. If a previous job is still
+   active when a new slot reaches the 79-block search point, that new slot's
+   decode may be skipped. Capture continuity must never wait for LDPC.
+10. Startup has no special partial-slot decode. Audio/waterfall history may fill
     immediately, but decoding starts only after the first valid UTC boundary.
-14. Do not change ADV task core/priority as part of I001.
+11. Do not change ADV task core/priority as part of I001.
+
+### Removed refinement experiment
+
+An experimental second candidate search at +86 blocks appended the five
+highest-score identities not present in the original top 50. Runtime evaluation
+showed no additional decoded messages from those five candidates. Because the
+first search already benefits from continuous pre-slot/post-frame waterfall
+history, the +86 search, its five extra candidates, and its temporary debug
+display were removed.
 
 ## Timing/search basis
 
@@ -66,9 +69,9 @@ time_sub=0..1
 search grid = -1.60 s .. +3.12 s in 80-ms steps
 ```
 
-At Search #1, continuous pre-slot history gives negative timing hypotheses real
-data instead of an artificial boundary. Late hypotheses may still have
-incomplete final Costas sync, which is why Search #2 is delayed to 86 blocks.
+At the 79-block search point, continuous pre-slot history gives negative timing
+hypotheses real data instead of an artificial boundary. Candidate scoring also
+sees the continuously retained post-frame data already available at that point.
 
 ## Continuous framing rule
 
@@ -108,13 +111,9 @@ UTC boundary
     -> latch slot anchor
 
 anchor + 79 blocks
-    -> Search #1
+    -> candidate search
     -> top 50
     -> begin incremental LDPC
-
-anchor + 86 blocks
-    -> Search #2
-    -> append top 5 identities absent from original 50
 
 audio capture / waterfall fill
     -> never waits for the whole LDPC job
@@ -176,8 +175,7 @@ ADV/QMX hardware acceptance:
 
 - consecutive receive opportunities are no longer systematically lost every
   other slot; this is not an odd/even-specific test;
-- Search #1 occurs after 79 anchored blocks;
-- Search #2 occurs after 86 anchored blocks;
+- candidate search occurs after 79 anchored blocks;
 - the UI clock no longer freezes for multiple seconds during decode;
 - record candidate-search and per-candidate/total LDPC timing;
 - record UAC high-water/overflow/discontinuity counters;

@@ -118,8 +118,6 @@ Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine)
     ft8_monitor_reset_stream(&engine->monitor);
     engine->slot_anchor_valid = 0;
     engine->decode_active = 0;
-    engine->decode_refined = 0;
-    engine->primary_candidate_count = 0u;
     engine->decode_candidate_count = 0u;
     engine->decode_next_candidate = 0u;
     memset(&engine->decode_slot, 0, sizeof(engine->decode_slot));
@@ -264,25 +262,6 @@ static int16_t rx_candidate_offset_hz(const Ft8Engine *engine,
     return (int16_t)rounded;
 }
 
-static int candidate_same_identity(const Ft8Candidate *a, const Ft8Candidate *b)
-{
-    return a != NULL && b != NULL &&
-           a->time_offset == b->time_offset &&
-           a->time_sub == b->time_sub &&
-           a->freq_offset == b->freq_offset &&
-           a->freq_sub == b->freq_sub;
-}
-
-static int candidate_in_primary_set(const Ft8Engine *engine,
-                                    const Ft8Candidate *candidate)
-{
-    for (size_t i = 0u; i < engine->primary_candidate_count; ++i) {
-        if (candidate_same_identity(&engine->candidates[i], candidate))
-            return 1;
-    }
-    return 0;
-}
-
 static Ft8EngineStatus decode_one_candidate(Ft8Engine *engine,
                                             const Ft8WaterfallView *waterfall,
                                             const Ft8Candidate *candidate,
@@ -350,59 +329,14 @@ Ft8EngineStatus ft8_engine_start_decode(
 
     engine->decode_slot_id = engine->slot_id;
     engine->decode_anchor_seq = engine->slot_anchor_seq;
-    engine->primary_candidate_count = candidate_count;
     engine->decode_candidate_count = candidate_count;
     engine->decode_next_candidate = 0u;
-    engine->decode_refined = 0;
     engine->decode_noise_db = rx_noise_floor_db(&waterfall);
     ft8_protocol_slot_init(&engine->decode_slot,
                            engine->decode_slot_id,
                            message_storage,
                            message_capacity);
     engine->decode_active = 1;
-    return FT8_ENGINE_OK;
-}
-
-Ft8EngineStatus ft8_engine_refine_decode(Ft8Engine *engine, int64_t slot_id)
-{
-    Ft8WaterfallView waterfall;
-    Ft8Candidate refined[FT8_DECODER_CANDIDATE_CAPACITY];
-    size_t refined_count = 0u;
-    size_t appended = 0u;
-
-    if (engine == NULL)
-        return FT8_ENGINE_ERR_INVALID;
-    if (!engine->initialized)
-        return FT8_ENGINE_ERR_NOT_INITIALIZED;
-    if (!engine->decode_active || engine->decode_slot_id != slot_id)
-        return FT8_ENGINE_BUSY;
-    if (engine->decode_refined)
-        return FT8_ENGINE_OK;
-
-    if (ft8_monitor_get_waterfall_at(&engine->monitor,
-                                     engine->decode_anchor_seq,
-                                     &waterfall) != FT8_MONITOR_OK)
-        return FT8_ENGINE_ERR_INTERNAL;
-
-    if (ft8_decoder_find_candidates(&waterfall,
-                                    refined,
-                                    engine->config.candidate_capacity,
-                                    engine->config.min_score,
-                                    &refined_count) != FT8_DECODER_OK)
-        return FT8_ENGINE_ERR_INTERNAL;
-
-    for (size_t i = 0u;
-         i < refined_count && appended < FT8_ENGINE_REFINEMENT_CANDIDATES;
-         ++i) {
-        if (candidate_in_primary_set(engine, &refined[i]))
-            continue;
-        if (engine->decode_candidate_count >= FT8_ENGINE_JOB_CANDIDATE_CAPACITY)
-            break;
-        engine->candidates[engine->decode_candidate_count++] = refined[i];
-        ++appended;
-    }
-
-    engine->decode_refined = 1;
     return FT8_ENGINE_OK;
 }
 
@@ -438,8 +372,7 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
             return status;
     }
 
-    if (engine->decode_refined &&
-        engine->decode_next_candidate >= engine->decode_candidate_count) {
+    if (engine->decode_next_candidate >= engine->decode_candidate_count) {
         *out_slot = engine->decode_slot;
         *out_completed = 1;
         engine->decode_active = 0;

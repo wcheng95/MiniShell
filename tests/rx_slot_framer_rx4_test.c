@@ -17,11 +17,9 @@ typedef struct {
     size_t begin_count;
     size_t block_count;
     size_t finalize_count;
-    size_t refine_count;
     size_t reset_count;
     int64_t begin_slots[8];
     int64_t finalize_slots[8];
-    int64_t refine_slots[8];
     int64_t reset_slots[8];
     uint64_t sample_hash;
     size_t block_samples;
@@ -73,14 +71,6 @@ static int log_event(void *ctx, const RxSlotFramerEvent *event)
         if (log->finalize_count < 8u)
             log->finalize_slots[log->finalize_count] = event->slot_id;
         log->finalize_count++;
-        if (event->samples != NULL || event->sample_count != 0u)
-            return -1;
-        break;
-
-    case RX_SLOT_FRAMER_EVENT_REFINE_WINDOW:
-        if (log->refine_count < 8u)
-            log->refine_slots[log->refine_count] = event->slot_id;
-        log->refine_count++;
         if (event->samples != NULL || event->sample_count != 0u)
             return -1;
         break;
@@ -167,8 +157,6 @@ static int test_exact_slot_and_remainder(void)
     CHECK(log.block_samples == 93u * RX_SLOT_FRAMER_BLOCK_SAMPLES);
     CHECK(log.finalize_count == 1u);
     CHECK(log.finalize_slots[0] == 7);
-    CHECK(log.refine_count == 1u);
-    CHECK(log.refine_slots[0] == 7);
     CHECK(log.reset_count == 0u);
 
     CHECK(framer.slot_id == 8);
@@ -193,7 +181,6 @@ static int test_partial_first_slot(void)
     CHECK(log.begin_count == 0u);
     CHECK(log.block_count == 62u);
     CHECK(log.finalize_count == 0u);
-    CHECK(log.refine_count == 0u);
     CHECK(framer.slot_id == 11);
     CHECK(framer.sample_offset == 0u);
     CHECK(framer.block_fill == 480u);
@@ -227,15 +214,12 @@ static int test_chunk_invariance_and_multi_slot(void)
     CHECK(log_a.begin_count == 2u);
     CHECK(log_a.block_count == 187u);
     CHECK(log_a.finalize_count == 2u);
-    CHECK(log_a.refine_count == 2u);
     CHECK(log_a.begin_slots[0] == 100 && log_a.begin_slots[1] == 101);
     CHECK(log_a.finalize_slots[0] == 100 && log_a.finalize_slots[1] == 101);
-    CHECK(log_a.refine_slots[0] == 100 && log_a.refine_slots[1] == 101);
 
     CHECK(log_b.begin_count == log_a.begin_count);
     CHECK(log_b.block_count == log_a.block_count);
     CHECK(log_b.finalize_count == log_a.finalize_count);
-    CHECK(log_b.refine_count == log_a.refine_count);
     CHECK(log_b.block_samples == log_a.block_samples);
     CHECK(log_b.sample_hash == log_a.sample_hash);
     CHECK(b.slot_id == 102 && b.sample_offset == 0u);

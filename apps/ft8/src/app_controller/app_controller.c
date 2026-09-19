@@ -353,12 +353,6 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
          * never capture continuity. */
         return (status == FT8_ENGINE_OK || status == FT8_ENGINE_BUSY) ? 0 : -1;
 
-    case RX_SLOT_FRAMER_EVENT_REFINE_WINDOW:
-        status = ft8_engine_refine_decode(&rx->engine, event->slot_id);
-        /* If Search #1 was skipped because the previous job was still busy,
-         * there is intentionally nothing to refine for this slot. */
-        return (status == FT8_ENGINE_OK || status == FT8_ENGINE_BUSY) ? 0 : -1;
-
     case RX_SLOT_FRAMER_EVENT_STREAM_RESET:
         return ft8_engine_reset_stream(&rx->engine) == FT8_ENGINE_OK ? 0 : -1;
     }

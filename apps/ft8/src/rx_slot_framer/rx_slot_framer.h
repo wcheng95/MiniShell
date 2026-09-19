@@ -18,9 +18,6 @@ extern "C" {
  * completed relative to the latched UTC slot anchor. */
 #define RX_SLOT_FRAMER_DECODE_BLOCKS 79u
 
-/* A cheap second candidate search is always emitted after 86 logical blocks.
- * It improves sync scoring for late stations without delaying primary decode. */
-#define RX_SLOT_FRAMER_REFINE_BLOCKS 86u
 
 typedef enum {
     RX_SLOT_FRAMER_OK = 0,
@@ -43,11 +40,8 @@ typedef enum {
     /* Historical name retained for compatibility: primary search ready. */
     RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW = 2,
 
-    /* Second candidate-only search ready. */
-    RX_SLOT_FRAMER_EVENT_REFINE_WINDOW = 3,
-
     /* Real stream discontinuity: discard partial block/DSP continuity. */
-    RX_SLOT_FRAMER_EVENT_STREAM_RESET = 4
+    RX_SLOT_FRAMER_EVENT_STREAM_RESET = 3
 } RxSlotFramerEventType;
 
 typedef struct {
@@ -78,7 +72,6 @@ typedef struct {
 
     uint32_t slot_block_count;
     int primary_emitted;
-    int refine_emitted;
 
     size_t block_fill;
     float block[RX_SLOT_FRAMER_BLOCK_SAMPLES];
@@ -102,8 +95,8 @@ void rx_slot_framer_destroy(RxSlotFramer *framer);
  * framing meaning. The 960-sample blockizer is independent of UTC boundaries;
  * the former 720-sample slot remainder is never discarded.
  *
- * BEGIN_WINDOW latches a slot anchor, FINALIZE_WINDOW follows the 79th completed
- * block relative to that anchor, and REFINE_WINDOW follows the 86th.
+ * BEGIN_WINDOW latches a slot anchor and FINALIZE_WINDOW follows the 79th
+ * completed block relative to that anchor.
  */
 RxSlotFramerStatus rx_slot_framer_process(RxSlotFramer *framer,
                                           const float *samples,

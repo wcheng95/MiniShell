@@ -17,9 +17,7 @@ extern "C" {
 #define FT8_ENGINE_SAMPLE_RATE_HZ FT8_MONITOR_SAMPLE_RATE_HZ
 #define FT8_ENGINE_BLOCK_SIZE FT8_MONITOR_BLOCK_SIZE
 
-#define FT8_ENGINE_REFINEMENT_CANDIDATES 5u
-#define FT8_ENGINE_JOB_CANDIDATE_CAPACITY \
-    (FT8_DECODER_CANDIDATE_CAPACITY + FT8_ENGINE_REFINEMENT_CANDIDATES)
+#define FT8_ENGINE_JOB_CANDIDATE_CAPACITY FT8_DECODER_CANDIDATE_CAPACITY
 
 typedef enum {
     FT8_ENGINE_OK = 0,
@@ -65,13 +63,10 @@ typedef struct {
     Ft8Monitor monitor;
     Ft8HashStore hash_store;
 
-    /* One decode job at a time. Search #1 contributes up to 50 candidates;
-     * Search #2 appends up to five identities absent from the original set. */
+    /* One decode job at a time, with up to the normal 50 candidates. */
     int decode_active;
-    int decode_refined;
     int64_t decode_slot_id;
     uint64_t decode_anchor_seq;
-    size_t primary_candidate_count;
     size_t decode_candidate_count;
     size_t decode_next_candidate;
     float decode_noise_db;
@@ -104,24 +99,16 @@ Ft8EngineStatus ft8_engine_process_block(
     const float samples[FT8_ENGINE_BLOCK_SIZE]);
 
 /*
- * Start Search #1 for the currently latched slot. A busy previous decode job
- * returns FT8_ENGINE_BUSY; capture remains independent.
+ * Start candidate search for the currently latched slot. A busy previous
+ * decode job returns FT8_ENGINE_BUSY; capture remains independent.
  */
 Ft8EngineStatus ft8_engine_start_decode(
     Ft8Engine *engine,
     Ft8ProtocolMessage *message_storage,
     size_t message_capacity);
-
 /*
- * Always called at +86 logical blocks. Appends up to five highest-score
- * candidates whose exact search identity was absent from the original Search
- * #1 set. A missing/skipped job returns FT8_ENGINE_BUSY.
- */
-Ft8EngineStatus ft8_engine_refine_decode(Ft8Engine *engine, int64_t slot_id);
-
-/*
- * Attempt at most one pending candidate. out_completed becomes non-zero only
- * after Search #2 has occurred and every queued candidate has been attempted.
+ * Attempt at most one pending candidate. out_completed becomes non-zero after
+ * every queued candidate has been attempted.
  */
 Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
                                        int *out_completed,
@@ -130,8 +117,8 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
 int ft8_engine_decode_active(const Ft8Engine *engine);
 
 /*
- * Compatibility synchronous decode for tools/tests. It decodes Search #1 from
- * the current anchor in one call, but no longer resets the continuous ring.
+ * Compatibility synchronous decode for tools/tests. It performs the candidate
+ * search from the current anchor in one call, but no longer resets the ring.
  */
 Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
                                            Ft8ProtocolMessage *message_storage,

@@ -14,9 +14,8 @@ initial slot/sample timing reference
 continuous 960-sample blockization
 15-second UTC slot transitions
 logical slot-anchor state
-+79 primary-search trigger
-+86 refinement-search trigger
-BEGIN_WINDOW / ENGINE_BLOCK / FINALIZE_WINDOW / REFINE_WINDOW / STREAM_RESET
++79 candidate-search trigger
+BEGIN_WINDOW / ENGINE_BLOCK / FINALIZE_WINDOW / STREAM_RESET
 ```
 
 It does not own MiniShell Time/Audio, DSP/waterfall storage, protocol decoding,
@@ -62,9 +61,7 @@ currently filling waterfall block as the logical slot origin. The resulting
 BEGIN_WINDOW(slot_id)        latch logical slot origin
 ENGINE_BLOCK(...960...)      continuous monitor block
 ...
-FINALIZE_WINDOW(slot_id)     primary candidate search after 79 anchored blocks
-...
-REFINE_WINDOW(slot_id)       second candidate search after 86 anchored blocks
+FINALIZE_WINDOW(slot_id)     candidate search after 79 anchored blocks
 ```
 
 The historical `FINALIZE_WINDOW` name is retained for source compatibility;
@@ -90,7 +87,6 @@ until an explicit stream reset.
 - the 960-sample blockizer is continuous across normal UTC boundaries;
 - no 720-sample slot remainder is discarded;
 - a partial startup slot fills history but is never decoded;
-- Search #1 is triggered after 79 completed blocks relative to the anchor;
-- Search #2 is triggered after 86 completed blocks relative to the anchor;
+- candidate search is triggered after 79 completed blocks relative to the anchor;
 - normal slot transitions and real stream discontinuities remain distinct;
 - the module remains MiniShell-independent and platform-independent.

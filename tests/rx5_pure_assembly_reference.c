@@ -147,10 +147,6 @@ static int assembly_emit(void *ctx, const RxSlotFramerEvent *event)
         return result_status == RX_RESULT_OK ? 0 : -1;
     }
 
-    case RX_SLOT_FRAMER_EVENT_REFINE_WINDOW:
-        /* Golden RX-5 keeps the synchronous compatibility decode path. */
-        return 0;
-
     case RX_SLOT_FRAMER_EVENT_STREAM_RESET:
         return ft8_engine_reset_stream(sink->engine) == FT8_ENGINE_OK ? 0 : -1;
     }

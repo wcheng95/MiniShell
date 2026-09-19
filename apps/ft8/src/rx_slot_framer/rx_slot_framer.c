@@ -44,7 +44,6 @@ static RxSlotFramerStatus advance_slot(RxSlotFramer *framer)
     framer->begin_pending = 1;
     framer->slot_block_count = 0u;
     framer->primary_emitted = 0;
-    framer->refine_emitted = 0;
     return RX_SLOT_FRAMER_OK;
 }
 
@@ -67,7 +66,6 @@ static RxSlotFramerStatus emit_begin_if_pending(RxSlotFramer *framer,
     framer->slot_anchor_valid = 1;
     framer->slot_block_count = 0u;
     framer->primary_emitted = 0;
-    framer->refine_emitted = 0;
     return RX_SLOT_FRAMER_OK;
 }
 
@@ -98,16 +96,6 @@ static RxSlotFramerStatus on_completed_block(RxSlotFramer *framer,
         if (status != RX_SLOT_FRAMER_OK)
             return status;
         framer->primary_emitted = 1;
-    }
-
-    if (!framer->refine_emitted &&
-        framer->slot_block_count >= RX_SLOT_FRAMER_REFINE_BLOCKS) {
-        status = emit_event(framer, emit, emit_ctx,
-                            RX_SLOT_FRAMER_EVENT_REFINE_WINDOW,
-                            framer->slot_id, NULL, 0u);
-        if (status != RX_SLOT_FRAMER_OK)
-            return status;
-        framer->refine_emitted = 1;
     }
 
     return RX_SLOT_FRAMER_OK;
@@ -222,7 +210,6 @@ RxSlotFramerStatus rx_slot_framer_reset_stream(RxSlotFramer *framer,
     framer->begin_pending = (sample_offset == 0u);
     framer->slot_block_count = 0u;
     framer->primary_emitted = 0;
-    framer->refine_emitted = 0;
     framer->block_fill = 0u;
 
     return emit_event(framer, emit, emit_ctx,
