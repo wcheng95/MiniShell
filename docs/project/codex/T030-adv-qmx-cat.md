@@ -1,6 +1,6 @@
 # T030 — ADV QMX CAT + shared UAC/CDC USB session + first ADV QSO
 
-Status: REVIEW
+Status: IMPLEMENTING
 
 ## Architect intent
 
@@ -1066,6 +1066,72 @@ its exact SHA is returned in the Codex handoff. No PR or GitHub Actions wait.
 
 ## Supervisor review
 
-Review exact task-head to implementation diff.
+Review of implementation commit `1837f476a3ccf803ab61420afc3999332f4723d6`:
+
+Production scope and architecture PASS:
+
+- no `apps/ft8/**` production changes;
+- no public MiniShell API changes;
+- QMX UAC-IN + CDC only; no UAC OUT/QDX;
+- Serial WRITE is `serial:qmx` over the existing CDC interface-0 handle;
+- one shared USB Host/class-driver session;
+- Audio RX stop/start is logical pause/resume;
+- RX generation guard prevents stale/in-flight samples reaching a replaced ring;
+- CDC lifetime mutex covers worker open/close versus foreground blocking TX;
+- final-owner release restores console ownership;
+- ADV wrapper defaults are correctly isolated from Linux;
+- software/ADV-build evidence is acceptable.
+
+One required change before hardware validation:
+
+### R1 — preserve disconnected-start / late first attach
+
+The accepted ADV/T017 behavior allows MiniFT8 to start with QMX absent and later
+accept the first QMX attachment. T030 also explicitly says to preserve existing
+first-attach/reconnect behavior.
+
+Current T030 behavior regresses that path:
+
+```text
+bare ft8
+  -> ADV wrapper adds --cat serial:qmx
+  -> portable ft8 opens CAT before RX
+  -> serial_open starts the QMX session and waits at most 3 s for CDC
+  -> no QMX => MINI_ERR_NOT_READY
+  -> app_controller_start_cat fails
+  -> ft8 exits before Audio RX opens
+```
+
+The implementation note currently documents this as a limitation:
+
+```text
+CDC readiness wait is three seconds, so a radio attached later requires another
+open if no Audio owner keeps discovery alive.
+```
+
+For bare ADV `ft8`, there is no Audio owner yet because CAT opens first, so the
+existing disconnected-start behavior is lost.
+
+Fix this **without changing portable MiniFT8** and without pretending unsent CAT
+commands succeeded. Prefer the smallest ADV-platform/composition solution that
+retains truthful MiniShell Serial semantics and the proven V2-style persistent
+USB discovery/session.
+
+Add a regression proving:
+
+```text
+bare ADV ft8 + QMX absent initially
+    -> application remains usable/waiting rather than returning CAT startup error
+    -> first QMX attachment can establish CDC + UAC
+    -> receive-safe CAT synchronization occurs
+    -> live RX can then begin
+```
+
+If preserving this behavior is impossible without materially broadening T030,
+document the exact constraint for supervisor/architect review rather than hiding
+the regression as a known limitation.
+
+All other reviewed implementation areas are approved pending R1 and hardware
+H1-H7.
 
 ## Architect test result
