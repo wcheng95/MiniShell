@@ -6,22 +6,20 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-T029-rx-display-lifetime.md       TESTING
-
-T029 implementation `100b1b739cfd082f4ed288a6cf65e1e03d0c4879` passed supervisor review. Previous RX rows now persist through TX and ordinary RX transport resets, then clear on successful TX completion/RX resume. Live visual validation remains.
+None.
 
 Recently completed:
 
 ```text
-T026-rr73-signoff.md             COMPLETE — temporary compatibility workaround
 T027-nonstandard-tx.md           COMPLETE — V2-compatible hash/type-4 TX
 T028-rx-message-order.md         COMPLETE — controller-owned RX priority/SNR order
+T029-rx-display-lifetime.md      COMPLETE — RX rows persist through TX, clear at TX end
 ```
 
-T028 live validation passed. RX display/selection order is reply-to-me, CQ,
-regular, with strongest-to-weakest SNR inside each group. The factual RxBatch
-and automatic-processing/log order remain unchanged. Color coding remains
-deferred.
+T029 live validation passed. Previous sorted RX rows remain visible during TX,
+clear on successful TX completion/RX resume, and are replaced normally by the
+next completed RX batch. Ordinary RX transport resets do not prematurely clear
+the current displayed snapshot.
 
 Earlier consolidated MiniFT8 tasks:
 
