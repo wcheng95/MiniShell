@@ -18,6 +18,7 @@ extern "C" {
 #define FT8_ENGINE_BLOCK_SIZE FT8_MONITOR_BLOCK_SIZE
 
 #define FT8_ENGINE_JOB_CANDIDATE_CAPACITY FT8_DECODER_CANDIDATE_CAPACITY
+#define FT8_ENGINE_SEARCH_POSITIONS_PER_STEP 1024u
 
 typedef enum {
     FT8_ENGINE_OK = 0,
@@ -63,10 +64,13 @@ typedef struct {
     Ft8Monitor monitor;
     Ft8HashStore hash_store;
 
-    /* One decode job at a time, with up to the normal 50 candidates. */
+    /* One decode job at a time, with bounded search work before LDPC. */
     int decode_active;
+    int decode_search_active;
     int64_t decode_slot_id;
     uint64_t decode_anchor_seq;
+    Ft8WaterfallView decode_search_waterfall;
+    Ft8CandidateSearchState decode_search;
     size_t decode_candidate_count;
     size_t decode_next_candidate;
     float decode_noise_db;
@@ -99,16 +103,18 @@ Ft8EngineStatus ft8_engine_process_block(
     const float samples[FT8_ENGINE_BLOCK_SIZE]);
 
 /*
- * Start candidate search for the currently latched slot. A busy previous
- * decode job returns FT8_ENGINE_BUSY; capture remains independent.
+ * Start a resumable candidate-search job for the currently latched slot.
+ * No full-grid scoring is done in this call. A busy previous decode job
+ * returns FT8_ENGINE_BUSY; capture remains independent.
  */
 Ft8EngineStatus ft8_engine_start_decode(
     Ft8Engine *engine,
     Ft8ProtocolMessage *message_storage,
     size_t message_capacity);
 /*
- * Attempt at most one pending candidate. out_completed becomes non-zero after
- * every queued candidate has been attempted.
+ * Service one bounded decode unit: up to FT8_ENGINE_SEARCH_POSITIONS_PER_STEP
+ * search positions while search is active, otherwise at most one LDPC
+ * candidate. out_completed becomes non-zero when the slot job is complete.
  */
 Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
                                        int *out_completed,

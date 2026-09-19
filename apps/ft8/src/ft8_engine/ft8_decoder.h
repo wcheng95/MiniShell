@@ -30,6 +30,22 @@ typedef struct {
     uint8_t freq_sub;
 } Ft8Candidate;
 
+/*
+ * Resumable candidate-search cursor. The search order and heap policy are
+ * identical to ft8_decoder_find_candidates(); only scheduling is different.
+ */
+typedef struct {
+    int initialized;
+    int completed;
+    size_t capacity;
+    size_t heap_size;
+    int min_score;
+    int16_t time_offset;
+    int16_t freq_offset;
+    uint8_t time_sub;
+    uint8_t freq_sub;
+} Ft8CandidateSearchState;
+
 typedef struct {
     Ft8Candidate candidate;
     int ldpc_errors;
@@ -37,6 +53,19 @@ typedef struct {
     uint16_t crc_calculated;
     uint8_t payload[FT8_PAYLOAD_BYTES];
 } Ft8DecodedPayload;
+
+Ft8DecoderStatus ft8_decoder_candidate_search_begin(
+    Ft8CandidateSearchState *state,
+    size_t capacity,
+    int min_score);
+
+Ft8DecoderStatus ft8_decoder_candidate_search_step(
+    const Ft8WaterfallView *waterfall,
+    Ft8CandidateSearchState *state,
+    Ft8Candidate *candidates,
+    size_t position_budget,
+    int *out_completed,
+    size_t *out_count);
 
 Ft8DecoderStatus ft8_decoder_find_candidates(const Ft8WaterfallView *waterfall,
                                              Ft8Candidate *candidates,

@@ -92,6 +92,55 @@ static void test_negative_time_offset_uses_retained_ring(void)
     CHECK(found);
 }
 
+static void test_incremental_search_matches_synchronous(void)
+{
+    enum { MAX_BLOCKS = 20, NUM_BINS = 24, CAPACITY = 8 };
+    uint8_t mag[MAX_BLOCKS * NUM_BINS];
+    Ft8WaterfallView wf = {
+        .mag = mag,
+        .max_blocks = MAX_BLOCKS,
+        .num_blocks = MAX_BLOCKS,
+        .num_bins = NUM_BINS,
+        .time_osr = 1,
+        .freq_osr = 1,
+        .block_stride = NUM_BINS,
+        .anchor_index = 0,
+        .first_block = 0,
+    };
+    Ft8Candidate synchronous[CAPACITY];
+    Ft8Candidate incremental[CAPACITY];
+    Ft8CandidateSearchState state;
+    size_t synchronous_count = 0u;
+    size_t incremental_count = 0u;
+    int completed = 0;
+
+    for (size_t i = 0u; i < sizeof(mag); ++i)
+        mag[i] = (uint8_t)((i * 37u + i / 7u) & 0xffu);
+    memset(synchronous, 0, sizeof(synchronous));
+    memset(incremental, 0, sizeof(incremental));
+
+    CHECK(ft8_decoder_find_candidates(&wf, synchronous, CAPACITY, -100,
+                                      &synchronous_count) == FT8_DECODER_OK);
+    CHECK(ft8_decoder_candidate_search_begin(&state, CAPACITY, -100) ==
+          FT8_DECODER_OK);
+
+    for (unsigned step = 0u; step < 2000u && !completed; ++step) {
+        CHECK(ft8_decoder_candidate_search_step(&wf, &state, incremental, 7u,
+                                                &completed, &incremental_count) ==
+              FT8_DECODER_OK);
+    }
+
+    CHECK(completed);
+    CHECK(incremental_count == synchronous_count);
+    CHECK(memcmp(incremental, synchronous,
+                 synchronous_count * sizeof(synchronous[0])) == 0);
+
+    completed = 0;
+    CHECK(ft8_decoder_candidate_search_step(&wf, &state, incremental, 0u,
+                                            &completed, &incremental_count) ==
+          FT8_DECODER_ERR_INVALID);
+}
+
 static void test_decode_failure_is_explicit(void)
 {
     uint8_t mag[79 * 16];
@@ -150,6 +199,7 @@ int main(void)
 
     test_candidate_search_contract();
     test_negative_time_offset_uses_retained_ring();
+    test_incremental_search_matches_synchronous();
     test_decode_failure_is_explicit();
     test_waterfall_validation();
 

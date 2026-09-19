@@ -163,55 +163,142 @@ static void heapify_up(Ft8Candidate heap[], size_t heap_size)
     }
 }
 
-Ft8DecoderStatus ft8_decoder_find_candidates(const Ft8WaterfallView *wf,
-                                             Ft8Candidate *candidates,
-                                             size_t capacity,
-                                             int min_score,
-                                             size_t *out_count)
+static void candidate_search_advance(const Ft8WaterfallView *wf,
+                                     Ft8CandidateSearchState *state)
 {
-    size_t heap_size = 0u;
-    Ft8Candidate candidate;
+    ++state->freq_offset;
+    if (state->freq_offset + 7 < (int)wf->num_bins)
+        return;
 
-    if (out_count)
-        *out_count = 0u;
-    if (!waterfall_valid(wf) || !candidates || capacity == 0u || !out_count)
-        return FT8_DECODER_ERR_INVALID;
+    state->freq_offset = 0;
+    ++state->time_offset;
+    if (state->time_offset < 20)
+        return;
 
-    for (candidate.time_sub = 0u; candidate.time_sub < wf->time_osr; ++candidate.time_sub) {
-        for (candidate.freq_sub = 0u; candidate.freq_sub < wf->freq_osr; ++candidate.freq_sub) {
-            for (candidate.time_offset = -10; candidate.time_offset < 20; ++candidate.time_offset) {
-                for (candidate.freq_offset = 0;
-                     candidate.freq_offset + 7 < (int)wf->num_bins;
-                     ++candidate.freq_offset) {
-                    candidate.score = (int16_t)ft8_sync_score(wf, &candidate);
-                    if (candidate.score < min_score)
-                        continue;
+    state->time_offset = -10;
+    ++state->freq_sub;
+    if (state->freq_sub < wf->freq_osr)
+        return;
 
-                    if (heap_size == capacity && candidate.score > candidates[0].score) {
-                        --heap_size;
-                        candidates[0] = candidates[heap_size];
-                        heapify_down(candidates, heap_size);
-                    }
+    state->freq_sub = 0u;
+    ++state->time_sub;
+    if (state->time_sub < wf->time_osr)
+        return;
 
-                    if (heap_size < capacity) {
-                        candidates[heap_size] = candidate;
-                        ++heap_size;
-                        heapify_up(candidates, heap_size);
-                    }
-                }
-            }
-        }
-    }
+    state->completed = 1;
+}
 
+static void candidate_search_sort(Ft8Candidate candidates[], size_t heap_size)
+{
     for (size_t len_unsorted = heap_size; len_unsorted > 1u; --len_unsorted) {
         Ft8Candidate tmp = candidates[len_unsorted - 1u];
         candidates[len_unsorted - 1u] = candidates[0];
         candidates[0] = tmp;
         heapify_down(candidates, len_unsorted - 1u);
     }
+}
 
-    *out_count = heap_size;
+Ft8DecoderStatus ft8_decoder_candidate_search_begin(
+    Ft8CandidateSearchState *state,
+    size_t capacity,
+    int min_score)
+{
+    if (state == NULL || capacity == 0u)
+        return FT8_DECODER_ERR_INVALID;
+
+    memset(state, 0, sizeof(*state));
+    state->initialized = 1;
+    state->capacity = capacity;
+    state->min_score = min_score;
+    state->time_offset = -10;
     return FT8_DECODER_OK;
+}
+
+Ft8DecoderStatus ft8_decoder_candidate_search_step(
+    const Ft8WaterfallView *wf,
+    Ft8CandidateSearchState *state,
+    Ft8Candidate *candidates,
+    size_t position_budget,
+    int *out_completed,
+    size_t *out_count)
+{
+    size_t processed = 0u;
+
+    if (out_completed)
+        *out_completed = 0;
+    if (out_count)
+        *out_count = 0u;
+    if (!waterfall_valid(wf) || state == NULL || !state->initialized ||
+        candidates == NULL || position_budget == 0u ||
+        out_completed == NULL || out_count == NULL) {
+        return FT8_DECODER_ERR_INVALID;
+    }
+
+    if (state->completed) {
+        *out_completed = 1;
+        *out_count = state->heap_size;
+        return FT8_DECODER_OK;
+    }
+
+    while (!state->completed && processed < position_budget) {
+        Ft8Candidate candidate;
+
+        candidate.time_sub = state->time_sub;
+        candidate.freq_sub = state->freq_sub;
+        candidate.time_offset = state->time_offset;
+        candidate.freq_offset = state->freq_offset;
+        candidate.score = (int16_t)ft8_sync_score(wf, &candidate);
+
+        if (candidate.score >= state->min_score) {
+            if (state->heap_size == state->capacity &&
+                candidate.score > candidates[0].score) {
+                --state->heap_size;
+                candidates[0] = candidates[state->heap_size];
+                heapify_down(candidates, state->heap_size);
+            }
+
+            if (state->heap_size < state->capacity) {
+                candidates[state->heap_size] = candidate;
+                ++state->heap_size;
+                heapify_up(candidates, state->heap_size);
+            }
+        }
+
+        candidate_search_advance(wf, state);
+        ++processed;
+    }
+
+    if (state->completed) {
+        candidate_search_sort(candidates, state->heap_size);
+        *out_completed = 1;
+    }
+    *out_count = state->heap_size;
+    return FT8_DECODER_OK;
+}
+
+Ft8DecoderStatus ft8_decoder_find_candidates(const Ft8WaterfallView *wf,
+                                             Ft8Candidate *candidates,
+                                             size_t capacity,
+                                             int min_score,
+                                             size_t *out_count)
+{
+    Ft8CandidateSearchState state;
+    int completed = 0;
+
+    if (out_count)
+        *out_count = 0u;
+    if (!waterfall_valid(wf) || candidates == NULL || capacity == 0u || out_count == NULL)
+        return FT8_DECODER_ERR_INVALID;
+
+    if (ft8_decoder_candidate_search_begin(&state, capacity, min_score) != FT8_DECODER_OK)
+        return FT8_DECODER_ERR_INVALID;
+
+    return ft8_decoder_candidate_search_step(wf,
+                                             &state,
+                                             candidates,
+                                             SIZE_MAX,
+                                             &completed,
+                                             out_count);
 }
 
 static float wf_mag(uint8_t x)

@@ -70,8 +70,9 @@ query requirements
     -> init
     -> process 960-sample blocks continuously
     -> begin_window(slot_id) latches a slot anchor; it does not reset the monitor
-    -> +79: start_decode() performs the candidate search (top 50)
-    -> decode_step() attempts at most one candidate per service call
+    -> +79: start_decode() snapshots the search view and initializes the job
+    -> decode_step() scores at most 1024 candidate positions per service call
+    -> after search: decode_step() attempts at most one LDPC candidate per call
     -> complete -> Ft8ProtocolSlot
     -> repeat while the circular waterfall keeps filling
     -> reset_stream only on a real stream discontinuity

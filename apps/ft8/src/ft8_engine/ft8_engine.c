@@ -118,6 +118,9 @@ Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine)
     ft8_monitor_reset_stream(&engine->monitor);
     engine->slot_anchor_valid = 0;
     engine->decode_active = 0;
+    engine->decode_search_active = 0;
+    memset(&engine->decode_search, 0, sizeof(engine->decode_search));
+    memset(&engine->decode_search_waterfall, 0, sizeof(engine->decode_search_waterfall));
     engine->decode_candidate_count = 0u;
     engine->decode_next_candidate = 0u;
     memset(&engine->decode_slot, 0, sizeof(engine->decode_slot));
@@ -304,7 +307,6 @@ Ft8EngineStatus ft8_engine_start_decode(
     size_t message_capacity)
 {
     Ft8WaterfallView waterfall;
-    size_t candidate_count = 0u;
 
     if (engine == NULL || (message_capacity > 0u && message_storage == NULL))
         return FT8_ENGINE_ERR_INVALID;
@@ -320,18 +322,18 @@ Ft8EngineStatus ft8_engine_start_decode(
                                      &waterfall) != FT8_MONITOR_OK)
         return FT8_ENGINE_ERR_INTERNAL;
 
-    if (ft8_decoder_find_candidates(&waterfall,
-                                    engine->candidates,
-                                    engine->config.candidate_capacity,
-                                    engine->config.min_score,
-                                    &candidate_count) != FT8_DECODER_OK)
+    if (ft8_decoder_candidate_search_begin(&engine->decode_search,
+                                           engine->config.candidate_capacity,
+                                           engine->config.min_score) != FT8_DECODER_OK)
         return FT8_ENGINE_ERR_INTERNAL;
 
     engine->decode_slot_id = engine->slot_id;
     engine->decode_anchor_seq = engine->slot_anchor_seq;
-    engine->decode_candidate_count = candidate_count;
+    engine->decode_search_waterfall = waterfall;
+    engine->decode_search_active = 1;
+    engine->decode_candidate_count = 0u;
     engine->decode_next_candidate = 0u;
-    engine->decode_noise_db = rx_noise_floor_db(&waterfall);
+    engine->decode_noise_db = 0.0f;
     ft8_protocol_slot_init(&engine->decode_slot,
                            engine->decode_slot_id,
                            message_storage,
@@ -355,6 +357,38 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
     if (!engine->decode_active)
         return FT8_ENGINE_ERR_STATE;
+
+    if (engine->decode_search_active) {
+        int search_completed = 0;
+        size_t candidate_count = 0u;
+
+        if (ft8_decoder_candidate_search_step(&engine->decode_search_waterfall,
+                                              &engine->decode_search,
+                                              engine->candidates,
+                                              FT8_ENGINE_SEARCH_POSITIONS_PER_STEP,
+                                              &search_completed,
+                                              &candidate_count) != FT8_DECODER_OK) {
+            return FT8_ENGINE_ERR_INTERNAL;
+        }
+
+        if (!search_completed)
+            return FT8_ENGINE_OK;
+
+        engine->decode_search_active = 0;
+        engine->decode_candidate_count = candidate_count;
+        engine->decode_next_candidate = 0u;
+        engine->decode_noise_db = rx_noise_floor_db(&engine->decode_search_waterfall);
+
+        if (candidate_count == 0u) {
+            *out_slot = engine->decode_slot;
+            *out_completed = 1;
+            engine->decode_active = 0;
+            return FT8_ENGINE_NO_MESSAGES;
+        }
+
+        /* Keep one service unit bounded: LDPC begins on the next RX step. */
+        return FT8_ENGINE_OK;
+    }
 
     if (engine->decode_next_candidate < engine->decode_candidate_count) {
         if (ft8_monitor_get_waterfall_at(&engine->monitor,

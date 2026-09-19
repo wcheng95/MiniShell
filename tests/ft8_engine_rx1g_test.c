@@ -41,6 +41,7 @@ static void test_requirements_and_lifecycle(void)
     CHECK(req.candidate_storage_bytes == sizeof(engine.candidates));
     CHECK(req.hash_store_bytes == sizeof(Ft8HashStore));
     CHECK(FT8_ENGINE_JOB_CANDIDATE_CAPACITY == FT8_DECODER_CANDIDATE_CAPACITY);
+    CHECK(FT8_ENGINE_SEARCH_POSITIONS_PER_STEP == 1024u);
 
     workspace = alloc_workspace(&req);
     CHECK(workspace != NULL);
@@ -74,9 +75,15 @@ static void test_requirements_and_lifecycle(void)
     CHECK(ft8_engine_begin_window(&engine, 42) == FT8_ENGINE_OK);
     CHECK(ft8_engine_start_decode(&engine, NULL, 0u) == FT8_ENGINE_OK);
     CHECK(ft8_engine_decode_active(&engine));
-    CHECK(ft8_engine_decode_step(&engine, &completed, &slot) == FT8_ENGINE_NO_MESSAGES);
+    CHECK(engine.decode_search_active);
+
+    for (unsigned step = 0u; step < 200u && !completed; ++step) {
+        Ft8EngineStatus status = ft8_engine_decode_step(&engine, &completed, &slot);
+        CHECK(status == FT8_ENGINE_OK || status == FT8_ENGINE_NO_MESSAGES);
+    }
     CHECK(completed);
     CHECK(slot.slot_id == 42);
+    CHECK(!engine.decode_search_active);
     CHECK(!ft8_engine_decode_active(&engine));
 
     CHECK(ft8_engine_reset_stream(&engine) == FT8_ENGINE_OK);

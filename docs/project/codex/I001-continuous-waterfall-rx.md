@@ -26,8 +26,10 @@ or QMX transport fix.
    The portable 2x2 profile must still retain at least 94 complete blocks.
 5. Keep the existing candidate timing search:
    `time_offset=-10..19`, `time_sub=0..time_osr-1`.
-6. Candidate search runs after 79 completed logical blocks and keeps the top 50
-   candidates, highest score first.
+6. Candidate search starts after 79 completed logical blocks and keeps the top
+   50 candidates, highest score first. The original search order and scoring
+   are preserved, but the 25,560-position ADV grid is serviced incrementally at
+   at most 1,024 positions per RX service step.
 7. LDPC is incremental: at most one candidate is attempted per RX service step.
 8. No likelihood buffer is added. Candidate likelihood extraction and LDPC
    continue to read the retained live waterfall directly.
@@ -111,21 +113,27 @@ UTC boundary
     -> latch slot anchor
 
 anchor + 79 blocks
-    -> candidate search
-    -> top 50
-    -> begin incremental LDPC
+    -> latch search waterfall view
+    -> initialize candidate-search cursor
+
+each RX service step
+    -> drain live audio first
+    -> score <= 1024 search positions until top 50 are complete
+    -> then attempt <= 1 LDPC candidate
 
 audio capture / waterfall fill
     -> never waits for the whole LDPC job
 ```
 
-The application services at most one LDPC candidate per RX step instead of
-running all candidates in one synchronous loop.
+The application services only one bounded decode unit per RX step instead of
+running either candidate search or all LDPC candidates synchronously. During
+search that unit is at most 1,024 score positions; after search it is at most
+one LDPC candidate.
 
-Before each incremental LDPC attempt, live RX drains up to eight immediately
-available transport chunks with zero wait. This keeps capture ahead of decode
-without adding a platform-specific Audio API or making LDPC wait for the source
-to become completely empty.
+Before every decode service unit, live RX drains up to eight immediately
+available transport chunks with zero wait. On ADV each read is capped at 256
+frames, so eight drains can empty the complete 2,048-frame UAC ring before
+search/LDPC gets CPU time.
 
 ## Files changed
 
