@@ -10,7 +10,7 @@ ADV can make its first real MiniFT8-V3 QSO.
 The portable MiniFT8 CAT/TX stack is already complete and hardware-proven on
 Linux. Do not redesign it.
 
-The missing piece is the ADV platform transport:
+The missing piece is a thin ADV service adaptation around the already-proven V2-style transport:
 
 - QMX UAC RX already works on ADV;
 - the ADV UAC provider already installs `usb_host_cdc_acm`, opens QMX
@@ -19,8 +19,8 @@ The missing piece is the ADV platform transport:
   no CAT commands;
 - ADV currently exposes no public MiniShell Serial service.
 
-T030 must expose QMX CDC through MiniShell Serial while keeping UAC and CDC alive
-under one shared USB-host session.
+T030 must expose the already-open QMX CDC path through MiniShell Serial and keep
+the existing V2-style UAC+CDC USB session alive across TX.
 
 ## Primary result
 
@@ -52,6 +52,67 @@ Cardputer ADV + QMX
 ```
 
 with live RX, CAT-keyed 79-symbol TX, RX recovery, and normal MiniFT8 logging.
+
+## Primary hardware reference — MiniFT8-V2
+
+Before designing anything new, use the pinned V2 implementation as the
+hardware/lifecycle reference:
+
+```text
+wcheng95/Mini-FT8
+491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
+
+main/stream_uac.cpp
+main/stream_uac.h
+main/radio_control_qmx.cpp
+main/radio_control.cpp
+main/main.cpp
+```
+
+V2 has run QMX UAC + CDC CAT on Cardputer ADV hardware for a long time.
+
+Important V2 facts already verified by supervisor:
+
+```text
+QMX VID:PID                 0483:a34c
+CAT CDC interface           0
+CDC driver                  espressif/usb_host_cdc_acm 2.2.0
+CAT send                    cdc_acm_host_data_tx_blocking()
+USB FIFO                    RX=91 NPTX=18 PTX=91
+CDC driver stack            3072
+CDC driver priority         4
+CAT RX callback             disabled
+```
+
+V2 exposes only two tiny CAT transport helpers:
+
+```c
+bool cat_cdc_ready(void);
+esp_err_t cat_cdc_send(const uint8_t *data, size_t len, uint32_t timeout_ms);
+```
+
+and QMX CAT is simply:
+
+```text
+MD6;
+FR0;
+FT0;
+FA...........;
+TX;
+TAxxxx.xx;
+RX;
+```
+
+During normal QMX FT8 TX, V2 does **not** stop or tear down the UAC host/session.
+It keeps UAC + CDC alive concurrently and only mutes RX presentation while CAT
+TX proceeds. Full UAC/CDC/USB-host teardown happens only when leaving the USB
+audio mode (for example MSC/radio-source change), not once per FT8 transmit slot.
+
+Current V3 ADV already carries most of this exact proven V2 recipe in
+`adv_audio_uac.cpp`: same VID/PID, interface 0, CDC component, FIFO partition,
+CDC stack/priority, and persistent private CDC handle. T030 should therefore be
+a small adaptation of proven V2 behavior into MiniShell services, not a USB
+architecture redesign.
 
 ## Existing portable source of truth
 
@@ -145,46 +206,41 @@ stopped.
 
 This is the architectural center of T030.
 
-## Required ownership model
+## Required ownership model — minimal V2-style adaptation
 
-Create one private ADV QMX USB-session owner, either by extracting the shared
-lifecycle from `adv_audio_uac.cpp` into a module such as:
+Prefer the smallest change to the existing `adv_audio_uac.cpp`.
 
-```text
-platform/adv/adv_qmx_usb.[ch/pp]
-```
+A new `adv_qmx_usb` abstraction is **not required**. Do not refactor merely for
+architectural neatness.
 
-or by an equivalently clean private refactor.
+The current ADV UAC provider already owns the correct shared QMX USB host,
+UAC driver, CDC driver, capture task, CDC task, and console handoff. Extend that
+existing owner so MiniShell Audio and Serial can share it safely.
 
-Exact filenames are not prescribed, but the ownership must be explicit.
-
-Required model:
+Minimum state distinction needed:
 
 ```text
-              ADV QMX USB session
-                       |
-          +------------+------------+
-          |                         |
-      Audio owner               Serial owner
-          |                         |
-       UAC RX                   CDC interface 0
+QMX USB session alive
+Audio public owner/open
+Audio logical started/stopped
+Serial public owner/open
+CDC handle ready/disconnected
 ```
 
 Rules:
 
-1. Call `usb_host_install()` only once for the QMX session.
-2. UAC and CDC are class-driver clients of the same Host Library.
-3. Serial may open before Audio.
-4. Audio may open without Serial for existing RX-only/fixture behavior.
-5. Closing/stopping one public service must not destroy resources still owned by
-   the other service.
-6. The USB Host library and console handoff are released/restored only after the
-   final QMX owner is gone.
-7. Do not create a second independent USB Host stack for Serial.
-8. Do not use TinyUSB host; stay on the existing ESP-IDF Host Library.
-9. Keep QMX VID/PID fixed to the already-validated:
-   `0483:a34c`.
-10. Keep CDC interface 0 as the validated CAT interface.
+1. one USB Host installation only;
+2. one QMX CDC interface-0 handle only;
+3. Serial may cause the QMX USB session to come up before Audio, because portable
+   `ft8_main.c` opens CAT before RX;
+4. Audio.open joins an already-live session rather than tearing it down/reopening;
+5. Audio.stop/start must not destroy CDC/USB Host;
+6. Audio.close releases the Audio owner;
+7. Serial.close releases the Serial owner;
+8. full UAC/CDC/USB-host teardown + console restoration occurs only when no
+   public owner remains;
+9. preserve the already-validated V2/ADV disconnect cleanup behavior;
+10. no second USB stack and no duplicate class-driver instance.
 
 ## ADV Serial provider
 
@@ -261,71 +317,66 @@ If Audio still owns the QMX session, UAC + Host remain alive.
 If Serial was the last owner, perform complete class/host teardown and restore
 normal ADV USB console ownership.
 
-## UAC Audio lifecycle change
+## UAC Audio lifecycle change — preserve V2 concurrent USB behavior
 
-Preserve the existing Audio endpoint:
+Keep endpoint:
 
 ```text
 uac:qmx
 ```
 
-but separate:
-
-```text
-Audio open/close ownership
-```
-
-from:
-
-```text
-Audio start/stop streaming
-```
+The important distinction is **MiniShell logical Audio state** versus the
+underlying shared QMX USB session.
 
 ### Audio.open
 
-- acquire/join shared QMX USB session;
-- allocate the existing fixed UAC ring;
-- install/open UAC class resources as needed;
-- start the capture worker infrastructure;
+- acquire/join the existing QMX USB session;
+- allocate/prepare the normal RX ring and capture infrastructure as needed;
 - do not disturb an already-open CDC Serial owner.
 
 ### Audio.start
 
-Start/restart QMX UAC capture.
+- enable delivery of fresh QMX samples to MiniShell;
+- on first start, begin the existing UAC stream normally;
+- after a TX pause, discard stale samples and resume with a discontinuity/reset
+  boundary as needed.
 
 ### Audio.stop
 
-This is critical.
+Do **not** call the current full `release()`.
 
-`Audio.stop()` must synchronously quiesce **UAC streaming only**.
+Match V2's proven hardware strategy: keep the QMX USB Host, UAC device, and CDC
+device alive across an FT8 transmit slot.
 
-It must NOT:
+MiniShell's logical RX must be stopped, meaning the application receives no
+old/queued RX samples while paused. The provider may keep the physical UAC
+stream running internally and drain/discard samples during the pause. This is
+preferred if it keeps the implementation small and avoids stop/start races.
 
-- close QMX CDC;
-- uninstall the CDC driver;
-- uninstall the USB Host library;
-- restore the USB console;
-- invalidate the public Serial handle.
+Required result:
 
-When `Audio.stop()` returns, MiniFT8 must be able to immediately issue CAT TX.
+```text
+Audio.stop()
+    -> MiniShell RX delivery paused / stale ring discarded
+    -> underlying QMX UAC may remain streaming and drained
+    -> CDC handle remains valid
+    -> CAT TX immediately usable
+```
 
-Ensure the UAC stream has actually stopped before returning. Do not rely only on
-an asynchronous flag if CAT TX can race active UAC capture.
+This is intentionally analogous to V2, where UAC + CDC remain live throughout
+QMX CAT TX.
 
 ### Audio.start after TX
 
-Restart UAC capture through the same shared USB session.
-
-Preserve the existing discontinuity/reset indication so MiniFT8 re-establishes
-slot timing after TX.
+- re-enable delivery from the still-live UAC session;
+- ensure no TX-slot/stale samples are handed to the decoder;
+- emit/preserve the existing discontinuity/reset behavior so MiniFT8
+  re-establishes slot timing.
 
 ### Audio.close
 
-Release the Audio owner and its UAC resources/ring.
-
-If Serial still owns QMX, CDC + Host remain alive.
-
-If Audio is the last owner, perform final shared session teardown.
+Release Audio ownership and RX resources. Only perform complete shared QMX
+session teardown if Serial no longer owns it.
 
 ## Application shutdown ordering
 
@@ -512,7 +563,7 @@ Architecture/static tests must prove:
 
 ### 3. Shared ownership/lifecycle
 
-Extract enough pure state or use mocks to prove:
+Use the smallest practical state-level/mock tests to prove:
 
 - Serial-first acquisition is legal;
 - Audio then joins the same session;
@@ -689,7 +740,9 @@ Do not implement:
 - new public MiniShell APIs;
 - CDC component upgrades;
 - Linux Serial flake fix;
-- arbitrary USB CDC devices.
+- arbitrary USB CDC devices;
+- broad extraction/refactoring of the ADV USB stack when the existing
+  `adv_audio_uac.cpp` can be extended cleanly.
 
 T030 is specifically QMX CDC transport on ADV plus integrated physical FT8 TX.
 
