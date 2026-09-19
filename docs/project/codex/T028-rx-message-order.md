@@ -1,6 +1,6 @@
 # T028 — RX message ordering for display and selection
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -554,3 +554,15 @@ displayed CQ replies to that exact station. No RF transmission is required.
 
 
 ## Architect test result
+
+PASS. Live validation completed successfully.
+
+Accepted observed behavior:
+
+- reply-to-me messages appear first;
+- CQ messages appear next;
+- regular messages appear last;
+- each group is ordered strongest-to-weakest;
+- selecting a displayed message targets the correct decoded station.
+
+No color coding was added. T028 is COMPLETE.
