@@ -190,6 +190,11 @@ overflow/loss counters, and USB read/transfer-error counters before the stream
 restart. This distinguishes consumer starvation from a transport failure at the
 point where a receive slot can be lost.
 
+The T017 build-local UAC patch also emits a distinct warning for each patched
+loss source: `native-ring-overflow`, `bad-isoc`, `native-ring-push`, or
+`resubmit`. The driver's pre-existing general transfer failure log covers the
+fifth case where the completed USB transfer itself has an error status.
+
 ## Files changed
 
 Production:

@@ -23,13 +23,23 @@ def patch_callback(source):
         raise ValueError("UAC RX callback differs from pinned 1.3.3; review T017 patch")
     replacements = [
         ('            ESP_LOGD(TAG, "RX Ringbuffer overflow");',
-         '            ESP_LOGD(TAG, "RX Ringbuffer overflow");\n            ' + NOTIFY),
-        ('                    continue;', '                    ' + NOTIFY + '\n                    continue;'),
+         '            ESP_LOGW(TAG, "T017 RX loss: native-ring-overflow");\n'
+         '            ' + NOTIFY),
+        ('                    continue;',
+         '                    ESP_LOGW(TAG, "T017 RX loss: bad-isoc packet=%d status=%d",\n'
+         '                             i, in_xfer->isoc_packet_desc[i].status);\n'
+         '                    ' + NOTIFY + '\n'
+         '                    continue;'),
         ('                _ring_buffer_push(iface->ringbuf, in_xfer->data_buffer + i * requested_num_bytes, actual_num_bytes, 0);',
          '                if (_ring_buffer_push(iface->ringbuf, in_xfer->data_buffer + i * requested_num_bytes, actual_num_bytes, 0) != ESP_OK) {\n'
-         '                    ' + NOTIFY + '\n                }'),
+         '                    ESP_LOGW(TAG, "T017 RX loss: native-ring-push");\n'
+         '                    ' + NOTIFY + '\n'
+         '                }'),
         ('        usb_host_transfer_submit(in_xfer);',
-         '        if (usb_host_transfer_submit(in_xfer) != ESP_OK) {\n            ' + NOTIFY + '\n        }'),
+         '        if (usb_host_transfer_submit(in_xfer) != ESP_OK) {\n'
+         '            ESP_LOGW(TAG, "T017 RX loss: resubmit");\n'
+         '            ' + NOTIFY + '\n'
+         '        }'),
     ]
     for before, after in replacements:
         if source.count(before) != 1:

@@ -34,6 +34,7 @@ HARNESS = r'''
 #include "adv_audio_uac_buffer.h"
 #define ESP_OK 0
 #define ESP_LOGD(...) ((void)0)
+#define ESP_LOGW(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 enum { USB_TRANSFER_STATUS_COMPLETED, USB_TRANSFER_STATUS_CANCELED,
        USB_TRANSFER_STATUS_NO_DEVICE, USB_TRANSFER_STATUS_ERROR };
