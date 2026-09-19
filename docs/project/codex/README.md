@@ -12,7 +12,7 @@ T030 brings QMX CDC CAT to Cardputer ADV using the existing V2-proven composite
 USB-host path. Scope is deliberately narrow: no portable MiniFT8 changes, no
 public API changes, QMX UAC-IN + CDC only, and no USB Audio OUT/QDX work.
 Audio-RX stop/start becomes a logical pause/resume while CDC stays alive for CAT
-TX. Final hardware acceptance is the first real ADV/QMX QSO. R1 `51e45d63` passed supervisor re-review; hardware H1-H7 is now active. Supervisor review of implementation `1837f476` passed except R1 disconnected-start/late first-attach preservation, which must be fixed before hardware validation.
+TX. Final hardware acceptance is the first real ADV/QMX QSO. R1 `51e45d63` passed supervisor re-review; hardware H1-H7 is now active. First real ADV/QMX MiniFT8-V3 QSO completed with VA7NRC on 20 m; final cleanup/lifecycle checks remain before COMPLETE. Supervisor review of implementation `1837f476` passed except R1 disconnected-start/late first-attach preservation, which must be fixed before hardware validation.
 
 Recently completed:
 
