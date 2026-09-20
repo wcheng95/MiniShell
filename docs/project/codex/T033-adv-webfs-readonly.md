@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1001,6 +1001,51 @@ physical-volume capacity. Existing first-use TCP/IP retention remains unchanged.
 Task returned to **REVIEW**. The commit containing this section is the correction
 reference on `codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in
 the handoff. No PR and no hardware acceptance resumed.
+
+## Supervisor hardware-fix re-review
+
+Reviewed correction commit:
+
+```text
+e6ed8e5cc8b00a9c7111a81c7a15ad58292ea33e
+```
+
+Result: **PASS — resume ADV hardware validation.**
+
+The two first-run findings are correctly addressed:
+
+- session password is exactly eight lowercase letters, regenerated from the
+  existing RF-enabled ESP32 RNG path;
+- zero-quota `Filesystem.space()` now delegates to an optional private backend
+  physical-space hook after normal normalization/stat validation;
+- quota-backed Linux behavior remains unchanged and does not call the physical
+  hook;
+- ADV maps nested `/flash` and `/sd` paths to the containing FAT volume and
+  obtains physical allocation capacity below the backend boundary;
+- WebFS itself still uses only the public MiniShell Filesystem API;
+- public `mini_fs_api_t` and `MINISHELL_API_VERSION` are unchanged;
+- no T034 mutation work, USB ownership change, FT8 change, or Wi-Fi memory-policy
+  change is included.
+
+Validation evidence is sufficient: Linux **67/67**, portable **15/15**, focused
+WebFS/ADV-space tests, architecture checks, real ADV build, and diff check all
+pass.
+
+One non-blocking note: `adv_fs_volume_path()` preserves the pre-existing ADV
+root-prefix implementation pattern that may index at `path[strlen(root)]` for a
+short non-matching string. T033's public Filesystem path reaches the backend only
+after stat/path validation, and this pattern predates the WebFS correction, so it
+is not a blocker for this hardware retest. It should be cleaned up separately.
+
+Resume the same T033 hardware acceptance, beginning with the two failed points:
+
+1. confirm the displayed password is eight lowercase letters and convenient to
+   enter on iPhone;
+2. browse `/flash` and confirm a real listing plus total/used/free space instead
+   of `MINI_ERR_UNSUPPORTED`.
+
+Then continue nested paths, `/sd`, downloads, repeated start/stop heap behavior,
+and FT8-after-WebFS in the same boot.
 
 ## Architect test result
 
