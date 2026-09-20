@@ -1,6 +1,6 @@
 # T035 — Persistent WebFS SoftAP credentials
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -395,23 +395,161 @@ After supervisor review:
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Implemented from `d04b7af8c484a4b17b3bbd7d278f395ee83211d3` on
+`codex/T035-webfs-softap-settings`. No scope deviations.
+
+WebFS reads `/flash/minishell/setting.txt` once per launch, before Wi-Fi startup,
+through `mini_api_get()->fs`. The read-only loader accepts at most 1,024 file
+bytes, handles partial reads, probes EOF at the exact limit, and closes every
+acquired handle exactly once. Open/read/close errors, excess length, or invalid
+settings yield a cleared credential pair and select the existing generated
+fallback. It never creates or changes the settings file.
+
+The parser operates on explicit byte ranges: LF/CRLF, comments/blanks, exact
+case-sensitive keys, ignored unknown keys, first-`=` literal values, duplicate
+rejection, printable ASCII, SSID 1..32 bytes and PW 8..63 bytes. It does not trim
+values or accept a partial configured pair. Wi-Fi receives only an optional
+validated pair; configured credentials bypass random generation. The fallback
+retains RF entropy setup, `MiniShell-XXXX` and eight unbiased uppercase letters.
+
+The existing short-credential display is retained. Longer configured values wrap
+without truncation across up to six text rows; the seventh row retains the AP
+address and Q/Esc hint. No configured password is emitted to logs or the console.
+No live reload: edits become effective only at the next launch.
 
 ### Files changed
 
+- `platform/adv/adv_webfs_settings.[ch]`: bounded parser and MiniShell FS loader.
+- `platform/adv/adv_webfs.c`: one launch-time load, optional credential handoff,
+  and full-length credential display.
+- `platform/adv/adv_webfs_wifi.[ch]`: validated optional pair, larger session
+  credential arrays, unchanged generated fallback and SDK lifetime policy.
+- `platform/adv/main/CMakeLists.txt`: compile the settings module for ADV.
+- `tests/adv_webfs_settings_test.c`: parser and fault-injected loader tests.
+- `tests/adv_webfs_wifi_settings_test.py`: execute production credential-selection,
+  SDK-config and display excerpts; check startup ordering and ownership boundaries.
+- `CMakeLists.txt`: register both new host tests.
+- This task packet: evidence and REVIEW status.
+
 ### Invariants preserved
+
+Public API v3 is unchanged. No generic Config API, NVS persistence, STA mode,
+settings writer/editor, or settings watcher. The Wi-Fi backend neither opens files
+nor parses settings. AP-only WPA2, one station, RAM-only Wi-Fi storage,
+192.168.4.1, Wi-Fi memory configuration, foreground lifecycle and Q/Esc cleanup
+remain unchanged. T034 HTTP/mutation code and browser page are unchanged, as are
+FT8 production code/profile, CPU1 USB Host ownership, LEVEL1 interrupt policy,
+and FIFO 91/18/91. Foreground and HTTP task stack sizes are unchanged.
 
 ### Memory / firmware evidence
 
+Built the exact starting baseline before edits and saved its ELF/BIN, then built
+T035 with the installed ESP-IDF v5.5.4 toolchain. Compared ELF sections using
+`xtensa-esp32s3-elf-size -A` and BIN sizes with `wc -c`.
+
+| Measurement (bytes) | Baseline | T035 | Delta |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,000 | 27,000 | 0 |
+| `.dram0.bss` | 38,864 | 38,864 | 0 |
+| Firmware BIN | 1,374,432 | 1,375,552 | +1,120 |
+
+Total static internal-SRAM delta: **0 bytes**. IRAM vectors/end padding, RTC
+sections and DRAM heap-start address (`1070219088`) are unchanged. Final BIN:
+`0x14fd40`; app partition free: `0x4a02c0` bytes (78%).
+
+Compiled size probes with real ADV flags and inspected them with
+`xtensa-esp32s3-elf-nm -S`:
+
+- `webfs_wifi_t`: 32 -> 108 bytes (+76), foreground session stack state.
+- Validated credential pair: 97 bytes, foreground stack state.
+- Settings file buffer: 1,024 bytes on the loader stack, plus a one-byte EOF probe.
+  No settings heap allocation or permanent static buffer.
+- HTTP context stays 4,616 bytes; shared buffers stay 4,608 bytes; transfer buffer
+  stays 2,048 bytes. Nine URI handlers and two sockets remain unchanged.
+- Foreground stack remains 16 KiB; HTTP stack remains 6 KiB.
+- Compiler `-fstack-usage`: loader 1,072 bytes, parser 64 bytes, WebFS entry 336
+  bytes. These are individual compile-time frames, not runtime high-water marks.
+
 ### Local tests run
+
+Final gates passed:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 73/73 passed
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R adv_webfs
+# 6/6 passed, including all T033/T034 regressions and embedded JS/browser tests
+
+cmake -S tests/unit -B /tmp/T035-build-unit
+cmake --build /tmp/T035-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T035-build-unit --output-on-failure
+# 15/15 passed
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+# all passed
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# passed, real ESP32-S3 firmware; measurements above
+
+git diff --check
+# passed
+```
+
+Additional memory-safety check passed:
+
+```bash
+cc -std=c11 -g -O1 -Wall -Wextra -Werror -Wpedantic \
+  -fsanitize=address,undefined -Iinclude -Iplatform/adv \
+  tests/adv_webfs_settings_test.c platform/adv/adv_webfs_settings.c \
+  -o /tmp/T035-settings-sanitize
+ASAN_OPTIONS=detect_leaks=0 /tmp/T035-settings-sanitize
+```
+
+Parser/loader coverage includes all 20 packet cases, all disallowed byte values
+inside recognized values, embedded NUL, literal spaces and extra equals signs,
+case/whitespace-sensitive keys, no final newline, every SSID/PW length through
+one beyond the maximum, read chunks from 1..32 bytes, failure at every partial
+read including EOF, failed exact-limit probe, close failure, impossible backend
+read counts, repeated loads, and cleared output on every failure.
+
+Wi-Fi/display tests execute production excerpts with SDK/display fakes, checking
+configured bytes unchanged through SDK configuration, zero fallback RNG calls
+when configured, new fallback generation each launch, unchanged uppercase
+alphabet/length, maximum-length screen contents, and the short display boundary.
+Source checks verify one load before startup, MiniShell-only file access,
+AP/WPA2/RAM-only/one-station configuration and absence of credential logging.
 
 ### Manual/hardware validation still required
 
+No hardware testing or flashing performed. After supervisor review, perform the
+packet's configured-credential display/reconnect/reboot checks, next-launch edit
+behavior, missing/invalid-file fallback, T034 transfer smoke, and same-boot FT8/QMX
+startup. Runtime heap/stack and actual phone reconnection remain unmeasured here.
+
 ### Known limitations / risks
 
+- Files larger than 1,024 bytes deliberately fall back, even if their first two
+  lines contain valid credentials. Keep this resident settings file bounded.
+- File close failure conservatively selects fallback, as do open/read errors.
+- Unknown keys (including differently cased or whitespace-surrounded names) are
+  ignored. Recognized values remain literal, including leading/trailing spaces.
+- Persistent credentials are plain text in the operator-owned file, as specified;
+  no additional persistence, authentication or security mode was introduced.
+
 ### Commit
+
+One implementation commit on `codex/T035-webfs-softap-settings`, parent
+`d04b7af8c484a4b17b3bbd7d278f395ee83211d3`, titled
+`Load persistent WebFS SoftAP credentials through MiniShell FS`.
+Exact pushed SHA is returned in the handoff. No PR.
 
 ## Supervisor review
 

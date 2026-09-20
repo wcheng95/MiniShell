@@ -127,6 +127,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_usbmsc.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_webfs.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_webfs_wifi.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_webfs_settings.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_webfs_http.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_webfs_logic.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_elf_loader.c"

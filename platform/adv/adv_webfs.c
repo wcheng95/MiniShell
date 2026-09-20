@@ -41,20 +41,37 @@ int minishell_app_webfs_main(int argc, char **argv)
     api->display->text->clear();
     line(api, 0, "WebFS starting...");
     api->display->present();
-    esp_err_t rc = webfs_wifi_start(&wifi);
+    webfs_credentials_t credentials;
+    bool configured = webfs_settings_load(api->fs, &credentials);
+    esp_err_t rc = webfs_wifi_start(&wifi, configured ? &credentials : NULL);
+    memset(&credentials, 0, sizeof(credentials));
     if (rc == ESP_OK) rc = webfs_http_start(http);
     if (rc == ESP_OK) {
         heap_report(api, "active");
         api->display->text->clear();
-        line(api, 0, "WebFS");
-        line(api, 1, wifi.ssid);
-        char password[20];
-        snprintf(password, sizeof(password), "PW %s", wifi.password);
-        line(api, 2, password);
-        memset(password, 0, sizeof(password));
-        line(api, 3, "http://192.168.4.1/");
-        line(api, 4, "Browse /flash /sd");
-        line(api, 5, "Q / Esc = stop");
+        if (strlen(wifi.ssid) <= 20 && strlen(wifi.password) <= 17) {
+            line(api, 0, "WebFS");
+            line(api, 1, wifi.ssid);
+            char password[21];
+            snprintf(password, sizeof(password), "PW %.17s", wifi.password);
+            line(api, 2, password);
+            memset(password, 0, sizeof(password));
+            line(api, 3, "http://192.168.4.1/");
+            line(api, 4, "Browse /flash /sd");
+            line(api, 5, "Q / Esc = stop");
+        } else {
+            /* Maximum credentials occupy six rows; keep the URL/exit hint visible. */
+            char text[WEBFS_PASSWORD_CAP + 3];
+            snprintf(text, sizeof(text), "SSID %s", wifi.ssid);
+            uint32_t row = 0;
+            for (size_t offset = 0; offset < strlen(text); offset += 20)
+                line(api, row++, text + offset);
+            snprintf(text, sizeof(text), "PW %s", wifi.password);
+            for (size_t offset = 0; offset < strlen(text); offset += 20)
+                line(api, row++, text + offset);
+            memset(text, 0, sizeof(text));
+            line(api, 6, "192.168.4.1 Q/Esc");
+        }
         api->display->present();
         for (;;) {
             mini_key_event_t event = {.struct_size = sizeof(event)};

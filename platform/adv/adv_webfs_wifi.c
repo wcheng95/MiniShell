@@ -18,7 +18,7 @@
  * every session's netif, event loop, Wi-Fi driver and HTTP task on exit. */
 static bool tcpip_ready;
 
-esp_err_t webfs_wifi_start(webfs_wifi_t *wifi)
+esp_err_t webfs_wifi_start(webfs_wifi_t *wifi, const webfs_credentials_t *credentials)
 {
     esp_err_t rc;
     if (!tcpip_ready) {
@@ -40,25 +40,30 @@ esp_err_t webfs_wifi_start(webfs_wifi_t *wifi)
     rc = esp_wifi_set_mode(WIFI_MODE_AP);
     if (rc != ESP_OK) return rc;
 
-    /* Enable RF entropy before generating credentials, without broadcasting an
-     * AP or borrowing the battery ADC. IDF documents promiscuous enable as a
-     * hardware initialization trigger. No receive callback is installed. */
-    rc = esp_wifi_set_promiscuous(true);
-    if (rc != ESP_OK) return rc;
-    wifi->entropy_rx = true;
-    uint8_t random[14];
-    esp_fill_random(random, sizeof(random));
-    for (size_t i = 0; i < sizeof(wifi->password) - 1u; ++i) {
-        uint8_t sample = random[i];
-        while (!(wifi->password[i] = webfs_password_letter(sample)))
-            esp_fill_random(&sample, sizeof(sample));
+    if (credentials) {
+        memcpy(wifi->ssid, credentials->ssid, sizeof(wifi->ssid));
+        memcpy(wifi->password, credentials->password, sizeof(wifi->password));
+    } else {
+        /* Enable RF entropy before generating credentials, without broadcasting an
+         * AP or borrowing the battery ADC. IDF documents promiscuous enable as a
+         * hardware initialization trigger. No receive callback is installed. */
+        rc = esp_wifi_set_promiscuous(true);
+        if (rc != ESP_OK) return rc;
+        wifi->entropy_rx = true;
+        uint8_t random[14];
+        esp_fill_random(random, sizeof(random));
+        for (size_t i = 0; i < 8u; ++i) {
+            uint8_t sample = random[i];
+            while (!(wifi->password[i] = webfs_password_letter(sample)))
+                esp_fill_random(&sample, sizeof(sample));
+        }
+        wifi->password[8] = 0;
+        rc = esp_wifi_set_promiscuous(false);
+        if (rc != ESP_OK) return rc;
+        wifi->entropy_rx = false;
+        snprintf(wifi->ssid, sizeof(wifi->ssid), "MiniShell-%02X%02X", random[12], random[13]);
+        memset(random, 0, sizeof(random));
     }
-    wifi->password[8] = 0;
-    rc = esp_wifi_set_promiscuous(false);
-    if (rc != ESP_OK) return rc;
-    wifi->entropy_rx = false;
-    snprintf(wifi->ssid, sizeof(wifi->ssid), "MiniShell-%02X%02X", random[12], random[13]);
-    memset(random, 0, sizeof(random));
 
     esp_netif_config_t net = ESP_NETIF_DEFAULT_WIFI_AP();
     wifi->netif = esp_netif_new(&net);
