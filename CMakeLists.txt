@@ -809,3 +809,7 @@ add_executable(adv_filesystem_space_unit tests/adv_filesystem_space_test.c)
 target_include_directories(adv_filesystem_space_unit PRIVATE include platform/adv)
 target_compile_options(adv_filesystem_space_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME adv_filesystem_space_unit COMMAND adv_filesystem_space_unit)
+
+add_test(NAME adv_usb_host_owner
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_usb_host_owner_test.py
+            ${CMAKE_CXX_COMPILER})

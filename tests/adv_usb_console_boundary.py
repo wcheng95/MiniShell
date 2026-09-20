@@ -15,7 +15,8 @@ def ordered(source, *anchors):
 
 prepare = provider.split("bool prepare()", 1)[1].split("mini_result_t rx_open", 1)[0]
 release = provider.split("bool release()", 1)[1].split("bool prepare()", 1)[0]
-ordered(prepare, "if (adv_console_begin_usb_host() != 0) return false;", "usb_host_install(&host)")
+ordered(prepare, "if (adv_console_begin_usb_host() != 0) return false;", "xTaskCreatePinnedToCore(host_task", "xSemaphoreTake(host_ready",
+        "if (host_start_result != ESP_OK) return false;", "cdc_acm_host_install", "uac_host_install")
 ordered(release, "xSemaphoreTake(capture_done", "xSemaphoreTake(cdc_done",
         "if (!close_capture() || !close_cdc()) return false;",
         "cdc_acm_host_uninstall()", "uac_host_uninstall()",

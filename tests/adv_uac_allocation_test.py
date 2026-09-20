@@ -26,7 +26,7 @@ assert provider.count("heap_caps_free(") == 1
 prepare = function("bool prepare()")
 release = function("bool release()")
 assert "allocate_ring" not in prepare and "free_ring" not in release
-assert prepare.index("adv_console_begin_usb_host()") < prepare.index("usb_host_install(")
+assert prepare.index("adv_console_begin_usb_host()") < prepare.index("xTaskCreatePinnedToCore(host_task")
 
 HARNESS = r'''
 #include <atomic>

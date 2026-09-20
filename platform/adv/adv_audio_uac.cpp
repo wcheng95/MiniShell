@@ -26,7 +26,7 @@ portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 DMA_ATTR uint8_t native_data[2304];
 struct Connection { uint8_t address, interface; };
 QueueHandle_t connections;
-SemaphoreHandle_t capture_done, host_done, cdc_done, cdc_mutex;
+SemaphoreHandle_t capture_done, host_ready, host_done, cdc_done, cdc_mutex;
 alignas(portBYTE_ALIGNMENT) StackType_t capture_stack[4096 / sizeof(StackType_t)];
 static_assert(sizeof(capture_stack) == 4096, "capture stack must remain 4096 bytes");
 StaticTask_t capture_tcb;
@@ -34,6 +34,7 @@ TaskHandle_t capture_handle;
 std::atomic<bool> reserved{false}, started{false}, connected{false};
 std::atomic<bool> quit{false}, host_quit{false}, unplugged{false}, cdc_unplugged{false};
 std::atomic<bool> host_installed{false};
+std::atomic<esp_err_t> host_start_result{ESP_ERR_INVALID_STATE};
 constexpr minishell_backend_serial_t serial_handle = 0x434443u;
 // Public owners are foreground-only; worker-visible RX state uses lock/atomics.
 bool serial_reserved, session_ready, session_dirty;
@@ -122,13 +123,29 @@ void driver_event(uint8_t address, uint8_t interface, uac_host_driver_event_t ev
 }
 void host_task(void *)
 {
+    usb_host_config_t host = {};
+    host.intr_flags = ESP_INTR_FLAG_LEVEL1;
+    host.fifo_settings_custom.rx_fifo_lines = 91;
+    host.fifo_settings_custom.nptx_fifo_lines = 18;
+    host.fifo_settings_custom.ptx_fifo_lines = 91;
+    adv_console_dump_interrupts();
+    host_start_result = usb_host_install(&host);
+    host_installed = host_start_result == ESP_OK;
+    xSemaphoreGive(host_ready);
+    if (!host_installed) {
+        ESP_LOGE(tag, "CPU1 USB Host install failed: %s", esp_err_to_name(host_start_result));
+        xSemaphoreGive(host_done);
+        vTaskDelete(nullptr);
+        return;
+    }
     while (!host_quit) {
         uint32_t flags = 0;
         usb_host_lib_handle_events(pdMS_TO_TICKS(20), &flags);
         if (flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) usb_host_device_free_all();
     }
-    // Class clients have detached. Drain asynchronous device/PHY cleanup.
-    for (unsigned i = 0; i < 100; ++i) {
+    // Keep the allocating task/core alive until interrupt/PHY teardown succeeds.
+    // A foreground timeout retains this owner; later cleanup joins the same task.
+    for (unsigned attempt = 0; host_installed; ++attempt) {
         uint32_t flags = 0;
         usb_host_lib_handle_events(pdMS_TO_TICKS(20), &flags);
         usb_host_device_free_all();
@@ -136,11 +153,14 @@ void host_task(void *)
             host_installed = false;
             break;
         }
+        if (attempt % 100u == 99u)
+            ESP_LOGE(tag, "USB host teardown incomplete; CPU1 owner and PHY retained");
+        vTaskDelay(1);
     }
-    if (host_installed) ESP_LOGE(tag, "USB host teardown incomplete; PHY retained");
     xSemaphoreGive(host_done);
     vTaskDelete(nullptr);
 }
+
 void cdc_event(const cdc_acm_host_dev_event_data_t *event, void *)
 {
     if (event->type == CDC_ACM_HOST_DEVICE_DISCONNECTED) cdc_unplugged = true;
@@ -315,10 +335,6 @@ bool release()
         uac_installed = false;
     }
     host_quit = true;
-    if (host_installed && !host_running) {
-        host_running = xTaskCreate(host_task, "uac_host_exit", 4096, nullptr, 5, nullptr) == pdPASS;
-        if (!host_running) return false;
-    }
     if (host_running) {
         if (xSemaphoreTake(host_done, pdMS_TO_TICKS(5000)) != pdTRUE) return false;
         host_running = false;
@@ -329,6 +345,7 @@ bool release()
     if (capture_done) { vSemaphoreDelete(capture_done); capture_done = nullptr; }
     if (cdc_done) { vSemaphoreDelete(cdc_done); cdc_done = nullptr; }
     if (host_done) { vSemaphoreDelete(host_done); host_done = nullptr; }
+    if (host_ready) { vSemaphoreDelete(host_ready); host_ready = nullptr; }
     // No restoration until both class clients and the host PHY are gone.
     return adv_console_end_usb_host(host_installed || uac_installed || cdc_installed) == 0;
 }
@@ -338,20 +355,17 @@ bool prepare()
     connections = xQueueCreate(16, sizeof(Connection));
     capture_done = xSemaphoreCreateBinary();
     host_done = xSemaphoreCreateBinary();
+    host_ready = xSemaphoreCreateBinary();
     cdc_done = xSemaphoreCreateBinary();
     cdc_mutex = xSemaphoreCreateMutex();
-    if (!connections || !capture_done || !host_done || !cdc_done || !cdc_mutex) return false;
+    if (!connections || !capture_done || !host_ready || !host_done || !cdc_done || !cdc_mutex) return false;
     if (adv_console_begin_usb_host() != 0) return false;
-    usb_host_config_t host = {};
-    host.intr_flags = ESP_INTR_FLAG_LEVEL1;
-    host.fifo_settings_custom.rx_fifo_lines = 91;
-    host.fifo_settings_custom.nptx_fifo_lines = 18;
-    host.fifo_settings_custom.ptx_fifo_lines = 91;
-    adv_console_dump_interrupts();
-    if (usb_host_install(&host) != ESP_OK) return false;
-    host_installed = true;
-    host_running = xTaskCreate(host_task, "uac_host", 4096, nullptr, 5, nullptr) == pdPASS;
+    host_start_result = ESP_ERR_INVALID_STATE;
+    host_running = xTaskCreatePinnedToCore(host_task, "uac_host", 4096, nullptr,
+                                           5, nullptr, 1) == pdPASS;
     if (!host_running) return false;
+    if (xSemaphoreTake(host_ready, pdMS_TO_TICKS(5000)) != pdTRUE) return false;
+    if (host_start_result != ESP_OK) return false;
     ESP_LOGI(tag, "USB Host installed FIFO 91/18/91; heap %u largest %u",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));

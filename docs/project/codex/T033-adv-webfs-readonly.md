@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: IMPLEMENTING — USB INTERRUPT REGRESSION
+Status: REVIEW
 
 ## Architect intent
 
@@ -1336,6 +1336,130 @@ Hardware validation after supervisor review:
 - run `ft8` again in the same boot and confirm normal QMX startup;
 - repeat FT8 start/stop to confirm the CPU1 interrupt is released/reacquired
   cleanly.
+
+## Codex CPU1 USB Host ownership fix
+
+### Implementation summary
+
+Based on `afb69c191bda8976459bb5b38a974d43b3abcbc3`, implemented the
+architect-approved permanent host-lifetime fix. `prepare()` still runs on the
+CPU0 foreground application task, but now creates the existing 4096-byte,
+priority-5 host task using `xTaskCreatePinnedToCore(..., 1)`.
+
+That CPU1 owner builds the unchanged LEVEL1 / FIFO 91/18/91 configuration,
+runs the retained interrupt dump, and calls `usb_host_install()` itself. It
+publishes the exact install result and `host_installed` state before signaling
+a new binary `host_ready` semaphore. `prepare()` waits up to five seconds for
+that handshake and rejects a timeout or failed result before either CDC or UAC
+installation. An install failure leaves `host_installed` false, signals owner
+completion, and retires the task; existing failed-prepare cleanup joins it and
+restores console/resources. A task-creation failure also follows normal cleanup.
+
+The same owner handles library events and, after class/device teardown requests
+host exit, drains devices and calls `usb_host_uninstall()`. The previous
+100-attempt exit followed by a separate `uac_host_exit` task was removed: failed
+uninstall attempts retain the original CPU1 task, retry with yielding, and log
+periodically. The existing five-second foreground completion wait can fail
+without abandoning ownership; subsequent cleanup waits on that same owner's
+completion semaphore. This preserves same-task/core interrupt allocation and
+release even across teardown retries.
+
+### Files changed
+
+- `platform/adv/adv_audio_uac.cpp`: CPU1 lifetime ownership, startup result/ready
+  handshake, and same-owner teardown retention.
+- `tests/adv_usb_host_owner_test.py`: new executable production-function lifecycle
+  regression with controlled RTOS/USB faults and source-boundary checks.
+- `tests/adv_usb_console_boundary.py`, `tests/adv_uac_allocation_test.py`: update
+  the old foreground-install assertion to require console handoff before owner
+  creation and handshake before class setup. Existing cleanup checks remain.
+- Root `CMakeLists.txt`: register the new host-owner CTest.
+- This task packet: implementation and validation evidence; status **REVIEW**.
+
+### Behavior / invariants preserved
+
+`host.intr_flags = ESP_INTR_FLAG_LEVEL1` is unchanged; no sharing flag is added.
+FIFO geometry remains 91/18/91. Foreground CPU0 affinity, static capture-task
+creation/affinity, CDC/UAC class configuration, disconnected-start/late-attach
+semantics, FT8 memory/profile, WebFS/Wi-Fi settings, USB-console ownership policy,
+and public APIs remain unchanged. The owner now performs both install and
+uninstall on CPU1, which is the intended architectural correction.
+
+Cleanup order remains: stop/join capture and CDC workers, close class device
+handles, uninstall CDC and UAC clients, signal the host owner to drain/uninstall,
+wait for owner completion, delete synchronization resources, then restore the
+console. Startup failures cannot fall through into class setup. The interrupt
+dump remains directly before host installation, now executed by the CPU1 owner.
+It is still a **pre-install** snapshot; successful hardware installation and
+same-core release/reacquisition must be validated after review.
+
+### Local tests / build evidence
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 68/68; no retries.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure \
+  -R 'adv_(webfs|filesystem_space|usb_host_owner|usb_console_boundary|uac_allocation|qmx_serial)'
+# PASS 6/6 focused ownership, console, QMX, WebFS and filesystem regressions.
+
+cmake -S tests/unit -B /tmp/T033-build-unit
+cmake --build /tmp/T033-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T033-build-unit --output-on-failure
+# PASS 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+# All PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS real ADV build; BIN 0x14eed0 bytes, 78% application partition free.
+
+git diff --check
+# PASS including this task evidence.
+```
+
+The new test compiles the actual `host_task`, `prepare`, and `release` bodies.
+A controlled thread stands in for the CPU1 RTOS task, recording its identity and
+requested core. It asserts both USB calls execute on that same owner, checks the
+unchanged flags/FIFOs and dump location, and checks readiness/result before class
+installation. Cases cover success, task creation failure, install failure,
+startup wait timeout, foreground teardown timeout followed by cleanup retry,
+and UAC failure after CDC startup. Every successful host installation encounters
+at least 110 rejected uninstall attempts before success, proving the owner
+survives the old 100-attempt cutoff. Cleanup must release all fixture semaphores
+and restore the console only after host/class teardown and owner completion.
+These tests validate orchestration; they do not emulate the hardware interrupt
+allocator or replace ADV validation.
+
+The existing host stack remains 4096 B; foreground and HTTP stacks are unchanged.
+New explicit static state is a 4-byte semaphore handle plus a 4-byte atomic install
+result (confirmed with Xtensa `nm -S`), with one additional dynamically allocated
+binary semaphore per session, released after the owner is joined. No RX ring,
+FT8 workspace, or Wi-Fi memory tuning was introduced.
+
+### Manual validation still required / known limitations
+
+No hardware testing or flashing was performed, as requested. After supervisor
+review, run the specified fresh-boot FT8 test, quit cleanly, run/quit WebFS, then
+start FT8 again in the same boot. Repeat FT8 start/stop to confirm clean CPU1
+interrupt release/reacquisition and unchanged QMX behavior. Retain UART captures.
+A pre-install table alone cannot show the USB input after successful allocation.
+
+A persistent USB uninstall failure deliberately keeps the original owner and PHY
+alive while foreground cleanup reports failure; it must not migrate teardown to
+another core or restore USB console ownership prematurely. Hardware startup,
+interrupt availability, and owner-task stack high-water remain unverified here.
+Existing untracked Python cache directories are untouched and excluded.
+
+### Commit
+
+The commit containing this section is the CPU1 owner implementation reference on
+`codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in the handoff.
+T033 is **REVIEW**. No PR and no hardware acceptance resumed.
 
 ## Architect test result
 
