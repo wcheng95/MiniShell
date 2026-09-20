@@ -1,6 +1,6 @@
 # T030 — ADV QMX CAT + shared UAC/CDC USB session + first ADV QSO
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -781,14 +781,14 @@ After FT8 exit:
 - [x] CAT test mode can run without implicit RX;
 - [ ] receive-safe CAT band synchronization works on real ADV/QMX;
 - [ ] live UAC decode continues with CAT enabled;
-- [ ] physical CAT TX works while UAC is paused;
-- [ ] 79-symbol FT8 TX completes on real ADV/QMX;
-- [ ] RX/UAC recovery works after TX;
+- [x] physical CAT TX works while UAC is paused;
+- [x] 79-symbol FT8 TX completes on real ADV/QMX;
+- [x] RX/UAC recovery works after TX;
 - [ ] T028/T029 UI order/lifetime behavior remains correct;
 - [ ] RT log records ADV transmissions/receptions correctly;
 - [ ] repeated FT8 lifecycle is clean;
 - [ ] post-FT8 `usbmsc` still works;
-- [ ] first real ADV/QMX two-way FT8 QSO completed;
+- [x] first real ADV/QMX two-way FT8 QSO completed;
 - [x] no portable MiniFT8 platform dependency added;
 - [x] Linux regression suite remains green aside from documented serial flake;
 - [x] portable units pass;
@@ -1252,5 +1252,100 @@ One new implementation commit on `codex/T030-adv-qmx-cat`, based on supervisor
 review head `f6b8950`. The commit containing this R1 handoff is the reference;
 its exact SHA is returned to the architect. Task returned to REVIEW. No PR or
 GitHub Actions wait.
+
+### R1 supervisor re-review — PASS
+
+Reviewed R1 implementation commit:
+
+```text
+51e45d631d285fb7080c2bee643b1a90a292617e
+```
+
+R1 satisfies the disconnected-start requirement without changing portable
+MiniFT8 or public MiniShell APIs.
+
+Accepted behavior:
+
+```text
+bare ADV ft8, QMX absent
+    -> ADV composition starts/retains the existing private QMX USB discovery session
+    -> wait UI remains active indefinitely
+    -> Q/Esc can cancel cleanly
+    -> no public Serial handle exists yet
+    -> no CAT command is reported/sent as successful
+
+first QMX attachment
+    -> CDC becomes genuinely ready
+    -> portable ft8 entry starts
+    -> public serial:qmx opens normally
+    -> existing radio_qmx performs MD6/FR0/FT0/FA synchronization
+    -> only then does portable RX open/start uac:qmx
+```
+
+The private `adv_qmx_prepare_serial()/adv_qmx_release_unused()` helpers are
+ADV composition-only and do not alter the public API. Repeated NOT_READY polling
+retains one existing USB session rather than reinstalling the Host/class drivers.
+Cancellation/error paths pair preparation with release. Tone-test and non-QMX
+paths preserve their intended behavior.
+
+Regression coverage executes the actual ADV wrapper plus the real portable
+option parser and radio_qmx synchronization, including a simulated first attach
+after four seconds, which is beyond the original three-second Serial-open
+deadline.
+
+Software gates remain PASS:
+
+```text
+Linux CTest       61/61
+portable units    15/15
+architecture      PASS
+ADV build         PASS
+diff check        PASS
+```
+
+R1 image growth is +564 B versus the first reviewed T030 implementation, with
+DIRAM .data/.bss unchanged.
+
+Supervisor review is complete. Proceed to hardware H1-H7.
+
+## Architect hardware result — first ADV QSO
+
+Hardware milestone reported by architect/tester:
+
+```text
+platform   Cardputer ADV
+radio      QMX
+mode       FT8
+band       20 m
+contact    VA7NRC
+result     first completed two-way MiniFT8-V3 QSO on ADV hardware
+```
+
+This confirms the integrated embedded TX path on real hardware:
+
+```text
+QMX UAC-IN live RX
+    -> ADV MiniShell Audio RX
+    -> MiniFT8 decode / AutoSeq
+    -> MiniShell Serial serial:qmx
+    -> QMX CDC CAT TX
+    -> 79-symbol FT8 transmission
+    -> RX restoration / continued receive
+```
+
+The completed QSO is accepted as real-hardware evidence for:
+
+- physical CAT keying on ADV/QMX;
+- per-symbol CAT tone transmission;
+- complete FT8 TX lifecycle;
+- RX restoration sufficient to continue the two-way exchange;
+- first real ADV/QMX two-way QSO.
+
+Contact: **VA7NRC**, **20 m**.
+
+T030 remains TESTING until the remaining lifecycle/cleanup evidence is recorded,
+especially repeated `ft8 -> quit -> ft8`, resident console restoration,
+post-FT8 `usbmsc`, and no material heap loss. RT trace should be retained if
+available as the durable QSO record.
 
 ## Architect test result
