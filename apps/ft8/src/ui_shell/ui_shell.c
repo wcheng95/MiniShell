@@ -162,7 +162,11 @@ static void render_top(const UiShell *ui, const UiModel *model, UiFrame *frame)
         }
 
         if (ui->submenu == UI_SUBMENU_V_QSO && pages >= 10u) {
-            if (pages <= 999999u)
+            if (pages <= 99u)
+                frame_set(frame, 0, "V  %02u %.5s %u/%u %c",
+                          band, utc, (unsigned)page, (unsigned)pages,
+                          counter_char(model->slot_counter));
+            else if (pages <= 999999u)
                 frame_set(frame, 0, "V %02u %u/%u", band, (unsigned)page, (unsigned)pages);
             else
                 frame_set(frame, 0, "%u/%u", (unsigned)page, (unsigned)pages);
