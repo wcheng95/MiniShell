@@ -1,6 +1,6 @@
 # T035 — Persistent WebFS SoftAP credentials
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -567,6 +567,48 @@ Review the actual diff and evidence. Special attention:
 
 No PR required.
 
+## Supervisor review — implementation
+
+Reviewed implementation commit:
+
+```text
+77e446a53e41231dd073b00c018f71f84e03639e
+```
+
+Result: **PASS — ready for ADV hardware validation.**
+
+The implementation matches the T035 contract:
+
+- `/flash/minishell/setting.txt` is opened/read/closed exclusively through the public MiniShell Filesystem API;
+- settings are loaded once per WebFS launch, before Wi-Fi/HTTP startup;
+- loader is bounded to 1,024 bytes and distinguishes exact-limit EOF from an oversized file;
+- partial reads, read errors and close errors are handled conservatively;
+- every acquired file handle is closed exactly once;
+- parser accepts LF/CRLF, comments/blanks, unknown keys and first-`=` literal values while rejecting duplicate recognized keys;
+- SSID is validated as 1..32 printable ASCII bytes and PW as 8..63 printable ASCII bytes with no silent truncation;
+- configured credentials are all-or-nothing; every missing/invalid/error case selects the existing generated credential pair;
+- configured credentials bypass random fallback generation entirely;
+- generated fallback remains `MiniShell-XXXX` plus eight uppercase letters;
+- Wi-Fi remains AP-only, WPA2, one station, 192.168.4.1, RAM storage and no NVS;
+- Wi-Fi backend receives already validated credentials and has no filesystem or settings-parser responsibility;
+- configured password is not added to console/system/debug logs;
+- active credentials remain visible only on the intended local ADV connection screen;
+- no live reload, STA mode, generic Config API, T034 mutation change, FT8 change, or USB ownership change.
+
+Maximum credential geometry was also checked: 32-byte SSID plus 63-byte password fits the ESP-IDF AP configuration fields without truncation, and the ADV display uses at most six credential rows plus row 6 for the address/Q-Esc hint.
+
+Validation is sufficient for hardware testing: Linux **73/73**, portable **15/15**, WebFS **6/6**, architecture checks, real ADV build and diff check pass.
+
+Memory impact is appropriately bounded:
+
+- firmware: **+1,120 B**;
+- permanent static SRAM: **0 B**;
+- `webfs_wifi_t`: +76 B foreground/session stack state;
+- parsed credential pair: 97 B foreground stack state;
+- settings read buffer: 1,024 B temporary loader stack;
+- foreground stack remains 16 KiB; HTTP stack remains 6 KiB.
+
+Hardware acceptance now only needs configured credential reuse/reconnect, fallback behavior, one T034 file operation, and same-boot FT8/QMX smoke.
 ## Architect test result
 
 Pending.
