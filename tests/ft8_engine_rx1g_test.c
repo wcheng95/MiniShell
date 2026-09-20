@@ -91,6 +91,15 @@ static void test_requirements_and_lifecycle(void)
     CHECK(engine.monitor.next_block_seq == 0u);
     CHECK(ft8_engine_process_block(&engine, zero_block) == FT8_ENGINE_OK);
 
+    /* Explicit/offline timing may reach a UTC boundary with too little room
+     * left in the 93-block linear buffer for a complete 79-block decode. */
+    while (engine.monitor.num_blocks < 20u)
+        CHECK(ft8_engine_process_block(&engine, zero_block) == FT8_ENGINE_OK);
+    CHECK(engine.monitor.num_blocks == 20u);
+    CHECK(ft8_engine_begin_window(&engine, 43) == FT8_ENGINE_OK);
+    CHECK(engine.monitor.num_blocks == 0u);
+    CHECK(engine.slot_anchor_seq == 0u);
+
     ft8_engine_destroy(&engine);
     CHECK(engine.initialized == 0);
     CHECK(ft8_engine_begin_window(&engine, 44) == FT8_ENGINE_ERR_NOT_INITIALIZED);
