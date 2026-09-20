@@ -102,11 +102,15 @@ Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id)
     if (engine->slot_anchor_valid && engine->pending_hash_ages != UINT32_MAX)
         ++engine->pending_hash_ages;
 
-    /* Explicit/offline compatibility can arrive at the next UTC boundary with
-     * the 93-block linear buffer exactly full. Live V3 capture has already
-     * reset at UTC-1.6 s and therefore reaches UTC with only 10 blocks. */
-    if (engine->monitor.num_blocks >= engine->monitor.req.max_blocks)
+    /* Explicit/offline compatibility can arrive at a UTC boundary with
+     * arbitrary pre-boundary history still in the 93-block linear buffer.
+     * Reserve a complete 79-block FT8 decode window from the new anchor.
+     * Live V3 reaches UTC with exactly 10 preroll blocks, so it keeps those
+     * blocks (10 + 79 <= 93); explicit/offline RX resets only when needed. */
+    if (engine->monitor.num_blocks > engine->monitor.req.max_blocks ||
+        engine->monitor.req.max_blocks - engine->monitor.num_blocks < 79u) {
         ft8_monitor_reset_window(&engine->monitor);
+    }
 
     engine->slot_id = slot_id;
     engine->slot_anchor_seq = ft8_monitor_next_block_sequence(&engine->monitor);
