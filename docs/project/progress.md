@@ -24,7 +24,8 @@
 - T031 completes live QMX band synchronization: O -> 3 updates MiniFT8 immediately, then an already-connected QMX follows the final selected band after a 1-second debounce. Rapid band stepping coalesces to one final CAT sync; hardware validation passed on 2026-09-20.
 - T032 completes the read-only `V -> 3` current-day QSO view: MiniFT8 streams today's ADIF log into six-row compact `HH:MM band call` pages, refreshes after new QSOs, and uses the accepted large-page top-line rules. Hardware/use validation passed on 2026-09-20.
 - T033 is COMPLETE: ADV WebFS read-only SoftAP/browser file management is hardware validated. `/flash` and `/sd` browsing plus downloads work without cable handoff; FT8/QMX works before and after WebFS in the same boot using CPU1-owned USB Host lifetime.
-- T034 is TESTING: safe WebFS mutations passed software/build review — streamed upload/replace with temp-file commit, mkdir, same-directory regular-file rename, file delete, and empty-directory delete. Hardware validation is pending.
+- T034 is COMPLETE: safe WebFS mutations are hardware validated — streamed upload/replace with temp-file commit, mkdir, same-directory regular-file rename, file delete, empty-directory delete, interrupted replacement safety, `/sd` operation, and same-boot FT8/QMX all pass.
+- T035 is READY: WebFS reads stable SoftAP credentials from `/flash/minishell/setting.txt` (`SSID=` and `PW=`) so phones can remember the network; invalid/missing settings fall back to generated credentials.
 - ADV remains a validated embedded RX deployment target. Physical FT8 TX is currently accepted on Linux/QMX; carrying the proven TX boundary to ADV is future work rather than an active task.
 
 ## Current MiniFT8 baseline
@@ -117,7 +118,8 @@ T029         COMPLETE — RX rows persist through TX; clear at TX completion/res
 T031         COMPLETE — live QMX band CAT sync, 1 s debounce, hardware validated
 T032         COMPLETE — V -> 3 current-day QSO compact view, hardware validated
 T033         COMPLETE — WebFS read-only SoftAP/browser, hardware validated
-T034         TESTING — safe WebFS mutations, hardware pending
+T034         COMPLETE — safe WebFS mutations, hardware validated
+T035         READY — persistent WebFS SoftAP credentials
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 rpi3-2       RX/TX PASS — native AArch64 build; QMX ALSA decode + CDC CAT + physical TX validated
