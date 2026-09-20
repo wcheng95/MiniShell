@@ -213,7 +213,9 @@ static void success(unsigned poll_ms, unsigned late_ms, unsigned write_us)
     assert(strstr(events,"Ea") && starts==2 && stops==1);
     assert(app.rx->timing_pending);
     assert(app_controller_step_rx(&app,&changed) && reads==1);
-    assert(!app.rx->timing_pending && app.rx->framer.waiting_for_full_boundary);
+    assert(!app.rx->timing_pending);
+    assert(app.rx->live_capture_schedule_valid && !app.rx->live_capture_active);
+    assert(app.rx->live_next_capture_slot == app.rx->framer.slot_id + 1);
     assert(app.rx->framer.slot_id==(1789776000+(int64_t)(now_us/1000000u))/15);
     /* Expected bytes use the production formatter; timing expectations use the immutable plan. */
     strcpy(expected,"MD6;TX;"); record_expected=true;
