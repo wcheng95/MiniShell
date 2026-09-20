@@ -1,6 +1,6 @@
 # T031 — Live band change CAT synchronization
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -561,11 +561,32 @@ GitHub Actions wait.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff against this task and the
-local test evidence. Do not merge unrelated cleanup.
+Reviewed implementation commit:
 
-Canonical MiniFT8 documentation is updated by the supervisor after accepted
-implementation/hardware behavior.
+```text
+0791833f00f4adc0d67784ea77000d52da8b8819
+```
+
+Result: **PASS — ready for hardware validation.**
+
+Review findings:
+
+- implementation is one clean commit directly ahead of the T031 task head;
+- O -> 3 still changes/persists the local band immediately;
+- controller owns the 1-second debounce and reads the final current band at sync time;
+- runtime CAT reuses the existing QMX `MD6; FR0; FT0; FA...` sequence on the already-open stream;
+- no MiniShell public API or platform provider changed;
+- active/uncertain TX is rejected by the radio-control sync operation;
+- band edits cancel stale not-yet-started TX state;
+- slot progression is consumed while debounce is pending and again after blocking CAT writes, preventing old-frequency or late same-slot key-up;
+- CAT failure latches the application error path without AutoSeq completion/retry consumption;
+- no-CAT startup behavior remains valid and later CAT startup uses the current band;
+- focused tests cover 999/1000 ms timing, rapid-band coalescing, CAT failures, slot-boundary crossing, active-TX freeze, missing monotonic time, and later-slot TX resumption;
+- reported Linux 64/64, portable units 15/15, architecture checks, ADV build, and diff check are sufficient software evidence for merge.
+
+No blocking review findings. Canonical current-state documentation should be updated after real QMX acceptance.
+
+Remaining gate: architect QMX hardware validation described above.
 
 ## Architect test result
 
