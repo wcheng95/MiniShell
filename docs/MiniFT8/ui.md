@@ -127,10 +127,16 @@ This preserves the most useful timing context while allowing the complete
 two-digit `current/total` page fraction to fit inside 20 columns. The rendered
 line is space-padded to the fixed 20-column width.
 
-At 100 or more QSO pages, `100/100` no longer fits with screen, band, UTC
-minutes, and counter. In that exceptional case the QSO view falls back to the
-more compact screen/band/page form, and for extremely large fractions may show
-the page fraction alone so pagination is never silently truncated.
+At 100 or more QSO pages, the header stops exposing the exact page fraction
+and shows a capped indicator instead:
+
+```text
+V  20 HH:MM 100+ A
+```
+
+The internal page can continue advancing past 100, but the top line remains
+`100+`; it does not show values such as `101/102`. This keeps screen, band,
+UTC minutes, and the slot counter visible within 20 columns.
 
 This is a narrow `V -> 3` presentation exception. It does not change the locked
 top-line contract for R, T, O, S, V top level, or other V submenus.
