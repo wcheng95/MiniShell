@@ -45,15 +45,12 @@ bool webfs_valid_path(const char *path)
     return true;
 }
 
-bool webfs_query_path(const char *query, char *path, size_t capacity)
+static bool decode_path(const char *query, size_t len, char *path, size_t capacity)
 {
-    if (!query || !path || !capacity) return false;
+    if (!path || !capacity) return false;
     path[0] = 0;
-    size_t len = 0;
-    while (len < WEBFS_QUERY_CAP && query[len]) ++len;
-    if (len >= WEBFS_QUERY_CAP || len < 5 || strncmp(query, "path=", 5)) return false;
     size_t out = 0;
-    for (size_t i = 5; i < len; ++i) {
+    for (size_t i = 0; i < len; ++i) {
         unsigned char c = (unsigned char)query[i];
         if (c == '&' || c == '#' || c == '=') return false;
         if (c == '%') {
@@ -68,6 +65,35 @@ bool webfs_query_path(const char *query, char *path, size_t capacity)
     }
     path[out] = 0;
     return webfs_valid_path(path);
+}
+
+static size_t query_length(const char *query)
+{
+    size_t n = 0;
+    if (query) while (n < WEBFS_QUERY_CAP && query[n]) ++n;
+    return n;
+}
+
+bool webfs_query_path(const char *query, char *path, size_t capacity)
+{
+    size_t n = query_length(query);
+    return n >= 5 && n < WEBFS_QUERY_CAP && !strncmp(query, "path=", 5) &&
+           decode_path(query + 5, n - 5, path, capacity);
+}
+
+bool webfs_query_rename(const char *query, char *from, char *to, size_t capacity)
+{
+    size_t n = query_length(query);
+    if (n < 10 || n >= WEBFS_QUERY_CAP) return false;
+    const char *split = memchr(query, '&', n);
+    if (!split || memchr(split + 1, '&', n - (size_t)(split + 1 - query))) return false;
+    const char *a = query, *b = split + 1;
+    size_t na = (size_t)(split - query), nb = n - na - 1;
+    if (na >= 5 && nb >= 3 && !strncmp(a, "from=", 5) && !strncmp(b, "to=", 3))
+        return decode_path(a + 5, na - 5, from, capacity) && decode_path(b + 3, nb - 3, to, capacity);
+    if (na >= 3 && nb >= 5 && !strncmp(a, "to=", 3) && !strncmp(b, "from=", 5))
+        return decode_path(b + 5, nb - 5, from, capacity) && decode_path(a + 3, na - 3, to, capacity);
+    return false;
 }
 
 bool webfs_json_string(const char *text, char *out, size_t capacity)
@@ -162,4 +188,92 @@ mini_result_t webfs_file(const mini_fs_api_t *fs, webfs_buffers_t *b,
     }
     mini_result_t closed = fs->close(file);
     return rc == MINI_OK ? closed : rc;
+}
+
+bool webfs_mutable_path(const char *path)
+{
+    return webfs_valid_path(path) && strcmp(path, "/flash") && strcmp(path, "/sd");
+}
+
+mini_result_t webfs_mutate(const mini_fs_api_t *fs, webfs_mutation_t operation,
+                           const char *path, const char *to)
+{
+    if (!webfs_mutable_path(path)) return MINI_ERR_INVALID;
+    switch (operation) {
+    case WEBFS_MKDIR: return fs->mkdir(path);
+    case WEBFS_REMOVE_FILE: return fs->remove_file(path);
+    case WEBFS_RMDIR: return fs->rmdir(path);
+    case WEBFS_RENAME: {
+        if (!webfs_mutable_path(to)) return MINI_ERR_INVALID;
+        size_t parent = (size_t)(strrchr(path, '/') - path);
+        if ((size_t)(strrchr(to, '/') - to) != parent || strncmp(path, to, parent))
+            return MINI_ERR_INVALID;
+        return fs->rename(path, to);
+    }
+    default: return MINI_ERR_INVALID;
+    }
+}
+
+static bool same_ascii_name(const char *a, const char *b)
+{
+    while (*a && *b) {
+        unsigned char x = (unsigned char)*a++, y = (unsigned char)*b++;
+        if (x >= 'A' && x <= 'Z') x += 'a' - 'A';
+        if (y >= 'A' && y <= 'Z') y += 'a' - 'A';
+        if (x != y) return false;
+    }
+    return *a == *b;
+}
+
+mini_result_t webfs_upload(const mini_fs_api_t *fs, webfs_buffers_t *b, size_t length,
+                           webfs_receive_fn receive, webfs_random_fn random, void *ctx)
+{
+    if (!webfs_mutable_path(b->path)) return MINI_ERR_INVALID;
+    mini_fs_stat_t info = {.struct_size = sizeof(info)};
+    mini_result_t rc = fs->stat(b->path, &info);
+    if (rc == MINI_OK && info.type != MINI_FS_TYPE_FILE) return MINI_ERR_IS_DIR;
+    if (rc != MINI_OK && rc != MINI_ERR_NOT_FOUND) return rc;
+    size_t parent = (size_t)(strrchr(b->path, '/') - b->path + 1);
+    const size_t name_size = sizeof(".webfs-upload-00000000.tmp");
+    if (parent + name_size > sizeof(b->child)) return MINI_ERR_NAME_TOO_LONG;
+    memcpy(b->child, b->path, parent);
+    mini_file_t file = MINI_FILE_INVALID;
+    rc = MINI_ERR_EXISTS;
+    for (unsigned attempt = 0; attempt < WEBFS_TEMP_ATTEMPTS; ++attempt) {
+        snprintf(b->child + parent, sizeof(b->child) - parent,
+                 ".webfs-upload-%08" PRIx32 ".tmp", random(ctx));
+        /* FAT is case-insensitive; never create the destination as our temp. */
+        if (same_ascii_name(b->child, b->path)) continue;
+        rc = fs->open(b->child, MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_EXCL, &file);
+        if (rc != MINI_ERR_EXISTS) break;
+    }
+    if (rc != MINI_OK) return rc;
+    while (length && rc == MINI_OK) {
+        uint32_t want = length < sizeof(b->transfer) ? (uint32_t)length : sizeof(b->transfer);
+        uint32_t count = 0;
+        rc = receive(ctx, b->transfer, want, &count);
+        if (rc != MINI_OK) break;
+        if (!count || count > want) { rc = MINI_ERR_IO; break; }
+        uint32_t offset = 0;
+        while (offset < count) {
+            uint32_t written = 0;
+            rc = receive(ctx, NULL, 0, &written);
+            if (rc != MINI_OK) break;
+            rc = fs->write(file, b->transfer + offset, count - offset, &written);
+            if (rc != MINI_OK) break;
+            if (!written || written > count - offset) { rc = MINI_ERR_IO; break; }
+            offset += written;
+        }
+        length -= count;
+    }
+    uint32_t ignored = 0;
+    if (rc == MINI_OK) rc = receive(ctx, NULL, 0, &ignored);
+    if (rc == MINI_OK) rc = fs->sync(file);
+    /* MiniShell consumes the handle even when backend close reports failure. */
+    mini_result_t closed = fs->close(file);
+    if (rc == MINI_OK) rc = closed;
+    if (rc == MINI_OK) rc = receive(ctx, NULL, 0, &ignored);
+    if (rc == MINI_OK) rc = fs->rename(b->child, b->path);
+    if (rc != MINI_OK) (void)fs->remove_file(b->child);
+    return rc;
 }

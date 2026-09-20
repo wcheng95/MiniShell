@@ -1,6 +1,7 @@
 #include "adv_webfs_http.h"
 #include "adv_webfs_page.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
@@ -73,12 +74,74 @@ static esp_err_t api_error(httpd_req_t *req, mini_result_t rc)
         status = "400 Bad Request"; message = "Wrong file type";
     } else if (rc == MINI_ERR_ACCESS) {
         status = "403 Forbidden"; message = "Access denied";
+    } else if (rc == MINI_ERR_EXISTS || rc == MINI_ERR_NOT_EMPTY) {
+        status = "409 Conflict";
+        message = rc == MINI_ERR_EXISTS ? "Path already exists" : "Directory is not empty";
+    } else if (rc == MINI_ERR_NO_SPACE) {
+        status = "507 Insufficient Storage"; message = "Not enough storage space";
+    } else if (rc == MINI_ERR_TOO_MANY_OPEN) {
+        status = "503 Service Unavailable"; message = "Too many open files";
+    } else if (rc == MINI_ERR_UNSUPPORTED) {
+        status = "501 Not Implemented"; message = "Operation unsupported";
     }
     char body[128];
     snprintf(body, sizeof(body), "{\"error\":\"%s (%ld)\"}", message, (long)rc);
     httpd_resp_set_status(req, status);
     httpd_resp_set_type(req, "application/json; charset=utf-8");
     return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+}
+
+static mini_result_t receive_body(void *ctx, void *data, uint32_t size, uint32_t *count)
+{
+    httpd_req_t *req = ctx;
+    webfs_http_t *http = req->user_ctx;
+    *count = 0;
+    if (atomic_load(&http->stopping)) return MINI_ERR_IO;
+    if (!size) return MINI_OK;
+    int n = httpd_req_recv(req, data, size);
+    if (n <= 0 || atomic_load(&http->stopping)) return MINI_ERR_IO;
+    *count = (uint32_t)n;
+    return MINI_OK;
+}
+
+static uint32_t temp_random(void *ctx) { (void)ctx; return esp_random(); }
+
+static esp_err_t handle_mutation(httpd_req_t *req)
+{
+    webfs_http_t *http = req->user_ctx;
+    const mini_fs_api_t *fs = mini_api_get()->fs;
+    bool upload = req->method == HTTP_PUT && !strncmp(req->uri, "/api/file?", 10);
+    bool rename = req->method == HTTP_PUT && !strncmp(req->uri, "/api/rename?", 12);
+    bool directory = !strncmp(req->uri, "/api/dir?", 9);
+    mini_result_t rc = MINI_ERR_INVALID;
+    size_t length = httpd_req_get_url_query_len(req);
+    if (atomic_load(&http->stopping)) return ESP_FAIL;
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
+    if ((!upload && req->content_len) || !length || length >= sizeof(http->buffers.query) ||
+        httpd_req_get_url_query_str(req, http->buffers.query, sizeof(http->buffers.query)) != ESP_OK)
+        goto done;
+    if (rename) {
+        if (!webfs_query_rename(http->buffers.query, http->buffers.path,
+                                http->buffers.child, sizeof(http->buffers.path))) goto done;
+        rc = webfs_mutate(fs, WEBFS_RENAME, http->buffers.path, http->buffers.child);
+    } else {
+        if (!webfs_query_path(http->buffers.query, http->buffers.path, sizeof(http->buffers.path))) goto done;
+        if (upload) rc = webfs_upload(fs, &http->buffers, req->content_len,
+                                      receive_body, temp_random, req);
+        else rc = webfs_mutate(fs, directory ?
+                              (req->method == HTTP_PUT ? WEBFS_MKDIR : WEBFS_RMDIR) : WEBFS_REMOVE_FILE,
+                              http->buffers.path, NULL);
+    }
+done:
+    if (atomic_load(&http->stopping)) return ESP_FAIL;
+    if (rc != MINI_OK) {
+        (void)api_error(req, rc);
+        /* Close on errors: an upload may still have unread request bytes. */
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "application/json; charset=utf-8");
+    return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t handle_request(httpd_req_t *req)
@@ -136,7 +199,7 @@ esp_err_t webfs_http_start(webfs_http_t *http)
     config.global_user_ctx = http;
     config.global_user_ctx_free_fn = context_borrowed;
     config.max_open_sockets = 2;
-    config.max_uri_handlers = 4;
+    config.max_uri_handlers = 9;
     config.lru_purge_enable = true;
     config.recv_wait_timeout = 2;
     config.send_wait_timeout = 2;
@@ -146,6 +209,16 @@ esp_err_t webfs_http_start(webfs_http_t *http)
     for (size_t i = 0; i < sizeof(paths)/sizeof(paths[0]); ++i) {
         httpd_uri_t uri = {.uri = paths[i], .method = HTTP_GET,
                           .handler = handle_request, .user_ctx = http};
+        rc = httpd_register_uri_handler(http->server, &uri);
+        if (rc != ESP_OK) return rc;
+    }
+    const struct { const char *path; httpd_method_t method; } mutations[] = {
+        {"/api/file", HTTP_PUT}, {"/api/file", HTTP_DELETE},
+        {"/api/dir", HTTP_PUT}, {"/api/dir", HTTP_DELETE}, {"/api/rename", HTTP_PUT}
+    };
+    for (size_t i = 0; i < sizeof(mutations)/sizeof(mutations[0]); ++i) {
+        httpd_uri_t uri = {.uri = mutations[i].path, .method = mutations[i].method,
+                          .handler = handle_mutation, .user_ctx = http};
         rc = httpd_register_uri_handler(http->server, &uri);
         if (rc != ESP_OK) return rc;
     }
