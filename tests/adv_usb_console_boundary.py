@@ -43,8 +43,11 @@ assert 'CONFIG_UAC_NUM_PACKETS_PER_URB=3' in defaults.splitlines()
 assert 'vTaskDelete(nullptr)' not in capture
 ordered(capture, 'xSemaphoreGive(capture_done)', 'for (;;) vTaskSuspend(nullptr);')
 composition = (root / 'platform/adv/main/CMakeLists.txt').read_text()
-assert ('set_property(SOURCE "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller.c"\n'
-        '        APPEND PROPERTY COMPILE_DEFINITIONS FT8_DEFAULT_FREQ_OSR=1)') in composition
+controller_property = composition.split(
+    'set_property(SOURCE "${MINISHELL_ROOT}/apps/ft8/src/app_controller/app_controller.c"', 1
+)[1].split(')', 1)[0]
+assert 'FT8_DEFAULT_FREQ_OSR=1' in controller_property
+assert 'FT8_DECODE_DIAGNOSTICS=1' in controller_property
 assert "adv_console_resume_after_usb" not in provider
 ordered(console.split("int adv_console_suspend_for_usb(void)", 1)[1],
         "if (s_host_console.suspended) return -1;", "usb_serial_jtag_driver_uninstall()")
