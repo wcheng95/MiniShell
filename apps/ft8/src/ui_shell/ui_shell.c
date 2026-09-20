@@ -166,10 +166,9 @@ static void render_top(const UiShell *ui, const UiModel *model, UiFrame *frame)
                 frame_set(frame, 0, "V  %02u %.5s %u/%u %c",
                           band, utc, (unsigned)page, (unsigned)pages,
                           counter_char(model->slot_counter));
-            else if (pages <= 999999u)
-                frame_set(frame, 0, "V %02u %u/%u", band, (unsigned)page, (unsigned)pages);
             else
-                frame_set(frame, 0, "%u/%u", (unsigned)page, (unsigned)pages);
+                frame_set(frame, 0, "V  %02u %.5s 100+ %c",
+                          band, utc, counter_char(model->slot_counter));
             return;
         }
         /* Locked ADV first-release format: exactly 20 characters. */
