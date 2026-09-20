@@ -745,6 +745,8 @@ add_test(NAME adv_usb_console_boundary
 add_test(NAME adv_uac_allocation
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_uac_allocation_test.py
             ${CMAKE_CXX_COMPILER})
+add_test(NAME adv_power_apps
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_power_apps_test.py)
 
 target_include_directories(ft8_tx_lifecycle_as7_unit PRIVATE apps/ft8/src/tx_encoder)
 target_include_directories(ft8_runtime_grid_ownership_unit PRIVATE apps/ft8/src/tx_encoder apps/ft8/src/auto_seq)
