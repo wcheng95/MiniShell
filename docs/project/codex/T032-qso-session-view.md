@@ -1,6 +1,6 @@
 # T032 — V -> 3 daily QSO compact view
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -765,7 +765,11 @@ With that decision documented, there are no remaining blocking review findings.
 
 ## Architect test result
 
-Pending.
+PASS — 2026-09-20.
+
+Architect validated the merged `main` implementation in normal use. `V -> 3`
+displayed today's QSO list correctly with the accepted compact presentation and
+latest top-line rules. T032 is accepted COMPLETE.
 
 ## Final merged-state validation
 
