@@ -1,6 +1,6 @@
 # T035 — Persistent WebFS SoftAP credentials
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -611,4 +611,20 @@ Memory impact is appropriately bounded:
 Hardware acceptance now only needs configured credential reuse/reconnect, fallback behavior, one T034 file operation, and same-boot FT8/QMX smoke.
 ## Architect test result
 
-Pending.
+PASS on Cardputer ADV, 2026-09-20.
+
+Hardware validation confirms:
+
+- WebFS reads the configured SSID/PW from `/flash/minishell/setting.txt`;
+- the configured credentials are displayed correctly;
+- repeated WebFS launches reuse the same credentials;
+- iPhone reconnects without requiring a newly generated password;
+- T034 browser/file operations remain functional;
+- invalid/unavailable settings fall back to generated `MiniShell-XXXX` plus an
+  eight-uppercase-letter password;
+- restoring the valid settings file restores the configured credentials on the
+  next launch;
+- WebFS exits cleanly;
+- FT8/QMX starts normally afterward in the same boot.
+
+T035 is COMPLETE.
