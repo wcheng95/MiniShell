@@ -4,8 +4,6 @@
 #include <M5Unified.h>
 
 #include "adv_internal.h"
-#include "adv_ft8_web_io.h"
-#include "freertos/FreeRTOS.h"
 
 namespace {
 constexpr uint32_t kColumns = 20u;
@@ -19,9 +17,6 @@ constexpr uint32_t kWhite = 0xFFFFFFu;
 
 char s_cells[kRows][kColumns];
 uint8_t s_attrs[kRows][kColumns];
-adv_display_snapshot_t s_presented = {};
-portMUX_TYPE s_present_lock = portMUX_INITIALIZER_UNLOCKED;
-static_assert(kColumns == ADV_MIRROR_COLUMNS && kRows == ADV_MIRROR_ROWS, "Mirror geometry");
 bool s_ready = false;
 bool s_console_mode = true;
 uint32_t s_console_row = 0u;
@@ -60,13 +55,6 @@ void render_all(void)
             display.write(static_cast<uint8_t>(s_cells[row][column]));
         }
     }
-    /* Publish only after the physical frame is complete. Readers never see the
-     * working buffer, and the short copy is the only cross-core critical section. */
-    portENTER_CRITICAL(&s_present_lock);
-    std::memcpy(s_presented.cells, s_cells, sizeof(s_cells));
-    std::memcpy(s_presented.attrs, s_attrs, sizeof(s_attrs));
-    ++s_presented.generation;
-    portEXIT_CRITICAL(&s_present_lock);
 }
 
 void scroll_console(void)
@@ -225,11 +213,4 @@ extern "C" mini_result_t adv_display_present(void *ctx)
     if (!s_ready) return MINI_ERR_NOT_READY;
     render_all();
     return MINI_OK;
-}
-
-extern "C" void adv_display_snapshot(adv_display_snapshot_t *out)
-{
-    portENTER_CRITICAL(&s_present_lock);
-    *out = s_presented;
-    portEXIT_CRITICAL(&s_present_lock);
 }
