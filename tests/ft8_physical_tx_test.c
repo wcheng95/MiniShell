@@ -884,8 +884,122 @@ static void rx_display_tx_lifetime(void)
     cleanup(&app);
 }
 
-int main(void)
+static void set_band(AppController *app, int band)
 {
+    AppAction action = {.type=APP_ACTION_SET_BAND, .value.index=band};
+    assert(app_controller_apply_action(app, &action));
+}
+
+static void band_cat(void)
+{
+    AppController app; bool changed; UiModel model;
+    setup(&app, true);
+    AutoSeq saved = app.auto_seq;
+    set_band(&app, 4);
+    app_controller_build_model(&app, &model);
+    assert(model.band_index == 4 && strcmp(model.band_name, "17m") == 0);
+    assert(strstr(files[path_id("/flash/ft8/station.txt")].text, "band=4"));
+    now_us += 999000;
+    assert(app_controller_step_cat(&app) && !serial_writes);
+    now_us += 1000;
+    assert(app_controller_step_cat(&app));
+    assert(strcmp(cat, "MD6;FR0;FT0;FA00018100000;") == 0 && serial_writes == 4);
+    assert(app_controller_step_cat(&app) && serial_writes == 4);
+    assert(memcmp(&saved, &app.auto_seq, sizeof(saved)) == 0);
+    assert(starts == 1 && stops == 0 && !serial_closes);
+    cleanup(&app);
+
+    setup(&app, false);
+    set_band(&app, 3);
+    for (int band = 4; band <= 6; ++band) {
+        now_us += 700000; set_band(&app, band);
+        assert(app_controller_step_cat(&app) && serial_writes == 0);
+    }
+    now_us += 999000; assert(app_controller_step_cat(&app) && !serial_writes);
+    now_us += 1000; assert(app_controller_step_cat(&app));
+    assert(strcmp(cat, "MD6;FR0;FT0;FA00028074000;") == 0 && serial_writes == 4);
+    cleanup(&app);
+
+    reset(); assert(app_controller_init(&app, &api, "/flash/ft8", "/flash/ft8/station.txt"));
+    set_band(&app, 5); now_us += 2000000;
+    assert(app_controller_step_cat(&app) && !serial_writes && !app.cat_band_sync_pending);
+    assert(app_controller_start_cat(&app, "test:cat") == MINI_OK);
+    assert(strcmp(cat, "MD6;FR0;FT0;FA00021074000;") == 0 && serial_writes == 4);
+    cleanup(&app);
+
+    for (unsigned short_failure = 0; short_failure < 2; ++short_failure) {
+        setup(&app, false); saved = app.auto_seq;
+        set_band(&app, 4); now_us += 1000000;
+        fail_command = 4; short_cat = short_failure;
+        assert(!app_controller_step_cat(&app));
+        assert(strchr(events, '!') && app.cat_band_sync_pending);
+        assert(!app_controller_step_cat(&app) && serial_writes == 4); // No auto-retry.
+        now_us = anchor + 30000000;
+        assert(app_controller_step_tx(&app, &changed) && !app.tx.active);
+        assert(!strstr(cat, "TX;") && !strstr(cat, "RX;"));
+        assert(memcmp(&saved, &app.auto_seq, sizeof(saved)) == 0 && !app.tx.failed_tx_count);
+        cleanup(&app);
+    }
+
+    // Deadline in the first 500 ms of a TX slot: no catch-up, even if no
+    // pending-TX step ran before the CAT step first noticed the boundary.
+    for (unsigned observe_pending = 0; observe_pending < 2; ++observe_pending) {
+        setup(&app, false); saved = app.auto_seq;
+        now_us = anchor - 800000; set_band(&app, 4);
+        now_us = anchor;
+        if (observe_pending) assert(app_controller_step_tx(&app, &changed) && !app.tx.active);
+        now_us = anchor + 200000; assert(app_controller_step_cat(&app));
+        assert(app_controller_step_tx(&app, &changed) && !app.tx.active);
+        assert(memcmp(&saved, &app.auto_seq, sizeof(saved)) == 0);
+        now_us = anchor + 15000000; assert(app_controller_step_tx(&app, &changed) && !app.tx.active);
+        now_us = anchor + 30000000; assert(app_controller_step_tx(&app, &changed) && app.tx.active);
+        cleanup(&app);
+    }
+
+    // A blocking sync itself crosses the boundary; consume that opportunity too.
+    setup(&app, false);
+    now_us = anchor - 1100000; set_band(&app, 4);
+    now_us = anchor - 100000; write_delay_us = 50000;
+    assert(app_controller_step_cat(&app));
+    assert(now_us == anchor + 100000);
+    assert(app_controller_step_tx(&app, &changed) && !app.tx.active);
+    cleanup(&app);
+
+    // A boundary retained waiting for RX freshness must not survive the edit.
+    setup(&app, true); app.rx->have_applied_batch = false;
+    assert(app_controller_step_tx(&app, &changed) && app.tx.pending);
+    set_band(&app, 4); assert(!app.tx.pending);
+    now_us += 1000000; assert(app_controller_step_cat(&app));
+    app.rx->have_applied_batch = true;
+    assert(app_controller_step_tx(&app, &changed) && !app.tx.active);
+    cleanup(&app);
+
+    setup(&app, false);
+    assert(app_controller_step_tx(&app, &changed) && app.tx.active);
+    unsigned before = serial_writes;
+    set_band(&app, 4);
+    assert(app.config.band_index == 3 && !app.cat_band_sync_pending);
+    assert(app_controller_step_cat(&app) && serial_writes == before);
+    cleanup(&app);
+
+    // Missing clock at action time, or a clock lost before expiry, cannot
+    // create an immortal debounce. Both use a receive-safe immediate sync.
+    for (unsigned lost = 0; lost < 2; ++lost) {
+        setup(&app, false);
+        mini_time_location_api_t no_clock = clock_api; no_clock.monotonic_us = NULL;
+        mini_api_t no_clock_api = api; no_clock_api.time_location = &no_clock;
+        if (!lost) app.api = &no_clock_api;
+        set_band(&app, 4);
+        app.api = &no_clock_api;
+        assert(app_controller_step_cat(&app) && serial_writes == 4 && !app.cat_band_sync_pending);
+        cleanup(&app);
+    }
+    puts("band CAT debounce, final selection, failure inhibit, slot consumption and TX freeze PASS");
+}
+
+int main(int argc, char **argv)
+{
+    if (argc == 2 && strcmp(argv[1], "--band-cat") == 0) { band_cat(); return 0; }
     rx_display_tx_lifetime();
     rx_display_order();
     nonstandard_cq_reply();

@@ -1,6 +1,6 @@
 # T031 — Live band change CAT synchronization
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -434,21 +434,130 @@ ADV/QMX hardware confirmation is desirable after T030 hardware state permits it.
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Implemented controller-owned runtime band synchronization with a 1,000,000-us
+monotonic debounce. Band selection and persistence remain immediate. Further
+accepted band actions restart the interval; expiry synchronizes the current
+configured band using the existing QMX receive sequence on the existing stream.
+No-CAT selection arms no timer, and later CAT startup syncs the current band.
+
+The new `app_controller_step_cat()` runs before RX and physical TX progression.
+Missing monotonic time at the action or at progression uses immediate sync;
+a backward clock also avoids an immortal deadline. `UINT64_MAX` in the private
+change timestamp marks the missing-clock fallback.
+
+Runtime sync failure latches the existing application error path (CAT error
+return 12), keeps TX inhibited, and does not retry commands or consume AutoSeq
+completion/retry state. Startup success and shutdown clear the private state.
+
+The controller cancels a retained, not-yet-started TX boundary on band action.
+During debounce, slot observations continue but cannot initiate physical TX.
+CAT progression consumes the current slot before and after blocking sync, so a
+boundary first noticed at expiry, or crossed during the writes themselves,
+cannot become a late same-slot transmission. Later natural slots remain eligible.
+
+`radio_control_sync_frequency()` rejects closed/invalid control and active or
+uncertain TX, then delegates to `radio_qmx_sync()` without opening/closing Serial.
+The operation remains radio-domain code; no command strings enter the controller.
 
 ### Files changed
 
+- `apps/ft8/src/radio_control/radio_control.[ch]`: already-open frequency sync.
+- `apps/ft8/src/app_controller/app_controller.[ch]`: arm/reset pending state and
+  expose bounded CAT progression.
+- `apps/ft8/src/app_controller/app_controller_internal.h`: fixed private pending,
+  failure, and timestamp fields; no new allocation calls.
+- `apps/ft8/src/app_controller/app_controller_tx_physical.c`: CAT progression,
+  slot consumption, and physical-TX inhibition, reusing the existing UTC helper.
+- `apps/ft8/main/ft8_main.c`: call CAT progression and use the existing error exit.
+- `tests/ft8_radio_control_test.c`: already-open sync, exact transcript, handle
+  lifetime, active/uncertain TX rejection, and short/error propagation.
+- `tests/ft8_physical_tx_test.c`: isolated `--band-cat` regression using the
+  existing production-source fixture and mocked MiniShell services.
+- `CMakeLists.txt`: register `ft8_band_cat_unit` for that isolated mode.
+- This task packet: implementation and review evidence.
+
 ### Invariants preserved
+
+No MiniShell public API, platform provider, UI action/layout, band list/index,
+frequency table, persisted format, or CAT command syntax changes. No new task,
+thread, or heap allocation. No RX stop/restart, display-row clear, or AutoSeq
+queue reset on band selection. Active physical TX still freezes actions; its
+existing absolute tone scheduling and completion path are unchanged.
+
+Inspected the pinned V2 `main/main.cpp` band-sync guard/control call and the
+existing radio-control/QMX implementation. The one-second V3 timing is the
+explicit T031 difference, rather than a copy of V2's deferred manual-band policy.
+No architectural or scope deviation.
 
 ### Local tests run
 
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure \
+  -R 'ft8_(radio_control|band_cat|physical_tx|ui_smoke)'
+# PASS 4/4.
+
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 64/64; linux_serial_unit passed without retry.
+
+cmake -S tests/unit -B /tmp/T031-build-unit
+cmake --build /tmp/T031-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T031-build-unit --output-on-failure
+# PASS 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All PASS; also included in the full Linux suite.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS real ESP32-S3 firmware build.
+
+git diff --check
+# PASS.
+```
+
+The first focused test run caught a test expectation typo (`17` instead of the
+existing model's `17m`). Corrected that assertion without changing UI/model
+production behavior; the focused and full suites then passed.
+
+Coverage includes 999-ms suppression/1000-ms sync; rapid 20m/17m/15m/10m selection
+and final-only frequency; immediate model and persisted band; no-CAT operation
+and later startup; unchanged AutoSeq bytes/RX start-stop counts; short and failed
+runtime CAT writes with no automatic retry or TX; slot crossing both with and
+without an intervening pending-TX step; blocking writes crossing a boundary;
+retained RX-freshness pending start cancellation; later-slot TX resumption;
+active-TX freeze; and missing/lost monotonic time fallback.
+
 ### Manual/hardware validation still required
+
+After supervisor review/merge, validate the task's Linux/QMX procedure: immediate
+O -> 3 display selection, final frequency after approximately one second,
+rapid-band coalescing, subsequent clean-slot RX decoding, and no stale/late TX
+near a slot boundary. ADV/QMX confirmation is desirable when T030 hardware state
+permits it. No flashing or RF test was performed.
 
 ### Known limitations / risks
 
+The existing blocking receive-safe sequence may take up to four Serial timeout
+budgets; transport acceptance is not a radio frequency readback. A failed or
+partial sync deliberately ends normal application progression rather than
+inventing reconnection/retry policy. RX buffers and slot framing remain untouched,
+as required. Fixed private fields increase the controller object size slightly
+without adding any allocation site. Pre-existing untracked Python cache
+directories in `platform/adv` and `tests` were left untouched and excluded.
+
 ### Commit
+
+One implementation commit on `codex/T031-live-band-cat-sync`, based on task head
+`65d06dd`. The commit containing these notes is the implementation reference;
+its exact SHA is returned in the Codex handoff. Task set to REVIEW. No PR or
+GitHub Actions wait.
 
 ## Supervisor review
 

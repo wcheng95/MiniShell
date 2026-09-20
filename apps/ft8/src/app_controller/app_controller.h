@@ -22,6 +22,8 @@ AppController *app_controller_create(const mini_api_t *api,
                                      const char *station_path);
 void app_controller_destroy(AppController *app);
 mini_result_t app_controller_start_cat(AppController *app, const char *endpoint);
+/* Progress pending receive-safe CAT work before RX/TX progression. */
+bool app_controller_step_cat(AppController *app);
 /* Standalone bounded diagnostic: reads config but creates no AutoSeq/RX/UI state. */
 mini_result_t app_controller_cat_test(const mini_api_t *api, const char *station_path,
                                       const char *endpoint, float tone_hz, uint32_t duration_ms);

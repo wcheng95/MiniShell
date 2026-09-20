@@ -220,6 +220,11 @@ int main(int argc, char **argv)
             break;
         }
 
+        if (!app_controller_step_cat(app)) {
+            result = 12;
+            break;
+        }
+
         if (!app_controller_step_rx(app, &step_changed)) {
             result = 9;
             break;

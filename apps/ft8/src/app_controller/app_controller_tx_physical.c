@@ -32,6 +32,44 @@ static void report(const AppController *app, const char *message)
         app->api->system->write(message);
 }
 
+static void consume_band_sync_slot(AppController *app)
+{
+    const mini_time_location_api_t *time = app->api ? app->api->time_location : NULL;
+    int64_t slot;
+    uint16_t ms;
+    TxSlotBoundary boundary;
+    bool observed;
+    app->tx.pending = false;
+    if (utc_slot(time, &slot, &ms))
+        (void)tx_lifecycle_observe(&app->tx.lifecycle, slot, ms, &boundary, &observed);
+    else
+        app->tx.lifecycle.have_observed_slot = 0; // Re-anchor when UTC returns.
+}
+
+bool app_controller_step_cat(AppController *app)
+{
+    if (!app || app->cat_band_sync_failed) return false;
+    if (!app->cat_band_sync_pending) return true;
+    consume_band_sync_slot(app);
+    const mini_time_location_api_t *time = app->api ? app->api->time_location : NULL;
+    if (time && time->monotonic_us && app->cat_band_changed_us != UINT64_MAX) {
+        uint64_t now = time->monotonic_us();
+        if (now >= app->cat_band_changed_us && now - app->cat_band_changed_us < 1000000u)
+            return true;
+    }
+    if (radio_control_sync_frequency(&app->radio,
+            config_service_band_dial_hz(app->config.band_index)) != MINI_OK) {
+        app->cat_band_sync_failed = true;
+        report(app, "ft8: band CAT synchronization failed\n");
+        return false;
+    }
+    // Also consume a boundary crossed by blocking CAT writes, or by a loop
+    // that first observes expiry in the new slot. Never key up late after sync.
+    consume_band_sync_slot(app);
+    app->cat_band_sync_pending = false;
+    return true;
+}
+
 static bool fail_tx(AppController *app, const char *message)
 {
     ++app->tx.failed_tx_count;
@@ -102,6 +140,10 @@ bool app_controller_step_tx(AppController *app, bool *changed)
     TxSlotBoundary boundary;
     bool observed;
     if (!tx_lifecycle_observe(&app->tx.lifecycle, slot, ms, &boundary, &observed)) return false;
+    if (app->cat_band_sync_pending || app->cat_band_sync_failed) {
+        app->tx.pending = false;
+        return true;
+    }
     if (observed) { app->tx.pending = true; app->tx.pending_slot = slot; }
     if (!app->tx.pending) return true;
     if (app->tx.pending_slot != slot || ms >= TX_LIFECYCLE_BOUNDARY_WINDOW_MS) {

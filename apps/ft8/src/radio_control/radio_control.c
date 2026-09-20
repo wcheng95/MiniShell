@@ -42,6 +42,13 @@ mini_result_t radio_control_open_qmx(RadioControl *radio, const mini_api_t *api,
     return result;
 }
 
+mini_result_t radio_control_sync_frequency(RadioControl *radio, uint32_t dial_hz)
+{
+    if (!radio || !radio->stream || !dial_hz) return MINI_ERR_INVALID;
+    if (radio->tx_active || radio->rx_required) return MINI_ERR_NOT_READY;
+    return radio_qmx_sync(radio->serial, radio->stream, dial_hz);
+}
+
 mini_result_t radio_control_begin_tx(RadioControl *radio)
 {
     if (!radio || !radio->stream) return MINI_ERR_BAD_HANDLE;

@@ -53,6 +53,9 @@ struct AppController {
     AppRxState *rx;
     AppTxState tx;
     RadioControl radio;
+    uint64_t cat_band_changed_us;
+    bool cat_band_sync_pending;
+    bool cat_band_sync_failed;
 };
 
 /* Internal lifecycle used by the public create/destroy wrapper and white-box tests. */

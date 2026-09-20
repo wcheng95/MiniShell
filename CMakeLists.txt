@@ -763,6 +763,7 @@ target_include_directories(ft8_physical_tx_unit PRIVATE $<TARGET_PROPERTY:ft8,IN
 target_link_libraries(ft8_physical_tx_unit PRIVATE m)
 target_compile_options(ft8_physical_tx_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME ft8_physical_tx_unit COMMAND ft8_physical_tx_unit)
+add_test(NAME ft8_band_cat_unit COMMAND ft8_physical_tx_unit --band-cat)
 
 add_executable(ft8_tx_offset_unit tests/ft8_tx_offset_test.c
     apps/ft8/src/tx_offset/tx_offset.c apps/ft8/src/config_service/config_service.c)

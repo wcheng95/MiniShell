@@ -56,6 +56,34 @@ int main(void)
             CHECK(writes == fail_at && closes == before + 1 && !radio.stream);
         }
     }
+    fail_at = 0; short_write = false; transcript[0] = 0; writes = 0;
+    CHECK(radio_control_sync_frequency(NULL, 18100000) == MINI_ERR_INVALID);
+    CHECK(radio_control_sync_frequency(&radio, 18100000) == MINI_ERR_INVALID);
+    CHECK(radio_control_open_qmx(&radio, &api, "test:cat", 14074000) == MINI_OK);
+    unsigned opened = opens, closed = closes;
+    transcript[0] = 0; writes = 0;
+    CHECK(radio_control_sync_frequency(&radio, 18100000) == MINI_OK);
+    CHECK(strcmp(transcript, "MD6;FR0;FT0;FA00018100000;") == 0 && writes == 4);
+    CHECK(opens == opened && closes == closed);
+    CHECK(radio_control_sync_frequency(&radio, 0) == MINI_ERR_INVALID);
+    radio.tx_active = true;
+    CHECK(radio_control_sync_frequency(&radio, 18100000) == MINI_ERR_NOT_READY);
+    radio.tx_active = false; radio.rx_required = true;
+    CHECK(radio_control_sync_frequency(&radio, 18100000) == MINI_ERR_NOT_READY);
+    CHECK(writes == 4);
+    radio.rx_required = false;
+    for (fail_at = 1; fail_at <= 4; ++fail_at) {
+        for (unsigned mode = 0; mode < 2; ++mode) {
+            writes = 0; transcript[0] = 0;
+            short_write = mode == 0;
+            write_result = mode == 0 ? MINI_OK : MINI_ERR_TIMEOUT;
+            CHECK(radio_control_sync_frequency(&radio, 18100000) ==
+                  (mode == 0 ? MINI_ERR_IO : MINI_ERR_TIMEOUT));
+            CHECK(writes == fail_at && radio.stream == 17);
+            CHECK(opens == opened && closes == closed);
+        }
+    }
+    CHECK(radio_control_close(&radio) == MINI_OK);
     writes = 0; open_result = MINI_ERR_ACCESS;
     unsigned before = closes;
     CHECK(radio_control_open_qmx(&radio, &api, "test:cat", 14074000) == MINI_ERR_ACCESS);

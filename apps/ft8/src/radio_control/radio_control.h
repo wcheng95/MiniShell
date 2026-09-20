@@ -14,6 +14,7 @@ typedef struct {
 
 mini_result_t radio_control_open_qmx(RadioControl *radio, const mini_api_t *api,
                                      const char *endpoint, uint32_t dial_hz);
+mini_result_t radio_control_sync_frequency(RadioControl *radio, uint32_t dial_hz);
 mini_result_t radio_control_close(RadioControl *radio);
 mini_result_t radio_control_begin_tx(RadioControl *radio);
 mini_result_t radio_control_set_tone_hz(RadioControl *radio, float tone_hz);

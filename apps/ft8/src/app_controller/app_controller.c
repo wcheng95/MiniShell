@@ -1518,6 +1518,12 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
 
         case APP_ACTION_SET_BAND:
             config_service_set_band(&app->config, action->value.index);
+            app->cat_band_sync_pending = app->radio.stream != MINI_SERIAL_INVALID;
+            if (app->cat_band_sync_pending) {
+                const mini_time_location_api_t *time = app->api ? app->api->time_location : NULL;
+                app->cat_band_changed_us = time && time->monotonic_us ? time->monotonic_us() : UINT64_MAX;
+                app->tx.pending = false;
+            }
             config_changed = true;
             break;
 
@@ -1546,6 +1552,7 @@ void app_controller_shutdown(AppController *app)
 {
     if (app == NULL) return;
     (void)radio_control_close(&app->radio);
+    app->cat_band_sync_pending = app->cat_band_sync_failed = false;
     app->tx.active = app->tx.pending = false;
     app_rx_destroy(app);
     app->tx.rx_paused = false;
@@ -1554,8 +1561,10 @@ void app_controller_shutdown(AppController *app)
 mini_result_t app_controller_start_cat(AppController *app, const char *endpoint)
 {
     if (!app) return MINI_ERR_INVALID;
-    return radio_control_open_qmx(&app->radio, app->api, endpoint,
+    mini_result_t result = radio_control_open_qmx(&app->radio, app->api, endpoint,
                                   config_service_band_dial_hz(app->config.band_index));
+    if (result == MINI_OK) app->cat_band_sync_pending = app->cat_band_sync_failed = false;
+    return result;
 }
 
 bool app_controller_pause_rx_for_tx(AppController *app)
