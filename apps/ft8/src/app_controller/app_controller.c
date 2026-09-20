@@ -90,6 +90,9 @@ struct AppRxState {
     Ft8ProtocolSlot decode_completed_slot;
     int64_t decode_diag_start_ms;
     bool decode_diag_search_reported;
+    bool decode_diag_phase_valid;
+    int64_t decode_diag_phase_baseline_samples;
+    int64_t decode_diag_phase_last_slot;
 
     /* UI selection is an index into the retained batch, never a retained pointer. */
     bool selected_rx_valid;
@@ -496,6 +499,112 @@ static bool backdate_slot_reference(int64_t *slot_id,
     return true;
 }
 
+static int64_t slot_sample_position(int64_t slot_id, uint32_t sample_offset)
+{
+    return slot_id * (int64_t)RX_SLOT_FRAMER_SLOT_SAMPLES +
+           (int64_t)sample_offset;
+}
+
+static void rx_timing_phase_diag(AppRxState *rx, size_t output_samples)
+{
+#if FT8_DECODE_DIAGNOSTICS
+    int64_t utc_slot;
+    uint32_t utc_sample;
+    int64_t stream_pos;
+    int64_t utc_pos;
+    int64_t phase_samples;
+    int64_t drift_samples;
+    char line[144];
+
+    if (rx == NULL || !rx->framer_initialized || output_samples == 0u ||
+        rx->api == NULL || rx->api->time_location == NULL ||
+        rx->api->system == NULL || rx->api->system->write == NULL) {
+        return;
+    }
+
+    if (!utc_to_slot_reference(rx->api->time_location, &utc_slot, &utc_sample) ||
+        !backdate_slot_reference(&utc_slot, &utc_sample, output_samples)) {
+        return;
+    }
+
+    stream_pos = slot_sample_position(rx->framer.slot_id, rx->framer.sample_offset);
+    utc_pos = slot_sample_position(utc_slot, utc_sample);
+    phase_samples = stream_pos - utc_pos;
+
+    if (!rx->decode_diag_phase_valid) {
+        rx->decode_diag_phase_valid = true;
+        rx->decode_diag_phase_baseline_samples = phase_samples;
+        rx->decode_diag_phase_last_slot = rx->framer.slot_id;
+        drift_samples = 0;
+    } else {
+        drift_samples = phase_samples - rx->decode_diag_phase_baseline_samples;
+        if (rx->decode_diag_phase_last_slot == rx->framer.slot_id)
+            return;
+        rx->decode_diag_phase_last_slot = rx->framer.slot_id;
+    }
+
+    (void)snprintf(line, sizeof(line),
+                   "FT8D phase slot=%lld raw=%lld samp drift=%lld samp/%lldms\n",
+                   (long long)rx->framer.slot_id,
+                   (long long)phase_samples,
+                   (long long)drift_samples,
+                   (long long)((drift_samples * 1000) /
+                               (int64_t)RX_SLOT_FRAMER_SAMPLE_RATE_HZ));
+    rx->api->system->write(line);
+#else
+    (void)rx;
+    (void)output_samples;
+#endif
+}
+
+static int candidate_time_ms(const Ft8Candidate *candidate)
+{
+    if (candidate == NULL)
+        return 0;
+    return candidate->time_offset * 160 + candidate->time_sub * 80;
+}
+
+static void rx_decoded_timing_diag(AppRxState *rx, const RxBatch *batch)
+{
+#if FT8_DECODE_DIAGNOSTICS
+    int timings[FT8_ENGINE_JOB_CANDIDATE_CAPACITY];
+    size_t count;
+    char line[160];
+
+    if (rx == NULL || batch == NULL || batch->message_count == 0u ||
+        batch->messages == NULL || rx->api == NULL || rx->api->system == NULL ||
+        rx->api->system->write == NULL) {
+        return;
+    }
+
+    count = batch->message_count;
+    if (count > FT8_ENGINE_JOB_CANDIDATE_CAPACITY)
+        count = FT8_ENGINE_JOB_CANDIDATE_CAPACITY;
+
+    for (size_t i = 0u; i < count; ++i) {
+        int value = candidate_time_ms(&batch->messages[i].candidate);
+        size_t j = i;
+        while (j > 0u && timings[j - 1u] > value) {
+            timings[j] = timings[j - 1u];
+            --j;
+        }
+        timings[j] = value;
+    }
+
+    (void)snprintf(line, sizeof(line),
+                   "FT8D msg-time slot=%lld n=%u min=%dms med=%dms max=%dms\n",
+                   (long long)batch->slot_id,
+                   (unsigned)count,
+                   timings[0],
+                   timings[count / 2u],
+                   timings[count - 1u]);
+    rx->api->system->write(line);
+#else
+    (void)rx;
+    (void)batch;
+#endif
+}
+
 static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
 {
     AppRxState *rx = (AppRxState *)ctx;
@@ -616,6 +725,7 @@ static bool app_publish_external_decode(AppController *app)
         return false;
 
     rx_complete_batch(rx);
+    rx_decoded_timing_diag(rx, &rx->batch);
     rx_decode_diag(rx, "publish", rx->batch.slot_id,
                    rx_monotonic_ms(rx) - rx->decode_diag_start_ms,
                    rx->engine.decode_candidate_count,
@@ -661,6 +771,7 @@ static bool app_service_decode(AppController *app)
         return false;
 
     rx_complete_batch(rx);
+    rx_decoded_timing_diag(rx, &rx->batch);
     return true;
 }
 
@@ -800,6 +911,7 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
         if (rx_slot_framer_init(&rx->framer, slot_id, sample_offset) != RX_SLOT_FRAMER_OK) goto fail;
         rx->framer_initialized = true;
         rx->timing_pending = false;
+        rx->decode_diag_phase_valid = false;
 #if FT8_DECODE_DIAGNOSTICS
         if (rx->api && rx->api->system && rx->api->system->write) {
             char line[128];
@@ -863,6 +975,9 @@ static bool app_process_rx_frames(AppController *app, size_t got)
                             &out_count) != RX_FRONTEND_OK) {
         return false;
     }
+
+    if (!rx->timing_pending && out_count > 0u)
+        rx_timing_phase_diag(rx, out_count);
 
     if (rx->timing_pending && out_count > 0u) {
         int64_t first_slot_id;

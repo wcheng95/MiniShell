@@ -279,3 +279,16 @@ time/sub-lane and reuses them across the innermost frequency sweep. The
 noise-floor pass is serviced in the following decode step so `FT8D search-done`
 now measures candidate-grid work only. The 1024-position slice size and worker
 yield policy remain unchanged for an isolated hardware comparison.
+
+
+Long-run RX timing diagnostics: a hardware run showed the decode worker
+continuing to execute normally while valid message count fell from several per
+slot to mostly zero. V3's slot framer is initially referenced to UTC, then
+advances by counting 6 kHz samples. To distinguish a worker failure from
+sample-clock/UTC drift, diagnostics now report `FT8D phase` once per logical
+slot. `raw` includes fixed buffering latency; `drift` is relative to the first
+measured phase and is the meaningful long-run quantity. Successful decoded
+messages also report `FT8D msg-time` with min/median/max candidate timing in
+milliseconds. A systematic phase drift accompanied by decoded timing moving
+toward the search-window edge would identify timing-anchor drift without
+changing RX behavior.
