@@ -116,17 +116,21 @@ no longer represent the full page fraction inside 20 columns.
 
 For 1-9 QSO pages, use the normal locked top line unchanged.
 
-For 10 or more QSO pages, `V -> 3` prioritizes the full page fraction over UTC
+For 10-99 QSO pages, `V -> 3` removes UTC seconds but keeps UTC minutes
 and the slot counter:
 
 ```text
-V 20 10/12
+V  20 HH:MM 10/12 A
 ```
 
-The QSO large-page line retains the V UIScreen identity and current band while
-showing the complete `current/total` page fraction. If an exceptionally large
-page fraction no longer fits with those fields, the page fraction alone may be
-shown so pagination is never silently truncated.
+This preserves the most useful timing context while allowing the complete
+two-digit `current/total` page fraction to fit inside 20 columns. The rendered
+line is space-padded to the fixed 20-column width.
+
+At 100 or more QSO pages, `100/100` no longer fits with screen, band, UTC
+minutes, and counter. In that exceptional case the QSO view falls back to the
+more compact screen/band/page form, and for extremely large fractions may show
+the page fraction alone so pagination is never silently truncated.
 
 This is a narrow `V -> 3` presentation exception. It does not change the locked
 top-line contract for R, T, O, S, V top level, or other V submenus.
