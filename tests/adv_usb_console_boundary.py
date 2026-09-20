@@ -39,7 +39,7 @@ assert 'pdMS_TO_TICKS(5)' not in capture
 defaults = (root / 'platform/adv/sdkconfig.defaults').read_text()
 assert 'CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y' in defaults.splitlines()
 assert 'CONFIG_UAC_NUM_ISOC_URBS=3' in defaults.splitlines()
-assert 'CONFIG_UAC_NUM_PACKETS_PER_URB=6' in defaults.splitlines()
+assert 'CONFIG_UAC_NUM_PACKETS_PER_URB=12' in defaults.splitlines()
 assert 'vTaskDelete(nullptr)' not in capture
 ordered(capture, 'xSemaphoreGive(capture_done)', 'for (;;) vTaskSuspend(nullptr);')
 composition = (root / 'platform/adv/main/CMakeLists.txt').read_text()
