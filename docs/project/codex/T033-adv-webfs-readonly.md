@@ -1236,6 +1236,37 @@ The commit containing this section is the diagnostic reference on
 `codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in the handoff.
 No PR. Task remains IMPLEMENTING pending the table comparison.
 
+## Supervisor interrupt-diagnostic review
+
+Reviewed diagnostic commit:
+
+```text
+397fcec65c424d18d9fc439db9690e61037f1aaa
+```
+
+Result: **PASS for hardware diagnostic capture.**
+
+The change is instrumentation-only:
+
+- full `esp_intr_dump()` occurs immediately before the unchanged
+  `usb_host_install()`;
+- dump is routed through the existing UART0/GPIO3 debug path;
+- existing `ESP_INTR_FLAG_LEVEL1`, task/core affinity, USB FIFO geometry,
+  FT8 profile, WebFS/Wi-Fi configuration, and public APIs are unchanged;
+- software/build gates remain green.
+
+This is not a functional fix and T033 remains IMPLEMENTING. The next required
+evidence is the fresh-boot interrupt table on the failing T033 composition.
+
+For reference, the last canonical pre-WebFS baseline is commit:
+
+```text
+6e6af91b22754d156602df4c6d54050745474dc2
+```
+
+If a comparison build is needed, apply only the same interrupt-dump instrumentation
+to that baseline; do not mix any WebFS code into the comparison.
+
 ## Architect test result
 
 Pending.
