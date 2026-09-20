@@ -1,6 +1,6 @@
 # T034 — ADV WebFS safe file mutations
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -761,4 +761,20 @@ Hardware validation should prioritize:
 
 ## Architect test result
 
-Pending.
+PASS on Cardputer ADV, 2026-09-20.
+
+Hardware validation confirms:
+
+- T033 browsing/download behavior remains intact;
+- upload/create works;
+- regular-file replacement works;
+- mkdir, same-directory regular-file rename, file delete and empty-directory
+  delete work;
+- non-empty-directory protection works;
+- representative `/sd` mutations work;
+- interrupted replacement preserves the previous destination as designed;
+- WebFS exits cleanly;
+- FT8/QMX starts normally afterward in the same boot.
+
+T034 is COMPLETE. The existing ADV FAT replacement helper retains its documented
+non-crash-atomic power-loss limitation.
