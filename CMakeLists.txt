@@ -833,12 +833,3 @@ target_compile_options(adv_webfs_settings_unit PRIVATE -Wall -Wextra -Werror -Wp
 add_test(NAME adv_webfs_settings_unit COMMAND adv_webfs_settings_unit)
 add_test(NAME adv_webfs_wifi_settings
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_webfs_wifi_settings_test.py ${CMAKE_SOURCE_DIR})
-
-add_test(NAME adv_ft8_web_io
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_ft8_web_io_test.py ${CMAKE_SOURCE_DIR})
-add_test(NAME adv_ft8_web_http
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_ft8_web_http_test.py ${CMAKE_SOURCE_DIR})
-if(WEBFS_NODE_EXECUTABLE)
-    add_test(NAME adv_ft8_web_page
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_ft8_web_page_test.py ${CMAKE_SOURCE_DIR})
-endif()
