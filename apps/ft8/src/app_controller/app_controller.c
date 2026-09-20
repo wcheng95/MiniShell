@@ -151,6 +151,30 @@ static void rx_decode_diag(AppRxState *rx, const char *event,
 #endif
 }
 
+static void rx_decode_error_diag(AppRxState *rx, const char *where, int code)
+{
+#if FT8_DECODE_DIAGNOSTICS
+    char line[128];
+
+    if (rx == NULL || where == NULL || rx->api == NULL ||
+        rx->api->system == NULL || rx->api->system->write == NULL) {
+        return;
+    }
+
+    (void)snprintf(line, sizeof(line),
+                   "FT8D error where=%s code=%d state=%d slot=%lld\n",
+                   where,
+                   code,
+                   (int)rx_decode_state(rx),
+                   (long long)rx->engine.decode_slot_id);
+    rx->api->system->write(line);
+#else
+    (void)rx;
+    (void)where;
+    (void)code;
+#endif
+}
+
 static void rx_decode_retention_diag(AppRxState *rx, int64_t slot_id)
 {
 #if FT8_DECODE_DIAGNOSTICS
@@ -776,6 +800,17 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
         if (rx_slot_framer_init(&rx->framer, slot_id, sample_offset) != RX_SLOT_FRAMER_OK) goto fail;
         rx->framer_initialized = true;
         rx->timing_pending = false;
+#if FT8_DECODE_DIAGNOSTICS
+        if (rx->api && rx->api->system && rx->api->system->write) {
+            char line[128];
+            (void)snprintf(line, sizeof(line),
+                           "FT8D resync slot=%lld sample=%u state=%d\n",
+                           (long long)first_slot_id,
+                           (unsigned)first_sample_offset,
+                           (int)rx_decode_state(rx));
+            rx->api->system->write(line);
+        }
+#endif
     } else {
         rx->timing_pending = true;
     }
@@ -999,11 +1034,15 @@ bool app_controller_decode_worker_step(AppController *app, bool *out_did_work)
 
     if (state == RX_DECODE_ASYNC_CANCEL_REQUESTED) {
         *out_did_work = true;
-        if (ft8_engine_cancel_decode(&rx->engine) != FT8_ENGINE_OK) {
-            atomic_store_explicit(&rx->decode_async_state,
-                                  RX_DECODE_ASYNC_ERROR,
-                                  memory_order_release);
-            return false;
+        {
+            Ft8EngineStatus cancel_status = ft8_engine_cancel_decode(&rx->engine);
+            if (cancel_status != FT8_ENGINE_OK) {
+                rx_decode_error_diag(rx, "cancel", (int)cancel_status);
+                atomic_store_explicit(&rx->decode_async_state,
+                                      RX_DECODE_ASYNC_ERROR,
+                                      memory_order_release);
+                return false;
+            }
         }
         rx_decode_diag(rx, "cancel", rx->engine.decode_slot_id,
                        rx_monotonic_ms(rx) - rx->decode_diag_start_ms,
@@ -1025,6 +1064,7 @@ bool app_controller_decode_worker_step(AppController *app, bool *out_did_work)
         status = ft8_engine_decode_step(&rx->engine, &completed, &slot);
 
         if (status != FT8_ENGINE_OK && status != FT8_ENGINE_NO_MESSAGES) {
+            rx_decode_error_diag(rx, "engine-step", (int)status);
             atomic_store_explicit(&rx->decode_async_state,
                                   RX_DECODE_ASYNC_ERROR,
                                   memory_order_release);

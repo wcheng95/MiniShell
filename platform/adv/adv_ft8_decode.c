@@ -37,8 +37,12 @@ static void decode_task(void *arg)
     while (!atomic_load_explicit(&s_decode_stop, memory_order_acquire)) {
         bool did_work = false;
 
-        if (!app_controller_decode_worker_step(app, &did_work))
+        if (!app_controller_decode_worker_step(app, &did_work)) {
+            ESP_LOGE(s_tag, "decode worker step failed; min-free=%u/%u bytes",
+                     (unsigned)lowest_free,
+                     (unsigned)ADV_FT8_DECODE_STACK_BYTES);
             break;
+        }
 
         if (did_work) {
             UBaseType_t free_bytes = uxTaskGetStackHighWaterMark(NULL);
@@ -54,6 +58,9 @@ static void decode_task(void *arg)
         }
     }
 
+    ESP_LOGW(s_tag, "decode worker exiting; min-free=%u/%u bytes",
+             (unsigned)lowest_free,
+             (unsigned)ADV_FT8_DECODE_STACK_BYTES);
     xSemaphoreGive(s_decode_done);
 
     /* Static task storage is reclaimed by the owner after suspension. */
