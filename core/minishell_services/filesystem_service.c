@@ -409,7 +409,6 @@ static mini_result_t fs_space(const char *path, mini_fs_space_t *out_space)
     }
 
     uint64_t limit = minishell_storage_limit_bytes();
-    if (limit == 0u) return MINI_ERR_UNSUPPORTED;
 
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
     mini_result_t result = filesystem_path_normalize(path, normalized);
@@ -419,6 +418,19 @@ static mini_result_t fs_space(const char *path, mini_fs_space_t *out_space)
     uint64_t size = 0u;
     result = port->fs_stat(port->ctx, normalized, &type, &size);
     if (result != MINI_OK) return result;
+
+    if (limit == 0u) {
+        if (port->fs_space == NULL) return MINI_ERR_UNSUPPORTED;
+        uint64_t total = 0u, free_bytes = 0u;
+        result = port->fs_space(port->ctx, normalized, &total, &free_bytes);
+        if (result != MINI_OK) return result;
+        if (free_bytes > total) return MINI_ERR_IO;
+        out_space->reserved0 = 0u;
+        out_space->total_bytes = total;
+        out_space->used_bytes = total - free_bytes;
+        out_space->free_bytes = free_bytes;
+        return MINI_OK;
+    }
 
     result = filesystem_quota_refresh();
     if (result != MINI_OK) return result;

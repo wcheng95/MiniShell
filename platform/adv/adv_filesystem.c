@@ -17,6 +17,7 @@
 
 #include "adv_internal.h"
 #include "adv_filesystem_rename.h"
+#include "adv_filesystem_space.h"
 
 #define ADV_FLASH_PATH "/flash"
 #define ADV_FLASH_LABEL "flash"
@@ -57,6 +58,7 @@ static mini_result_t result_from_errno(int error)
         case 0: return MINI_OK;
         case EINVAL: return MINI_ERR_INVALID;
         case ENOENT: return MINI_ERR_NOT_FOUND;
+        case ENODEV: return MINI_ERR_NOT_READY;
         case EEXIST: return MINI_ERR_EXISTS;
         case EACCES:
         case EPERM:
@@ -78,22 +80,14 @@ static mini_result_t result_from_errno(int error)
     }
 }
 
-static bool is_volume_path(const char *path, const char *root, bool mounted)
-{
-    if (!mounted || path == NULL) return false;
-    if (strcmp(path, root) == 0) return true;
-    size_t root_length = strlen(root);
-    return strncmp(path, root, root_length) == 0 && path[root_length] == '/';
-}
-
 static bool is_flash_path(const char *path)
 {
-    return is_volume_path(path, ADV_FLASH_PATH, s_flash_mounted);
+    return adv_fs_volume_path(path, ADV_FLASH_PATH, s_flash_mounted);
 }
 
 static bool is_sd_path(const char *path)
 {
-    return is_volume_path(path, ADV_SD_PATH, s_sd_mounted);
+    return adv_fs_volume_path(path, ADV_SD_PATH, s_sd_mounted);
 }
 
 static bool is_native_path(const char *path)
@@ -544,6 +538,22 @@ bool adv_filesystem_sd_ready(void)
     return s_sd_mounted;
 }
 
+static mini_result_t volume_space(const char *root, uint64_t *total, uint64_t *free_bytes)
+{
+    esp_err_t result = esp_vfs_fat_info(root, total, free_bytes);
+    if (result == ESP_OK) return MINI_OK;
+    if (result == ESP_ERR_INVALID_STATE) return MINI_ERR_NOT_READY;
+    return result == ESP_FAIL ? result_from_errno(errno) : MINI_ERR_IO;
+}
+
+static mini_result_t fs_space(void *ctx, const char *path,
+                              uint64_t *total, uint64_t *free_bytes)
+{
+    (void)ctx;
+    return adv_fs_volume_space(path, s_flash_mounted, s_sd_mounted,
+                               volume_space, total, free_bytes);
+}
+
 void adv_filesystem_configure(minishell_services_port_t *port)
 {
     if (port == NULL || !s_flash_mounted) return;
@@ -554,6 +564,7 @@ void adv_filesystem_configure(minishell_services_port_t *port)
     port->fs_seek = fs_seek;
     port->fs_sync = fs_sync;
     port->fs_stat = fs_stat;
+    port->fs_space = fs_space;
     port->fs_rename = fs_rename;
     port->fs_remove_file = fs_remove_file;
     port->fs_mkdir = fs_mkdir;

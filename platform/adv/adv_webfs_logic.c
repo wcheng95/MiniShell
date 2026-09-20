@@ -3,6 +3,13 @@
 #include <stdio.h>
 #include <string.h>
 
+char webfs_password_letter(unsigned char sample)
+{
+    static const char alphabet[] = "abcdefghjkmnpqrstuvwxyz";
+    const unsigned count = sizeof(alphabet) - 1u;
+    return sample < (256u / count) * count ? alphabet[sample % count] : 0;
+}
+
 static int hex(unsigned char c)
 {
     if (c >= '0' && c <= '9') return c - '0';

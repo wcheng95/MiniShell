@@ -167,6 +167,122 @@ static bool test_handle_reuse(void)
     return true;
 }
 
+/* Minimal two-volume tree for quota scans and physical-space dispatch. */
+static unsigned space_calls, space_positions[3];
+static uint64_t space_file_size = 10;
+static mini_result_t space_stat_error, space_backend_error;
+static bool space_sd_available, space_bad_capacity;
+static char space_last_path[512];
+static mini_result_t space_stat(void *ctx, const char *path, uint32_t *type, uint64_t *size)
+{
+    (void)ctx;
+    if (space_stat_error != MINI_OK) return space_stat_error;
+    if (!space_sd_available && strncmp(path, "/sd", 3) == 0) return MINI_ERR_NOT_FOUND;
+    *size = 0;
+    *type = MINI_FS_TYPE_DIRECTORY;
+    if (!strcmp(path,"/") || !strcmp(path,"/flash") || !strcmp(path,"/sd") ||
+        !strcmp(path,"/flash/ft8") || !strcmp(path,"/sd/foo/bar")) return MINI_OK;
+    *type = MINI_FS_TYPE_FILE;
+    if (!strcmp(path,"/flash/data")) { *size=space_file_size; return MINI_OK; }
+    if (!strcmp(path,"/sd/data")) { *size=20; return MINI_OK; }
+    return MINI_ERR_NOT_FOUND;
+}
+static mini_result_t space_dir_open(void *ctx, const char *path, minishell_backend_dir_t *dir)
+{
+    (void)ctx;
+    *dir = !strcmp(path,"/") ? 1 : !strcmp(path,"/flash") ? 2 : 3;
+    space_positions[*dir-1]=0;
+    return MINI_OK;
+}
+static mini_result_t space_dir_read(void *ctx, minishell_backend_dir_t dir, char *name,
+                                    uint32_t capacity, uint32_t *type, uint32_t *has)
+{
+    (void)ctx; (void)capacity;
+    unsigned i=space_positions[dir-1]++;
+    *has = i < (dir == 1 ? 2u : 1u);
+    if (*has) {
+        strcpy(name, dir == 1 ? (i ? "sd" : "flash") : "data");
+        *type = dir == 1 ? MINI_FS_TYPE_DIRECTORY : MINI_FS_TYPE_FILE;
+    }
+    return MINI_OK;
+}
+static mini_result_t space_dir_close(void *ctx, minishell_backend_dir_t dir)
+{
+    (void)ctx; (void)dir; return MINI_OK;
+}
+static mini_result_t space_backend(void *ctx, const char *path, uint64_t *total, uint64_t *free_bytes)
+{
+    (void)ctx; ++space_calls;
+    strcpy(space_last_path,path);
+    *total = !strncmp(path,"/flash",6) ? 1000 : 10000000000ULL;
+    *free_bytes = space_bad_capacity ? *total+1 : *total-200;
+    return space_backend_error;
+}
+static bool test_space_modes(void)
+{
+    fake_reset();
+    minishell_services_port_t port=fake_full_port();
+    port.fs_stat=space_stat; port.fs_space=space_backend;
+    port.fs_dir_open=space_dir_open; port.fs_dir_read=space_dir_read; port.fs_dir_close=space_dir_close;
+    space_calls=0; space_file_size=10; space_sd_available=true;
+    space_stat_error=space_backend_error=MINI_OK;
+    minishell_resource_limits_t limits={.storage_bytes=100};
+    minishell_services_set_resource_limits(&limits);
+    minishell_services_configure(&port); minishell_services_app_begin();
+    const mini_fs_api_t *fs=mini_api_get()->fs;
+    mini_fs_space_t result={.struct_size=sizeof(result)};
+    TEST_EQ(fs->space("/flash/./ft8", &result), MINI_OK);
+    TEST_EQ(result.total_bytes,100u); TEST_EQ(result.used_bytes,30u); TEST_EQ(result.free_bytes,70u);
+    TEST_EQ(fs->space("/sd/foo/bar", &result), MINI_OK);
+    TEST_EQ(result.used_bytes,30u); TEST_EQ(space_calls,0u);
+    space_file_size=120;
+    TEST_EQ(fs->space("/flash", &result), MINI_OK);
+    TEST_EQ(result.used_bytes,140u); TEST_EQ(result.free_bytes,0u); TEST_EQ(space_calls,0u);
+    space_stat_error=MINI_ERR_IO;
+    TEST_EQ(fs->space("/flash", &result), MINI_ERR_IO);
+    space_stat_error=MINI_OK;
+
+    limits.storage_bytes=0; minishell_services_set_resource_limits(&limits);
+    const char *paths[]={"/flash", "/sd", "/flash//x/../ft8", "/sd/foo/./bar"};
+    const char *normalized[]={"/flash", "/sd", "/flash/ft8", "/sd/foo/bar"};
+    for (unsigned i=0;i<4;++i) {
+        TEST_EQ(fs->space(paths[i], &result), MINI_OK);
+        TEST_CHECK(!strcmp(space_last_path,normalized[i]));
+        TEST_EQ(result.total_bytes,i%2 ? 10000000000ULL : 1000u);
+        TEST_EQ(result.used_bytes,200u); TEST_EQ(result.free_bytes,result.total_bytes-200);
+        TEST_EQ(result.reserved0,0u);
+    }
+    TEST_EQ(space_calls,4u);
+    TEST_EQ(fs->space("relative",&result),MINI_ERR_INVALID);
+    TEST_EQ(fs->space("/missing",&result),MINI_ERR_NOT_FOUND);
+    space_sd_available=false;
+    TEST_EQ(fs->space("/sd/foo/bar",&result),MINI_ERR_NOT_FOUND);
+    TEST_EQ(space_calls,4u);
+    space_stat_error=MINI_ERR_NOT_READY;
+    TEST_EQ(fs->space("/flash",&result),MINI_ERR_NOT_READY);
+    TEST_EQ(space_calls,4u); space_stat_error=MINI_OK;
+    const mini_result_t errors[]={MINI_ERR_IO,MINI_ERR_NOT_READY,MINI_ERR_NOT_FOUND,MINI_ERR_UNSUPPORTED};
+    for (unsigned i=0;i<4;++i) {
+        space_backend_error=errors[i];
+        TEST_EQ(fs->space("/flash",&result),errors[i]);
+    }
+    space_backend_error=MINI_OK; space_bad_capacity=true;
+    TEST_EQ(fs->space("/flash",&result),MINI_ERR_IO);
+    space_bad_capacity=false;
+    port.fs_space=NULL;
+    minishell_services_configure(&port); minishell_services_app_begin();
+    TEST_EQ(fs->space("/flash",&result),MINI_ERR_UNSUPPORTED);
+    TEST_EQ(fs->space("/missing",&result),MINI_ERR_NOT_FOUND);
+    space_sd_available=true; limits.storage_bytes=100;
+    minishell_services_set_resource_limits(&limits);
+    TEST_EQ(fs->space("/flash",&result),MINI_OK);
+    TEST_EQ(result.total_bytes,100u); TEST_EQ(result.used_bytes,140u); TEST_EQ(result.free_bytes,0u);
+    result.struct_size=sizeof(uint32_t);
+    TEST_EQ(fs->space("/flash",&result),MINI_ERR_INVALID);
+    minishell_services_app_end(); minishell_services_set_resource_limits(NULL);
+    return true;
+}
+
 bool test_filesystem(void)
 {
     fake_reset();
@@ -359,5 +475,6 @@ bool test_filesystem(void)
     TEST_EQ(fs->rmdir("/sd"), MINI_ERR_UNSUPPORTED);
 
     TEST_CHECK(test_handle_reuse());
+    TEST_CHECK(test_space_modes());
     return true;
 }

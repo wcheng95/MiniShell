@@ -804,3 +804,8 @@ add_executable(adv_webfs_unit tests/adv_webfs_test.c platform/adv/adv_webfs_logi
 target_include_directories(adv_webfs_unit PRIVATE include platform/adv)
 target_compile_options(adv_webfs_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME adv_webfs_unit COMMAND adv_webfs_unit)
+
+add_executable(adv_filesystem_space_unit tests/adv_filesystem_space_test.c)
+target_include_directories(adv_filesystem_space_unit PRIVATE include platform/adv)
+target_compile_options(adv_filesystem_space_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME adv_filesystem_space_unit COMMAND adv_filesystem_space_unit)

@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: IMPLEMENTING — HARDWARE FIX
+Status: REVIEW
 
 ## Architect intent
 
@@ -891,6 +891,116 @@ paths, and unavailable volume as practical without hardware.
 
 After fixing both findings, rerun the complete T033 software/build gates and
 return to supervisor review before resuming hardware validation.
+
+## Codex hardware-finding correction
+
+### Implementation summary
+
+Implemented only the two requested corrections from branch/main head
+`63854d7478db697fa56711cc8282c82b6ede4977`.
+
+The ephemeral password is now exactly eight lowercase ASCII letters, drawn from
+`abcdefghjkmnpqrstuvwxyz` (no i/l/o, digits, or uppercase). The existing
+RF-enabled `esp_fill_random` path still runs each session. Rejection sampling
+removes modulo bias for the 23-letter alphabet while RF entropy remains enabled.
+SSID generation still uses the same two bytes and formatting. This implements
+the architect's explicit override of the original longer-password requirement.
+
+A new optional **private** `minishell_services_port_t::fs_space` hook returns
+physical total/free byte counts for a normalized, stat-validated path. Public
+`mini_fs_api_t` and `MINISHELL_API_VERSION` are unchanged. When `storage_bytes`
+is nonzero, the existing quota refresh, global used-byte accounting, and
+saturated free-byte calculation run unchanged; the backend hook is not called.
+With zero quota, the service validates the path and delegates to the hook,
+computes used bytes as total minus free, and propagates backend failures.
+An absent hook returns `MINI_ERR_UNSUPPORTED`; impossible free-greater-than-total
+results return `MINI_ERR_IO` without unsigned underflow.
+
+ADV registers the hook and uses ESP-IDF `esp_vfs_fat_info()` below the backend
+boundary. Its existing mounted-volume path predicate is shared with a small
+host-testable capacity dispatcher. Nested paths resolve to the containing
+`/flash` or `/sd` mount root because the SDK query accepts a mount root, not an
+arbitrary descendant. Unmounted volumes return `MINI_ERR_NOT_FOUND`; a missing
+VFS FAT context returns `MINI_ERR_NOT_READY`; native errors retain errno-based
+mapping, including `ENODEV` to `MINI_ERR_NOT_READY` for unavailable media.
+Space values describe filesystem allocation capacity, not raw partition bytes.
+WebFS listing and space reporting still use only MiniShell Filesystem; there is
+no WebFS fallback, bypass, or removed space query.
+
+### Files changed / invariants
+
+- `core/minishell_services/minishell_services.h`: optional private backend hook.
+- `core/minishell_services/filesystem_service.c`: zero-quota physical fallback.
+- `platform/adv/adv_filesystem.c` and `adv_filesystem_space.h`: mounted-volume
+  dispatch, ESP-IDF FAT capacity query, unavailable-device result mapping.
+- `platform/adv/adv_webfs_logic.[ch]` and `adv_webfs_wifi.[ch]`: lowercase sample
+  mapping and eight-character session credential generation/storage.
+- `tests/unit/test_filesystem.c`: public Filesystem tests for both space modes.
+- `tests/adv_filesystem_space_test.c`, `tests/adv_webfs_test.c`, root
+  `CMakeLists.txt`: ADV volume dispatcher and password-sampling coverage.
+- This task packet: correction and validation evidence.
+
+No public API/version, Linux backend/quota policy, FT8 code/profile, USB ownership,
+filesystem namespace/persistence, WebFS endpoints, stack configuration, or Wi-Fi
+IRAM configuration changes. No T034 work or mutation endpoints. No whole-file or
+whole-directory cache added. Existing untracked Python caches remain excluded.
+
+### Validation evidence
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 67/67; no retries.
+ctest --test-dir build-linux \
+  -R 'adv_(webfs|filesystem_space)_unit' --output-on-failure
+# PASS 2/2, including focused WebFS.
+
+cmake -S tests/unit -B /tmp/T033-build-unit
+cmake --build /tmp/T033-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T033-build-unit --output-on-failure
+# PASS 15/15, including expanded api_filesystem_unit.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+# All PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS real ADV build; BIN 1369376 B (0x14e520), 78% partition free.
+# Existing SDK/C++ pedantic warnings remain non-fatal.
+
+git diff --check
+# PASS including task evidence.
+```
+
+Tests verify unchanged global quota totals across both roots, refresh after
+changed file sizes, used bytes exceeding quota with free clamped to zero, and
+that quota mode ignores the physical hook (including when the hook is absent).
+Zero-quota tests exercise both volumes, normalized nested paths, 64-bit capacity
+above 4 GiB, missing hooks, invalid arguments/paths, unavailable SD, stat errors
+before dispatch, backend error propagation, and invalid capacity rejection.
+ADV-focused tests exercise the actual shared volume dispatcher for `/flash`,
+`/flash/ft8`, `/sd`, `/sd/foo/bar`, absent mounts, root-prefix impostors, and
+backend errors. The FAT SDK call itself is compiled by the real ADV build;
+physical-media behavior is not emulated by these host tests. Password tests
+exhaust all 256 possible sample bytes, verifying only the selected lowercase
+letters, equal frequency per accepted letter, and the rejection count.
+
+### Manual validation / known limitations / commit
+
+Hardware acceptance remains paused until supervisor re-review. No flashing or
+new hardware test was performed. After re-review, confirm the eight-letter
+password UX, real `/flash` and `/sd` listings/space figures, nested paths,
+SD-absent behavior, downloads, and existing T033 lifecycle/heap/FT8-after-WebFS
+checks. Physical free capacity can change with filesystem allocation; the SDK
+reports the current FAT allocation view. The synthetic `/` root has no combined
+physical-volume capacity. Existing first-use TCP/IP retention remains unchanged.
+
+Task returned to **REVIEW**. The commit containing this section is the correction
+reference on `codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in
+the handoff. No PR and no hardware acceptance resumed.
 
 ## Architect test result
 

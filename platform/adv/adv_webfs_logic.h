@@ -14,6 +14,9 @@ typedef struct {
     char transfer[WEBFS_TRANSFER_CAP];
 } webfs_buffers_t;
 
+/* Returns zero for rejected RNG samples; accepted letters are unbiased. */
+char webfs_password_letter(unsigned char sample);
+
 /* Exactly one path= query parameter; percent-decode once, then validate. */
 bool webfs_query_path(const char *query, char *path, size_t capacity);
 bool webfs_valid_path(const char *path);

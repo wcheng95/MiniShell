@@ -194,7 +194,20 @@ static void streams(void)
     assert(webfs_file(&fs,&buffers,sink,&buffers)==MINI_ERR_INVALID && !ops);
     assert(webfs_list(&fs,&buffers,sink,&buffers)==MINI_ERR_INVALID && !ops);
 }
+static void password_letters(void)
+{
+    const char *alphabet="abcdefghjkmnpqrstuvwxyz";
+    unsigned counts[26]={0}, rejected=0;
+    for (unsigned i=0;i<256;++i) {
+        char c=webfs_password_letter((unsigned char)i);
+        if (!c) { ++rejected; continue; }
+        assert(c>='a' && c<='z' && strchr(alphabet,c));
+        ++counts[c-'a'];
+    }
+    for (const char *p=alphabet;*p;++p) assert(counts[*p-'a']==256/strlen(alphabet));
+    assert(rejected==256%strlen(alphabet));
+}
 int main(void)
 {
-    paths();json();streams();puts("adv_webfs: PASS");return 0;
+    password_letters();paths();json();streams();puts("adv_webfs: PASS");return 0;
 }

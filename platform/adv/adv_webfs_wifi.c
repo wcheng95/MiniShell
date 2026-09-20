@@ -1,4 +1,5 @@
 #include "adv_webfs_wifi.h"
+#include "adv_webfs_logic.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -47,13 +48,15 @@ esp_err_t webfs_wifi_start(webfs_wifi_t *wifi)
     wifi->entropy_rx = true;
     uint8_t random[14];
     esp_fill_random(random, sizeof(random));
+    for (size_t i = 0; i < sizeof(wifi->password) - 1u; ++i) {
+        uint8_t sample = random[i];
+        while (!(wifi->password[i] = webfs_password_letter(sample)))
+            esp_fill_random(&sample, sizeof(sample));
+    }
+    wifi->password[8] = 0;
     rc = esp_wifi_set_promiscuous(false);
     if (rc != ESP_OK) return rc;
     wifi->entropy_rx = false;
-    static const char alphabet[] = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-    _Static_assert(sizeof(alphabet) == 33, "Credential alphabet must have 32 symbols");
-    for (size_t i = 0; i < 12; ++i) wifi->password[i] = alphabet[random[i] & 31u];
-    wifi->password[12] = 0;
     snprintf(wifi->ssid, sizeof(wifi->ssid), "MiniShell-%02X%02X", random[12], random[13]);
     memset(random, 0, sizeof(random));
 

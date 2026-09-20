@@ -69,6 +69,11 @@ typedef struct {
                                  uint32_t *out_type, uint32_t *out_has_entry);
     mini_result_t (*fs_dir_close)(void *ctx, minishell_backend_dir_t dir);
 
+    /* Optional physical volume capacity, used only without a global quota.
+     * Path has been normalized and stat-validated by the Filesystem service. */
+    mini_result_t (*fs_space)(void *ctx, const char *path,
+                              uint64_t *out_total, uint64_t *out_free);
+
     /* Time/location baseline. */
     uint64_t (*monotonic_us)(void *ctx);
     mini_result_t (*sleep_ms)(void *ctx, uint32_t milliseconds);
