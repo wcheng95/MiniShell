@@ -587,10 +587,9 @@ Back and screen switching retain their behavior. Numeric keys, Enter, and
 Left/Right do not alter the QSO view. Empty and error messages are non-fatal.
 For 1–9 QSO pages the locked ADV header remains unchanged. For 10–99 pages,
 the QSO header removes UTC seconds but preserves UTC minutes and the slot counter,
-for example `V  20 14:32 10/12 A`. At 100+ pages the full fraction no longer
-fits that form, so the existing more-compact screen/band/page fallback is used;
-exceptionally large counts may use only the fraction. Other screens' headers are
-unchanged.
+for example `V  20 14:32 10/12 A`. At 100+ pages the header is capped at
+`V  20 14:32 100+ A`; internal paging may continue, but exact values such as
+`101/102` are deliberately not shown. Other screens' headers are unchanged.
 
 Pinned reference inspected: MiniFT8-V2 commit
 `491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`, `main/main.cpp`:
@@ -754,12 +753,13 @@ The storage/parser/controller implementation is otherwise clean and within T032:
   PTY timing flake, which passed on isolated retry and is outside this diff.
 
 Architect decision after review: **accepted** the narrow `V -> 3` large-page
-exception. A subsequent architect refinement keeps more timing context: for
-1-9 pages the normal 20-character top line remains unchanged; for 10-99 pages
-`V -> 3` removes only UTC seconds and renders, for example,
+exception. Subsequent refinements keep more timing context: for 1-9 pages the
+normal 20-character top line remains unchanged; for 10-99 pages `V -> 3`
+removes only UTC seconds and renders, for example,
 `V  20 14:32 10/12 A`, preserving UTC minutes and the slot counter. At 100+
-pages the compact fallback remains necessary. The canonical contract is recorded
-in `docs/MiniFT8/ui.md`.
+pages the exact page fraction is intentionally capped as
+`V  20 14:32 100+ A`; values such as `101/102` are not displayed. The
+canonical contract is recorded in `docs/MiniFT8/ui.md`.
 
 With that decision documented, there are no remaining blocking review findings.
 
