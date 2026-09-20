@@ -112,7 +112,17 @@ void webfs_wifi_stop(webfs_wifi_t *wifi)
         wifi->netif = NULL;
     }
     if (wifi->event_loop) {
-        esp_event_loop_delete_default();
+        for (;;) {
+            esp_err_t rc = esp_event_loop_delete_default();
+            if (rc == ESP_OK) break;
+            if (rc == ESP_ERR_INVALID_STATE) {
+                /* IDF reports this only when no default loop exists. */
+                ESP_LOGW("webfs", "Default event loop already absent");
+                break;
+            }
+            ESP_LOGE("webfs", "Event loop delete failed (%s); retrying", esp_err_to_name(rc));
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
         wifi->event_loop = false;
     }
     memset(wifi->password, 0, sizeof(wifi->password));

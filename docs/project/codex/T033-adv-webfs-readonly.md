@@ -690,6 +690,121 @@ No other blocking finding was identified.
 
 No PR is required.
 
+## Codex supervisor amendment response
+
+### Implementation summary / files changed
+
+Amended reviewed branch head `eeec2cdfdc2dfda18d6bdc32aa178925727a3b74`.
+Only the following tracked files change:
+
+- `platform/adv/sdkconfig.defaults`: disable `CONFIG_ESP_WIFI_IRAM_OPT` and
+  `CONFIG_ESP_WIFI_RX_IRAM_OPT` to trade Wi-Fi throughput for permanent SRAM.
+- `platform/adv/adv_webfs_wifi.c`: check default event-loop deletion and retain
+  ownership while logging/retrying failures at 100 ms intervals. Clear ownership
+  only on success or a logged `ESP_ERR_INVALID_STATE`, which the installed IDF
+  implementation returns when the default loop is already absent.
+- This task packet: amendment evidence. Status remains **REVIEW**.
+
+`CONFIG_LWIP_IRAM_OPTIMIZATION` and `CONFIG_LWIP_EXTRA_IRAM_OPTIMIZATION` remain
+disabled. Wi-Fi EXTRA/SLP IRAM options were already disabled and remain so;
+`CONFIG_ESP_PHY_IRAM_OPT` remains unchanged. No broader memory tuning was made.
+No WebFS feature, 16 KiB foreground stack, 6 KiB HTTP stack, public API/version,
+FT8 memory/profile, USB ownership, or filesystem architecture change.
+
+### Exact firmware / static-memory evidence
+
+First rebuilt the unmodified reviewed head and saved its ELF, BIN and generated
+`sdkconfig`. Then updated the two Wi-Fi options and their generated ESP32
+compatibility aliases in the local `sdkconfig` and ran a real IDF reconfigure
+and build. The resulting configuration diff contains only those two options
+and aliases; all other resolved settings are identical. The tracked defaults
+also contain both disable directives for fresh configurations.
+
+Measured the two ELF files with `xtensa-esp32s3-elf-size -A` and counted the BIN
+bytes, using the same installed ESP-IDF `v5.5.4-dirty` toolchain:
+
+| Measurement | Before amendment | After amendment | Change |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 81975 B | 63959 B | -18016 B |
+| `.iram0.text_end` alignment | 197 B | 37 B | -160 B |
+| `.dram0.data` | 27000 B | 27000 B | 0 B |
+| `.dram0.bss` | 38864 B | 38864 B | 0 B |
+| Data + BSS | 65864 B | 65864 B | 0 B |
+| Total static internal-SRAM increase vs pre-WebFS | +48008 B | +29832 B | **-18176 B** |
+| Firmware BIN | 1368880 B (`0x14e330`) | 1368576 B (`0x14e200`) | -304 B |
+
+The total SRAM reduction includes IRAM alignment and is independently confirmed
+by `.dram0.heap_start` moving from address 1070237264 to 1070219088, exactly
+18176 bytes earlier. Relative to the original pre-WebFS baseline recorded above,
+the amended image has +9056 B `.iram0.text`, +7616 B data, +13256 B BSS, and
+-96 B IRAM end alignment, totaling **+29832 B permanent internal SRAM**.
+The firmware remains within its partition with 78% free. These are linked-image
+measurements, not hardware heap or throughput results.
+
+### Validation commands / results
+
+```bash
+# Before editing: preserve the actual reviewed-head build for comparison.
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+cp platform/adv/build/minishell_adv.elf /tmp/T033-R1-before.elf
+cp platform/adv/build/minishell_adv.bin /tmp/T033-R1-before.bin
+cp platform/adv/sdkconfig /tmp/T033-R1-before.sdkconfig
+# PASS.
+
+# After updating the local generated configuration to match the new defaults:
+idf.py -C platform/adv reconfigure build
+# PASS real ADV build; partition-size checks pass.
+xtensa-esp32s3-elf-size -A /tmp/T033-R1-before.elf \
+  platform/adv/build/minishell_adv.elf
+# Exact section measurements above; BIN sizes counted directly.
+
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 66/66, no retries.
+ctest --test-dir build-linux -R adv_webfs_unit --output-on-failure
+# PASS 1/1.
+
+cmake -S tests/unit -B /tmp/T033-build-unit
+cmake --build /tmp/T033-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T033-build-unit --output-on-failure
+# PASS 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+# All PASS.
+
+cc -std=c11 -g -O1 -Wall -Wextra -Werror -Wpedantic \
+  -fsanitize=address,undefined -Iinclude -Iplatform/adv \
+  tests/adv_webfs_test.c platform/adv/adv_webfs_logic.c \
+  -o /tmp/T033-R1-webfs-sanitize
+ASAN_OPTIONS=detect_leaks=0 /tmp/T033-R1-webfs-sanitize
+# PASS; not a hardware lifecycle/leak test.
+node --check /tmp/T033-R1-page.js
+# PASS syntax check of JavaScript extracted from the unchanged embedded page.
+
+git diff --check
+# PASS including this task update.
+```
+
+### Remaining validation / limitations / commit
+
+No hardware testing or flashing was performed. All existing manual checks remain
+pending supervisor re-review, including repeated startup/shutdown, warm-cycle
+heap recovery, practical browsing/download throughput, and normal ADV application
+operation after exit. Reduced WebFS throughput is the accepted configuration
+tradeoff. The SDK's first-use TCP/IP retention remains unchanged. Persistent
+unexpected event-loop deletion failures now hold the utility in logged cleanup
+retries rather than silently losing ownership. The cleanup branch was reviewed
+against the installed SDK return semantics and compiled in the real ADV build;
+no hardware fault-injection result is claimed.
+
+The commit containing this amendment is the new implementation reference on
+`codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in the handoff.
+Task remains **REVIEW**. No PR.
+
 ## Architect test result
 
 Pending.
