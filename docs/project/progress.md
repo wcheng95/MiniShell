@@ -23,7 +23,7 @@
 - T029 completes RX display lifetime semantics: previous decoded rows remain visible throughout TX and ordinary RX transport resets, then clear when TX completes/RX resumes or are replaced by the next completed RX batch. Live validation passed.
 - T031 completes live QMX band synchronization: O -> 3 updates MiniFT8 immediately, then an already-connected QMX follows the final selected band after a 1-second debounce. Rapid band stepping coalesces to one final CAT sync; hardware validation passed on 2026-09-20.
 - T032 completes the read-only `V -> 3` current-day QSO view: MiniFT8 streams today's ADIF log into six-row compact `HH:MM band call` pages, refreshes after new QSOs, and uses the accepted large-page top-line rules. Hardware/use validation passed on 2026-09-20.
-- T033 hardware validation passed: WebFS works, fresh-boot FT8 works, and FT8 still works after a WebFS session with CPU1-owned USB Host lifetime. Only temporary interrupt-dump instrumentation remains to be removed before completion.
+- T033 hardware validation passed and final cleanup is merged: WebFS works, FT8 works before and after WebFS with CPU1-owned USB Host lifetime, temporary interrupt diagnostics are removed, and only the final smoke sequence remains.
 - ADV remains a validated embedded RX deployment target. Physical FT8 TX is currently accepted on Linux/QMX; carrying the proven TX boundary to ADV is future work rather than an active task.
 
 ## Current MiniFT8 baseline
@@ -115,7 +115,7 @@ T028         COMPLETE — RX display/selection priority groups + descending SNR
 T029         COMPLETE — RX rows persist through TX; clear at TX completion/resume
 T031         COMPLETE — live QMX band CAT sync, 1 s debounce, hardware validated
 T032         COMPLETE — V -> 3 current-day QSO compact view, hardware validated
-T033         IMPLEMENTING — hardware passed; remove temporary interrupt diagnostics
+T033         TESTING — final smoke only
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 rpi3-2       RX/TX PASS — native AArch64 build; QMX ALSA decode + CDC CAT + physical TX validated
