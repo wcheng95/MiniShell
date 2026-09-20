@@ -47,14 +47,17 @@ int main(void)
     for (unsigned i = 0; i < ADV_UAC_RING_FRAMES; ++i)
         CHECK(adv_uac_feed(&ring, adv_uac_begin(&ring), frame, sizeof(frame)));
     CHECK(ring.high_water == ADV_UAC_RING_FRAMES);
-    CHECK(!adv_uac_feed(&ring, adv_uac_begin(&ring), frame, sizeof(frame)));
-    CHECK(ring.overflows == 1 && ring.pending && ring.head == ring.tail);
-    CHECK(adv_uac_take(&ring, data, 9) == 0);
-    adv_uac_ticket_t pending_read = adv_uac_begin(&ring);
-    CHECK(adv_uac_ack(&ring));
-    ring.reset_required = false; // native stop/start completed
-    CHECK(adv_uac_feed(&ring, pending_read, bytes, sizeof(bytes)));
-    CHECK(adv_uac_take(&ring, data, 9) == 0);
+    uint32_t overflow_epoch = ring.epoch;
+    uint32_t overflow_losses = ring.losses;
+    CHECK(adv_uac_feed(&ring, adv_uac_begin(&ring), frame, sizeof(frame)));
+    CHECK(ring.overflows == 1);
+    CHECK(!ring.pending && !ring.reset_required);
+    CHECK(ring.epoch == overflow_epoch && ring.losses == overflow_losses);
+    CHECK(ring.head - ring.tail == ADV_UAC_RING_FRAMES);
+    CHECK(adv_uac_take(&ring, data, 9) == 9);
+
+    /* True transport loss still uses the discontinuity/reset path. */
+    memset(&ring, 0, sizeof(ring));
     adv_uac_ticket_t inflight = adv_uac_begin(&ring);
     adv_uac_loss(&ring); // new error during an in-flight read is never lost
     CHECK(adv_uac_ack(&ring));
@@ -62,7 +65,7 @@ int main(void)
     CHECK(adv_uac_feed(&ring, inflight, bytes, sizeof(bytes)));
     CHECK(adv_uac_take(&ring, data, 9) == 0);
     adv_uac_loss(&ring);
-    pending_read = adv_uac_begin(&ring);
+    adv_uac_ticket_t pending_read = adv_uac_begin(&ring);
     CHECK(adv_uac_ack(&ring));
     adv_uac_loss(&ring); // second loss after first ACK must be seen again
     CHECK(ring.pending && adv_uac_ack(&ring));

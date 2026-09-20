@@ -58,9 +58,14 @@ static inline bool adv_uac_feed(adv_uac_buffer_t *b, adv_uac_ticket_t ticket,
         b->used = 0;
         if (b->phase == 0) {
             if (b->head - b->tail == ADV_UAC_RING_FRAMES) {
+                /*
+                 * Preserve the newest UTC-aligned timeline under temporary
+                 * consumer backlog.  Dropping one stale 12 kHz frame costs
+                 * 83.3 us; escalating this local FIFO condition into a stream
+                 * discontinuity would discard the active FT8 slot.
+                 */
                 ++b->overflows;
-                adv_uac_loss(b);
-                return false;
+                ++b->tail;
             }
             uint32_t slot = b->head++ & (ADV_UAC_RING_FRAMES - 1u);
             b->frames[slot][0] = adv_uac_s24(b->partial);
