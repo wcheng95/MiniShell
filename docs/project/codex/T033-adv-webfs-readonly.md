@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: TESTING
+Status: IMPLEMENTING — FINAL DIAGNOSTIC CLEANUP
 
 ## Architect intent
 
@@ -1501,6 +1501,34 @@ Keep the interrupt dump for this first hardware run. Required sequence:
 4. run `webfs`, browse/download, quit;
 5. run `ft8` again in the same boot;
 6. repeat FT8 stop/start once more to prove CPU1 interrupt release/reacquisition.
+
+## Architect hardware result — CPU1 fix validated
+
+Hardware validation on 2026-09-20 confirms the permanent fix:
+
+- fresh-boot `ft8` works;
+- QMX USB Host/UAC startup works with the CPU1-pinned Host owner;
+- `webfs` works;
+- browser listing/download works;
+- after quitting WebFS, `ft8` works again in the same boot.
+
+This validates both sides of the T033 integration: WebFS does not require cable
+handoff, and its linked networking stack no longer prevents QMX/FT8 USB Host use.
+
+The temporary interrupt dump has served its purpose and should now be removed
+before T033 is completed. Keep the CPU1 host-owner architecture unchanged.
+
+Final cleanup required:
+
+- remove `adv_console_dump_interrupts()` call and private helper;
+- remove `esp_intr_dump` / `funopen` diagnostic plumbing added only for T033;
+- preserve CPU1 pinning, startup handshake, LEVEL1 flags, FIFO 91/18/91, all
+  WebFS behavior, and all filesystem/password fixes;
+- rerun all T033 software/build gates;
+- return to REVIEW for one final supervisor check.
+
+After merge, one short hardware smoke test is sufficient:
+`ft8 -> quit -> webfs -> quit -> ft8`.
 
 ## Architect test result
 
