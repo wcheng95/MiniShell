@@ -156,6 +156,24 @@ static int prepare_score_terms(const Ft8WaterfallView *wf,
 
     state->score_term_count = 0u;
 
+    /*
+     * Match ft8_sync_score_direct(): if the candidate origin itself lies
+     * outside the retained logical waterfall, its score is exactly zero even
+     * when later Costas symbols would happen to fall inside the view.
+     */
+    {
+        int64_t last_block =
+            (int64_t)wf->first_block + (int64_t)wf->num_blocks;
+        if ((int64_t)state->time_offset < (int64_t)wf->first_block ||
+            (int64_t)state->time_offset >= last_block) {
+            state->score_cache_time_offset = state->time_offset;
+            state->score_cache_time_sub = state->time_sub;
+            state->score_cache_freq_sub = state->freq_sub;
+            state->score_cache_valid = 1;
+            return 1;
+        }
+    }
+
     for (int m = 0; m < FT8_NUM_SYNC; ++m) {
         for (int k = 0; k < FT8_LENGTH_SYNC; ++k) {
             int symbol = FT8_SYNC_OFFSET * m + k;
