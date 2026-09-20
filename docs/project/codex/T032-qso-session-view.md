@@ -729,11 +729,53 @@ Actions wait.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff against this task and
-recorded test evidence. No unrelated cleanup.
+Reviewed implementation commit:
 
-Canonical MiniFT8 docs are updated after accepted implementation/hardware
-behavior.
+```text
+b35941e26acf39b5341035c8cad2ca89c73d67d9
+```
+
+Result: **CHANGES REQUESTED — one UI-contract decision remains.**
+
+The storage/parser/controller implementation is otherwise clean and within T032:
+
+- one bounded streaming scan of today's ADIF;
+- no heap or whole-day cache;
+- six retained summary rows;
+- malformed/oversized records skipped safely;
+- partial reads and close/error paths covered;
+- controller owns the read-only snapshot and refresh;
+- AutoSeq/RX/TX/CAT/config ownership remains unchanged;
+- fixed ADV RAM deltas (+256 B AppController, +248 B UiModel) are acceptable;
+- reported focused 4/4, units 15/15, architecture/sanitizer/ADV build pass;
+- the full 64/65 result is attributable to the pre-existing linux_serial_unit
+  PTY timing flake, which passed on isolated retry and is outside this diff.
+
+Blocking finding:
+
+`ui_shell::render_top()` introduces a new QSO-only top-line format when the
+daily QSO list reaches 10 or more pages, dropping the locked UTC/counter fields:
+
+```text
+V 20 10/12
+```
+
+instead of the canonical 20-character V3 top line:
+
+```text
+V  20 HH:MM:SS p/p C
+```
+
+The existing `docs/MiniFT8/ui.md` explicitly locks that top-line format, and
+T032 did not authorize a QSO-specific replacement. This is a product/UI
+architecture choice, not an implementation convenience, so it must not be
+silently changed by Codex.
+
+No other blocking review finding was identified.
+
+Pending architect decision: either explicitly approve/document a QSO-view
+exception for 10+ pages, or revise the implementation to preserve the canonical
+top-line contract under an architect-approved bounded pagination rule.
 
 ## Architect test result
 
