@@ -48,7 +48,7 @@ Each WebFS launch creates an ephemeral local AP:
 
 ```text
 SSID: MiniShell-XXXX
-PASS: <8 lowercase letters>
+PASS: <8 uppercase letters>
 URL : http://192.168.4.1/
 ```
 
@@ -59,7 +59,7 @@ V1 defaults:
 
 - AP-only mode; no STA mode and no Internet/NAT routing.
 - one Wi-Fi station at a time;
-- exactly 8 lowercase letters for the session password, generated from ESP32 RNG;
+- exactly 8 uppercase letters for the session password, generated from ESP32 RNG;
 - WPA2-PSK, never an open AP;
 - deterministic WebFS address `192.168.4.1`;
 - Q or Esc on ADV stops HTTP/Wi-Fi and returns to MiniShell.
