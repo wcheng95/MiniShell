@@ -330,7 +330,11 @@ static void test_qso_view(void)
     assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_RIGHT), &action));
     assert(memcmp(&before, &ui, sizeof(ui)) == 0);
     model.qso.page_count = 12; model.qso.page_index = 11;
-    ui_shell_render(&ui, &model, &frame); assert(strstr(frame.rows[0], "12/12"));
+    ui_shell_render(&ui, &model, &frame);
+    assert(strcmp(frame.rows[0], "V  20 14:32 12/12 8 ") == 0);
+    model.qso.page_count = 100; model.qso.page_index = 99;
+    ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[0], "100/100"));
     assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_BACK), &action));
     assert(ui.screen == SCREEN_V && ui.submenu == UI_SUBMENU_NONE);
     assert(ui_shell_handle_input(&ui, &model, key('3'), &action) && action.value.page_index == 0);
