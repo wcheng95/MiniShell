@@ -30,11 +30,12 @@ AutoSeq AS-0..AS-8              COMPLETE
 V2-style ADIF logging            COMPLETE
 V2-style Field Day Cabrillo      COMPLETE
 physical QMX CAT TX              COMPLETE — Linux/QMX hardware validated
+live QMX band CAT sync           COMPLETE — 1 s debounce, hardware validated
 first real two-way QSO           COMPLETE — 2026-09-18 UTC
 WinBook/TW700 QMX RX/CAT/TX      PASS
 ```
 
-Linux remains the deterministic regression/reference environment and the accepted physical-TX platform. Linux/pc-1 + QMX has completed a real two-way MiniFT8-V3 QSO, and WinBook/TW700 has independently run the pc-1-built binaries with QMX RX/decode and CAT/TX. ADV remains a fully validated embedded RX deployment target; carrying the proven physical-TX boundary to ADV is future work.
+Linux remains the deterministic regression/reference environment and the accepted physical-TX platform. T031 also makes runtime O -> 3 band changes synchronize an already-connected QMX after a 1-second final-selection debounce, with hardware validation completed on 2026-09-20. Linux/pc-1 + QMX has completed a real two-way MiniFT8-V3 QSO, and WinBook/TW700 has independently run the pc-1-built binaries with QMX RX/decode and CAT/TX. ADV remains a fully validated embedded RX deployment target; carrying the proven physical-TX boundary to ADV is future work.
 
 ## Working live QMX path
 
