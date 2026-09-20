@@ -1,6 +1,6 @@
 # T036 — ADV MiniFT8 mirrored web front panel
 
-Status: REVIEW
+Status: TESTING — MAKE/BREAK
 
 ## Architect intent
 
@@ -778,6 +778,49 @@ Review the complete implementation diff before hardware testing. In particular:
 
 No PR required.
 
+## Supervisor review — implementation
+
+Reviewed implementation commit:
+
+```text
+7c34877053ae9cf97bedb664a3f94ac53da436cf
+```
+
+Result: **PASS — proceed to the T036 hardware MAKE/BREAK run.**
+
+The implementation satisfies the one-shot architecture:
+
+- portable `apps/ft8/**` is unchanged;
+- only the built-in ADV FT8 entry is wrapped; other built-ins and ELF apps retain normal dispatch;
+- mirror startup failure is non-fatal and local FT8 still runs;
+- WebFS production files/routes remain unchanged and the mirror exposes no file-manager endpoints;
+- the mirror HTTP surface is only `/`, `/api/screen`, and `/api/key`;
+- no POST, OPTIONS, CORS, WebSocket/SSE, STA mode, NVS, mDNS, or public Network API was added;
+- the browser receives a fixed 284-byte 20x7 presented-frame snapshot;
+- HTTP never reads the mutable display working buffers;
+- snapshot chars/attrs/generation are published and copied under a cross-core critical section;
+- remote input uses a bounded 16-event ADV-private session queue;
+- only `adv_input_wait()` forwards remote events into the normal MiniShell Input service;
+- physical keyboard remains active and local/remote arbitration is bounded;
+- remote queue detach happens under lock before its storage is freed;
+- input flush clears both physical and remote pending state;
+- Q/Esc remain ordinary MiniFT8 key events, not HTTP lifecycle commands;
+- shutdown order is HTTP -> remote input -> Wi-Fi, after MiniFT8 returns;
+- CPU0 FT8 affinity, CPU1 USB Host ownership, LEVEL1 policy, FIFO 91/18/91, UAC buffering and FT8 DSP profile are unchanged.
+
+Resource evidence is appropriate for hardware testing:
+
+- firmware: +6,736 B;
+- permanent static SRAM: +304 B;
+- presented mirror shadow: 284 B;
+- remote queue: 328 B session heap;
+- HTTP stack: 6,144 B session task;
+- identified mirror HTTP/queue/task control allocations: ~9.2 KiB before allocator/socket/Wi-Fi overhead;
+- no existing task stack increase.
+
+All software/build gates pass: Linux 76/76, portable 15/15, focused 16/16, architecture checks, real ADV build and diff check.
+
+No software conclusion is being drawn about runtime coexistence. Hardware validation is the deciding gate.
 ## Architect test result
 
 Pending.
