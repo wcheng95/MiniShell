@@ -60,6 +60,7 @@ T026 RR73 responder compatibility    COMPLETE — temporary V2 keyword-before-gr
 T027 non-standard/hash TX             COMPLETE — V2-compatible hashed QSO + type-4 CQ
 T028 RX display/selection ordering     COMPLETE — live validated
 T029 RX display lifetime                COMPLETE — live validated
+T031 live QMX band CAT sync             COMPLETE — 1 s debounce, hardware validated
 ```
 
 Working live Linux/QMX command:
@@ -182,6 +183,7 @@ T026        COMPLETE — temporary GRID-coded RR73 -> TX4 compatibility fix
 T027        COMPLETE — V2-compatible non-standard/hash TX + type-4 plain CQ
 T028        COMPLETE — reply-to-me/CQ/regular RX order + descending SNR
 T029        COMPLETE — preserve RX rows through TX; clear at TX completion
+T031        COMPLETE — live O -> 3 QMX band sync with 1 s final-selection debounce
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -289,6 +291,13 @@ FA%011u;
 The selected-band dial frequency is now a single MiniFT8-owned source used by CAT
 and logging. Real hardware validation confirms frequency/mode/VFO synchronization,
 continued FT8 RX decode, no RF keying, and clean repeated CDC close/reopen.
+
+T031 extends that accepted boundary to runtime band changes: O -> 3 updates the
+MiniFT8 band immediately, then an already-connected QMX synchronizes to the final
+selection after a 1-second debounce. Rapid stepping coalesces intermediate bands;
+hardware validation passed on 2026-09-20. The controller consumes slot progression
+while retune is pending so physical TX cannot start on a stale frequency or as a
+late catch-up after the CAT write.
 
 No transmit CAT commands are part of T019.
 
@@ -527,7 +536,7 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 ## Deferred follow-up boundaries
 
 The first complete Linux/QMX QSO and the physical transmitter lifecycle are done.
-T027 non-standard/hash TX, T028 RX display ordering, and T029 RX display lifetime are complete. No new task is active.
+T027 non-standard/hash TX, T028 RX display ordering, T029 RX display lifetime, and T031 live QMX band CAT synchronization are complete. No new task is active.
 
 Deferred items:
 
