@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: IMPLEMENTING — FT8 MEMORY REGRESSION
+Status: IMPLEMENTING — USB INTERRUPT REGRESSION
 
 ## Architect intent
 
@@ -1076,6 +1076,61 @@ If the failure is allocation/headroom-related, treat the permanent linked Wi-Fi
 SRAM as the T033 blocker. Do not attribute it to WebFS runtime cleanup.
 
 Do not start T034.
+
+## Architect hardware finding — USB interrupt exhaustion
+
+Fresh-boot T033 hardware evidence:
+
+```text
+free:
+  heap    279.3K
+  largest 224.0K
+
+ft8:
+  QMX startup/cleanup failed
+  app: ft8 returned 12
+
+debug UART:
+  E (...) intr_alloc: No free interrupt inputs for USB interrupt (flags 0x802)
+  E (...) HCD DWC: Interrupt alloc error: ESP_ERR_NOT_FOUND
+  E (...) USB HOST: HCD install error: ESP_ERR_NOT_FOUND
+```
+
+This supersedes the earlier memory-pressure hypothesis. The heap/largest block is
+healthy and the failure occurs specifically inside `usb_host_install()` because
+ESP-IDF cannot allocate a suitable CPU interrupt input.
+
+ESP-IDF documents this exact `ESP_ERR_NOT_FOUND` failure mode and recommends
+`esp_intr_dump()` to identify Reserved/Used/Shared/Free interrupt inputs.
+
+Required diagnostic amendment before any architectural fix:
+
+1. Add a temporary/bounded ADV diagnostic immediately before
+   `usb_host_install()` in the QMX/UAC prepare path:
+   ```c
+   esp_intr_dump(...)
+   ```
+   Send the dump to the existing debug UART/log path so it remains visible while
+   USB Serial/JTAG is about to be handed off.
+2. Keep the existing USB host interrupt flags unchanged for this diagnostic run.
+3. Do not change task/core affinity, USB interrupt sharing, FT8 memory profile,
+   WebFS feature scope, or Wi-Fi config yet.
+4. Build/flash the T033 firmware and capture the full interrupt table from a
+   fresh boot followed by `ft8`, before ever running `webfs`.
+5. For comparison, if practical build/flash the last known-good pre-WebFS ADV
+   commit and capture the same dump before `usb_host_install()`.
+
+The comparison should identify exactly which low/medium interrupt input(s) became
+reserved/used between the known-good and T033 images.
+
+Possible follow-up directions, to choose only after the dump:
+
+- move USB Host install/uninstall to a task pinned to the other core;
+- free/defer an unnecessary resident driver;
+- use a supported shared/low-medium interrupt policy if the USB HCD permits it;
+- remove a compile-time feature that reserves an interrupt unnecessarily.
+
+Do not guess among these before the interrupt table is available.
 
 ## Architect test result
 
