@@ -37,6 +37,13 @@ CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 # QMX's composite configuration descriptor exceeds IDF's 256-byte default.
 CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048
 
+# Curiosity-driven UAC robustness experiment: keep three 1 ms packets per URB
+# but double the number of queued isochronous URBs from the component default
+# of 3 to 6.  At 48 kHz / 24-bit / stereo this changes queued coverage from
+# about 9 ms to about 18 ms without changing packet geometry or audio format.
+CONFIG_UAC_NUM_ISOC_URBS=6
+CONFIG_UAC_NUM_PACKETS_PER_URB=3
+
 # Both ADV storage volumes use FATFS: /flash is internal SPI flash through the
 # ESP-IDF wear-levelling layer and /sd is removable FATFS over SDSPI. MiniShell's
 # Filesystem contract allows names up to MINI_FS_NAME_MAX (255), so enable long
