@@ -766,3 +766,55 @@ With that decision documented, there are no remaining blocking review findings.
 ## Architect test result
 
 Pending.
+
+## Final merged-state validation
+
+Validated fetched `origin/main` and fast-forwarded local `main` to
+`ac853373f5c70bbc7fdfe5e51155ee5af979671c`. No production or test code changes
+were needed. This validation commit changes only this task packet; T032 remains
+**TESTING** with architect hardware validation pending.
+
+Checked the final ADV QSO header implementation: 1–9 pages retain the existing
+normal top line, 10–99 pages use `V  20 HH:MM 10/12 A` format, and 100+ pages
+use `V  20 HH:MM 100+ A`. The compact forms preserve the slot counter and UTC
+minutes. Existing UI assertions passed for the exact 12/12 header, the 100-page
+boundary, and page 101 of 102 rendering `100+` rather than `101/102`.
+
+Commands and results against that exact merged head:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+# PASS configure/build.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure \
+  -R 'ft8_(log_service|ui_smoke|qso|physical_tx)'
+# PASS 4/4.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 65/65; no retry required.
+
+cmake -S tests/unit -B /tmp/T032-build-unit
+cmake --build /tmp/T032-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T032-build-unit --output-on-failure
+# PASS configure/build and 15/15 tests.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS real ADV build; firmware 0xc3d50 bytes, 87% app partition free.
+# ESP-IDF header #include_next pedantic warnings remain non-fatal.
+
+git diff --check
+# PASS, including the final documentation update.
+```
+
+No behavior, ownership boundary, public API, persisted format, or fixed RAM
+allocation changed in this validation pass. No new limitation or defect was
+identified. The manual/hardware checks listed above remain pending; no device
+was flashed and no RF validation was performed. The commit containing this
+section is the docs-only validation reference on `codex/T032-qso-session-view`;
+its exact SHA is returned in the handoff. No PR.
