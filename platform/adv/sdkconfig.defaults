@@ -37,13 +37,11 @@ CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 # QMX's composite configuration descriptor exceeds IDF's 256-byte default.
 CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048
 
-# Curiosity-driven UAC robustness experiment: use the component-default
-# three URBs with twelve 1 ms packets each.  ESP-IDF's DWC HCD exposes only two
-# DMA buffers per pipe, so this should extend the hardware-scheduled horizon
-# from about 12 ms (2x6) to about 24 ms (2x12), while reducing UAC RX callback
-# frequency further.  The software queue becomes about 36 ms.
+# Keep the validated usb_host_uac 1.3.3 geometry. Skipped ISO packets are
+# timeline-preserved by the T017 zero-padding patch; larger packets-per-URB
+# experiments increased burst loss and canonical backlog without helping FT8.
 CONFIG_UAC_NUM_ISOC_URBS=3
-CONFIG_UAC_NUM_PACKETS_PER_URB=12
+CONFIG_UAC_NUM_PACKETS_PER_URB=3
 
 # Both ADV storage volumes use FATFS: /flash is internal SPI flash through the
 # ESP-IDF wear-levelling layer and /sd is removable FATFS over SDSPI. MiniShell's

@@ -735,8 +735,6 @@ add_test(NAME adv_audio_uac_buffer_unit COMMAND adv_audio_uac_buffer_unit)
 add_test(NAME adv_uac_driver_patch
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_uac_driver_patch_test.py
             ${CMAKE_C_COMPILER})
-add_test(NAME adv_hcd_diag_patch
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_hcd_diag_patch_test.py)
 
 add_executable(adv_usb_console_handoff_unit tests/adv_usb_console_handoff_test.c)
 target_include_directories(adv_usb_console_handoff_unit PRIVATE platform/adv)

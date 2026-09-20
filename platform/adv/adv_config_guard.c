@@ -13,11 +13,11 @@
 #endif
 
 #if !defined(CONFIG_UAC_NUM_ISOC_URBS) || CONFIG_UAC_NUM_ISOC_URBS != 3
-#error "ADV UAC experiment requires CONFIG_UAC_NUM_ISOC_URBS=3; regenerate sdkconfig from sdkconfig.defaults"
+#error "ADV UAC requires CONFIG_UAC_NUM_ISOC_URBS=3; regenerate sdkconfig from sdkconfig.defaults"
 #endif
 
-#if !defined(CONFIG_UAC_NUM_PACKETS_PER_URB) || CONFIG_UAC_NUM_PACKETS_PER_URB != 12
-#error "ADV UAC experiment requires CONFIG_UAC_NUM_PACKETS_PER_URB=12; regenerate sdkconfig from sdkconfig.defaults"
+#if !defined(CONFIG_UAC_NUM_PACKETS_PER_URB) || CONFIG_UAC_NUM_PACKETS_PER_URB != 3
+#error "ADV UAC requires CONFIG_UAC_NUM_PACKETS_PER_URB=3; regenerate sdkconfig from sdkconfig.defaults"
 #endif
 
 #if !CONFIG_FATFS_LFN_HEAP
