@@ -1267,6 +1267,76 @@ For reference, the last canonical pre-WebFS baseline is commit:
 If a comparison build is needed, apply only the same interrupt-dump instrumentation
 to that baseline; do not mix any WebFS code into the comparison.
 
+## Architect hardware finding — interrupt dump root cause and permanent fix
+
+Fresh-boot T033 interrupt dump before `usb_host_install()` shows:
+
+```text
+CPU0 level-1 general-use:
+  no free inputs
+
+CPU1 level-1 general-use:
+  multiple free inputs (including 2,3,4,5,8,9,12,13,17,18)
+
+usb_host_install():
+  ESP_INTR_FLAG_LEVEL1
+  -> ESP_ERR_NOT_FOUND on CPU0
+```
+
+Therefore the USB failure is explained directly by core-local interrupt
+availability. The foreground ADV application task is pinned to CPU0, so the
+current `prepare()` calls `usb_host_install()` on CPU0. ESP-IDF allocates an
+external interrupt on the core performing the allocation and requires it to be
+freed on that same core.
+
+Architect decision:
+
+> Give the USB Host library one explicit CPU1-pinned owner task. That task owns
+> `usb_host_install()`, host event handling, device-free draining, and
+> `usb_host_uninstall()` for the complete host lifetime.
+
+Required permanent amendment:
+
+1. Do **not** change `ESP_INTR_FLAG_LEVEL1`.
+2. Do **not** add `ESP_INTR_FLAG_SHARED`.
+3. Do **not** move the entire foreground app/FT8 task to CPU1.
+4. Refactor the existing USB host task in `adv_audio_uac.cpp` so it is created
+   with `xTaskCreatePinnedToCore(..., 1)`.
+5. The CPU1 host-owner task itself must call `usb_host_install()` before entering
+   its normal `usb_host_lib_handle_events()` loop.
+6. The same CPU1 task must call `usb_host_uninstall()` during teardown after
+   class clients/devices are released. Install and uninstall must therefore occur
+   on the same core.
+7. Add an explicit startup handshake from the owner task back to `prepare()` so
+   class-driver installation does not continue until USB Host installation has
+   completed successfully.
+8. On host-install failure:
+   - report failure to `prepare()`;
+   - leave `host_installed == false`;
+   - terminate/retire the owner task cleanly;
+   - allow existing cleanup to restore console/resources.
+9. Preserve existing FIFO geometry, class driver configuration, UAC/CDC semantics,
+   capture-task affinity, FT8 profile, WebFS behavior, and public APIs.
+10. Keep the interrupt dump for the first validation build so hardware can verify
+    that USB is allocated on CPU1. Remove or demote the diagnostic only after
+    validation.
+11. Add host/source-boundary regression coverage asserting:
+    - USB host owner task is pinned to core 1;
+    - install occurs inside that task, not the CPU0 foreground path;
+    - uninstall occurs inside the same task;
+    - `prepare()` waits for install-ready before class-driver installation;
+    - install failure does not proceed into CDC/UAC setup.
+
+Hardware validation after supervisor review:
+
+- fresh boot -> `ft8` before WebFS: USB Host installs and QMX starts normally;
+- interrupt dump shows the USB interrupt allocated on CPU1;
+- quit FT8 cleanly;
+- run `webfs`, browse/download, quit;
+- run `ft8` again in the same boot and confirm normal QMX startup;
+- repeat FT8 start/stop to confirm the CPU1 interrupt is released/reacquired
+  cleanly.
+
 ## Architect test result
 
 Pending.
