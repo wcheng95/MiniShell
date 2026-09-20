@@ -1,6 +1,6 @@
 # T032 — V -> 3 daily QSO compact view
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -735,7 +735,7 @@ Reviewed implementation commit:
 b35941e26acf39b5341035c8cad2ca89c73d67d9
 ```
 
-Result: **CHANGES REQUESTED — one UI-contract decision remains.**
+Result: **PASS — ready for hardware validation.**
 
 The storage/parser/controller implementation is otherwise clean and within T032:
 
@@ -751,31 +751,14 @@ The storage/parser/controller implementation is otherwise clean and within T032:
 - the full 64/65 result is attributable to the pre-existing linux_serial_unit
   PTY timing flake, which passed on isolated retry and is outside this diff.
 
-Blocking finding:
+Architect decision after review: **accepted** the narrow `V -> 3` exception for
+10+ QSO pages. The canonical UI contract has been updated in `docs/MiniFT8/ui.md`:
+for 1-9 pages the normal 20-character top line remains unchanged; for 10+ QSO
+pages the view may drop UTC/counter and prioritize the complete page fraction,
+for example `V 20 10/12`. This exception applies only to `V -> 3` large-page
+presentation.
 
-`ui_shell::render_top()` introduces a new QSO-only top-line format when the
-daily QSO list reaches 10 or more pages, dropping the locked UTC/counter fields:
-
-```text
-V 20 10/12
-```
-
-instead of the canonical 20-character V3 top line:
-
-```text
-V  20 HH:MM:SS p/p C
-```
-
-The existing `docs/MiniFT8/ui.md` explicitly locks that top-line format, and
-T032 did not authorize a QSO-specific replacement. This is a product/UI
-architecture choice, not an implementation convenience, so it must not be
-silently changed by Codex.
-
-No other blocking review finding was identified.
-
-Pending architect decision: either explicitly approve/document a QSO-view
-exception for 10+ pages, or revise the implementation to preserve the canonical
-top-line contract under an architect-approved bounded pagination rule.
+With that decision documented, there are no remaining blocking review findings.
 
 ## Architect test result
 
