@@ -196,6 +196,7 @@ int main(void)
     CHECK(FT8_DECODER_MIN_SCORE == 5);
     CHECK(FT8_DECODER_MAX_LDPC_ITERATIONS == 25);
     CHECK(FT8_PAYLOAD_BYTES == 10u);
+    CHECK(FT8_DECODER_MAX_SCORE_TERMS == 75u);
 
     test_candidate_search_contract();
     test_negative_time_offset_uses_retained_ring();

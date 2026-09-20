@@ -123,6 +123,7 @@ Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine)
     memset(&engine->decode_search_waterfall, 0, sizeof(engine->decode_search_waterfall));
     engine->decode_candidate_count = 0u;
     engine->decode_next_candidate = 0u;
+    engine->decode_noise_ready = 0;
     memset(&engine->decode_slot, 0, sizeof(engine->decode_slot));
     return FT8_ENGINE_OK;
 }
@@ -342,6 +343,7 @@ Ft8EngineStatus ft8_engine_start_decode(
     engine->decode_search_active = 1;
     engine->decode_candidate_count = 0u;
     engine->decode_next_candidate = 0u;
+    engine->decode_noise_ready = 0;
     engine->decode_noise_db = 0.0f;
     ft8_protocol_slot_init(&engine->decode_slot,
                            engine->decode_slot_id,
@@ -386,7 +388,7 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
         engine->decode_search_active = 0;
         engine->decode_candidate_count = candidate_count;
         engine->decode_next_candidate = 0u;
-        engine->decode_noise_db = rx_noise_floor_db(&engine->decode_search_waterfall);
+        engine->decode_noise_ready = 0;
 
         if (candidate_count == 0u) {
             *out_slot = engine->decode_slot;
@@ -396,6 +398,12 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
         }
 
         /* Keep one service unit bounded: LDPC begins on the next RX step. */
+        return FT8_ENGINE_OK;
+    }
+
+    if (!engine->decode_noise_ready) {
+        engine->decode_noise_db = rx_noise_floor_db(&engine->decode_search_waterfall);
+        engine->decode_noise_ready = 1;
         return FT8_ENGINE_OK;
     }
 
@@ -440,6 +448,7 @@ Ft8EngineStatus ft8_engine_cancel_decode(Ft8Engine *engine)
     memset(&engine->decode_search_waterfall, 0, sizeof(engine->decode_search_waterfall));
     engine->decode_candidate_count = 0u;
     engine->decode_next_candidate = 0u;
+    engine->decode_noise_ready = 0;
     memset(&engine->decode_slot, 0, sizeof(engine->decode_slot));
     return FT8_ENGINE_OK;
 }

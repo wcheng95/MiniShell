@@ -74,6 +74,7 @@ typedef struct {
     Ft8CandidateSearchState decode_search;
     size_t decode_candidate_count;
     size_t decode_next_candidate;
+    int decode_noise_ready;
     float decode_noise_db;
     Ft8ProtocolSlot decode_slot;
     Ft8Candidate candidates[FT8_ENGINE_JOB_CANDIDATE_CAPACITY];

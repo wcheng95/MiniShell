@@ -10,9 +10,6 @@
 #define FT8_LENGTH_SYNC 7
 #define FT8_NUM_SYNC 3
 #define FT8_SYNC_OFFSET 36
-#define FT8_SEARCH_FIRST_BLOCK (-10)
-#define FT8_SEARCH_LAST_BLOCK 97
-#define FT8_SEARCH_ROW_COUNT ((FT8_SEARCH_LAST_BLOCK - FT8_SEARCH_FIRST_BLOCK) + 1)
 
 static const uint8_t kCostasPattern[7] = { 3, 1, 4, 0, 6, 5, 2 };
 static const uint8_t kGrayMap[8] = { 0, 1, 3, 2, 5, 6, 4, 7 };
@@ -78,98 +75,97 @@ static const uint8_t *candidate_symbol(const Ft8WaterfallView *wf,
     return wf->mag + offset;
 }
 
-static int build_search_rows(const Ft8WaterfallView *wf,
-                             const uint8_t *rows[FT8_SEARCH_ROW_COUNT])
+static int score_term_add(Ft8CandidateSearchState *state,
+                          const uint8_t *positive,
+                          const uint8_t *negative)
 {
-    int64_t retained_end;
-
-    if (!waterfall_valid(wf) || rows == NULL)
+    if (state == NULL || positive == NULL || negative == NULL ||
+        state->score_term_count >= FT8_DECODER_MAX_SCORE_TERMS)
         return 0;
 
-    retained_end = (int64_t)wf->first_block + (int64_t)wf->num_blocks;
-    for (int logical = FT8_SEARCH_FIRST_BLOCK;
-         logical <= FT8_SEARCH_LAST_BLOCK;
-         ++logical) {
-        const uint8_t *row = NULL;
-
-        if ((int64_t)logical >= (int64_t)wf->first_block &&
-            (int64_t)logical < retained_end) {
-            int64_t physical = (int64_t)wf->anchor_index + (int64_t)logical;
-
-            physical %= (int64_t)wf->max_blocks;
-            if (physical < 0)
-                physical += (int64_t)wf->max_blocks;
-
-            row = wf->mag + (size_t)physical * wf->block_stride;
-        }
-
-        rows[logical - FT8_SEARCH_FIRST_BLOCK] = row;
-    }
+    state->score_terms[state->score_term_count].positive = positive;
+    state->score_terms[state->score_term_count].negative = negative;
+    ++state->score_term_count;
     return 1;
 }
 
-static int ft8_sync_score_search(const Ft8WaterfallView *wf,
-                                 const Ft8Candidate *candidate,
-                                 const uint8_t *const rows[FT8_SEARCH_ROW_COUNT])
+static int prepare_score_terms(const Ft8WaterfallView *wf,
+                               Ft8CandidateSearchState *state)
 {
-    int score = 0;
-    int num_average = 0;
-    size_t lane_offset;
+    Ft8Candidate base;
 
-    if (!wf || !candidate || !rows ||
-        candidate->time_sub >= wf->time_osr ||
-        candidate->freq_sub >= wf->freq_osr ||
-        candidate->freq_offset < 0 ||
-        candidate->freq_offset + 7 >= (int)wf->num_bins)
+    if (!waterfall_valid(wf) || state == NULL)
         return 0;
 
-    lane_offset = (size_t)candidate->time_sub * wf->freq_osr * wf->num_bins;
-    lane_offset += (size_t)candidate->freq_sub * wf->num_bins;
-    lane_offset += (size_t)candidate->freq_offset;
+    if (state->score_cache_valid &&
+        state->score_cache_time_offset == state->time_offset &&
+        state->score_cache_time_sub == state->time_sub &&
+        state->score_cache_freq_sub == state->freq_sub)
+        return 1;
+
+    memset(&base, 0, sizeof(base));
+    base.time_offset = state->time_offset;
+    base.time_sub = state->time_sub;
+    base.freq_sub = state->freq_sub;
+    base.freq_offset = 0;
+
+    state->score_term_count = 0u;
 
     for (int m = 0; m < FT8_NUM_SYNC; ++m) {
         for (int k = 0; k < FT8_LENGTH_SYNC; ++k) {
             int symbol = FT8_SYNC_OFFSET * m + k;
-            int logical = candidate->time_offset + symbol;
-            int row_index = logical - FT8_SEARCH_FIRST_BLOCK;
-            const uint8_t *row;
-            const uint8_t *p8;
+            const uint8_t *p8 = candidate_symbol(wf, &base, symbol);
             int sm;
 
-            if (row_index < 0 || row_index >= FT8_SEARCH_ROW_COUNT)
+            if (!p8)
                 continue;
-            row = rows[row_index];
-            if (!row)
-                continue;
-            p8 = row + lane_offset;
 
             sm = kCostasPattern[k];
-            if (sm > 0) {
-                score += (int)p8[sm] - (int)p8[sm - 1];
-                ++num_average;
+            if (sm > 0 &&
+                !score_term_add(state, p8 + sm, p8 + sm - 1))
+                return 0;
+            if (sm < 7 &&
+                !score_term_add(state, p8 + sm, p8 + sm + 1))
+                return 0;
+
+            if (k > 0) {
+                const uint8_t *prev = candidate_symbol(wf, &base, symbol - 1);
+                if (prev &&
+                    !score_term_add(state, p8 + sm, prev + sm))
+                    return 0;
             }
-            if (sm < 7) {
-                score += (int)p8[sm] - (int)p8[sm + 1];
-                ++num_average;
-            }
-            if (k > 0 && row_index > 0 && rows[row_index - 1]) {
-                const uint8_t *prev = rows[row_index - 1] + lane_offset;
-                score += (int)p8[sm] - (int)prev[sm];
-                ++num_average;
-            }
-            if ((k + 1) < FT8_LENGTH_SYNC &&
-                row_index + 1 < FT8_SEARCH_ROW_COUNT &&
-                rows[row_index + 1]) {
-                const uint8_t *next = rows[row_index + 1] + lane_offset;
-                score += (int)p8[sm] - (int)next[sm];
-                ++num_average;
+
+            if ((k + 1) < FT8_LENGTH_SYNC) {
+                const uint8_t *next = candidate_symbol(wf, &base, symbol + 1);
+                if (next &&
+                    !score_term_add(state, p8 + sm, next + sm))
+                    return 0;
             }
         }
     }
 
-    if (num_average > 0)
-        score /= num_average;
-    return score;
+    state->score_cache_time_offset = state->time_offset;
+    state->score_cache_time_sub = state->time_sub;
+    state->score_cache_freq_sub = state->freq_sub;
+    state->score_cache_valid = 1;
+    return 1;
+}
+
+static int ft8_sync_score_search(const Ft8CandidateSearchState *state,
+                                 int freq_offset)
+{
+    int score = 0;
+
+    if (state == NULL || !state->score_cache_valid ||
+        state->score_term_count == 0u)
+        return 0;
+
+    for (uint8_t i = 0u; i < state->score_term_count; ++i) {
+        score += (int)state->score_terms[i].positive[freq_offset] -
+                 (int)state->score_terms[i].negative[freq_offset];
+    }
+
+    return score / (int)state->score_term_count;
 }
 
 static void heapify_down(Ft8Candidate heap[], size_t heap_size)
@@ -269,7 +265,6 @@ Ft8DecoderStatus ft8_decoder_candidate_search_step(
     int *out_completed,
     size_t *out_count)
 {
-    const uint8_t *rows[FT8_SEARCH_ROW_COUNT];
     size_t processed = 0u;
 
     if (out_completed)
@@ -281,9 +276,6 @@ Ft8DecoderStatus ft8_decoder_candidate_search_step(
         out_completed == NULL || out_count == NULL) {
         return FT8_DECODER_ERR_INVALID;
     }
-
-    if (!build_search_rows(wf, rows))
-        return FT8_DECODER_ERR_INVALID;
 
     if (state->completed) {
         *out_completed = 1;
@@ -298,7 +290,11 @@ Ft8DecoderStatus ft8_decoder_candidate_search_step(
         candidate.freq_sub = state->freq_sub;
         candidate.time_offset = state->time_offset;
         candidate.freq_offset = state->freq_offset;
-        candidate.score = (int16_t)ft8_sync_score_search(wf, &candidate, rows);
+
+        if (!prepare_score_terms(wf, state))
+            return FT8_DECODER_ERR_INVALID;
+        candidate.score = (int16_t)ft8_sync_score_search(state,
+                                                         candidate.freq_offset);
 
         if (candidate.score >= state->min_score) {
             if (state->heap_size == state->capacity &&

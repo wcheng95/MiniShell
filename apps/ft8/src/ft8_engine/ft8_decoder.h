@@ -14,6 +14,7 @@ extern "C" {
 #define FT8_DECODER_MIN_SCORE 5
 #define FT8_DECODER_MAX_LDPC_ITERATIONS 25
 #define FT8_PAYLOAD_BYTES 10u
+#define FT8_DECODER_MAX_SCORE_TERMS 75u
 
 typedef enum {
     FT8_DECODER_OK = 0,
@@ -35,6 +36,11 @@ typedef struct {
  * identical to ft8_decoder_find_candidates(); only scheduling is different.
  */
 typedef struct {
+    const uint8_t *positive;
+    const uint8_t *negative;
+} Ft8CandidateScoreTerm;
+
+typedef struct {
     int initialized;
     int completed;
     size_t capacity;
@@ -44,6 +50,15 @@ typedef struct {
     int16_t freq_offset;
     uint8_t time_sub;
     uint8_t freq_sub;
+
+    /* Cache the Costas comparison terms for one time/sub-lane while sweeping
+     * the innermost frequency-offset loop. */
+    int score_cache_valid;
+    int16_t score_cache_time_offset;
+    uint8_t score_cache_time_sub;
+    uint8_t score_cache_freq_sub;
+    uint8_t score_term_count;
+    Ft8CandidateScoreTerm score_terms[FT8_DECODER_MAX_SCORE_TERMS];
 } Ft8CandidateSearchState;
 
 typedef struct {

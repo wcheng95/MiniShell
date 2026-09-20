@@ -269,3 +269,13 @@ versus about 1.51 s in V3. The V3 search now precomputes the required logical
 waterfall row pointers once per search step, leaving circular modulo outside the
 per-candidate scoring loop while preserving the same search order and heap
 semantics.
+
+
+Candidate-search follow-up: the first circular-row optimization reduced ADV
+`search-done` from about 1.51 s to about 235 ms. That timestamp still included
+the V3 noise-floor histogram pass, unlike V2's `Candidates found` log. The
+search now caches the at-most 75 Costas comparison pointer pairs once per
+time/sub-lane and reuses them across the innermost frequency sweep. The
+noise-floor pass is serviced in the following decode step so `FT8D search-done`
+now measures candidate-grid work only. The 1024-position slice size and worker
+yield policy remain unchanged for an isolated hardware comparison.
