@@ -131,8 +131,9 @@ Requirements:
 
 - SSID suffix is session/device-distinguishing and printable;
 - generate a new local session password using ESP32 hardware RNG / ESP-IDF random source;
-- password is exactly 8 lowercase ASCII letters so iPhone entry never requires
-  switching keyboard character classes; use an unambiguous lowercase alphabet;
+- password is exactly 8 uppercase ASCII letters so iPhone entry never requires
+  switching keyboard character classes and remains easy to read on the ADV display;
+  use an unambiguous uppercase alphabet;
 - 8 characters is intentionally the WPA2-PSK minimum because the AP is ephemeral,
   local-only, one-client, and exists only while WebFS is foreground;
 - WPA2-PSK or stronger compatible AP security; never open;
@@ -856,7 +857,7 @@ Hardware test on 2026-09-20 found two issues before T033 acceptance:
 
 1. The generated 12-character mixed-class password is inconvenient on iPhone
    because entering it requires keyboard-mode switching. Architect decision:
-   **use exactly 8 lowercase letters** for the ephemeral WPA2 session password.
+   **use exactly 8 uppercase letters** for the ephemeral WPA2 session password.
 2. The browser reaches WebFS and shows the `/flash` and `/sd` roots, but browsing
    `/flash` reports:
 
@@ -1014,7 +1015,7 @@ Result: **PASS — resume ADV hardware validation.**
 
 The two first-run findings are correctly addressed:
 
-- session password is exactly eight lowercase letters, regenerated from the
+- session password is exactly eight uppercase letters, regenerated from the
   existing RF-enabled ESP32 RNG path;
 - zero-quota `Filesystem.space()` now delegates to an optional private backend
   physical-space hook after normal normalization/stat validation;
@@ -1529,6 +1530,21 @@ Final cleanup required:
 
 After merge, one short hardware smoke test is sufficient:
 `ft8 -> quit -> webfs -> quit -> ft8`.
+
+## Architect UX refinement — uppercase password
+
+After successful WebFS/FT8 hardware validation, architect changed only the
+credential presentation rule:
+
+> Use exactly **8 uppercase ASCII letters** for the ephemeral WebFS WPA2 password.
+
+Reason: uppercase characters are easier to read on the ADV display. The password
+must remain one character class only, eight characters long, ephemeral per WebFS
+session, RNG-generated, and drawn from an unambiguous alphabet.
+
+Fold this into the final T033 cleanup together with removal of temporary interrupt
+dump instrumentation. No separate architecture change or hardware investigation
+is required.
 
 ## Architect test result
 
