@@ -21,6 +21,17 @@ NOTIFY = "uac_host_user_interface_callback(iface, UAC_HOST_DEVICE_EVENT_TRANSFER
 def patch_callback(source):
     if hashlib.sha256(source.encode()).hexdigest() != CALLBACK_SHA256:
         raise ValueError("UAC RX callback differs from pinned 1.3.3; review T017 patch")
+
+    # Keep skipped-ISO diagnostics out of the priority-5 UAC callback.  The
+    # callback only increments this lock-free counter; ADV reports it later
+    # from the lower-priority capture task.
+    prefix = (
+        "static uint32_t s_t017_skipped_isoc_total;\n"
+        "uint32_t uac_host_t017_skipped_isoc_total(void)\n"
+        "{\n"
+        "    return __atomic_load_n(&s_t017_skipped_isoc_total, __ATOMIC_RELAXED);\n"
+        "}\n\n"
+    )
     replacements = [
         ('            ESP_LOGD(TAG, "RX Ringbuffer overflow");',
          '            ESP_LOGW(TAG, "T017 RX loss: native-ring-overflow");\n'
@@ -36,8 +47,7 @@ def patch_callback(source):
          '                        uint8_t *packet = in_xfer->data_buffer + i * requested_num_bytes;\n'
          '                        int pad_bytes = iface->packet_size;\n'
          '                        memset(packet, 0, pad_bytes);\n'
-         '                        ESP_LOGW(TAG, "T017 RX pad: skipped-isoc packet=%d bytes=%d",\n'
-         '                                 i, pad_bytes);\n'
+         '                        __atomic_add_fetch(&s_t017_skipped_isoc_total, 1u, __ATOMIC_RELAXED);\n'
          '                        if (_ring_buffer_push(iface->ringbuf, packet, pad_bytes, 0) != ESP_OK) {\n'
          '                            ESP_LOGW(TAG, "T017 RX loss: native-ring-push");\n'
          '                            ' + NOTIFY + '\n'
@@ -64,7 +74,7 @@ def patch_callback(source):
         if source.count(before) != 1:
             raise ValueError("UAC patch anchor mismatch")
         source = source.replace(before, after)
-    return source
+    return prefix + source
 
 
 def patch_source(source):

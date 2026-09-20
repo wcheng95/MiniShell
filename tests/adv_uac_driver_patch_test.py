@@ -122,6 +122,7 @@ int main(void)
             assert(!adv_uac_ack(&canonical));
         }
     }
+    assert(uac_host_t017_skipped_isoc_total() == 1u);
     return 0;
 }
 '''
@@ -133,4 +134,4 @@ with tempfile.TemporaryDirectory(prefix="t017-uac-patch-") as directory:
                     "-Wall", "-Wextra", "-Werror", "-Wpedantic",
                     "-I", str(ROOT / "platform/adv"), str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-print("UAC 1.3.3 patch: source guards and ten RX callback cases passed")
+print("UAC 1.3.3 patch: source guards, deferred skip counter, and RX callback cases passed")

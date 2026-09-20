@@ -14,6 +14,8 @@
 #include "usb/uac_host.h"
 #include "usb/cdc_acm_host.h"
 
+extern "C" uint32_t uac_host_t017_skipped_isoc_total(void);
+
 namespace {
 constexpr minishell_backend_audio_t handle = (minishell_backend_audio_t)0x554143u;
 constexpr uint16_t vid = 0x0483, pid = 0xA34C;
@@ -175,6 +177,8 @@ void capture_task(void *)
 {
     uac_host_device_handle_t &device = capture_device;
     bool streaming = false;
+    uint32_t last_skipped = uac_host_t017_skipped_isoc_total();
+    int64_t next_skip_report_us = esp_timer_get_time() + 15000000;
     while (!quit) {
         if (unplugged.exchange(false) && device) {
             if (!close_capture()) {
@@ -255,6 +259,18 @@ void capture_task(void *)
             ++read_errors;
             loss();
             vTaskDelay(1);
+        }
+
+        int64_t now_us = esp_timer_get_time();
+        if (now_us >= next_skip_report_us) {
+            uint32_t total = uac_host_t017_skipped_isoc_total();
+            uint32_t delta = total - last_skipped;
+            if (delta != 0u) {
+                ESP_LOGW(tag, "T017 RX pad summary: skipped=%u (+%u/15s)",
+                         (unsigned)total, (unsigned)delta);
+            }
+            last_skipped = total;
+            next_skip_report_us = now_us + 15000000;
         }
     }
     connected = false;
