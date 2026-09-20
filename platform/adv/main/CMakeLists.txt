@@ -78,6 +78,8 @@ set(ADV_PORTABLE_UTILITY_SOURCES
     "a3_probe_static.c"
     "date_static.c"
     "free_static.c"
+    "batt_static.c"
+    "sleep_static.c"
     "ls_static.c"
     "cat_static.c"
     "cp_static.c"
@@ -107,6 +109,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_config_guard.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_console.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_display.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_power.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_filesystem.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_filesystem_handoff.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_i2c.cpp"
@@ -152,6 +155,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/.."
     REQUIRES
         elf_loader
+        esp_adc
         esp_codec_dev
         heap
         esp_driver_gpio
