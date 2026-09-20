@@ -21,6 +21,7 @@
 - T027 completes V2-compatible non-standard/hash FT8 TX: directed compound calls use 22-bit hash packing in normal STANDARD messages, while plain CQ from a non-standard local call uses type-4. Software acceptance is complete; RF confirmation is opportunistic when such a station appears on air.
 - T028 adds controller-owned RX display/selection ordering: reply-to-me, CQ, regular; strongest-to-weakest within each group. The factual RxBatch and automatic processing/logging order remain unchanged. Live validation passed.
 - T029 completes RX display lifetime semantics: previous decoded rows remain visible throughout TX and ordinary RX transport resets, then clear when TX completes/RX resumes or are replaced by the next completed RX batch. Live validation passed.
+- T031 completes live QMX band synchronization: O -> 3 updates MiniFT8 immediately, then an already-connected QMX follows the final selected band after a 1-second debounce. Rapid band stepping coalesces to one final CAT sync; hardware validation passed on 2026-09-20.
 - ADV remains a validated embedded RX deployment target. Physical FT8 TX is currently accepted on Linux/QMX; carrying the proven TX boundary to ADV is future work rather than an active task.
 
 ## Current MiniFT8 baseline
@@ -110,6 +111,7 @@ T026         COMPLETE — temporary V2-compatible RR73-before-grid responder fix
 T027         COMPLETE — V2-compatible non-standard/hash TX + type-4 plain CQ
 T028         COMPLETE — RX display/selection priority groups + descending SNR
 T029         COMPLETE — RX rows persist through TX; clear at TX completion/resume
+T031         COMPLETE — live QMX band CAT sync, 1 s debounce, hardware validated
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 rpi3-2       RX/TX PASS — native AArch64 build; QMX ALSA decode + CDC CAT + physical TX validated
