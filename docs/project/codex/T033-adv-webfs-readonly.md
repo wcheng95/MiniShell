@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: REVIEW — CHANGES REQUESTED
+Status: TESTING
 
 ## Architect intent
 
@@ -804,6 +804,42 @@ no hardware fault-injection result is claimed.
 The commit containing this amendment is the new implementation reference on
 `codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in the handoff.
 Task remains **REVIEW**. No PR.
+
+## Supervisor amendment re-review
+
+Reviewed amendment commit:
+
+```text
+0c5b274a9e5e764f9c349e3a921abc87c310026c
+```
+
+Result: **PASS — ready for ADV hardware validation.**
+
+The requested memory/lifecycle amendment is satisfied:
+
+- `CONFIG_ESP_WIFI_IRAM_OPT` disabled;
+- `CONFIG_ESP_WIFI_RX_IRAM_OPT` disabled;
+- no broader Wi-Fi/LwIP/FT8 memory tuning;
+- event-loop deletion is no longer silently ignored;
+- all T033 software/build gates remain green.
+
+Measured permanent internal-SRAM cost improves from **+48,008 B** to
+**+29,832 B**, recovering **18,176 B**. Firmware is 1,368,576 B (`0x14e200`)
+with 78% of the app partition still free.
+
+The remaining permanent cost is accepted for hardware testing, not yet final
+acceptance. T033 specifically needs real ADV evidence for:
+
+- first-launch and warm-cycle heap/largest-block behavior;
+- practical WebFS browsing/download throughput with Wi-Fi IRAM optimizations off;
+- repeated start/stop without monotonic heap loss;
+- shell/filesystem usability after exit;
+- MiniFT8 launch and normal operation **after WebFS has run at least once in the
+  same boot**, because ESP-IDF retains shared TCP/IP infrastructure after the
+  WebFS Wi-Fi session is stopped;
+- unchanged USB/QMX cable/ownership behavior.
+
+No additional software change is required before that test.
 
 ## Architect test result
 
