@@ -47,8 +47,15 @@ Resident shell aliases are separately MiniShell-owned at:
 /flash/minishell/alias.txt
 ```
 
-This file is not an application settings file and is not part of
-`/flash/config.txt`. T025 defines its small text contract: one
+Operator-facing settings for MiniShell-resident utilities may live at:
+
+```text
+/flash/minishell/setting.txt
+```
+
+This keeps user-facing resident settings separate from low-level platform/runtime
+configuration in `/flash/config.txt`. WebFS SoftAP credentials are one such
+resident setting. Neither file is an application settings file. T025 defines its small text contract: one
 `name=replacement` definition per line, first `=` is the separator, built-ins
 retain precedence, expansion is one level only, and edits are observed on the
 next lookup without restarting MiniShell.
@@ -207,6 +214,10 @@ MiniShell config
 MiniShell resident shell
     /flash/minishell/alias.txt
     user-defined command aliases owned by the resident shell
+
+MiniShell resident settings
+    /flash/minishell/setting.txt
+    operator-facing settings for resident MiniShell utilities such as WebFS
 
 Application settings
     /flash/<app>/setting.txt
