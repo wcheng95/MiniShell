@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1460,6 +1460,47 @@ Existing untracked Python cache directories are untouched and excluded.
 The commit containing this section is the CPU1 owner implementation reference on
 `codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in the handoff.
 T033 is **REVIEW**. No PR and no hardware acceptance resumed.
+
+## Supervisor CPU1 USB Host review
+
+Reviewed implementation commit:
+
+```text
+5dc04f34a0a1ff7276ac4d72301fded15b7c04b0
+```
+
+Result: **PASS — resume ADV hardware validation.**
+
+The permanent interrupt-ownership correction satisfies the dump-derived
+architecture:
+
+- the foreground application remains on CPU0;
+- one 4096-byte priority-5 USB Host owner task is explicitly pinned to CPU1;
+- that same CPU1 task performs `usb_host_install()`, host event handling/device
+  draining, and `usb_host_uninstall()`;
+- `ESP_INTR_FLAG_LEVEL1` and FIFO 91/18/91 remain unchanged;
+- no interrupt-sharing flag is added;
+- `prepare()` waits for the host-ready/install-result handshake before CDC/UAC
+  class installation;
+- failed host install cannot proceed into CDC/UAC setup;
+- teardown never creates a replacement host task on another core;
+- persistent uninstall failure retains the original CPU1 owner rather than
+  restoring console ownership prematurely;
+- capture-task affinity, FT8 profile, WebFS/Wi-Fi behavior, USB-console policy,
+  and public APIs are unchanged.
+
+Validation is sufficient for hardware testing: Linux **68/68**, portable
+**15/15**, focused owner/console/UAC/QMX/WebFS regressions, architecture checks,
+real ADV build, and diff check all pass.
+
+Keep the interrupt dump for this first hardware run. Required sequence:
+
+1. fresh boot -> `ft8` before WebFS;
+2. confirm the pre-install dump now executes from CPU1 and USB Host/QMX starts;
+3. quit FT8 cleanly;
+4. run `webfs`, browse/download, quit;
+5. run `ft8` again in the same boot;
+6. repeat FT8 stop/start once more to prove CPU1 interrupt release/reacquisition.
 
 ## Architect test result
 
