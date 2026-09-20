@@ -61,6 +61,7 @@ T027 non-standard/hash TX             COMPLETE — V2-compatible hashed QSO + ty
 T028 RX display/selection ordering     COMPLETE — live validated
 T029 RX display lifetime                COMPLETE — live validated
 T031 live QMX band CAT sync             COMPLETE — 1 s debounce, hardware validated
+T032 V -> 3 current-day QSO view        COMPLETE — compact ADIF pages, hardware validated
 ```
 
 Working live Linux/QMX command:
@@ -184,6 +185,7 @@ T027        COMPLETE — V2-compatible non-standard/hash TX + type-4 plain CQ
 T028        COMPLETE — reply-to-me/CQ/regular RX order + descending SNR
 T029        COMPLETE — preserve RX rows through TX; clear at TX completion
 T031        COMPLETE — live O -> 3 QMX band sync with 1 s final-selection debounce
+T032        COMPLETE — V -> 3 current-day compact QSO view
 
 AS-0..AS-8  COMPLETE — compact V2-equivalent AutoSeq structural port
 LOG-1       COMPLETE — V2 ADIF + Field Day Cabrillo through MiniShell APIs
@@ -536,7 +538,7 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 ## Deferred follow-up boundaries
 
 The first complete Linux/QMX QSO and the physical transmitter lifecycle are done.
-T027 non-standard/hash TX, T028 RX display ordering, T029 RX display lifetime, and T031 live QMX band CAT synchronization are complete. No new task is active.
+T027 non-standard/hash TX, T028 RX display ordering, T029 RX display lifetime, T031 live QMX band CAT synchronization, and T032 V -> 3 current-day QSO display are complete. No new task is active.
 
 Deferred items:
 
