@@ -1,6 +1,6 @@
 # T031 — Live band change CAT synchronization
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -590,4 +590,14 @@ Remaining gate: architect QMX hardware validation described above.
 
 ## Architect test result
 
-Pending.
+PASS — 2026-09-20.
+
+Architect validated the requested live QMX behavior on hardware after merge:
+
+- O -> 3 changes the MiniFT8 band during operation;
+- the connected QMX follows the selected band after the debounce interval;
+- rapid band stepping coalesces to the final selected band as intended.
+
+T031 is accepted COMPLETE. Slot-boundary stale/late-TX protection remains covered
+by the focused automated regression suite; no additional architecture changes
+were required.
