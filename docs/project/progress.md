@@ -23,7 +23,7 @@
 - T029 completes RX display lifetime semantics: previous decoded rows remain visible throughout TX and ordinary RX transport resets, then clear when TX completes/RX resumes or are replaced by the next completed RX batch. Live validation passed.
 - T031 completes live QMX band synchronization: O -> 3 updates MiniFT8 immediately, then an already-connected QMX follows the final selected band after a 1-second debounce. Rapid band stepping coalesces to one final CAT sync; hardware validation passed on 2026-09-20.
 - T032 completes the read-only `V -> 3` current-day QSO view: MiniFT8 streams today's ADIF log into six-row compact `HH:MM band call` pages, refreshes after new QSOs, and uses the accepted large-page top-line rules. Hardware/use validation passed on 2026-09-20.
-- T033 remains IMPLEMENTING: interrupt dump proved CPU0 has no free level-1 general-use interrupt while CPU1 has many. Permanent fix is to move the USB Host install/event/uninstall lifetime into one CPU1-pinned owner task while leaving FT8 foreground ownership and interrupt flags unchanged.
+- T033 is TESTING again: USB Host install/event/uninstall lifetime is now owned by one CPU1-pinned task, preserving LEVEL1/FIFO behavior while avoiding CPU0 interrupt exhaustion. Hardware validation is pending.
 - ADV remains a validated embedded RX deployment target. Physical FT8 TX is currently accepted on Linux/QMX; carrying the proven TX boundary to ADV is future work rather than an active task.
 
 ## Current MiniFT8 baseline
@@ -115,7 +115,7 @@ T028         COMPLETE — RX display/selection priority groups + descending SNR
 T029         COMPLETE — RX rows persist through TX; clear at TX completion/resume
 T031         COMPLETE — live QMX band CAT sync, 1 s debounce, hardware validated
 T032         COMPLETE — V -> 3 current-day QSO compact view, hardware validated
-T033         IMPLEMENTING — CPU1-pinned USB Host owner-task fix
+T033         TESTING — CPU1 USB Host ownership fix, hardware pending
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 rpi3-2       RX/TX PASS — native AArch64 build; QMX ALSA decode + CDC CAT + physical TX validated
