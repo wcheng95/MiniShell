@@ -68,6 +68,7 @@ static void log_message(const char *, const char *format, ...)
     logs.emplace_back(line);
 }
 #define ESP_LOGI(...) log_message(__VA_ARGS__)
+#define ESP_LOGW(...) log_message(__VA_ARGS__)
 static size_t heap_caps_get_free_size(uint32_t caps)
 {
     assert(caps == (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
