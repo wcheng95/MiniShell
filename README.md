@@ -65,6 +65,7 @@ MiniFT8
     Field Day Cabrillo            COMPLETE
     physical QMX TX               COMPLETE — Linux/QMX
     live QMX band CAT sync        COMPLETE — 1 s debounce
+    V -> 3 daily QSO view         COMPLETE — compact current-day log
     first two-way QSO             COMPLETE — 2026-09-18 UTC
     WinBook QMX RX/CAT/TX         PASS
     rpi3-2 AArch64 QMX RX/CAT/TX  PASS — native build
@@ -290,7 +291,7 @@ MiniFT8 logs through MiniShell Filesystem + Time/Location only:
 
 Linux/pc-1 + QMX has completed a real two-way FT8 QSO with physical CAT-keyed
 79-symbol transmission, RX recovery, ADIF/RxTxLog persistence, CQ/POTA beacon
-operation, Random/Fixed/RX offset-source support, and hardware-validated live band retuning: O -> 3 updates the selected band immediately and an already-connected QMX follows the final selection after a 1-second debounce. The same pc-1-built Linux
+operation, Random/Fixed/RX offset-source support, hardware-validated live band retuning, and the validated V -> 3 current-day compact QSO view sourced from the daily ADIF log. O -> 3 updates the selected band immediately and an already-connected QMX follows the final selection after a 1-second debounce. The same pc-1-built Linux
 binary/modules also run on WinBook/TW700 with QMX RX and CAT/TX after normal
 Linux `dialout` permission setup.
 
