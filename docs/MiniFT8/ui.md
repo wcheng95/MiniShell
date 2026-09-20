@@ -9,7 +9,7 @@ This document is the canonical MiniFT8-V3 UI definition. New V3 decisions overri
 - First-release UI is text-only: **20 columns x 7 lines**.
 - A **2-pixel gap/separator** is placed below the top line.
 - First release has **no countdown bar** and **no graphical waterfall**.
-- The 20-character top line is fully defined below.
+- The 20-character top line is fully defined below, with the documented V -> 3 large-page exception.
 - Top-level UIScreen switching uses case-insensitive reserved letters: `R`, `T`, `O`, `S`, `V`, `Q`.
 - `Q` means Quit.
 - Other character keys may be defined as shortcuts inside an individual UIScreen.
@@ -107,6 +107,29 @@ UTC        HH:MM:SS
 Page       current/total, 3 characters
 Counter    one hexadecimal-like slot character: 0 through E
 ```
+
+### V -> 3 large-page exception
+
+The architect-approved exception for `V -> 3 QSO / Log` applies only when the
+current-day QSO list has **10 or more pages** and the normal locked top line can
+no longer represent the full page fraction inside 20 columns.
+
+For 1-9 QSO pages, use the normal locked top line unchanged.
+
+For 10 or more QSO pages, `V -> 3` prioritizes the full page fraction over UTC
+and the slot counter:
+
+```text
+V 20 10/12
+```
+
+The QSO large-page line retains the V UIScreen identity and current band while
+showing the complete `current/total` page fraction. If an exceptionally large
+page fraction no longer fits with those fields, the page fraction alone may be
+shown so pagination is never silently truncated.
+
+This is a narrow `V -> 3` presentation exception. It does not change the locked
+top-line contract for R, T, O, S, V top level, or other V submenus.
 
 ## Generic UIScreen behavior
 
