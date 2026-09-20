@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: TESTING
+Status: IMPLEMENTING — FT8 MEMORY REGRESSION
 
 ## Architect intent
 
@@ -1046,6 +1046,36 @@ Resume the same T033 hardware acceptance, beginning with the two failed points:
 
 Then continue nested paths, `/sd`, downloads, repeated start/stop heap behavior,
 and FT8-after-WebFS in the same boot.
+
+## Architect hardware finding — FT8 fails before WebFS launch
+
+On the T033 firmware, architect reports that `ft8` already fails on a fresh boot
+**before `webfs` has been run**.
+
+This rules out retained first-use TCP/IP/lwIP state as the primary cause of the
+FT8 startup failure.
+
+The active suspect is now the T033 firmware's **permanent linked internal-SRAM
+cost**, currently measured at approximately **+29,832 B** versus the pre-WebFS
+image. That cost exists from boot because Wi-Fi/network components are linked
+into the resident ADV image even while WebFS is inactive.
+
+T033 must not be accepted until the pre-WebFS FT8 baseline is restored on the
+same firmware.
+
+Required next evidence before changing architecture:
+
+1. On a fresh boot of current T033 firmware, run `free` at the shell and record
+   free bytes / largest block.
+2. Run `ft8` immediately, without ever starting `webfs`.
+3. Capture the exact FT8 failure text plus any ADV/UAC allocation diagnostics
+   (especially engine-workspace or UAC-ring free/largest-block logs).
+4. Compare against the last known-good pre-WebFS ADV firmware if needed.
+
+If the failure is allocation/headroom-related, treat the permanent linked Wi-Fi
+SRAM as the T033 blocker. Do not attribute it to WebFS runtime cleanup.
+
+Do not start T034.
 
 ## Architect test result
 
