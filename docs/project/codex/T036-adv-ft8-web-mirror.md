@@ -1,6 +1,6 @@
 # T036 — ADV MiniFT8 mirrored web front panel
 
-Status: TESTING — MAKE/BREAK
+Status: BREAK — NOT ACCEPTED
 
 ## Architect intent
 
@@ -823,4 +823,54 @@ All software/build gates pass: Linux 76/76, portable 15/15, focused 16/16, archi
 No software conclusion is being drawn about runtime coexistence. Hardware validation is the deciding gate.
 ## Architect test result
 
-Pending.
+**BREAK / NOT ACCEPTED** on Cardputer ADV, 2026-09-20.
+
+Hardware startup with the mirror active failed before FT8 RX became operational.
+
+Observed UART evidence:
+
+```text
+I (...) adv_uac: USB Host installed FIFO 91/18/91; heap 210988 largest 151552
+I (...) uac-host: Install Succeed, Version: 1.3.3
+I (...) adv_uac: capture task create begin: static stack=4096 heap=198648 largest=139264
+I (...) adv_uac: capture task create success
+ft8: waiting for QMX
+Q/Esc: cancel
+I (...) adv_uac: QMX 0483:a34c UAC RX interface 3 opened
+I (...) adv_uac: CDC ready 0483:a34c interface 0 (no CAT commands)
+ft8: failed to start RX audio
+ft8 returned 8
+```
+
+Interpretation:
+
+- USB Host interrupt ownership is working; Host install succeeds on CPU1.
+- UAC and CDC class startup succeeds and QMX enumerates.
+- Failure is later, when portable FT8 begins its RX composition.
+- The normal `adv_uac` ring-allocation diagnostic is absent from the supplied
+  failure trace. That places the failure before `audio->rx->open()` if the trace
+  is complete.
+- `app_controller_start_rx()` allocates `AppRxState` and then the approximately
+  105.8 KiB aligned FT8 engine workspace before opening audio.
+- With mirror/Wi-Fi/HTTP and QMX preflight already live, the largest block is only
+  139,264 bytes before those FT8 allocations. The additional RX-state allocation
+  and heap fragmentation leave insufficient contiguous headroom for the accepted
+  FT8 startup sequence.
+
+This meets T036's predefined BREAK condition: concurrent Wi-Fi/HTTP mirror plus
+the accepted QMX/FT8 architecture materially prevents FT8 RX startup.
+
+No attempt will be made inside T036 to:
+
+- reduce the FT8 engine profile;
+- change UAC buffering;
+- change CPU1 USB Host ownership;
+- reorder/rearchitect FT8 startup;
+- tune Wi-Fi memory;
+- create a second mirror architecture.
+
+The mirrored-front-panel code is therefore experimental/unaccepted. T033-T035
+WebFS remains the accepted Wi-Fi use case because WebFS and FT8 run sequentially.
+
+Future work may revisit the idea as a fresh architecture/performance task, but
+T036 itself is closed as BREAK.
