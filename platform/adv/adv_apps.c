@@ -5,6 +5,7 @@
 #include "platform_backend.h"
 
 #ifdef ESP_PLATFORM
+#include "adv_ft8_web.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #endif
@@ -95,7 +96,9 @@ static void adv_app_task(void *arg)
     adv_app_task_context_t *context = (adv_app_task_context_t *)arg;
 
     if (context->entry != NULL) {
-        context->result = context->entry(context->argc, context->argv);
+        if (context->entry == minishell_app_ft8_main)
+            context->result = adv_ft8_web_run(context->argc, context->argv, context->entry);
+        else context->result = context->entry(context->argc, context->argv);
         context->launch_result = MINISHELL_PLATFORM_OK;
     } else {
         context->launch_result = adv_elf_loader_app_run(

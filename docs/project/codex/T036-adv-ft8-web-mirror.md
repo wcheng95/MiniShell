@@ -1,6 +1,6 @@
 # T036 — ADV MiniFT8 mirrored web front panel
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -544,23 +544,224 @@ Acceptance is binary:
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Implemented from `3fdd18c6bd5966a719533fdafcae166077a1c099` on
+`codex/T036-adv-ft8-web-mirror`. Software/build gates pass. **Runtime MAKE/BREAK
+acceptance is pending supervisor review and the prescribed hardware run.** No
+profile, USB ownership, buffering, or alternate-architecture workaround was needed
+for implementation or the real build.
+
+The ADV launcher wraps only the built-in `minishell_app_ft8_main` entry. It starts
+the mirror, calls the existing entry regardless of mirror-start success, then
+stops HTTP completely, disables/frees remote input, and deinitializes the existing
+SoftAP lifecycle. Partial startup failures are cleaned before local FT8 proceeds.
+External ELF apps and every other built-in app retain their original dispatch.
+
+The physical display provider publishes a 284-byte generation/character/attribute
+shadow after each complete physical render, including console-mode immediate
+renders. Writers and snapshot readers use a short cross-core critical section;
+HTTP never reads the mutable working display buffers. The packet is encoded
+explicitly as little-endian generation followed by 140 characters and 140 attrs.
+
+A session-allocated 16-event ring is protected by a separate cross-core lock.
+Only `adv_input_wait()` submits events into MiniShell Input; physical and remote
+input alternate preference when both are pending. Flush clears both sources.
+Queue detach occurs under the lock before freeing storage, so HTTP producers
+cannot retain a dangling queue pointer. Full queues return HTTP 429; inactive
+queues return 503. Q/Esc have no HTTP-owned shutdown meaning.
+
+The separate server registers exactly `GET /`, `GET /api/screen`, and
+`PUT /api/key`. Key queries contain one decimal `c` or `k` field plus decimal
+`m`, in either order, within a 32-byte buffer. Duplicate/unknown fields, bodies,
+non-ASCII characters, unsupported specials, and unknown modifier bits are rejected.
+The self-contained page renders exactly 140 fixed monospace cells, applies inverse
+attributes, and polls every 250 ms without overlapping screen requests. Browser
+keydown, a mobile text input, and ten touch special-key buttons emit generic key
+events. Client key submissions are serialized and bounded; errors are shown and
+uncertain submissions are not retried.
+
+T035 settings are read once before SoftAP startup and passed to the existing
+validated-credential Wi-Fi helper. No connection splash replaces the FT8 display.
+No password is logged. Generated fallback remains available, but its password is
+not presented by this mirror; configure T035 credentials for practical phone use.
 
 ### Files changed
 
+- `platform/adv/adv_apps.c`: built-in FT8-only lifetime wrapper dispatch.
+- `platform/adv/adv_display.cpp`: last-presented snapshot and lock.
+- `platform/adv/adv_input.c`: bounded session queue, merge, flush and teardown.
+- `platform/adv/adv_ft8_web_io.h`: ADV-private geometry, snapshot and input hooks.
+- `platform/adv/adv_ft8_web_logic.c`: strict key parsing and fixed screen encoding.
+- `platform/adv/adv_ft8_web.[ch]`: optional lifecycle, separate HTTP server,
+  stopping/socket guards and memory diagnostics.
+- `platform/adv/adv_ft8_web_page.h`: generic mirrored display and browser input.
+- `platform/adv/main/CMakeLists.txt`: ADV source registration.
+- `tests/adv_ft8_web_io_test.py`: actual provider/input code with host hardware and
+  lock stubs, including concurrent frame and queue-lifetime stress.
+- `tests/adv_ft8_web_http_test.py`: actual server/lifecycle code with SDK failure
+  injection, HTTP dispatch, key parser and boundary tests.
+- `tests/adv_ft8_web_page_test.py`: embedded JS syntax and DOM/fetch behavior tests.
+- `CMakeLists.txt`: three host regressions (browser test when Node is available).
+- This packet: implementation/resource/test evidence and REVIEW status.
+
 ### Invariants preserved
+
+Verified empty diff against the starting baseline for `apps/ft8/**`, public API,
+`adv_audio_uac.cpp`, all existing WebFS production files, and Wi-Fi SDK defaults.
+No FT8 state model, file-manager routes, POST/OPTIONS/CORS, WebSocket/SSE, STA,
+mDNS, NVS persistence, or public Network API. The foreground task remains CPU0,
+16 KiB; CPU1 USB Host ownership, LEVEL1, FIFO 91/18/91, FT8 DSP/memory profile,
+UAC buffers and decode scheduling remain unchanged. Wi-Fi and HTTP remain scoped
+to the foreground app; WebFS and this server never run concurrently.
 
 ### Memory / firmware evidence
 
+Built and saved the exact starting baseline ELF/BIN before edits. Built the final
+ESP32-S3 firmware with the installed ESP-IDF v5.5.4 toolchain. Measured sections
+with `xtensa-esp32s3-elf-size -A` and BIN lengths with `wc -c`.
+
+| Measurement (bytes) | Baseline | T036 | Delta |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,000 | 27,016 | +16 |
+| `.dram0.bss` | 38,864 | 39,152 | +288 |
+| Firmware BIN | 1,375,552 | 1,382,288 | +6,736 |
+
+**Permanent static internal-SRAM delta: +304 bytes**, including linker alignment.
+DRAM heap-start moved from `1070219088` to `1070219392`, confirming the same delta.
+IRAM vector/end padding and RTC sections are unchanged. Final firmware is
+`0x151790`, with `0x49e870` bytes (78%) free in the `0x5f0000` application partition.
+
+Real ADV compile-flag `sizeof` probes, inspected using
+`xtensa-esp32s3-elf-nm -S`, establish:
+
+| Object | Bytes | Lifetime/allocation |
+| --- | ---: | --- |
+| Presented snapshot | 284 | Permanent: 140 chars + 140 attrs + generation |
+| Each `portMUX_TYPE` | 8 | Two permanent locks |
+| Remote queue pointer / preference flag | 4 / 1 | Permanent; linker padding shared |
+| `mirror_t` including Wi-Fi state | 120 | Foreground wrapper stack; HTTP borrows it |
+| `webfs_wifi_t` | 108 | Included in `mirror_t`, unchanged from T035 |
+| Remote queue | 328 | One session `heap_caps_calloc`, INTERNAL + 8BIT |
+| HTTP task stack | 6,144 | Session SDK task, unchanged WebFS stack size |
+| HTTP `handle_request` frame | 656 | Compiler stack-usage measurement |
+| Mirror wrapper frame | 160 | Compiler stack-usage measurement |
+| Mirror startup frame | 288 | Compiler stack-usage measurement |
+
+The queue consists of 16 x 20-byte `mini_key_event_t` plus two 4-byte indices;
+there is no separate queue task or RTOS queue metadata allocation. HTTP priority
+is idle+1 (SDK default is idle+5), at most two sockets, three handlers, and two-
+second send/receive timeouts. No task stack was increased.
+
+Additional dynamic-allocation inventory from the installed SDK's actual
+`httpd_create()`/handler registration paths and real compile-flag size probes:
+
+- HTTP instance: 1,816 bytes; two socket database entries: 384 bytes.
+- Eight response-header entries: 64 bytes; error-handler table: 52 bytes.
+- Three URI pointers: 12 bytes; three handler objects: 48 bytes; URI strings: 23
+  bytes. These listed HTTP control allocations total **2,399 requested bytes**.
+- RTOS `StaticTask_t` size probe: 340 bytes, separate from the 6,144-byte stack.
+- With queue, stack and TCB, these identified session allocations total **9,211
+  bytes**, excluding allocator overhead, socket/lwIP/request allocations and
+  Wi-Fi/netif/event-loop allocations. This is an inventory, **not a measured total
+  live heap cost**.
+- Wi-Fi configuration is unchanged: ten static RX buffers, 32 dynamic RX and 32
+  dynamic TX limits; shared lwIP task stack remains 3,072 bytes. Shared lwIP is
+  initialized on first use under the existing T035 lifecycle and is not deinitable.
+
+**Runtime dynamic evidence: not collected (hardware testing explicitly deferred).**
+No heap, UAC continuity, decode, timing or runtime high-water result is inferred
+from the above allocation inventory. Instrumentation is ready for the acceptance
+run:
+
+- `ft8-web: before mirror`: internal free/largest/boot-minimum heap, foreground
+  stack high-water before Wi-Fi/HTTP.
+- `mirror active, before FT8/QMX`: same metrics after successful mirror startup.
+- `screen poll (HTTP task)`: first poll and every 60 polls (about 15 seconds at
+  4 Hz), internal free/largest/boot-minimum plus HTTP stack high-water. Capture
+  these through live RX and decode to obtain the after-QMX-active evidence.
+- `stopped`: post-HTTP/queue/Wi-Fi cleanup, after 100 ms for idle task cleanup.
+
+ESP-IDF logs use the existing diagnostic path (USB console before host handoff,
+UART0 GPIO3/6 while QMX owns USB); they do not write to the LCD. Capture the
+pre-start transport as well as UART0 for all phases. Also record MiniFT8's existing
+Memory screen during active RX. High-water samples are runtime diagnostics;
+compiler frame sizes above do not establish stack margin.
+
 ### Local tests run
+
+All final gates passed:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 76/76 passed, including all existing FT8 and WebFS tests
+
+cmake -S tests/unit -B /tmp/T036-build-unit
+cmake --build /tmp/T036-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T036-build-unit --output-on-failure
+# 15/15 passed
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+# all passed
+
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure \
+  -R 'adv_(webfs|ft8|usb|uac|qmx)|ft8_(dependency|platform)'
+# 16/16 passed: WebFS, mirror, USB-owner/console, UAC/QMX and FT8 ADV regressions
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# real ADV build passed; size evidence above
+
+git diff --check
+# passed
+```
+
+New tests compile production C/C++ against narrow host stubs. They cover unchanged
+snapshot before present, exact chars/attrs/generation, console-mode publication,
+10,000 concurrent frame publications, queue inactive/full/FIFO/flush/interleaving,
+allocation failure, 1,000 producer-versus-stop/restart iterations, no remaining
+queue allocations, startup failure at every Wi-Fi/queue/HTTP/registration stage,
+local FT8 entry despite failure, cleanup ordering and stop retry, fixed 284-byte
+responses, strict char/special/modifier queries, queue-full/inactive HTTP errors,
+stopping socket behavior and method/route boundaries. Browser tests extract the
+embedded JS, run `node --check`, and exercise all 140 cells/inverse flags, 250 ms
+polling, truncated-frame rejection, physical/touch keys, ASCII-only input,
+modifier mapping, bounded pending keys and error/no-retry behavior.
 
 ### Manual/hardware validation still required
 
+No hardware testing or flashing performed. Supervisor review must precede the
+packet's one-shot live-QMX/iPhone run: exact LCD match, local/remote interleaving,
+10 consecutive FT8 RX slots with 4 Hz polling, normal decode, memory/stack/UAC/
+timing evidence, remote normal exit, relaunch/reconnect, then WebFS and FT8 again
+in the same boot. Software success does not establish MAKE.
+
 ### Known limitations / risks
 
+- Concurrent Wi-Fi/HTTP plus QMX/UAC/FT8 dynamic heap, interrupt, CPU and timing
+  behavior remains the central unmeasured risk. A resource-related hardware failure
+  is BREAK / NOT ACCEPTED; no FT8-profile or USB redesign is authorized here.
+- At most 16 remote keys are pending on-device; overflow is reported without
+  blocking. Browser network failures can leave delivery uncertain, so the page
+  does not retry keys automatically.
+- Polling can be delayed by real scheduling/network conditions; 250 ms is the
+  requested browser interval, not a measured update-latency guarantee.
+- HTTP/Wi-Fi cleanup retains the proven retry-before-return policy; a persistent
+  SDK cleanup failure will keep ownership rather than freeing live state.
+- Fallback credentials are generated but intentionally do not replace the FT8
+  display with a connection screen. Use configured T035 credentials for access.
+
 ### Commit
+
+One implementation commit on `codex/T036-adv-ft8-web-mirror`, parent
+`3fdd18c6bd5966a719533fdafcae166077a1c099`, titled
+`Add ADV-only mirrored FT8 web front panel`.
+Exact pushed SHA is returned in the handoff. No PR.
 
 ## Supervisor review
 
