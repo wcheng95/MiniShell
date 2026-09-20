@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "ft8/qso_view.h"
 
 #define UI_MAX_COLS 30
 #define UI_MAX_ROWS 8
@@ -33,13 +34,15 @@ typedef enum {
     APP_ACTION_SET_SKIP_TX1,
     APP_ACTION_SET_MAX_RETRY,
     APP_ACTION_SET_CQ_TYPE,
-    APP_ACTION_SET_BEACON_MODE
+    APP_ACTION_SET_BEACON_MODE,
+    APP_ACTION_LOAD_QSO_PAGE
 } AppActionType;
 
 typedef struct {
     AppActionType type;
     union {
         int index;
+        uint32_t page_index;
         int int_value;
         bool bool_value;
     } value;
@@ -76,6 +79,8 @@ typedef struct {
     bool memory_largest_valid;
     uint64_t memory_largest_free_block;
     bool rx_active;
+
+    QsoPage qso;
 
     char rx_lines[APP_MAX_RX_LINES][UI_TEXT_CAP];
     size_t rx_count;

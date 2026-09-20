@@ -102,6 +102,7 @@ static uint32_t paged_count(size_t item_count)
 
 static uint32_t screen_page_count(const UiShell *ui, const UiModel *model)
 {
+    if (ui->submenu == UI_SUBMENU_V_QSO) return model->qso.page_count ? model->qso.page_count : 1u;
     if (ui->submenu != UI_SUBMENU_NONE) return 1u;
     if (ui->screen == SCREEN_RX) return paged_count(model->rx_count);
     if (ui->screen == SCREEN_TX) return paged_count(model->tx_count);
@@ -111,6 +112,7 @@ static uint32_t screen_page_count(const UiShell *ui, const UiModel *model)
 static uint32_t visible_page(const UiShell *ui, const UiModel *model)
 {
     uint32_t pages = screen_page_count(ui, model);
+    if (ui->submenu == UI_SUBMENU_V_QSO) return model->qso.page_index % pages;
     return pages == 0u ? 0u : ui->page_index % pages;
 }
 
@@ -159,6 +161,13 @@ static void render_top(const UiShell *ui, const UiModel *model, UiFrame *frame)
             memcpy(utc, "--:--:--", sizeof(utc));
         }
 
+        if (ui->submenu == UI_SUBMENU_V_QSO && pages >= 10u) {
+            if (pages <= 999999u)
+                frame_set(frame, 0, "V %02u %u/%u", band, (unsigned)page, (unsigned)pages);
+            else
+                frame_set(frame, 0, "%u/%u", (unsigned)page, (unsigned)pages);
+            return;
+        }
         /* Locked ADV first-release format: exactly 20 characters. */
         frame_set(frame, 0, "%-2.2s %02u %s %u/%u %c",
                   screen_name(ui->screen), band, utc,
@@ -387,12 +396,19 @@ static void render_v_gps(UiFrame *frame)
     frame_footer(frame, "read only        `back q quit");
 }
 
-static void render_v_qso(UiFrame *frame)
+static void render_v_qso(const UiModel *model, UiFrame *frame)
 {
-    info_line(frame, 0, "QSOs: 0 (prototype)");
-    info_line(frame, 1, "Last QSO: --");
-    info_line(frame, 2, "ADIF: --");
-    info_line(frame, 3, "RxTx Log: --");
+    if (model->qso.status == QSO_VIEW_UTC_UNAVAILABLE) info_line(frame, 0, "UTC unavailable");
+    else if (model->qso.status == QSO_VIEW_READ_ERROR) info_line(frame, 0, "QSO log read error");
+    else if (!model->qso.row_count) info_line(frame, 0, "No QSOs");
+    else for (uint32_t i = 0; i < model->qso.row_count && i < QSO_PAGE_ROWS; ++i) {
+        const QsoSummary *row = &model->qso.rows[i];
+        char call[11];
+        snprintf(call, sizeof(call), "%.10s", row->call);
+        if (strlen(row->call) > 10) call[9] = '>';
+        info_line(frame, (int)i, "%02u:%02u %.3s %s",
+                  (unsigned)row->hour, (unsigned)row->minute, row->band, call);
+    }
     frame_footer(frame, "read only        `back q quit");
 }
 
@@ -435,7 +451,7 @@ static void render_v(const UiShell *ui, const UiModel *model, UiFrame *frame)
     switch (ui->submenu) {
         case UI_SUBMENU_V_MEMORY: render_v_memory(model, frame); break;
         case UI_SUBMENU_V_GPS: render_v_gps(frame); break;
-        case UI_SUBMENU_V_QSO: render_v_qso(frame); break;
+        case UI_SUBMENU_V_QSO: render_v_qso(model, frame); break;
         case UI_SUBMENU_V_PERF: render_v_perf(frame); break;
         case UI_SUBMENU_V_SYSTEM: render_v_system(ui, model, frame); break;
         case UI_SUBMENU_V_ABOUT: render_v_about(frame); break;
@@ -525,6 +541,7 @@ static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction
 {
     size_t item_index;
 
+    if (ui->submenu == UI_SUBMENU_V_QSO) return false;
     if (line < 0 || line >= UI_MAIN_LINES) return false;
     ui->selected_line = line;
 
@@ -588,6 +605,11 @@ static bool activate_line(UiShell *ui, const UiModel *model, int line, AppAction
         ui->submenu = items[line];
         ui->selected_line = 0;
         ui->page_index = 0u;
+        if (ui->submenu == UI_SUBMENU_V_QSO) {
+            action->type = APP_ACTION_LOAD_QSO_PAGE;
+            action->value.page_index = 0;
+            return true;
+        }
         return false;
     }
 
@@ -656,6 +678,12 @@ bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
     switch (input.type) {
         case UI_INPUT_UP:
         case UI_INPUT_PAGE_PREV:
+            if (ui->submenu == UI_SUBMENU_V_QSO) {
+                move_page(ui, model, -1);
+                action_out->type = APP_ACTION_LOAD_QSO_PAGE;
+                action_out->value.page_index = ui->page_index;
+                return true;
+            }
             if (ui->submenu == UI_SUBMENU_NONE) {
                 move_page(ui, model, -1);
             } else {
@@ -664,6 +692,12 @@ bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
             return false;
         case UI_INPUT_DOWN:
         case UI_INPUT_PAGE_NEXT:
+            if (ui->submenu == UI_SUBMENU_V_QSO) {
+                move_page(ui, model, +1);
+                action_out->type = APP_ACTION_LOAD_QSO_PAGE;
+                action_out->value.page_index = ui->page_index;
+                return true;
+            }
             if (ui->submenu == UI_SUBMENU_NONE) {
                 move_page(ui, model, +1);
             } else {

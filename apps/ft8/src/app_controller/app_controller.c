@@ -1445,11 +1445,25 @@ void app_controller_build_memory_model(const AppController *app, UiModel *model)
     }
 }
 
+void app_controller_step_qso(AppController *app)
+{
+    if (!app || !app->qso_dirty || app->tx.active) return;
+    log_service_read_qso_page(&app->log, app->qso_requested_page, &app->qso);
+    app->qso_requested_page = app->qso.page_index;
+    app->qso_dirty = false;
+}
+
 bool app_controller_apply_action(AppController *app, const AppAction *action)
 {
     bool config_changed = false;
 
     if (app == NULL || action == NULL) return false;
+    if (action->type == APP_ACTION_LOAD_QSO_PAGE) {
+        app->qso_requested_page = action->value.page_index;
+        app->qso_loaded = app->qso_dirty = true;
+        app_controller_step_qso(app);
+        return true;
+    }
     if (app->tx.active) return true; /* Freeze queue/station facts until completion; quit remains available. */
 
     switch (action->type) {

@@ -291,8 +291,56 @@ static void test_cq_beacon_controls(void)
     assert(ui.screen==SCREEN_RX && ui.submenu==UI_SUBMENU_NONE);
 }
 
+static void test_qso_view(void)
+{
+    UiShell ui; UiModel model; UiFrame frame; AppAction action;
+    set_default_model(&model); ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    assert(!ui_shell_handle_input(&ui, &model, key('v'), &action));
+    assert(ui_shell_handle_input(&ui, &model, key('3'), &action));
+    assert(ui.submenu == UI_SUBMENU_V_QSO && action.type == APP_ACTION_LOAD_QSO_PAGE && action.value.page_index == 0);
+    ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[1], "No QSOs") && strstr(frame.rows[0], "1/1"));
+    model.qso.status = QSO_VIEW_UTC_UNAVAILABLE;
+    ui_shell_render(&ui, &model, &frame); assert(strstr(frame.rows[1], "UTC unavailable"));
+    model.qso.status = QSO_VIEW_READ_ERROR;
+    ui_shell_render(&ui, &model, &frame); assert(strstr(frame.rows[1], "QSO log read error"));
+    model.qso.status = QSO_VIEW_OK; model.qso.total_count = 7; model.qso.page_count = 2;
+    model.qso.row_count = 3;
+    model.qso.rows[0] = (QsoSummary){.hour=3, .minute=4, .band="20m", .call="W6ABC"};
+    model.qso.rows[1] = (QsoSummary){.hour=11, .minute=42, .band="17m", .call="W1AW/9"};
+    model.qso.rows[2] = (QsoSummary){.hour=14, .minute=55, .band="40m", .call="VERYLONGCALL"};
+    ui_shell_render(&ui, &model, &frame);
+    assert(strstr(frame.rows[0], "1/2"));
+    assert(strncmp(frame.rows[1], "03:04 20m W6ABC", 14) == 0);
+    assert(strncmp(frame.rows[2], "11:42 17m W1AW/9", 15) == 0);
+    assert(strcmp(frame.rows[3], "14:55 40m VERYLONGC>") == 0);
+    for (unsigned i=0; i<frame.row_count; ++i) assert(strlen(frame.rows[i]) <= 20);
+    const UiInputType nav[] = {UI_INPUT_DOWN, UI_INPUT_PAGE_NEXT, UI_INPUT_UP, UI_INPUT_PAGE_PREV};
+    for (unsigned i=0; i<4; ++i) {
+        assert(ui_shell_handle_input(&ui, &model, special(nav[i]), &action));
+        assert(action.type == APP_ACTION_LOAD_QSO_PAGE && action.value.page_index == (i%2 ? 0u : 1u));
+        model.qso.page_index = action.value.page_index;
+        ui_shell_render(&ui, &model, &frame);
+        assert(strstr(frame.rows[0], i%2 ? "1/2" : "2/2"));
+    }
+    UiShell before = ui;
+    for (int i=1; i<=6; ++i) assert(!ui_shell_handle_input(&ui, &model, key('0'+i), &action));
+    assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_ENTER), &action));
+    assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_LEFT), &action));
+    assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_RIGHT), &action));
+    assert(memcmp(&before, &ui, sizeof(ui)) == 0);
+    model.qso.page_count = 12; model.qso.page_index = 11;
+    ui_shell_render(&ui, &model, &frame); assert(strstr(frame.rows[0], "12/12"));
+    assert(!ui_shell_handle_input(&ui, &model, special(UI_INPUT_BACK), &action));
+    assert(ui.screen == SCREEN_V && ui.submenu == UI_SUBMENU_NONE);
+    assert(ui_shell_handle_input(&ui, &model, key('3'), &action) && action.value.page_index == 0);
+    assert(!ui_shell_handle_input(&ui, &model, key('r'), &action));
+    assert(ui.screen == SCREEN_RX && ui.submenu == UI_SUBMENU_NONE);
+}
+
 int main(void)
 {
+    test_qso_view();
     test_cq_beacon_controls();
     test_profile_contract();
     test_desktop_existing_navigation();

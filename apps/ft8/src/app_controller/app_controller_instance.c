@@ -169,4 +169,18 @@ void app_controller_build_model(const AppController *app, UiModel *model)
 
     app_controller_build_ui_model(app, model);
     app_controller_build_memory_model(app, model);
+    model->qso.status = app->qso.status == LOG_QSO_VIEW_UTC_UNAVAILABLE ? QSO_VIEW_UTC_UNAVAILABLE :
+                        app->qso.status == LOG_QSO_VIEW_READ_ERROR ? QSO_VIEW_READ_ERROR : QSO_VIEW_OK;
+    model->qso.total_count = app->qso.total_count;
+    model->qso.page_index = app->qso.page_index;
+    model->qso.page_count = app->qso.page_count;
+    model->qso.row_count = app->qso.row_count;
+    _Static_assert(QSO_PAGE_ROWS == LOG_QSO_PAGE_ROWS && QSO_CALL_CAP == LOG_QSO_CALL_CAP,
+                   "QSO projection must preserve every bounded summary");
+    for (uint32_t i = 0; i < app->qso.row_count && i < QSO_PAGE_ROWS; ++i) {
+        model->qso.rows[i].hour = app->qso.rows[i].hour;
+        model->qso.rows[i].minute = app->qso.rows[i].minute;
+        memcpy(model->qso.rows[i].band, app->qso.rows[i].band, sizeof(model->qso.rows[i].band));
+        memcpy(model->qso.rows[i].call, app->qso.rows[i].call, sizeof(model->qso.rows[i].call));
+    }
 }

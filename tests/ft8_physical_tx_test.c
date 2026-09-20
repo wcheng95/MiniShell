@@ -289,6 +289,9 @@ static void freshness_and_stalls(void)
 static void qso_completion(void)
 {
     AppController app; setup(&app,true);
+    AppAction view = {.type=APP_ACTION_LOAD_QSO_PAGE, .value.page_index=0};
+    assert(app_controller_apply_action(&app, &view));
+    assert(app.qso_loaded && !app.qso.total_count);
     assert(auto_seq_drop_index(&app.auto_seq,0,0));
     AutoSeqRxEvent event_rx={.kind=AUTO_SEQ_MSG_TX1, .flags=AUTO_SEQ_RX_FLAG_CQ|AUTO_SEQ_RX_FLAG_FD,
         .rx_slot_id=(1789776000+1005)/15-1, .offset_hz=1500, .snr_db=-12, .report_db=AUTO_SEQ_SNR_UNKNOWN};
@@ -312,6 +315,11 @@ static void qso_completion(void)
     assert(app.auto_seq.queue[0].retry_counter==0 && !(app.auto_seq.queue[0].flags&AUTO_SEQ_FLAG_LOGGED));
     now_us=anchor+12640000; assert(app_controller_step_tx(&app,&changed) && changed);
     assert(files[adif].exists && files[cabrillo].exists);
+    assert(app.qso_dirty);
+    AutoSeq logged_seq = app.auto_seq;
+    app_controller_step_qso(&app);
+    assert(!app.qso_dirty && app.qso.total_count == 1 && strcmp(app.qso.rows[0].call, "W6ABC") == 0);
+    assert(memcmp(&logged_seq, &app.auto_seq, sizeof(logged_seq)) == 0);
     assert(strstr(files[adif].text,"AG6AQ") && strstr(files[adif].text,"CM97"));
     assert(strstr(files[cabrillo].text,"AG6AQ") && strstr(files[cabrillo].text,"W6ABC"));
     assert(app.auto_seq.queue[0].retry_counter==1);
@@ -997,8 +1005,65 @@ static void band_cat(void)
     puts("band CAT debounce, final selection, failure inhibit, slot consumption and TX freeze PASS");
 }
 
+static uint64_t snapshot_hash(const void *bytes, size_t count)
+{
+    uint64_t hash = 1469598103934665603ull;
+    const unsigned char *p = bytes;
+    while (count--) hash = (hash ^ *p++) * 1099511628211ull;
+    return hash;
+}
+static mini_result_t qso_read_error(mini_file_t f, void *b, uint32_t n, uint32_t *out)
+{ (void)f; (void)b; (void)n; *out=0; return MINI_ERR_IO; }
+static void qso_view(void)
+{
+    AppController app; setup(&app, true);
+    LogStationFacts station = {.callsign="AG6AQ", .effective_grid="CM97", .fd_exchange="", .band_index=3};
+    LogQsoFacts qso = {.dxcall="W1AW/9", .dxgrid="", .fd_rx_exchange=""};
+    assert(log_service_write_adif(&app.log, &station, &qso));
+    AutoSeq seq = app.auto_seq; AppTxState tx = app.tx; RadioControl radio = app.radio;
+    ConfigService config = app.config;
+    uint64_t rx_hash = snapshot_hash(app.rx, sizeof(*app.rx));
+    AppAction view = {.type=APP_ACTION_LOAD_QSO_PAGE, .value.page_index=0};
+    assert(app_controller_apply_action(&app, &view));
+    UiModel model; app_controller_build_model(&app, &model);
+    assert(model.qso.total_count == 1 && strcmp(model.qso.rows[0].call, "W1AW/9") == 0);
+    assert(memcmp(&seq, &app.auto_seq, sizeof(seq)) == 0);
+    assert(memcmp(&tx, &app.tx, sizeof(tx)) == 0 && memcmp(&radio, &app.radio, sizeof(radio)) == 0);
+    assert(memcmp(&config, &app.config, sizeof(config)) == 0 && snapshot_hash(app.rx, sizeof(*app.rx)) == rx_hash);
+    unsigned before = file_closes;
+    for (unsigned i=0; i<5; ++i) { app_controller_step_qso(&app); app_controller_build_model(&app, &model); }
+    assert(file_closes == before); // Neither rendering nor clean progression rescans.
+    qso.dxcall = "K1ABC";
+    assert(log_service_write_adif(&app.log, &station, &qso));
+    assert(app_controller_apply_action(&app, &view)); // Re-entry refreshes disk data.
+    assert(app.qso.total_count == 2 && strcmp(app.qso.rows[1].call, "K1ABC") == 0);
+    mini_fs_api_t broken = fs; broken.read = qso_read_error;
+    app.log.fs = &broken;
+    assert(app_controller_apply_action(&app, &view));
+    assert(app.qso.status == LOG_QSO_VIEW_READ_ERROR && app_controller_rx_active(&app));
+    assert(snapshot_hash(app.rx, sizeof(*app.rx)) == rx_hash && memcmp(&seq, &app.auto_seq, sizeof(seq)) == 0);
+    app.log.fs = &fs;
+    before = file_closes;
+    app.tx.active = true; // Requests are queued; disk scans cannot interrupt symbol timing.
+    assert(app_controller_apply_action(&app, &view) && app.qso_dirty && file_closes == before);
+    app_controller_step_qso(&app); assert(file_closes == before);
+    app.tx.active = false; app_controller_step_qso(&app); assert(!app.qso_dirty && app.qso.total_count == 2);
+    cleanup(&app);
+    // Recreate controller without clearing persisted fake files: earlier-launch QSOs survive.
+    assert(app_controller_init(&app, &api, "/flash/ft8", "/flash/ft8/station.txt"));
+    assert(app_controller_apply_action(&app, &view) && app.qso.total_count == 2);
+    now_us += 86400000000ull;
+    assert(app_controller_apply_action(&app, &view) && !app.qso.total_count && app.qso.status == LOG_QSO_VIEW_OK);
+    assert(log_service_write_adif(&app.log, &station, &qso));
+    assert(app_controller_apply_action(&app, &view) && app.qso.total_count == 1);
+    assert(files[path_id("/flash/ft8/20260920.txt")].exists);
+    cleanup(&app);
+    puts("QSO daily snapshot, refresh, day rollover, persistence and read-only ownership PASS");
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "--qso") == 0) { qso_view(); qso_completion(); return 0; }
     if (argc == 2 && strcmp(argv[1], "--band-cat") == 0) { band_cat(); return 0; }
     rx_display_tx_lifetime();
     rx_display_order();

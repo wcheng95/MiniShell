@@ -123,6 +123,8 @@ void app_controller_commit_tx_log(AppController *app)
     if (log_event->cabrillo_fd_eligible != 0u)
         cabrillo_written = log_service_write_cabrillo(&app->log, &station, &facts);
 
+    if (adif_written && app->qso_loaded) app->qso_dirty = true;
+
     /* Preserve V2 no-duplicate behavior: mark each log type only after its
      * corresponding MiniShell FS write completed successfully. */
     (void)auto_seq_ack_log_event(&app->auto_seq, log_event,

@@ -382,3 +382,147 @@ bool log_service_write_rt(const LogService *service, bool transmit, int band_ind
     if (service->fs->close(file) != MINI_OK) ok = false;
     return ok;
 }
+
+/* V3 emits one length-delimited ADIF record per line. Never search inside a
+ * field value for another tag: comments can contain arbitrary tag-like text. */
+static bool qso_record(const char *line, const char *date, LogQsoSummary *out)
+{
+    unsigned fields = 0;
+    bool end = false;
+    memset(out, 0, sizeof(*out));
+    while (*line) {
+        while (*line == ' ' || *line == '\t' || *line == '\r') ++line;
+        if (!*line) break;
+        if (end || *line++ != '<') return false;
+        char tag[32]; size_t name = 0;
+        while (*line && *line != ':' && *line != '>') {
+            if (name + 1 >= sizeof(tag)) return false;
+            unsigned char c = (unsigned char)*line++;
+            tag[name++] = (char)(c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
+        }
+        tag[name] = 0;
+        if (*line == '>' && strcmp(tag, "eor") == 0) { end = true; ++line; continue; }
+        if (*line++ != ':') return false;
+        size_t length = 0;
+        if (*line < '0' || *line > '9') return false;
+        while (*line >= '0' && *line <= '9') {
+            length = length * 10 + (unsigned)(*line++ - '0');
+            if (length >= 512) return false;
+        }
+        if (*line++ != '>' || strlen(line) < length) return false;
+        unsigned bit = 0;
+        if (strcmp(tag, "call") == 0) {
+            bit = 1;
+            if (!length || length >= sizeof(out->call)) return false;
+            for (size_t i = 0; i < length; ++i)
+                if (!((line[i] >= 'A' && line[i] <= 'Z') ||
+                      (line[i] >= 'a' && line[i] <= 'z') ||
+                      (line[i] >= '0' && line[i] <= '9') || line[i] == '/')) return false;
+            memcpy(out->call, line, length);
+        } else if (strcmp(tag, "qso_date") == 0) {
+            bit = 2;
+            if (length != 8 || memcmp(line, date, 8)) return false;
+        } else if (strcmp(tag, "time_on") == 0) {
+            bit = 4;
+            if (length != 6) return false;
+            for (size_t i = 0; i < length; ++i) if (line[i] < '0' || line[i] > '9') return false;
+            out->hour = (uint8_t)((line[0]-'0')*10 + line[1]-'0');
+            out->minute = (uint8_t)((line[2]-'0')*10 + line[3]-'0');
+            if (out->hour > 23 || out->minute > 59 || line[4] > '5') return false;
+        } else if (strcmp(tag, "freq") == 0) {
+            bit = 8;
+            char frequency[16];
+            bool found = false;
+            for (int band = 0; band < config_service_band_count(0); ++band) {
+                band_frequency_mhz(band, frequency);
+                if (strlen(frequency) == length && memcmp(line, frequency, length) == 0) {
+                    snprintf(out->band, sizeof(out->band), "%s", config_service_band_name(0, band));
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        if (fields & bit) return false;
+        fields |= bit;
+        line += length;
+    }
+    return end && fields == 15;
+}
+
+static bool qso_keep_record(LogQsoPage *out, uint32_t requested, const char *line, const char *date)
+{
+    LogQsoSummary row;
+    if (!qso_record(line, date, &row)) return true;
+    if (out->total_count == UINT32_MAX) return false;
+    uint32_t page = out->total_count / LOG_QSO_PAGE_ROWS;
+    uint32_t index = out->total_count % LOG_QSO_PAGE_ROWS;
+    if (page <= requested) {
+        if (!index) {
+            memset(out->rows, 0, sizeof(out->rows));
+            out->row_count = 0;
+            out->page_index = page;
+        }
+        out->rows[index] = row;
+        ++out->row_count;
+    }
+    ++out->total_count;
+    return true;
+}
+
+void log_service_read_qso_page(const LogService *service, uint32_t page_index, LogQsoPage *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    out->page_count = 1;
+    int year; unsigned month, day, hour, minute, second;
+    if (!service || !utc_fields(service->time_location, &year, &month, &day, &hour, &minute, &second) ||
+        year < 0 || year > 9999) {
+        out->status = LOG_QSO_VIEW_UTC_UNAVAILABLE;
+        return;
+    }
+    char date[9], filename[16], path[256];
+    snprintf(date, sizeof(date), "%04d%02u%02u", year, month, day);
+    snprintf(filename, sizeof(filename), "%s.txt", date);
+    const mini_fs_api_t *fs = service->fs;
+    if (!fs || !fs->open || !fs->read || !fs->close ||
+        !build_data_path(service, filename, path, sizeof(path))) {
+        out->status = LOG_QSO_VIEW_READ_ERROR;
+        return;
+    }
+    mini_file_t file = MINI_FILE_INVALID;
+    mini_result_t result = fs->open(path, MINI_FS_READ, &file);
+    if (result == MINI_ERR_NOT_FOUND) return;
+    if (result != MINI_OK) { out->status = LOG_QSO_VIEW_READ_ERROR; return; }
+    char line[512], chunk[128];
+    size_t used = 0;
+    bool oversized = false, ok = true;
+    for (;;) {
+        uint32_t got = 0;
+        if (fs->read(file, chunk, sizeof(chunk), &got) != MINI_OK || got > sizeof(chunk)) {
+            ok = false; break;
+        }
+        if (!got) {
+            if (used && !oversized) { line[used] = 0; ok = qso_keep_record(out, page_index, line, date); }
+            break;
+        }
+        for (uint32_t i = 0; i < got; ++i) {
+            if (chunk[i] == '\n') {
+                if (!oversized) { line[used] = 0; ok = qso_keep_record(out, page_index, line, date); }
+                used = 0; oversized = false;
+                if (!ok) break;
+            } else if (!chunk[i] || used == sizeof(line) - 1) {
+                oversized = true; // Discard through newline, including embedded NUL.
+            } else if (!oversized) line[used++] = chunk[i];
+        }
+        if (!ok) break;
+    }
+    if (fs->close(file) != MINI_OK) ok = false;
+    if (!ok) {
+        memset(out, 0, sizeof(*out));
+        out->status = LOG_QSO_VIEW_READ_ERROR;
+        out->page_count = 1;
+    } else if (out->total_count) {
+        out->page_count = out->total_count / LOG_QSO_PAGE_ROWS + (out->total_count % LOG_QSO_PAGE_ROWS != 0);
+    }
+}

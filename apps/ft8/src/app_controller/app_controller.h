@@ -52,6 +52,8 @@ bool app_controller_step_tx(AppController *app, bool *out_model_changed);
 bool app_controller_tx_active(const AppController *app);
 
 /* Build one complete application snapshot; presentation decides what is visible. */
+/* Read a dirty QSO snapshot only outside active physical TX. */
+void app_controller_step_qso(AppController *app);
 void app_controller_build_model(const AppController *app, UiModel *model);
 bool app_controller_apply_action(AppController *app, const AppAction *action);
 

@@ -4,6 +4,21 @@
 #include <stdbool.h>
 #include "minishell/api.h"
 
+#define LOG_QSO_PAGE_ROWS 6u
+#define LOG_QSO_CALL_CAP 32u
+/* Bounded facts parsed from the daily ADIF, with no presentation dependency. */
+typedef enum { LOG_QSO_VIEW_OK, LOG_QSO_VIEW_UTC_UNAVAILABLE, LOG_QSO_VIEW_READ_ERROR } LogQsoViewStatus;
+typedef struct {
+    char call[LOG_QSO_CALL_CAP];
+    char band[4];
+    uint8_t hour, minute;
+} LogQsoSummary;
+typedef struct {
+    LogQsoViewStatus status;
+    uint32_t total_count, page_index, page_count, row_count;
+    LogQsoSummary rows[LOG_QSO_PAGE_ROWS];
+} LogQsoPage;
+
 typedef struct {
     const mini_fs_api_t *fs;
     const mini_time_location_api_t *time_location;
@@ -36,6 +51,10 @@ bool log_service_write_adif(const LogService *service, const LogStationFacts *st
                             const LogQsoFacts *event);
 bool log_service_write_cabrillo(const LogService *service, const LogStationFacts *station,
                                 const LogQsoFacts *event);
+
+/* Stream today's ADIF once; clamp a stale/out-of-range request to the last
+ * page. Errors are snapshot status, never application-fatal. */
+void log_service_read_qso_page(const LogService *service, uint32_t page_index, LogQsoPage *out);
 
 /* Append one canonical RT record and sync/close before returning. */
 bool log_service_write_rt(const LogService *service, bool transmit, int band_index,

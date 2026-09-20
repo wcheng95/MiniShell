@@ -1,6 +1,6 @@
 # T032 — V -> 3 daily QSO compact view
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -551,21 +551,181 @@ the primary presentation constraint.
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+V -> 3 now requests page zero of the current UTC day's ADIF. `log_service`
+streams the file with a 512-byte line buffer and 128-byte read buffer, counts
+valid records, and retains at most six summary facts in file order. It uses the
+same UTC conversion/path prefix as ADIF writing and does not modify file data.
+Requests beyond the current end (for example after date rollover) clamp to the
+last available page during the same scan; no second pass or whole-file cache.
+
+The parser honors declared field lengths, including unknown optional fields,
+so tag-like text in a comment cannot be mistaken for a new field. It accepts
+case-insensitive tag names, the V3-produced time/date/frequency representation,
+and calls of up to 31 ASCII letters/digits/slashes. Duplicate required fields,
+wrong-day dates, unknown frequencies, invalid times, embedded NUL, incomplete
+records, and oversized lines are skipped. An EOF-terminated complete last record
+is accepted. Missing files/zero records are normal; UTC and I/O failures are
+snapshot statuses. Each acquired handle receives exactly one close attempt.
+
+The controller owns the log snapshot and explicitly projects it into separate
+UI facts. The existing dependency rules remain unchanged: `log_service` does
+not depend on shared/UI types and `ui_shell` does not depend on `log_service`.
+A load action refreshes immediately outside active physical TX. During TX it
+queues the request for the normal progression step, avoiding disk scans during
+symbol timing. Only view metadata changes while such a request is deferred.
+
+A successful eligible ADIF commit marks an already-loaded view dirty, preserving
+existing logging ACK behavior. A single later progression scan refreshes that
+page. Clean renders/iterations do not touch disk. Re-entry always requests page
+zero again, including a newly selected UTC day or records from an earlier launch.
+
+UI rows are unnumbered `HH:MM band call`, limited to 20 columns with a ten-character
+call field and V2-style trailing `>` truncation. Up/Down and Page Up/Page Down wrap;
+Back and screen switching retain their behavior. Numeric keys, Enter, and
+Left/Right do not alter the QSO view. Empty and error messages are non-fatal.
+For 1–9 QSO pages the locked ADV header remains unchanged. For 10 or more pages,
+the QSO header prioritizes screen/band and the full page fraction over UTC/counter
+so it cannot truncate the true count; exceptionally large counts use only the
+fraction to remain within 20 columns. Other screens' headers are unchanged.
+
+Pinned reference inspected: MiniFT8-V2 commit
+`491e757ae6b1e4cfd2b9a6ba10f48b35643849e0`, `main/main.cpp`:
+`QsoLogEntry`, `qso_trim_head`, `qso_load_entries`, `qso_rebuild_entry_lines`,
+and `qso_draw_page`. Retained daily-file source, six rows, file order, compact
+semantic fields, and beginning-plus-`>` convention. No file browser/SNR view.
 
 ### Files changed
 
+- `apps/ft8/src/log_service/log_service.[ch]`: bounded daily reader and log facts.
+- `apps/ft8/include/ft8/qso_view.h`: bounded presentation facts/statuses.
+- `apps/ft8/include/ft8/app_types.h`: load-page action and complete model snapshot.
+- `apps/ft8/src/app_controller/app_controller.[ch]`: read-only action/progression.
+- `apps/ft8/src/app_controller/app_controller_internal.h`: bounded cache metadata.
+- `apps/ft8/src/app_controller/app_controller_instance.c`: fact projection.
+- `apps/ft8/src/app_controller/app_controller_tx.c`: dirty flag after ADIF success.
+- `apps/ft8/main/ft8_main.c`: bounded dirty-view progression before model building.
+- `apps/ft8/src/ui_shell/ui_shell.c`: entry, paging, compact rendering and statuses.
+- `tests/ft8_log_service_test.c`: streaming/parser/error regressions.
+- `tests/ft8_ui_smoke.c`: read-only QSO navigation and rendering regressions.
+- `tests/ft8_physical_tx_test.c`: snapshot isolation, persistence, refresh, rollover,
+  deferred reads during TX, and actual eligible ADIF completion coverage.
+- `CMakeLists.txt`: isolated `ft8_qso_unit` test using the production TX fixture.
+- This task packet: review handoff.
+
 ### Invariants preserved
+
+No public MiniShell API, platform provider, logging format/eligibility, logging
+ACK rule, AutoSeq queue, RX batch/display, band/CAT, or physical-TX lifecycle
+changes from viewing QSOs. Existing write functions are unchanged. No new heap
+allocation, thread, task, unbounded QSO cache, or whole-day read buffer.
+The only active-TX behavior of a view request is deferred read-only loading.
+No architecture-rule relaxation. No unrelated cleanup.
+
+### Fixed RAM and stack evidence
+
+Measured by compiling `sizeof` probe objects before/after with host GCC and the
+actual Xtensa compiler and inspecting symbol sizes using `nm -S`:
+
+| Object | ADV before | ADV after | ADV delta | Host before | Host after | Host delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| AppController | 2816 B | 3072 B | +256 B | 2832 B | 3088 B | +256 B |
+| UiModel | 2600 B | 2848 B | +248 B | 2608 B | 2864 B | +256 B |
+| LogService | 264 B | 264 B | 0 B | 272 B | 272 B | 0 B |
+
+The controller's existing allocation increases by exactly 256 B on ADV; the
+main-loop model's stack footprint increases by 248 B. The six-row log snapshot
+is 248 B; its requested-page/dirty/loaded metadata plus alignment accounts for
+the controller delta. Parser buffers are automatic storage, not idle heap.
+
+Recompiled the actual ADV `compile_commands.json` entries with `-fstack-usage`
+and otherwise unchanged build flags. Static frames: daily reader 1024 B,
+record retention helper 80 B, record parser 96 B, controller progression 32 B,
+apply-action 80 B, portable ADV entry 3504 B, composition wrapper 240 B.
+These fixed frames fit comfortably within the existing 16 KiB foreground task
+stack, with space for the normal FS/libc call chain. This is compiler evidence,
+not a hardware stack high-water measurement. Firmware build passes at 0xc3d10
+bytes with 87% application partition space free.
 
 ### Local tests run
 
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure \
+  -R 'ft8_(log_service|ui_smoke|qso|physical_tx)'
+# PASS 4/4.
+
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 64/65 passed. Only the previously documented linux_serial_unit line-67
+# PTY timeout assertion failed; Serial production/test code is untouched.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux \
+  -R '^linux_serial_unit$' --output-on-failure
+# PASS 1/1 on isolated retry.
+
+cmake -S tests/unit -B /tmp/T032-build-unit
+cmake --build /tmp/T032-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T032-build-unit --output-on-failure
+# PASS 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ft8_platform_boundary.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+# All PASS; checks also run in the normal suite.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS real ADV firmware build.
+
+cc -std=c11 -O1 -g -fsanitize=address,undefined -Iinclude \
+  -Iapps/ft8/src/log_service -Iapps/ft8/src/config_service \
+  tests/ft8_log_service_test.c apps/ft8/src/log_service/log_service.c \
+  apps/ft8/src/config_service/config_service.c -o /tmp/T032-log-sanitize
+/tmp/T032-log-sanitize
+# PASS outside sandbox after authorized rerun. Initial sandbox execution
+# reported LeakSanitizer's ptrace limitation, not a parser violation.
+
+git diff --check
+# PASS.
+```
+
+Parser tests cover 0/1/6/7/13/200 records, all pages and out-of-range clamp, a daily
+file larger than 8 KiB, seven-byte reads across tags/values, optional fields,
+malformed/oversized/NUL records, duplicate fields, EOF without newline, every
+open/read/close failure point, one close per acquired handle, UTC unavailable,
+and exact time/band/call facts. UI tests cover representative/truncated rows,
+statuses, page fractions, all four paging inputs, non-mutating keys, Back and
+screen switching. Controller tests compare AutoSeq, RX, TX, config and CAT facts;
+verify no clean-render rescans; recreate a controller over existing daily files;
+verify date rollover; and refresh a real successful physical QSO log event.
+
 ### Manual/hardware validation still required
+
+After supervisor review/merge, verify real current-day ADIF rows, page navigation,
+re-entry, and a newly completed QSO in normal Linux/QMX operation. Confirm ADV
+20-column appearance and responsiveness, ideally with a larger daily log.
+No flashing/RF validation was performed. Runtime stack/heap high-water evidence
+remains for hardware; compiler-measured fixed-size deltas are recorded above.
 
 ### Known limitations / risks
 
+The reader intentionally supports V3's one-record-per-line, fixed canonical
+frequency strings, not arbitrary imported/multiline ADIF dialects. Calls longer
+than the bounded 31-character fact capacity are skipped; valid longer-than-row
+calls within that capacity are truncated only by presentation. A scan's RAM is
+fixed, but elapsed time scales with daily file size and storage speed. Active TX
+defers scans until completion. Large page counts use the compact header described
+above so true pagination remains readable. Pre-existing untracked Python cache
+directories under `platform/adv` and `tests` remain untouched and excluded.
+
 ### Commit
+
+One implementation commit on `codex/T032-qso-session-view`, based on task head
+`69ea1cb`. The commit containing these notes is the implementation reference;
+its exact SHA is returned in the handoff. Task set to REVIEW. No PR or GitHub
+Actions wait.
 
 ## Supervisor review
 

@@ -9,7 +9,7 @@
 } } while (0)
 
 typedef struct {
-    char text[8192];
+    char text[32768];
     size_t size;
     size_t position;
     bool exists;
@@ -298,6 +298,85 @@ static void test_persistence(const LogService *log, const LogStationFacts *stati
     }
 }
 
+static void test_qso_pages(const LogService *log)
+{
+    LogQsoPage page;
+    reset(); log_service_read_qso_page(log, 0, &page);
+    CHECK(page.status == LOG_QSO_VIEW_OK && !page.total_count && page.page_count == 1);
+    const char *one = "<call:5>W6ABC<qso_date:8>20240102<time_on:6>030405<freq:6>14.074<eor>\n";
+    seed(0, one); unsigned before = files[0].closes;
+    log_service_read_qso_page(log, 0, &page);
+    CHECK(page.status == LOG_QSO_VIEW_OK && page.total_count == 1 && page.row_count == 1);
+    CHECK(page.rows[0].hour == 3 && page.rows[0].minute == 4);
+    CHECK(strcmp(page.rows[0].band, "20m") == 0 && strcmp(page.rows[0].call, "W6ABC") == 0);
+    CHECK(files[0].closes == before + 1); check_closed();
+    CHECK(strcmp(files[0].text, one) == 0); // Reading never rewrites the log.
+
+    const unsigned sizes[] = {6, 7, 13, 200};
+    for (size_t n = 0; n < sizeof(sizes)/sizeof(sizes[0]); ++n) {
+        reset(); files[0].exists = true;
+        for (unsigned i = 0; i < sizes[n]; ++i) {
+            int count = snprintf(files[0].text + files[0].size, sizeof(files[0].text) - files[0].size,
+                "<call:6>W%03uAA<qso_date:8>20240102<time_on:6>%02u%02u00<freq:5>7.074<eor>\n",
+                i, i/60, i%60);
+            CHECK(count > 0); files[0].size += (size_t)count;
+        }
+        unsigned pages = (sizes[n] + 5)/6;
+        for (unsigned index = 0; index <= pages; ++index) {
+            log_service_read_qso_page(log, index, &page);
+            unsigned actual = index < pages ? index : pages - 1;
+            CHECK(page.status == LOG_QSO_VIEW_OK && page.total_count == sizes[n]);
+            CHECK(page.page_count == pages && page.page_index == actual);
+            unsigned rows = sizes[n] - actual * 6; if (rows > 6) rows = 6;
+            CHECK(page.row_count == rows);
+            for (unsigned i = 0; i < rows; ++i) {
+                char call[16]; snprintf(call, sizeof(call), "W%03uAA", actual*6+i);
+                CHECK(strcmp(page.rows[i].call, call) == 0 && strcmp(page.rows[i].band, "40m") == 0);
+            }
+            check_closed();
+        }
+        if (sizes[n] == 200) CHECK(files[0].size > 8192);
+    }
+
+    const char *bad[] = {
+        "<call:999999999999999999999>W6ABC<eor>", "<call:5>W6ABC",
+        "<call:5>W6ABC<qso_date:8>20240102<time_on:6>240405<freq:6>14.074<eor>",
+        "<call:5>W6ABC<qso_date:8>20240101<time_on:6>030405<freq:6>14.074<eor>",
+        "<call:5>W6ABC<qso_date:8>20240102<time_on:6>030405<freq:6>99.999<eor>",
+        "<call:5>W6ABC<call:5>W6ABC<qso_date:8>20240102<time_on:6>030405<freq:6>14.074<eor>",
+        "<call:5>W6ABC<qso_date:8>20240102<time_on:6>030405<freq:6>14.074",
+        "<", "<x:", "<x:9>xx"
+    };
+    for (size_t i = 0; i < sizeof(bad)/sizeof(bad[0]); ++i) {
+        reset(); seed(0, bad[i]);
+        log_service_read_qso_page(log, 0, &page);
+        CHECK(page.status == LOG_QSO_VIEW_OK && page.total_count == 0);
+        strcat(files[0].text, "\n"); strcat(files[0].text, one); files[0].size = strlen(files[0].text);
+        log_service_read_qso_page(log, 0, &page);
+        CHECK(page.total_count == 1 && page.rows[0].hour == 3);
+    }
+    reset(); memset(files[0].text, 'X', 700); strcpy(files[0].text + 700, "\n");
+    strcat(files[0].text, one); files[0].size = strlen(files[0].text); files[0].exists = true;
+    log_service_read_qso_page(log, 0, &page); CHECK(page.total_count == 1);
+    reset(); seed(0, "<CALL:5>W6ABC<comment:8><call:1><QSO_DATE:8>20240102<TIME_ON:6>030405<FREQ:6>14.074<EOR>");
+    log_service_read_qso_page(log, 0, &page); CHECK(page.total_count == 1); // EOF without newline.
+    reset(); seed(0, one); files[0].text[10] = 0;
+    log_service_read_qso_page(log, 0, &page); CHECK(page.total_count == 0);
+
+    reset(); seed(0, one); log_service_read_qso_page(log, 0, &page);
+    unsigned count = operations;
+    for (unsigned failure = 1; failure <= count; ++failure) {
+        reset(); seed(0, one); fail_at = failure;
+        log_service_read_qso_page(log, 0, &page);
+        CHECK(page.status == LOG_QSO_VIEW_READ_ERROR && !page.row_count && page.page_count == 1);
+        CHECK(files[0].closes == (failure == 1 ? 0u : 1u)); check_closed();
+    }
+    reset(); LogService unavailable = *log; unavailable.time_location = NULL;
+    log_service_read_qso_page(&unavailable, 0, &page);
+    CHECK(page.status == LOG_QSO_VIEW_UTC_UNAVAILABLE && !operations);
+    puts("daily QSO streaming, partial reads, pagination, malformed records and faults PASS");
+}
+
 int main(void)
 {
     const mini_fs_api_t fs = {
@@ -382,6 +461,7 @@ int main(void)
     CHECK(!log_service_write_cabrillo(&log, &station, &qso));
     CHECK(!files[1].opened);
     test_persistence(&log, &station, &qso);
+    test_qso_pages(&log);
     puts("ft8_log_service_test: PASS");
     return 0;
 }

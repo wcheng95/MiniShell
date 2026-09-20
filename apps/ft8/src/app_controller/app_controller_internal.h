@@ -52,6 +52,9 @@ struct AppController {
     bool gps_grid_active;
     AppRxState *rx;
     AppTxState tx;
+    LogQsoPage qso;
+    uint32_t qso_requested_page;
+    bool qso_loaded, qso_dirty;
     RadioControl radio;
     uint64_t cat_band_changed_us;
     bool cat_band_sync_pending;

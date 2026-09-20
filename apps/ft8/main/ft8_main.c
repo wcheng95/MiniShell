@@ -247,6 +247,7 @@ int main(int argc, char **argv)
          * alone decides which state is visible. Lifecycle code compares only
          * rendered frames, never UIScreen/submenu or individual model fields.
          */
+        app_controller_step_qso(app);
         app_controller_build_model(app, &model);
         ui_shell_render(&ui, &model, &frame);
         if (!have_rendered_frame ||
