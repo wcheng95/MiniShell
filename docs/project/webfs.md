@@ -67,6 +67,10 @@ V1 defaults:
 A later task may add saved STA credentials, mDNS, captive-portal behavior, or an
 optional always-on mode only after RAM/lifecycle measurements justify them.
 
+T035 adds an earlier convenience step: stable **SoftAP** credentials from
+`/flash/minishell/setting.txt`, so phones can remember the WebFS network without
+changing WebFS to STA mode.
+
 ## File ownership
 
 Because WebFS is the foreground MiniShell utility, its Filesystem handles are
@@ -139,9 +143,22 @@ After T033 hardware acceptance:
 No multipart parser is required: the browser sends upload data as the raw request
 body.
 
-### T035 — convenience extensions
+### T035 — persistent WebFS SoftAP credentials
 
-Only after the basic manager is accepted:
+Use `/flash/minishell/setting.txt` to provide stable operator-chosen SoftAP
+credentials:
+
+```text
+SSID=<stable AP name>
+PW=<stable WPA2 passphrase>
+```
+
+If both values are valid, WebFS uses them unchanged on each launch so a phone can
+remember the network. Missing/invalid settings fall back to the current generated
+SSID/password pair. Settings are read at WebFS launch and changes take effect on
+the next launch.
+
+Later convenience work remains separate:
 
 - browser text edit/save;
 - optional STA-mode profiles;
