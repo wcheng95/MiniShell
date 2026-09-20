@@ -24,6 +24,8 @@ extern int minishell_app_a2_probe_main(int argc, char **argv);
 extern int minishell_app_a3_probe_main(int argc, char **argv);
 extern int minishell_app_date_main(int argc, char **argv);
 extern int minishell_app_free_main(int argc, char **argv);
+extern int minishell_app_batt_main(int argc, char **argv);
+extern int minishell_app_sleep_main(int argc, char **argv);
 extern int minishell_app_ls_main(int argc, char **argv);
 extern int minishell_app_cat_main(int argc, char **argv);
 extern int minishell_app_cp_main(int argc, char **argv);
@@ -41,6 +43,8 @@ static const adv_app_entry_t s_apps[] = {
     {"a3probe", minishell_app_a3_probe_main},
     {"date", minishell_app_date_main},
     {"free", minishell_app_free_main},
+    {"batt", minishell_app_batt_main},
+    {"sleep", minishell_app_sleep_main},
     {"ls", minishell_app_ls_main},
     {"cat", minishell_app_cat_main},
     {"cp", minishell_app_cp_main},
