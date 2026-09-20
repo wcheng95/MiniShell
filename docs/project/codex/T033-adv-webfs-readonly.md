@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: TESTING — FINAL SMOKE
+Status: COMPLETE
 
 ## Architect intent
 
@@ -1670,4 +1670,26 @@ and visual confirmation that the WebFS password is eight uppercase letters.
 
 ## Architect test result
 
-Pending.
+PASS on Cardputer ADV, 2026-09-20.
+
+Final smoke sequence:
+
+```text
+ft8 -> quit -> webfs -> quit -> ft8
+```
+
+All stages passed in the same boot.
+
+Accepted hardware behavior:
+
+- fresh-boot FT8/QMX startup works;
+- WebFS SoftAP starts and browser access works;
+- displayed password is exactly eight uppercase letters;
+- `/flash` and `/sd` browsing works with physical capacity reporting;
+- file download works;
+- WebFS exits cleanly back to MiniShell;
+- FT8/QMX starts again after WebFS without reboot or cable changes;
+- CPU1-owned USB Host lifecycle resolves the prior CPU0 level-1 interrupt exhaustion;
+- temporary interrupt diagnostic instrumentation has been removed.
+
+T033 is COMPLETE. Mutation operations belong to T034.
