@@ -19,6 +19,9 @@ void adv_console_debug_write(const char *text);
 
 int adv_display_prepare(void);
 bool adv_display_ready(void);
+
+mini_result_t adv_battery_read(int *out_voltage_mv, int *out_percent);
+mini_result_t adv_enter_deep_sleep(void);
 void adv_display_console_write(const char *text);
 mini_result_t adv_display_text_get_info(void *ctx, uint32_t *out_columns, uint32_t *out_rows);
 mini_result_t adv_display_text_clear(void *ctx);
