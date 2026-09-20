@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: TESTING
+Status: IMPLEMENTING — HARDWARE FIX
 
 ## Architect intent
 
@@ -130,9 +130,11 @@ URL : http://192.168.4.1/
 Requirements:
 
 - SSID suffix is session/device-distinguishing and printable;
-- generate a new cryptographically strong-enough local session password using
-  ESP32 hardware RNG / ESP-IDF random source;
-- password length at least 10 characters from an unambiguous printable set;
+- generate a new local session password using ESP32 hardware RNG / ESP-IDF random source;
+- password is exactly 8 lowercase ASCII letters so iPhone entry never requires
+  switching keyboard character classes; use an unambiguous lowercase alphabet;
+- 8 characters is intentionally the WPA2-PSK minimum because the AP is ephemeral,
+  local-only, one-client, and exists only while WebFS is foreground;
 - WPA2-PSK or stronger compatible AP security; never open;
 - credentials are not persisted;
 - one associated Wi-Fi station maximum in V1;
@@ -204,7 +206,14 @@ type = file|dir
 size for regular files
 ```
 
-Use `fs->space()` for current-volume storage facts.
+Use `fs->space()` for current-volume storage facts. T033 hardware testing exposed
+that ADV currently returns `MINI_ERR_UNSUPPORTED` from `space()` because ADV has
+no global MiniShell storage quota. Fix this at the Filesystem ownership boundary,
+not in WebFS: preserve quota-based space reporting when a MiniShell storage limit
+is configured, and when the limit is zero allow a private backend space hook to
+report physical per-volume total/free bytes. ADV should implement that hook for
+`/flash` and `/sd` using the mounted FAT volumes. Public `mini_fs_api_t` and API
+version remain unchanged.
 
 File download must stream through a bounded transfer buffer and close the
 MiniShell file handle exactly once on every acquired-handle path.
@@ -840,6 +849,48 @@ acceptance. T033 specifically needs real ADV evidence for:
 - unchanged USB/QMX cable/ownership behavior.
 
 No additional software change is required before that test.
+
+## Architect hardware finding — first WebFS run
+
+Hardware test on 2026-09-20 found two issues before T033 acceptance:
+
+1. The generated 12-character mixed-class password is inconvenient on iPhone
+   because entering it requires keyboard-mode switching. Architect decision:
+   **use exactly 8 lowercase letters** for the ephemeral WPA2 session password.
+2. The browser reaches WebFS and shows the `/flash` and `/sd` roots, but browsing
+   `/flash` reports:
+
+   ```text
+   Cannot list /flash: Filesystem I/O error (-10)
+   ```
+
+   `-10` is `MINI_ERR_UNSUPPORTED`. Supervisor traced it to `webfs_list()`
+   calling `fs->space()` before `dir_open()`. ADV intentionally configures
+   `storage_bytes = 0` because `/flash` and `/sd` have independent physical
+   capacities; current `filesystem_service.c::fs_space()` therefore returns
+   `MINI_ERR_UNSUPPORTED` whenever no global quota exists.
+
+Required correction:
+
+- do not remove space reporting from WebFS;
+- do not call FATFS/VFS directly from WebFS;
+- add a **private backend physical-space hook** to `minishell_services_port_t`;
+- `fs_space()` keeps current quota semantics when `storage_bytes != 0`;
+- when `storage_bytes == 0`, `fs_space()` may delegate to the backend physical
+  space hook after normal path normalization/stat validation;
+- ADV implements per-volume physical total/free reporting for mounted `/flash`
+  and `/sd` (nested paths resolve to their containing volume);
+- unavailable `/sd` returns the appropriate not-found/not-ready result;
+- Linux behavior with its configured MiniShell storage quota stays unchanged;
+- public `mini_fs_api_t`, `MINISHELL_API_VERSION`, filesystem paths, and quota
+  enforcement remain unchanged.
+
+Add unit coverage for both modes: quota-backed `space()` and zero-quota backend
+physical-space fallback. Add ADV-focused coverage for `/flash`, `/sd`, nested
+paths, and unavailable volume as practical without hardware.
+
+After fixing both findings, rerun the complete T033 software/build gates and
+return to supervisor review before resuming hardware validation.
 
 ## Architect test result
 
