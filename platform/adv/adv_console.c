@@ -9,7 +9,6 @@
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
 #include "esp_err.h"
-#include "esp_intr_alloc.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -156,47 +155,6 @@ void adv_console_debug_write(const char *text)
         (void)fputs(text, stdout);
         (void)fflush(stdout);
     }
-    _lock_release_recursive(&s_output_lock);
-}
-
-static int interrupt_dump_write(void *ctx, const char *data, int size)
-{
-    (void)ctx;
-    int remaining = size;
-    while (remaining > 0) {
-        char chunk[128];
-        size_t count = (size_t)remaining;
-        if (count >= sizeof(chunk)) count = sizeof(chunk) - 1u;
-        memcpy(chunk, data, count);
-        chunk[count] = '\0';
-        adv_console_debug_write(chunk);
-        data += count;
-        remaining -= (int)count;
-    }
-    return size;
-}
-
-void adv_console_dump_interrupts(void)
-{
-    /* esp_intr_dump uses fprintf, not the redirected ESP log callback.
-     * Stream every byte to the existing debug path without a table-size cap. */
-    _lock_acquire_recursive(&s_output_lock);
-    adv_console_debug_write("ADV: interrupt allocator before usb_host_install\n");
-    FILE *stream = funopen(NULL, NULL, interrupt_dump_write, NULL, NULL);
-    if (stream != NULL) {
-        (void)setvbuf(stream, NULL, _IONBF, 0);
-        esp_err_t result = esp_intr_dump(stream);
-        bool failed = result != ESP_OK || ferror(stream);
-        if (fclose(stream) != 0) failed = true;
-        adv_console_debug_write(failed ? "ADV: interrupt dump failed\n"
-                                      : "ADV: interrupt dump complete\n");
-    } else {
-        adv_console_debug_write("ADV: interrupt dump stream allocation failed\n");
-    }
-    /* Failed USB startup tears UART down quickly. Drain the full diagnostic
-     * now instead of relying on the normal short teardown drain timeout. */
-    if (s_uart_active && uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(1000)) != ESP_OK)
-        adv_console_debug_write("ADV: interrupt dump UART drain timed out\n");
     _lock_release_recursive(&s_output_lock);
 }
 

@@ -5,7 +5,7 @@
 
 char webfs_password_letter(unsigned char sample)
 {
-    static const char alphabet[] = "abcdefghjkmnpqrstuvwxyz";
+    static const char alphabet[] = "ABCDEFGHJKMNPQRSTUVWXYZ";
     const unsigned count = sizeof(alphabet) - 1u;
     return sample < (256u / count) * count ? alphabet[sample % count] : 0;
 }

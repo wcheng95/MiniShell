@@ -196,15 +196,15 @@ static void streams(void)
 }
 static void password_letters(void)
 {
-    const char *alphabet="abcdefghjkmnpqrstuvwxyz";
+    const char *alphabet="ABCDEFGHJKMNPQRSTUVWXYZ";
     unsigned counts[26]={0}, rejected=0;
     for (unsigned i=0;i<256;++i) {
         char c=webfs_password_letter((unsigned char)i);
         if (!c) { ++rejected; continue; }
-        assert(c>='a' && c<='z' && strchr(alphabet,c));
-        ++counts[c-'a'];
+        assert(c>='A' && c<='Z' && strchr(alphabet,c));
+        ++counts[c-'A'];
     }
-    for (const char *p=alphabet;*p;++p) assert(counts[*p-'a']==256/strlen(alphabet));
+    for (const char *p=alphabet;*p;++p) assert(counts[*p-'A']==256/strlen(alphabet));
     assert(rejected==256%strlen(alphabet));
 }
 int main(void)

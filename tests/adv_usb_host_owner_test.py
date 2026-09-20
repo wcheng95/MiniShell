@@ -18,7 +18,9 @@ assert 'host_task' not in release  # No replacement task/core on teardown failur
 assert 'host.intr_flags = ESP_INTR_FLAG_LEVEL1;' in owner and 'ESP_INTR_FLAG_SHARED' not in source
 for field, value in [('rx', 91), ('nptx', 18), ('ptx', 91)]:
     assert f'host.fifo_settings_custom.{field}_fifo_lines = {value};' in owner
-assert owner.index('adv_console_dump_interrupts();') < owner.index('usb_host_install(')
+assert 'adv_console_dump_interrupts' not in source
+console = (root / 'platform/adv/adv_console.c').read_text()
+assert 'esp_intr_dump' not in console and 'funopen' not in console
 assert prepare.index('xSemaphoreTake(host_ready') < prepare.index('if (host_start_result != ESP_OK)') < prepare.index('cdc_acm_host_install') < prepare.index('uac_host_install')
 assert release.index('cdc_acm_host_uninstall') < release.index('uac_host_uninstall') < release.index('host_quit = true;') < release.index('xSemaphoreTake(host_done') < release.index('adv_console_end_usb_host')
 assert 'ADV_APP_TASK_CORE 0' in (root / 'platform/adv/adv_apps.c').read_text()
@@ -57,7 +59,7 @@ std::thread task;
 thread_local int core=0;
 std::thread::id install_thread;
 std::atomic<bool> allow_install{true}, block_uninstall{false};
-std::atomic<int> install_calls{0}, uninstall_calls{0}, dumps{0}, events{0}, frees{0};
+std::atomic<int> install_calls{0}, uninstall_calls{0}, events{0}, frees{0};
 int install_error, tasks, class_calls, remaining_semaphores;
 bool task_failure, ready_timeout, join_timeout, uac_failure, console_active, ready_taken;
 Semaphore* xSemaphoreCreateBinary() { ++remaining_semaphores; return new Semaphore; }
@@ -96,9 +98,8 @@ int adv_console_begin_usb_host() { console_active=true; return 0; }
 int adv_console_end_usb_host(bool busy) {
     assert(!busy && !task.joinable()); console_active=false; return 0;
 }
-void adv_console_dump_interrupts() { assert(core==1 && console_active); ++dumps; }
 int usb_host_install(const usb_host_config_t *config) {
-    assert(core==1 && !host_installed && dumps==1);
+    assert(core==1 && !host_installed && console_active);
     assert(config->intr_flags==ESP_INTR_FLAG_LEVEL1);
     assert(config->fifo_settings_custom.rx_fifo_lines==91 && config->fifo_settings_custom.nptx_fifo_lines==18 && config->fifo_settings_custom.ptx_fifo_lines==91);
     install_thread=std::this_thread::get_id(); ++install_calls;
@@ -133,7 +134,7 @@ int main() {
     // Success, task creation failure, install failure, ready timeout, retained
     // owner after teardown timeout, and UAC failure after host/CDC startup.
     for (int scenario=0;scenario<6;++scenario) {
-        install_calls=uninstall_calls=dumps=events=frees=0;
+        install_calls=uninstall_calls=events=frees=0;
         tasks=class_calls=0; ready_taken=false;
         task_failure=scenario==1; install_error=scenario==2 ? ESP_ERR_INVALID_STATE : ESP_OK;
         ready_timeout=scenario==3; allow_install=!ready_timeout;
@@ -151,7 +152,7 @@ int main() {
         assert(!task.joinable() && !host_running && !host_installed && !console_active);
         assert(!host_ready && !host_done && !remaining_semaphores);
         assert(tasks==(scenario==1 ? 0 : 1));
-        assert(install_calls==tasks && dumps==tasks);
+        assert(install_calls==tasks);
         if (scenario==1 || scenario==2) assert(uninstall_calls==0);
         else assert(uninstall_calls>=111);
     }

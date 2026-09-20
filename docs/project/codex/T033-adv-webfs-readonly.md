@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: IMPLEMENTING — FINAL DIAGNOSTIC CLEANUP
+Status: REVIEW
 
 ## Architect intent
 
@@ -1545,6 +1545,95 @@ session, RNG-generated, and drawn from an unambiguous alphabet.
 Fold this into the final T033 cleanup together with removal of temporary interrupt
 dump instrumentation. No separate architecture change or hardware investigation
 is required.
+
+## Codex final password / diagnostic cleanup
+
+### Implementation summary / files changed
+
+Based on `8bfd2e2ad05cb7141c5bb34bde16bd2a0a3f2310`, implemented only the two
+final changes requested after successful CPU1/WebFS hardware validation:
+
+- `platform/adv/adv_webfs_logic.c`: switch the session-password alphabet to
+  `ABCDEFGHJKMNPQRSTUVWXYZ`. This preserves the existing unbiased RNG sampling,
+  eight-character output, per-session regeneration, and SSID behavior. The
+  alphabet contains only uppercase ASCII letters and excludes I/L/O; it has no
+  digits or lowercase characters. The existing nine-byte storage and NUL at
+  index eight are unchanged.
+- `platform/adv/adv_audio_uac.cpp`, `adv_console.c`, and `adv_internal.h`: remove
+  the temporary dump call, helper/private declaration, `esp_intr_dump` include,
+  `funopen`/write-callback plumbing, diagnostic markers and diagnostic UART drain.
+  The normal debug UART/log path and its normal teardown remain unchanged.
+- `tests/adv_webfs_test.c`: require only the uppercase alphabet across all 256
+  RNG sample values, with unchanged equal-frequency/rejection checks.
+- `tests/adv_usb_host_owner_test.py`: replace the now-stale dump expectation with
+  checks that the temporary instrumentation is absent. Remove the dump stub and
+  counters while retaining same-owner install/uninstall, CPU1, handshake,
+  failure/timeout, class gating, console, and teardown assertions.
+- This task packet: final validation evidence; status **REVIEW**.
+
+### Behavior / invariants preserved
+
+The CPU1-pinned USB Host owner architecture is unchanged. It still installs,
+handles events/drains devices, and uninstalls on the same task/core. LEVEL1 flags,
+FIFO 91/18/91, CPU0 foreground execution, capture affinity, startup handshake and
+retry ownership are unchanged. No FT8 profile, WebFS filesystem/endpoint behavior,
+public API/version, stack size, or Wi-Fi memory configuration change.
+The only intended credential change is lowercase to uppercase. No T034 work.
+
+### Tests run / results
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 68/68, no retries.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure \
+  -R 'adv_(webfs|filesystem_space|usb_host_owner|usb_console_boundary|uac_allocation|qmx_serial)'
+# PASS 6/6 focused regressions, including WebFS and CPU1 ownership.
+
+cmake -S tests/unit -B /tmp/T033-build-unit
+cmake --build /tmp/T033-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T033-build-unit --output-on-failure
+# PASS 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+# All PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS real ADV build; BIN 0x14e640 bytes, 78% application partition free.
+
+cc -std=c11 -g -O1 -Wall -Wextra -Werror -Wpedantic \
+  -fsanitize=address,undefined -Iinclude -Iplatform/adv \
+  tests/adv_webfs_test.c platform/adv/adv_webfs_logic.c \
+  -o /tmp/T033-final-webfs-sanitize
+ASAN_OPTIONS=detect_leaks=0 /tmp/T033-final-webfs-sanitize
+# PASS address/undefined-behavior checks.
+
+git diff --check
+# PASS including this task update.
+```
+
+### Remaining hardware validation / limitations / commit
+
+No hardware testing or flashing was performed for this cleanup. After supervisor
+review, the final hardware smoke is **only**:
+
+```text
+ft8 -> quit -> webfs -> quit -> ft8
+```
+
+Confirm the displayed WebFS password is exactly eight uppercase letters. This
+supersedes the earlier extended pending hardware lists for final acceptance;
+the architect's successful CPU1/WebFS integration result is already recorded
+above. No new limitation or architectural deviation was introduced. Existing
+untracked Python cache directories remain untouched and excluded.
+
+The commit containing this section is the final cleanup reference on
+`codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in the handoff.
+Task is **REVIEW**. No PR.
 
 ## Architect test result
 

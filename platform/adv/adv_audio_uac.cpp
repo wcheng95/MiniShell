@@ -128,7 +128,6 @@ void host_task(void *)
     host.fifo_settings_custom.rx_fifo_lines = 91;
     host.fifo_settings_custom.nptx_fifo_lines = 18;
     host.fifo_settings_custom.ptx_fifo_lines = 91;
-    adv_console_dump_interrupts();
     host_start_result = usb_host_install(&host);
     host_installed = host_start_result == ESP_OK;
     xSemaphoreGive(host_ready);
