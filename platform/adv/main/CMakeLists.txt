@@ -125,6 +125,10 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../adv_ft8_decode.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_digital_io.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_usbmsc.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_webfs.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_webfs_wifi.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_webfs_http.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../adv_webfs_logic.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_elf_loader.c"
         "${CMAKE_CURRENT_LIST_DIR}/../adv_apps.c"
         "${CMAKE_CURRENT_LIST_DIR}/../platform_info.c"
@@ -156,6 +160,10 @@ idf_component_register(
     REQUIRES
         elf_loader
         esp_adc
+        esp_wifi
+        esp_netif
+        esp_event
+        esp_http_server
         esp_codec_dev
         heap
         esp_driver_gpio

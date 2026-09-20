@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -402,23 +402,224 @@ high-water if available.
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Implemented the read-only ADV system utility on
+`codex/T033-adv-webfs-readonly`, based on requested `main`
+`f0d759600c8d277765546a6270180d813f0354b3`. The canonical ownership and scope in
+`docs/project/webfs.md` are preserved.
+
+`webfs` runs on the existing foreground application task. It displays the
+session SSID, 12-character password, URL, roots, and Q/Esc instructions using
+MiniShell Display; exit uses MiniShell Input. The AP uses WPA2-PSK, one station,
+RAM-only Wi-Fi configuration, and the default AP netif's checked
+`192.168.4.1` address. No credentials are persisted. A 16-bit random suffix
+and a uniformly selected 60-bit password come from `esp_fill_random` with RF
+entropy enabled. Before advertising the AP, the Wi-Fi driver briefly enables
+promiscuous reception solely to activate RF entropy, installs no receive
+callback, then disables it. This avoids borrowing/resetting the battery ADC.
+The Wi-Fi mode is AP throughout; there is no STA connection or scanning UI.
+
+The firmware page provides root/parent navigation, client-side sorting, sizes,
+volume space facts, and native browser downloads. It has no external assets or
+Internet dependency. Filename display uses DOM `textContent`, and request paths
+use `encodeURIComponent`. The only registered routes are GET `/`, `/api/list`,
+`/api/file`, and an empty favicon response. GET request bodies are rejected.
+
+The HTTP task calls the pure streaming helpers with `mini_api_get()->fs`.
+Directory reads retain one entry, stat its logical child path for size, and
+stream JSON; file reads use the single reusable 2048-byte transfer buffer.
+Partial reads are supported, premature EOF is an error, and successful stream
+termination is sent only after a successful close. Every acquired handle gets
+exactly one close attempt, including FS failures, disconnected clients, and
+cancellation. Errors before streaming receive HTTP status plus JSON diagnostics;
+a failed in-progress response is closed without a successful chunk terminator.
+The page reports incomplete/failed listings instead of presenting them as complete.
+
+One bounded query decoder accepts exactly one `path=` parameter, decodes once,
+preserves UTF-8 bytes, and validates before FS access. Encoded slashes become
+separators and receive the same component checks. Double-encoded percent data
+remains literal. Relative/foreign roots, dot components, malformed escapes,
+NUL/control bytes, backslashes (also FAT separators), duplicate/trailing slashes,
+extra parameters, and capacity overflow are rejected. Names are JSON-escaped.
+
+Shutdown marks the context as stopping before blocking in `httpd_stop`.
+Cancellation checks cover request entry, streaming, and socket send/receive
+callbacks so a client trickling headers/body cannot perpetually delay exit.
+Socket send/receive timeouts are two seconds; backend FS-call latency still
+contributes to exit latency. HTTP handlers are synchronous on the one HTTP task;
+no asynchronous work outlives server stop. Only then are Wi-Fi, the AP netif,
+default event loop, and the application-owned context released. Startup failures
+use the same cleanup path. A stop failure is logged/retried while retaining
+ownership rather than returning with live handlers or Wi-Fi state.
 
 ### Files changed
 
+- `platform/adv/adv_webfs.c`: foreground command, Display/Input, heap diagnostics.
+- `platform/adv/adv_webfs_wifi.[ch]`: ephemeral AP and Wi-Fi lifecycle.
+- `platform/adv/adv_webfs_http.[ch]`: bounded HTTP configuration, routes, cancellation.
+- `platform/adv/adv_webfs_logic.[ch]`: pure path/JSON and MiniShell FS streaming.
+- `platform/adv/adv_webfs_page.h`: self-contained browser page in flash.
+- `platform/adv/adv_apps.c`: ADV-only command registration.
+- `platform/adv/main/CMakeLists.txt`: sources and explicit ESP-IDF dependencies.
+- `platform/adv/sdkconfig.defaults`: explicit SoftAP/DHCP and HTTP input capacities.
+- `tests/adv_webfs_test.c` and root `CMakeLists.txt`: focused host CTest.
+- This task packet: implementation and validation evidence.
+
 ### Invariants preserved
+
+No portable application, public API/version, filesystem implementation/layout,
+USB console/host ownership, USB MSC code, or foreground stack-size change.
+All content/directory/space access uses MiniShell Filesystem. Direct socket
+operations are private HTTP transport operations, not filesystem bypasses.
+No mutations, STA, mDNS, captive portal, HTTPS, background WebFS, public network
+service, or second file database. No arbitrary directory/file cache on ADV.
 
 ### Memory / firmware evidence
 
+Measured before/after real ADV builds with the same installed ESP-IDF
+`v5.5.4-dirty` toolchain and configuration, except the documented HTTP URI limit.
+The baseline ELF/BIN/MAP were saved before implementation. `xtensa-esp32s3-elf-size
+-A` section totals and BIN byte counts give:
+
+| Measurement | Baseline | T033 | Delta |
+| --- | ---: | ---: | ---: |
+| Firmware BIN | 802128 B (`0xc3d50`) | 1368880 B (`0x14e330`) | +566752 B |
+| `.dram0.data` | 19384 B | 27000 B | +7616 B |
+| `.dram0.bss` | 25608 B | 38864 B | +13256 B |
+| Data + BSS | 44992 B | 65864 B | +20872 B |
+| `.iram0.text` | 54903 B | 81975 B | +27072 B |
+
+IRAM alignment adds a further 64 B, so the overall static internal SRAM cost
+including linked Wi-Fi/network dependencies is **48008 B**. The application
+partition remains 78% free. WebFS's own only writable static is the one-byte
+`tcpip_ready` flag; the larger data/BSS increase comes from the newly linked
+ESP-IDF networking components. The embedded page is 2897 B including NUL in
+flash rodata, not a RAM copy.
+
+Actual Xtensa `sizeof` probes report:
+
+- `webfs_buffers_t`: 4608 B (query 1536, decoded path 512, child path 512,
+  reusable transfer/JSON buffer 2048).
+- `webfs_http_t`: 4616 B, one MiniShell Memory allocation released after stop;
+  includes buffers, cancellation flag/alignment, and server handle.
+- `webfs_wifi_t`: 36 B on the foreground stack, including displayed credentials.
+- HTTP task stack: 6144 B; two client sockets, four URI handlers.
+- Existing foreground stack: unchanged at 16384 B.
+
+Recompiled the real ADV compile-command entries with `-fstack-usage` and
+otherwise unchanged flags. WebFS static frames: foreground entry 176 B,
+heap reporter 208 B, Wi-Fi start 416 B, HTTP start 160 B, URI handler 48 B,
+error formatter 160 B, directory streaming 400 B, file streaming 80 B,
+socket callbacks and JSON/path helpers 32–48 B. These are individual compiler
+frames, not measured complete call-chain/high-water values.
+
+Explicit dependencies: `esp_wifi`, `esp_netif`, `esp_event`, and
+`esp_http_server`. Defaults enable SoftAP and DHCP server, retain the 1024-byte
+HTTP request-header limit, and raise the URI limit from 512 to 1552 bytes.
+Compile guards reject missing AP/DHCP support or a stale URI capacity. The first
+build correctly rejected the old generated `sdkconfig` URI limit; it was updated
+to match `sdkconfig.defaults` before the successful build. No Wi-Fi buffer/IRAM
+performance tuning or foreground stack increase was made. Wi-Fi NVS is disabled
+in the initialization struct and storage is set to RAM.
+
+Expected dynamic owners while active: the one MiniShell-tracked context, HTTP
+server task/control sockets/session/parser allocations, Wi-Fi driver/task and
+bounded RX/TX buffers, AP netif/DHCP, default event loop, and normal MiniShell
+FS/backend handle/LFN allocations. There are no per-request large WebFS buffers.
+
+**SDK lifecycle limitation:** ESP-IDF 5.5's `esp_netif_deinit()` returns
+`ESP_ERR_NOT_SUPPORTED`; lwIP and its shared TCP/IP task are initialized once on
+first use and remain for the boot. This is shared stack infrastructure, not an
+active AP, HTTP server, or background WebFS service. Compare the first-launch
+cost separately from subsequent warm start/stop cycles. No runtime heap delta
+or leak-free hardware result is claimed. The command logs free/largest heap,
+boot-lifetime minimum free heap, and foreground stack high-water before, during,
+and after each session, with a 100 ms idle-cleanup allowance after stop.
+
+SDK lifecycle/entropy semantics were checked against the installed sources
+(`esp_netif_lwip.c`, `httpd_main.c`, `httpd_parse.c`, `wifi_default.c`) and the
+[Espressif Wi-Fi guide](https://docs.espressif.com/projects/esp-idf/en/v5.5.4/esp32s3/api-guides/wifi.html)
+and [RNG guide](https://docs.espressif.com/projects/esp-idf/en/v5.5.4/esp32s3/api-reference/system/random.html).
+
 ### Local tests run
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+ctest --test-dir build-linux -R adv_webfs_unit --output-on-failure
+# PASS focused WebFS test.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 66/66, including WebFS; no retries required on final run.
+
+cmake -S tests/unit -B /tmp/T033-build-unit
+cmake --build /tmp/T033-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T033-build-unit --output-on-failure
+# PASS 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+# All PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS real ADV build and partition-size checks.
+# Existing SDK/C++ pedantic warnings remain non-fatal.
+
+cc -std=c11 -g -O1 -Wall -Wextra -Werror -Wpedantic \
+  -fsanitize=address,undefined -Iinclude -Iplatform/adv \
+  tests/adv_webfs_test.c platform/adv/adv_webfs_logic.c \
+  -o /tmp/T033-webfs-sanitize
+ASAN_OPTIONS=detect_leaks=0 /tmp/T033-webfs-sanitize
+# PASS address/undefined-behavior checks; not a lifecycle leak test.
+node --check /tmp/T033-page.js
+# PASS syntax check of JavaScript extracted from the embedded page.
+
+git diff --check
+# PASS.
+```
+
+Focused tests cover both roots/nested paths, encoded slash/traversal, malformed
+escapes, NUL/control/backslash rejection, UTF-8 preservation, literal double
+encoding, query ambiguity, component/path/query capacity boundaries, and JSON
+quote/backslash/control escaping. Fake MiniShell FS tests exercise an exact
+small JSON listing, empty directory, 10000-entry streamed listing, zero-length
+file, and a byte-exact 10001-byte download using seven-byte partial reads.
+Every FS operation and sink/cancellation point in the representative directory
+and download cases is failed in turn, asserting one close per acquired handle.
+Invalid paths reach no FS calls. No fake HTTP stack was introduced.
 
 ### Manual/hardware validation still required
 
+All architect steps above remain pending. No flashing, AP/client connection,
+real browser interaction, USB/QMX coexistence, or measured runtime heap evidence
+was available locally. In particular verify three or more warm start/stop cycles,
+SSID/password changes, one-client limit, SD absent, nested/UTF-8 names, byte-exact
+small/large downloads, Q/Esc during an active download and slow/incomplete HTTP
+request, and usable shell/storage afterward with cables unchanged. Confirm
+normal ADV application operation after exit given the linked static-memory cost
+and first-use TCP/IP allocation. Measure HTTP task stack high-water if available.
+
 ### Known limitations / risks
 
+The first-use shared TCP/IP allocation is intentionally retained because the SDK
+cannot deinitialize it. Runtime headroom, monotonic heap loss on subsequent cycles,
+actual stop latency, RF entropy startup, and mobile-browser behavior require ADV
+evidence. Partial I/O failures after HTTP output starts terminate the stream;
+the browser must not treat the incomplete response as success. Native browser
+download UI handles interrupted downloads; there is no transfer queue/resume UI.
+The browser stores/sorts listing facts locally; ADV retains only one entry.
+Persistent SDK stop failures hold the utility in logged cleanup retries instead
+of releasing live state. Existing untracked Python cache directories are untouched
+and excluded from the commit. No feature-scope or ownership deviation.
+
 ### Commit
+
+One implementation commit on `codex/T033-adv-webfs-readonly`, based on
+`f0d759600c8d277765546a6270180d813f0354b3`. The commit containing these notes is
+the implementation reference; the exact pushed SHA is returned in the handoff.
+Task set to **REVIEW**. No PR or GitHub Actions wait.
 
 ## Supervisor review
 

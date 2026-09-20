@@ -799,3 +799,8 @@ add_test(NAME adv_ft8_defaults
 add_test(NAME adv_qmx_serial
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_qmx_serial_test.py
             ${CMAKE_CXX_COMPILER})
+
+add_executable(adv_webfs_unit tests/adv_webfs_test.c platform/adv/adv_webfs_logic.c)
+target_include_directories(adv_webfs_unit PRIVATE include platform/adv)
+target_compile_options(adv_webfs_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME adv_webfs_unit COMMAND adv_webfs_unit)

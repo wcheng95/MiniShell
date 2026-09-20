@@ -35,6 +35,7 @@ extern int minishell_app_mkdir_main(int argc, char **argv);
 extern int minishell_app_rmdir_main(int argc, char **argv);
 extern int minishell_app_nano_main(int argc, char **argv);
 extern int minishell_app_ft8_main(int argc, char **argv);
+extern int minishell_app_webfs_main(int argc, char **argv);
 extern int minishell_app_usbmsc_main(int argc, char **argv);
 
 static const adv_app_entry_t s_apps[] = {
@@ -54,6 +55,7 @@ static const adv_app_entry_t s_apps[] = {
     {"rmdir", minishell_app_rmdir_main},
     {"nano", minishell_app_nano_main},
     {"ft8", minishell_app_ft8_main},
+    {"webfs", minishell_app_webfs_main},
     {"usbmsc", minishell_app_usbmsc_main},
 };
 
