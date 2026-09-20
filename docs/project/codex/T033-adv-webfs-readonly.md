@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: REVIEW
+Status: TESTING — FINAL SMOKE
 
 ## Architect intent
 
@@ -1634,6 +1634,39 @@ untracked Python cache directories remain untouched and excluded.
 The commit containing this section is the final cleanup reference on
 `codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in the handoff.
 Task is **REVIEW**. No PR.
+
+## Supervisor final-cleanup review
+
+Reviewed final cleanup commit:
+
+```text
+d3d8844a3a825e11ed525082a2194d00eb47d6ba
+```
+
+Result: **PASS — final hardware smoke only.**
+
+The cleanup is exactly scoped:
+
+- WebFS session password is exactly eight uppercase letters from
+  `ABCDEFGHJKMNPQRSTUVWXYZ`;
+- unbiased RNG sampling, per-session regeneration, SSID behavior, and 8-character
+  storage are unchanged;
+- temporary `esp_intr_dump()` / `funopen` diagnostic plumbing is fully removed;
+- CPU1 USB Host install/event/uninstall ownership is unchanged;
+- LEVEL1 flags, FIFO 91/18/91, CPU0 foreground execution, capture affinity,
+  startup handshake, teardown ownership, FT8 profile, WebFS filesystem behavior,
+  public APIs, and Wi-Fi memory settings are unchanged.
+
+Validation remains green: Linux **68/68**, portable **15/15**, focused **6/6**,
+architecture checks, real ADV build, sanitizer check, and diff check.
+
+Final acceptance requires only:
+
+```text
+ft8 -> quit -> webfs -> quit -> ft8
+```
+
+and visual confirmation that the WebFS password is eight uppercase letters.
 
 ## Architect test result
 
