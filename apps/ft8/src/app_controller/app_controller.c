@@ -545,12 +545,14 @@ static void rx_timing_phase_diag(AppRxState *rx, size_t output_samples)
 #endif
 }
 
+#if FT8_DECODE_DIAGNOSTICS
 static int candidate_time_ms(const Ft8Candidate *candidate)
 {
     if (candidate == NULL)
         return 0;
     return candidate->time_offset * 160 + candidate->time_sub * 80;
 }
+#endif
 
 static void rx_decoded_timing_diag(AppRxState *rx, const RxBatch *batch)
 {
