@@ -1132,6 +1132,110 @@ Possible follow-up directions, to choose only after the dump:
 
 Do not guess among these before the interrupt table is available.
 
+## Codex interrupt-diagnostic amendment
+
+### Implementation summary / files changed
+
+Based on `602aaf54979aa5d7e2e0be3a81a1715856bee794`, added only the requested
+pre-install allocator diagnostic:
+
+- `platform/adv/adv_audio_uac.cpp`: call the diagnostic immediately before the
+  existing `usb_host_install(&host)` in `prepare()`, after the existing debug
+  UART handoff and FIFO configuration.
+- `platform/adv/adv_console.c`: `esp_intr_dump()` writes to a temporary unbuffered
+  `funopen` stream whose write callback forwards all text through the existing
+  `adv_console_debug_write()` path. A 128-byte stack scratch buffer splits writes
+  without truncating the table; there is no whole-table allocation or row filter.
+  The FILE object is closed after the dump. Allocation/output failures are
+  reported, and diagnostics do not replace the existing USB startup result.
+- `platform/adv/adv_internal.h`: private diagnostic helper declaration.
+- This task packet: implementation, software validation, and capture status.
+
+The helper holds the existing recursive output lock to prevent log interleaving
+within the table. It marks the dump start/end and waits up to one second for the
+existing debug UART TX queue to drain before USB installation. This prevents a
+quick failed-startup cleanup from relying solely on the normal shorter UART
+teardown drain. UART remains UART0 TX GPIO3 / RX GPIO6 at 115200 baud; no new
+UART driver or interrupt is allocated by the diagnostic.
+
+`esp_intr_dump()` supplies the full table for both CPUs plus its available/shared
+interrupt summaries. It uses `fprintf`, so merely routing ESP log output to UART
+would not redirect this dump; the private FILE adapter is necessary while USB
+Serial/JTAG is suspended.
+
+### Invariants preserved
+
+The existing `ESP_INTR_FLAG_LEVEL1` assignment and FIFO values are untouched.
+No interrupt sharing, task/core affinity, FT8 memory/profile, WebFS behavior,
+Wi-Fi configuration, or public API change. No permanent interrupt/core fix.
+Only diagnostic output/timing and the short-lived stdio stream are added.
+T033 remains **IMPLEMENTING — USB INTERRUPT REGRESSION**.
+
+### Software/build validation
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS 67/67; no retries.
+ctest --test-dir build-linux \
+  -R 'adv_(webfs|filesystem_space)_unit' --output-on-failure
+# PASS 2/2.
+
+cmake -S tests/unit -B /tmp/T033-build-unit
+cmake --build /tmp/T033-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T033-build-unit --output-on-failure
+# PASS 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+# All PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS real ADV build, including the newlib funopen adapter and esp_intr_dump.
+# BIN 0x14edb0 bytes; 78% of application partition free.
+
+git diff --check
+# PASS including this evidence update.
+```
+
+### Hardware evidence / remaining capture
+
+The architect's supplied fresh-boot evidence above remains the only hardware
+result: heap 279.3K, largest 224.0K, FT8 return 12, and USB interrupt allocation
+failure with flags `0x802`. No new interrupt table was captured in this workspace.
+There is no `/dev/serial/by-id`, `/dev/ttyUSB*`, or `/dev/ttyACM*` device exposed,
+so flashing and debug-UART capture could not be performed here. No comparative
+pre-WebFS capture or unverified claim about a changed interrupt input is made.
+
+Required next captures, before choosing any permanent fix:
+
+1. Flash this diagnostic T033 build, capture UART0 TX GPIO3 at 115200, fresh boot,
+   then run `ft8` without running `webfs`. Save everything from
+   `ADV: interrupt allocator before usb_host_install` through
+   `ADV: interrupt dump complete`, including both CPU tables and the subsequent
+   USB allocation error. A failed/timeout diagnostic marker means the capture
+   needs investigation rather than being treated as a complete table.
+2. If practical, apply the same three-file diagnostic change to the
+   architect-confirmed last known-good pre-WebFS firmware. Use the same wiring,
+   fresh-boot sequence, and insertion point. Capture the complete table there.
+3. Compare each CPU/input's level, type, and Free/Reserved/Used/Shared status,
+   especially low/medium level-triggered inputs, to identify the composition
+   difference. This comparison is **pending**, not inferred from heap figures.
+
+### Known limitations / commit
+
+The diagnostic does not fix the USB startup regression. Its bounded UART drain
+adds startup latency, and hardware must verify delivery and capture both tables.
+Do not resume T033 acceptance or implement an interrupt/core policy change based
+on this software-only evidence. Existing untracked Python caches are untouched.
+
+The commit containing this section is the diagnostic reference on
+`codex/T033-adv-webfs-readonly`; its exact pushed SHA is returned in the handoff.
+No PR. Task remains IMPLEMENTING pending the table comparison.
+
 ## Architect test result
 
 Pending.

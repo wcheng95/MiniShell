@@ -347,6 +347,7 @@ bool prepare()
     host.fifo_settings_custom.rx_fifo_lines = 91;
     host.fifo_settings_custom.nptx_fifo_lines = 18;
     host.fifo_settings_custom.ptx_fifo_lines = 91;
+    adv_console_dump_interrupts();
     if (usb_host_install(&host) != ESP_OK) return false;
     host_installed = true;
     host_running = xTaskCreate(host_task, "uac_host", 4096, nullptr, 5, nullptr) == pdPASS;

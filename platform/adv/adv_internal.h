@@ -16,6 +16,7 @@ int adv_console_resume_after_usb(void);
 int adv_console_begin_usb_host(void);
 int adv_console_end_usb_host(bool usb_busy);
 void adv_console_debug_write(const char *text);
+void adv_console_dump_interrupts(void);
 
 int adv_display_prepare(void);
 bool adv_display_ready(void);
