@@ -912,17 +912,6 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
         rx->framer_initialized = true;
         rx->timing_pending = false;
         rx->decode_diag_phase_valid = false;
-#if FT8_DECODE_DIAGNOSTICS
-        if (rx->api && rx->api->system && rx->api->system->write) {
-            char line[128];
-            (void)snprintf(line, sizeof(line),
-                           "FT8D resync slot=%lld sample=%u state=%d\n",
-                           (long long)first_slot_id,
-                           (unsigned)first_sample_offset,
-                           (int)rx_decode_state(rx));
-            rx->api->system->write(line);
-        }
-#endif
     } else {
         rx->timing_pending = true;
     }
@@ -1000,6 +989,18 @@ static bool app_process_rx_frames(AppController *app, size_t got)
             return false;
         rx->framer_initialized = true;
         rx->timing_pending = false;
+        rx->decode_diag_phase_valid = false;
+#if FT8_DECODE_DIAGNOSTICS
+        if (rx->api && rx->api->system && rx->api->system->write) {
+            char line[128];
+            (void)snprintf(line, sizeof(line),
+                           "FT8D resync slot=%lld sample=%u state=%d\n",
+                           (long long)first_slot_id,
+                           (unsigned)first_sample_offset,
+                           (int)rx_decode_state(rx));
+            rx->api->system->write(line);
+        }
+#endif
     }
 
     if (out_count > 0u &&

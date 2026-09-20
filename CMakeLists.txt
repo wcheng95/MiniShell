@@ -712,6 +712,12 @@ add_test(
             ${CMAKE_SOURCE_DIR} --self-test
 )
 
+add_test(
+    NAME ft8_ldpc_tables
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/ft8_ldpc_tables_test.py
+            ${CMAKE_SOURCE_DIR}
+)
+
 add_executable(adv_filesystem_rename_unit
     tests/adv_filesystem_rename_test.c
     apps/ft8/src/storage_service/storage_service.c
