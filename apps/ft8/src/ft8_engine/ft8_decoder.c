@@ -20,7 +20,6 @@ static int waterfall_valid(const Ft8WaterfallView *wf)
 
     if (!wf || !wf->mag || wf->max_blocks == 0u ||
         wf->num_blocks > wf->max_blocks ||
-        wf->anchor_index >= wf->max_blocks ||
         wf->num_bins < 8u || wf->time_osr == 0u || wf->freq_osr == 0u)
         return 0;
     if (wf->block_stride != wf->time_osr * wf->freq_osr * wf->num_bins)
@@ -30,49 +29,95 @@ static int waterfall_valid(const Ft8WaterfallView *wf)
     return last_block >= (int64_t)wf->first_block;
 }
 
-static int waterfall_physical_block(const Ft8WaterfallView *wf,
-                                    int logical_block,
-                                    uint32_t *out_block)
-{
-    int64_t last_block;
-    int64_t physical;
-
-    if (!waterfall_valid(wf) || !out_block)
-        return 0;
-
-    last_block = (int64_t)wf->first_block + (int64_t)wf->num_blocks;
-    if ((int64_t)logical_block < (int64_t)wf->first_block ||
-        (int64_t)logical_block >= last_block)
-        return 0;
-
-    physical = (int64_t)wf->anchor_index + (int64_t)logical_block;
-    physical %= (int64_t)wf->max_blocks;
-    if (physical < 0)
-        physical += (int64_t)wf->max_blocks;
-
-    *out_block = (uint32_t)physical;
-    return 1;
-}
-
 static const uint8_t *candidate_symbol(const Ft8WaterfallView *wf,
                                        const Ft8Candidate *candidate,
                                        int symbol_index)
 {
-    int block = candidate->time_offset + symbol_index;
-    uint32_t physical_block;
-    size_t offset;
+    int logical;
+    int64_t last_block;
+    int64_t offset;
 
-    if (!wf || !candidate ||
-        candidate->time_sub >= wf->time_osr || candidate->freq_sub >= wf->freq_osr ||
-        candidate->freq_offset < 0 || candidate->freq_offset + 7 >= (int)wf->num_bins ||
-        !waterfall_physical_block(wf, block, &physical_block))
+    if (!waterfall_valid(wf) || !candidate ||
+        candidate->time_sub >= wf->time_osr ||
+        candidate->freq_sub >= wf->freq_osr ||
+        candidate->freq_offset < 0 ||
+        candidate->freq_offset + 7 >= (int)wf->num_bins)
         return NULL;
 
-    offset = (size_t)physical_block * wf->block_stride;
-    offset += (size_t)candidate->time_sub * wf->freq_osr * wf->num_bins;
-    offset += (size_t)candidate->freq_sub * wf->num_bins;
-    offset += (size_t)candidate->freq_offset;
+    logical = candidate->time_offset + symbol_index;
+    last_block = (int64_t)wf->first_block + (int64_t)wf->num_blocks;
+    if ((int64_t)logical < (int64_t)wf->first_block ||
+        (int64_t)logical >= last_block)
+        return NULL;
+
+    offset = (int64_t)logical * (int64_t)wf->block_stride;
+    offset += (int64_t)candidate->time_sub *
+              (int64_t)wf->freq_osr * (int64_t)wf->num_bins;
+    offset += (int64_t)candidate->freq_sub * (int64_t)wf->num_bins;
+    offset += (int64_t)candidate->freq_offset;
     return wf->mag + offset;
+}
+
+static int ft8_sync_score_direct(const Ft8WaterfallView *wf,
+                                 const Ft8Candidate *candidate)
+{
+    int score = 0;
+    int num_average = 0;
+    int64_t last_block;
+    int64_t base_offset;
+    const uint8_t *mag_cand;
+
+    last_block = (int64_t)wf->first_block + (int64_t)wf->num_blocks;
+    if ((int64_t)candidate->time_offset < (int64_t)wf->first_block ||
+        (int64_t)candidate->time_offset >= last_block)
+        return 0;
+
+    base_offset = (int64_t)candidate->time_offset *
+                  (int64_t)wf->block_stride;
+    base_offset += (int64_t)candidate->time_sub *
+                   (int64_t)wf->freq_osr * (int64_t)wf->num_bins;
+    base_offset += (int64_t)candidate->freq_sub * (int64_t)wf->num_bins;
+    base_offset += (int64_t)candidate->freq_offset;
+    mag_cand = wf->mag + base_offset;
+
+    for (int m = 0; m < FT8_NUM_SYNC; ++m) {
+        for (int k = 0; k < FT8_LENGTH_SYNC; ++k) {
+            int block = FT8_SYNC_OFFSET * m + k;
+            int logical = candidate->time_offset + block;
+            const uint8_t *p8;
+            int sm;
+
+            if ((int64_t)logical < (int64_t)wf->first_block)
+                continue;
+            if ((int64_t)logical >= last_block)
+                break;
+
+            p8 = mag_cand + (ptrdiff_t)block * wf->block_stride;
+            sm = kCostasPattern[k];
+
+            if (sm > 0) {
+                score += (int)p8[sm] - (int)p8[sm - 1];
+                ++num_average;
+            }
+            if (sm < 7) {
+                score += (int)p8[sm] - (int)p8[sm + 1];
+                ++num_average;
+            }
+            if (k > 0 && logical > wf->first_block) {
+                score += (int)p8[sm] -
+                         (int)p8[sm - (ptrdiff_t)wf->block_stride];
+                ++num_average;
+            }
+            if ((k + 1) < FT8_LENGTH_SYNC &&
+                (int64_t)(logical + 1) < last_block) {
+                score += (int)p8[sm] -
+                         (int)p8[sm + (ptrdiff_t)wf->block_stride];
+                ++num_average;
+            }
+        }
+    }
+
+    return num_average > 0 ? score / num_average : 0;
 }
 
 static int score_term_add(Ft8CandidateSearchState *state,
@@ -329,23 +374,53 @@ Ft8DecoderStatus ft8_decoder_find_candidates(const Ft8WaterfallView *wf,
                                              int min_score,
                                              size_t *out_count)
 {
-    Ft8CandidateSearchState state;
-    int completed = 0;
+    size_t heap_size = 0u;
+    Ft8Candidate candidate;
 
     if (out_count)
         *out_count = 0u;
-    if (!waterfall_valid(wf) || candidates == NULL || capacity == 0u || out_count == NULL)
+    if (!waterfall_valid(wf) || candidates == NULL || capacity == 0u ||
+        out_count == NULL)
         return FT8_DECODER_ERR_INVALID;
 
-    if (ft8_decoder_candidate_search_begin(&state, capacity, min_score) != FT8_DECODER_OK)
-        return FT8_DECODER_ERR_INVALID;
+    for (candidate.time_sub = 0u;
+         candidate.time_sub < wf->time_osr;
+         ++candidate.time_sub) {
+        for (candidate.freq_sub = 0u;
+             candidate.freq_sub < wf->freq_osr;
+             ++candidate.freq_sub) {
+            for (candidate.time_offset = -10;
+                 candidate.time_offset < 20;
+                 ++candidate.time_offset) {
+                for (candidate.freq_offset = 0;
+                     candidate.freq_offset + 7 < (int)wf->num_bins;
+                     ++candidate.freq_offset) {
+                    candidate.score =
+                        (int16_t)ft8_sync_score_direct(wf, &candidate);
 
-    return ft8_decoder_candidate_search_step(wf,
-                                             &state,
-                                             candidates,
-                                             SIZE_MAX,
-                                             &completed,
-                                             out_count);
+                    if (candidate.score < min_score)
+                        continue;
+
+                    if (heap_size == capacity &&
+                        candidate.score > candidates[0].score) {
+                        --heap_size;
+                        candidates[0] = candidates[heap_size];
+                        heapify_down(candidates, heap_size);
+                    }
+
+                    if (heap_size < capacity) {
+                        candidates[heap_size] = candidate;
+                        ++heap_size;
+                        heapify_up(candidates, heap_size);
+                    }
+                }
+            }
+        }
+    }
+
+    candidate_search_sort(candidates, heap_size);
+    *out_count = heap_size;
+    return FT8_DECODER_OK;
 }
 
 static float wf_mag(uint8_t x)
@@ -380,8 +455,16 @@ static void extract_likelihood(const Ft8WaterfallView *wf,
 {
     for (int k = 0; k < FT8_DATA_SYMBOLS; ++k) {
         int symbol = k + ((k < 29) ? 7 : 14);
+        int logical = candidate->time_offset + symbol;
         int bit = 3 * k;
-        const uint8_t *mag = candidate_symbol(wf, candidate, symbol);
+        const uint8_t *mag = NULL;
+
+        /* Match V2 decoding semantics: pre-UTC waterfall rows improve Costas
+         * scoring only.  LDPC data before logical block zero is treated as
+         * unavailable, so the decode phase never depends on the 10-block
+         * preroll region that the next slot begins overwriting first. */
+        if (logical >= 0)
+            mag = candidate_symbol(wf, candidate, symbol);
 
         if (!mag) {
             log174[bit + 0] = 0;

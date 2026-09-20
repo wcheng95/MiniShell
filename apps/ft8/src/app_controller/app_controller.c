@@ -79,6 +79,9 @@ struct AppRxState {
     bool active;
     bool have_batch;
     bool live;
+    bool live_capture_active;
+    bool live_capture_schedule_valid;
+    int64_t live_next_capture_slot;
     bool have_applied_batch;
     int64_t applied_slot;
     uint64_t applied_generation;
@@ -182,35 +185,20 @@ static void rx_decode_retention_diag(AppRxState *rx, int64_t slot_id)
 {
 #if FT8_DECODE_DIAGNOSTICS
     char line[128];
-    int64_t overwrite_seq;
-    int64_t margin_blocks;
-    int64_t margin_ms;
+    int64_t elapsed;
+    int64_t spare;
 
     if (rx == NULL || rx->api == NULL || rx->api->system == NULL ||
-        rx->api->system->write == NULL || rx->engine.monitor.req.max_blocks == 0u) {
+        rx->api->system->write == NULL)
         return;
-    }
 
-    /*
-     * The oldest candidate-search timing hypothesis is logical block -10.
-     * Its physical ring block is overwritten when the producer reaches
-     * anchor + max_blocks - 10.
-     *
-     * This helper is called by core 0 during publication, so reading the live
-     * monitor sequence here does not race the monitor writer.
-     */
-    overwrite_seq = (int64_t)rx->engine.decode_anchor_seq +
-                    (int64_t)rx->engine.monitor.req.max_blocks - 10;
-    margin_blocks = overwrite_seq -
-                    (int64_t)rx->engine.monitor.next_block_seq;
-    margin_ms = margin_blocks * 160;
-
+    elapsed = rx_monotonic_ms(rx) - rx->decode_diag_start_ms;
+    spare = 2360 - elapsed;
     (void)snprintf(line, sizeof(line),
-                   "FT8D retention slot=%lld next=%llu margin=%lldblk/%lldms\n",
+                   "FT8D budget slot=%lld elapsed=%lldms spare=%lldms\n",
                    (long long)slot_id,
-                   (unsigned long long)rx->engine.monitor.next_block_seq,
-                   (long long)margin_blocks,
-                   (long long)margin_ms);
+                   (long long)elapsed,
+                   (long long)spare);
     rx->api->system->write(line);
 #else
     (void)rx;
@@ -605,6 +593,100 @@ static void rx_decoded_timing_diag(AppRxState *rx, const RxBatch *batch)
 #endif
 }
 
+static int64_t floor_div_i64(int64_t value, int64_t divisor)
+{
+    int64_t q = value / divisor;
+    int64_t r = value % divisor;
+    if (r < 0)
+        --q;
+    return q;
+}
+
+static void rx_live_schedule_init(AppRxState *rx, int64_t first_pos)
+{
+    int64_t target;
+    int64_t pre;
+    const int64_t tolerance = 240; /* 40 ms at 6 kHz */
+
+    target = floor_div_i64(first_pos + RX_SLOT_FRAMER_PREROLL_SAMPLES,
+                           RX_SLOT_FRAMER_SLOT_SAMPLES);
+    pre = target * (int64_t)RX_SLOT_FRAMER_SLOT_SAMPLES -
+          RX_SLOT_FRAMER_PREROLL_SAMPLES;
+
+    if (first_pos > pre + tolerance)
+        ++target;
+
+    rx->live_next_capture_slot = target;
+    rx->live_capture_schedule_valid = true;
+    rx->live_capture_active = false;
+}
+
+static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event);
+
+static bool rx_live_process_timed_samples(AppRxState *rx,
+                                          const float *samples,
+                                          size_t sample_count,
+                                          int64_t first_slot_id,
+                                          uint32_t first_sample_offset)
+{
+    size_t index = 0u;
+    int64_t pos;
+    int64_t end;
+
+    if (rx == NULL || samples == NULL || sample_count == 0u)
+        return true;
+
+    pos = slot_sample_position(first_slot_id, first_sample_offset);
+    end = pos + (int64_t)sample_count;
+
+    if (!rx->live_capture_schedule_valid)
+        rx_live_schedule_init(rx, pos);
+
+    while (index < sample_count) {
+        int64_t pre = rx->live_next_capture_slot *
+                      (int64_t)RX_SLOT_FRAMER_SLOT_SAMPLES -
+                      RX_SLOT_FRAMER_PREROLL_SAMPLES;
+
+        if (pre >= end) {
+            if (rx->live_capture_active &&
+                rx_slot_framer_process(&rx->framer,
+                                       samples + index,
+                                       sample_count - index,
+                                       rx_emit_event, rx) != RX_SLOT_FRAMER_OK) {
+                return false;
+            }
+            return true;
+        }
+
+        if (pre > pos) {
+            size_t prefix = (size_t)(pre - pos);
+            if (prefix > sample_count - index)
+                prefix = sample_count - index;
+
+            if (rx->live_capture_active && prefix > 0u &&
+                rx_slot_framer_process(&rx->framer,
+                                       samples + index, prefix,
+                                       rx_emit_event, rx) != RX_SLOT_FRAMER_OK) {
+                return false;
+            }
+            index += prefix;
+            pos += (int64_t)prefix;
+            if (index >= sample_count)
+                return true;
+        }
+
+        if (rx_slot_framer_start_capture(&rx->framer,
+                                         rx->live_next_capture_slot,
+                                         rx_emit_event, rx) != RX_SLOT_FRAMER_OK) {
+            return false;
+        }
+        rx->live_capture_active = true;
+        ++rx->live_next_capture_slot;
+    }
+
+    return true;
+}
+
 static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
 {
     AppRxState *rx = (AppRxState *)ctx;
@@ -655,6 +737,9 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
         if (rx_decode_blocks_stream_reset(rx))
             return -1;
         return ft8_engine_reset_stream(&rx->engine) == FT8_ENGINE_OK ? 0 : -1;
+
+    case RX_SLOT_FRAMER_EVENT_CAPTURE_RESET:
+        return ft8_engine_reset_window(&rx->engine) == FT8_ENGINE_OK ? 0 : -1;
     }
 
     return -1;
@@ -941,6 +1026,8 @@ static bool app_process_rx_frames(AppController *app, size_t got)
 {
     AppRxState *rx;
     size_t out_count = 0u;
+    int64_t first_slot_id = 0;
+    uint32_t first_sample_offset = 0u;
 
     if (app == NULL || app->rx == NULL)
         return false;
@@ -964,14 +1051,10 @@ static bool app_process_rx_frames(AppController *app, size_t got)
                             &out_count) != RX_FRONTEND_OK) {
         return false;
     }
+    if (out_count == 0u)
+        return true;
 
-    if (!rx->timing_pending && out_count > 0u)
-        rx_timing_phase_diag(rx, out_count);
-
-    if (rx->timing_pending && out_count > 0u) {
-        int64_t first_slot_id;
-        uint32_t first_sample_offset;
-
+    if (rx->live || rx->timing_pending) {
         if (!utc_to_slot_reference(app->api->time_location,
                                    &first_slot_id,
                                    &first_sample_offset) ||
@@ -980,16 +1063,25 @@ static bool app_process_rx_frames(AppController *app, size_t got)
                                      out_count)) {
             return false;
         }
+    }
 
+    if (rx->timing_pending) {
         RxSlotFramerStatus status = rx->framer_initialized
-            ? rx_slot_framer_reset_stream(&rx->framer, first_slot_id,
-                                           first_sample_offset, rx_emit_event, rx)
-            : rx_slot_framer_init(&rx->framer, first_slot_id, first_sample_offset);
+            ? rx_slot_framer_reset_stream(&rx->framer,
+                                           first_slot_id,
+                                           first_sample_offset,
+                                           rx_emit_event, rx)
+            : rx_slot_framer_init(&rx->framer,
+                                  first_slot_id,
+                                  first_sample_offset);
         if (status != RX_SLOT_FRAMER_OK)
             return false;
+
         rx->framer_initialized = true;
         rx->timing_pending = false;
         rx->decode_diag_phase_valid = false;
+        rx->live_capture_schedule_valid = false;
+        rx->live_capture_active = false;
 #if FT8_DECODE_DIAGNOSTICS
         if (rx->api && rx->api->system && rx->api->system->write) {
             char line[128];
@@ -1003,14 +1095,22 @@ static bool app_process_rx_frames(AppController *app, size_t got)
 #endif
     }
 
-    if (out_count > 0u &&
-        (!rx->framer_initialized ||
-         rx_slot_framer_process(&rx->framer, rx->frontend_samples, out_count,
-                                rx_emit_event, rx) != RX_SLOT_FRAMER_OK)) {
+    if (!rx->framer_initialized)
         return false;
+
+    if (rx->live) {
+        return rx_live_process_timed_samples(rx,
+                                             rx->frontend_samples,
+                                             out_count,
+                                             first_slot_id,
+                                             first_sample_offset);
     }
 
-    return true;
+    if (out_count > 0u)
+        rx_timing_phase_diag(rx, out_count);
+    return rx_slot_framer_process(&rx->framer,
+                                  rx->frontend_samples, out_count,
+                                  rx_emit_event, rx) == RX_SLOT_FRAMER_OK;
 }
 
 bool app_controller_step_rx(AppController *app, bool *out_model_changed)
@@ -1033,6 +1133,8 @@ bool app_controller_step_rx(AppController *app, bool *out_model_changed)
     if (audio_status == RX_AUDIO_ADAPTER_DISCONTINUITY) {
         rx_frontend_reset_stream(&rx->frontend);
         rx->timing_pending = true;
+        rx->live_capture_schedule_valid = false;
+        rx->live_capture_active = false;
         rx_request_decode_cancel(rx);
         return app_finish_rx_step(app, generation_before, out_model_changed);
     }
@@ -1462,6 +1564,8 @@ bool app_controller_pause_rx_for_tx(AppController *app)
     app->rx->active = false;
     rx_frontend_reset_stream(&app->rx->frontend);
     app->rx->timing_pending = true;
+    app->rx->live_capture_schedule_valid = false;
+    app->rx->live_capture_active = false;
     rx_request_decode_cancel(app->rx);
     return true;
 }
@@ -1473,6 +1577,8 @@ bool app_controller_resume_rx_after_tx(AppController *app)
     rx_invalidate_order(app->rx);
     rx_frontend_reset_stream(&app->rx->frontend);
     app->rx->timing_pending = true;
+    app->rx->live_capture_schedule_valid = false;
+    app->rx->live_capture_active = false;
     app->rx->active = true;
     app->tx.rx_paused = false;
     return true;

@@ -15,17 +15,16 @@ extern "C" {
 #define FT8_MONITOR_BASELINE_F_MIN_HZ 200.0f
 #define FT8_MONITOR_BASELINE_F_MAX_HZ 2900.0f
 
-/* I001 continuous RX: keep at least one complete 15-second timeline plus
- * margin, while giving the ADV freq_osr=1 profile a 96 KiB waterfall ring. */
-#define FT8_MONITOR_RING_MIN_BYTES (96u * 1024u)
-#define FT8_MONITOR_RING_MIN_BLOCKS 94u
+/* V3 slot-local linear waterfall: 93 FT8 blocks = 14.88 s.  With
+ * time_osr=2 this is 186 stored 80-ms rows. */
+#define FT8_MONITOR_LINEAR_BLOCKS 93u
 
 typedef enum {
     FT8_MONITOR_OK = 0,
     FT8_MONITOR_ERR_INVALID = -1,
     FT8_MONITOR_ERR_WORKSPACE = -2,
     FT8_MONITOR_ERR_NOT_INITIALIZED = -3,
-    /* Retained for source compatibility; a circular monitor never becomes full. */
+    /* Linear slot-local waterfall has reached its 93-block capacity. */
     FT8_MONITOR_WATERFALL_FULL = 1
 } Ft8MonitorStatus;
 
@@ -57,12 +56,10 @@ typedef struct {
 } Ft8MonitorRequirements;
 
 /*
- * A logical view into the circular waterfall.
- *
- * anchor_index is the physical ring block corresponding to logical block 0.
- * first_block is the oldest retained logical block relative to that anchor;
- * num_blocks consecutive logical blocks are retained. Logical blocks may be
- * negative, which is how candidate search sees pre-slot continuity.
+ * Linear waterfall view.  mag points at logical block 0. first_block may be
+ * negative when mag is deliberately biased into the allocation (the V3 slot
+ * view uses -10..+82 around the UTC origin). anchor_index is retained only for
+ * source compatibility and is always zero on the linear path.
  */
 typedef struct {
     const uint8_t *mag;
@@ -92,8 +89,8 @@ typedef struct {
     float *time_scratch;
     void *freq_scratch;
 
-    /* next_block_seq is the sequence number assigned to the next completed
-     * 960-sample waterfall block. num_blocks is the retained ring occupancy. */
+    /* Slot-local linear writer state. next_block_seq equals num_blocks and is
+     * reset at UTC-1.6 s together with FFT history. */
     uint64_t next_block_seq;
     uint32_t num_blocks;
 } Ft8Monitor;
@@ -107,20 +104,26 @@ Ft8MonitorStatus ft8_monitor_init(Ft8Monitor *monitor,
                                   size_t workspace_bytes);
 void ft8_monitor_destroy(Ft8Monitor *monitor);
 
-/* Kept as a compatibility no-op: UTC slot boundaries never reset the ring. */
+/* UTC-1.6 s capture re-anchor: rewind the linear writer and FFT history.
+ * Existing waterfall bytes are intentionally left intact so an older decode
+ * can continue until the new writer reaches its UTC-origin region. */
+void ft8_monitor_reset_window(Ft8Monitor *monitor);
+
+/* Compatibility no-op at the actual UTC boundary. */
 void ft8_monitor_begin_window(Ft8Monitor *monitor);
 
-/* A real stream discontinuity clears FFT history and circular timeline state. */
+/* A real stream discontinuity also clears stored waterfall bytes. */
 void ft8_monitor_reset_stream(Ft8Monitor *monitor);
 
 Ft8MonitorStatus ft8_monitor_process_block(Ft8Monitor *monitor,
                                            const float samples[FT8_MONITOR_BLOCK_SIZE]);
 
-/* Generic retained view anchored at the oldest retained block. */
+/* Generic linear view from buffer head. */
 Ft8MonitorStatus ft8_monitor_get_waterfall(const Ft8Monitor *monitor,
                                            Ft8WaterfallView *out_view);
 
-/* Slot-relative retained view anchored at an absolute monitor block sequence. */
+/* Linear slot-relative view. anchor_seq is the block index from buffer head
+ * corresponding to logical block zero; V3 uses anchor_seq=10. */
 Ft8MonitorStatus ft8_monitor_get_waterfall_at(const Ft8Monitor *monitor,
                                               uint64_t anchor_seq,
                                               Ft8WaterfallView *out_view);

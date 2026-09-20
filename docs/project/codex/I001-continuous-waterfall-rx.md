@@ -1,5 +1,71 @@
 # I001 — Continuous FT8 waterfall + incremental decode
 
+# Current architecture — slot-local linear waterfall
+
+This section supersedes the earlier continuous circular-waterfall design below.
+
+The ADV profile keeps MiniFT8-V2 decoder geometry:
+
+- sample rate: 6 kHz
+- FT8 block: 960 samples / 160 ms
+- time_osr: 2
+- FFT hop: 480 samples / 80 ms
+- freq_osr: 1 on ADV
+- waterfall: 93 linear blocks = 186 FFT rows = 80,538 bytes
+
+Live RX re-anchors storage and FFT history from UTC once per slot.  The
+re-anchor point is UTC-1.6 s (10 FT8 blocks).  The scheduler uses current UTC
+for every live input chunk and splits a chunk at the re-anchor sample when the
+boundary falls inside it; timing error therefore does not accumulate from one
+slot to the next.
+
+Timeline for slot N:
+
+```
+N UTC - 1.60 s   CAPTURE_RESET
+                 rewind linear writer to HEAD
+                 reset FFT history / partial 160-ms block
+
+N UTC            block 10 completed
+                 BEGIN_WINDOW
+                 logical decode block 0 = HEAD + 10 blocks
+
+N UTC + 12.64 s  block 89 completed
+                 FINALIZE_WINDOW
+                 start candidate search / decode on core 1
+
+N UTC + 13.28 s  block 93 completed
+                 linear waterfall full
+
+(N+1) UTC-1.60 s = N UTC+13.40 s
+                 next CAPTURE_RESET; writer returns to HEAD
+```
+
+Candidate search uses the ten pre-UTC blocks for negative timing hypotheses.
+LDPC likelihood extraction intentionally follows V2 semantics and treats
+logical blocks before UTC as unavailable, so after candidate search the decoder
+depends only on HEAD+10 and later.  The next writer therefore takes 1.60 s after
+its reset to reach the old decoder origin.  Together with the 0.76 s from
+decode start to the next reset, the hard overwrite budget is 2.36 s.
+
+The production candidate search is a single synchronous V2-style direct-pointer
+sweep over the stable linear view.  Circular modulo, row translation, and the
+1,024-position incremental search slices are no longer on the ADV decode hot
+path.  Core 0 continues capture/FFT while the core-1 worker performs search and
+LDPC.
+
+Target decode performance:
+
+- hard overwrite deadline: 2.36 s
+- engineering target: <2.0 s
+- desired result: approach V2's ~1.7-1.8 s
+
+If single-core LDPC cannot meet the <2.0 s target, the backup plan is to assign
+roughly one quarter of the independent LDPC candidate jobs to a low-priority
+core-0 worker while core 1 handles the remainder.  Capture remains higher
+priority and may preempt that helper.
+
+
 Status: IMPLEMENTED, SOFTWARE/HARDWARE VALIDATION PENDING
 
 ## Why this is an improvement

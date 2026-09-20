@@ -102,9 +102,26 @@ Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id)
     if (engine->slot_anchor_valid && engine->pending_hash_ages != UINT32_MAX)
         ++engine->pending_hash_ages;
 
+    /* Explicit/offline compatibility can arrive at the next UTC boundary with
+     * the 93-block linear buffer exactly full. Live V3 capture has already
+     * reset at UTC-1.6 s and therefore reaches UTC with only 10 blocks. */
+    if (engine->monitor.num_blocks >= engine->monitor.req.max_blocks)
+        ft8_monitor_reset_window(&engine->monitor);
+
     engine->slot_id = slot_id;
     engine->slot_anchor_seq = ft8_monitor_next_block_sequence(&engine->monitor);
     engine->slot_anchor_valid = 1;
+    return FT8_ENGINE_OK;
+}
+
+Ft8EngineStatus ft8_engine_reset_window(Ft8Engine *engine)
+{
+    if (engine == NULL)
+        return FT8_ENGINE_ERR_INVALID;
+    if (!engine->initialized)
+        return FT8_ENGINE_ERR_NOT_INITIALIZED;
+
+    ft8_monitor_reset_window(&engine->monitor);
     return FT8_ENGINE_OK;
 }
 
@@ -153,24 +170,19 @@ static const uint8_t *waterfall_block_ptr(const Ft8WaterfallView *waterfall,
                                           int logical_block)
 {
     int64_t last_block;
-    int64_t physical;
 
-    if (waterfall == NULL || waterfall->mag == NULL || waterfall->max_blocks == 0u ||
-        waterfall->anchor_index >= waterfall->max_blocks ||
+    if (waterfall == NULL || waterfall->mag == NULL ||
         waterfall->num_blocks > waterfall->max_blocks)
         return NULL;
 
-    last_block = (int64_t)waterfall->first_block + (int64_t)waterfall->num_blocks;
+    last_block = (int64_t)waterfall->first_block +
+                 (int64_t)waterfall->num_blocks;
     if ((int64_t)logical_block < (int64_t)waterfall->first_block ||
         (int64_t)logical_block >= last_block)
         return NULL;
 
-    physical = (int64_t)waterfall->anchor_index + (int64_t)logical_block;
-    physical %= (int64_t)waterfall->max_blocks;
-    if (physical < 0)
-        physical += (int64_t)waterfall->max_blocks;
-
-    return waterfall->mag + (size_t)physical * waterfall->block_stride;
+    return waterfall->mag +
+           (ptrdiff_t)logical_block * waterfall->block_stride;
 }
 
 /*
@@ -331,11 +343,6 @@ Ft8EngineStatus ft8_engine_start_decode(
                                      &waterfall) != FT8_MONITOR_OK)
         return FT8_ENGINE_ERR_INTERNAL;
 
-    if (ft8_decoder_candidate_search_begin(&engine->decode_search,
-                                           engine->config.candidate_capacity,
-                                           engine->config.min_score) != FT8_DECODER_OK)
-        return FT8_ENGINE_ERR_INTERNAL;
-
     apply_pending_hash_ages(engine);
     engine->decode_slot_id = engine->slot_id;
     engine->decode_anchor_seq = engine->slot_anchor_seq;
@@ -370,20 +377,15 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
         return FT8_ENGINE_ERR_STATE;
 
     if (engine->decode_search_active) {
-        int search_completed = 0;
         size_t candidate_count = 0u;
 
-        if (ft8_decoder_candidate_search_step(&engine->decode_search_waterfall,
-                                              &engine->decode_search,
-                                              engine->candidates,
-                                              FT8_ENGINE_SEARCH_POSITIONS_PER_STEP,
-                                              &search_completed,
-                                              &candidate_count) != FT8_DECODER_OK) {
+        if (ft8_decoder_find_candidates(&engine->decode_search_waterfall,
+                                        engine->candidates,
+                                        engine->config.candidate_capacity,
+                                        engine->config.min_score,
+                                        &candidate_count) != FT8_DECODER_OK) {
             return FT8_ENGINE_ERR_INTERNAL;
         }
-
-        if (!search_completed)
-            return FT8_ENGINE_OK;
 
         engine->decode_search_active = 0;
         engine->decode_candidate_count = candidate_count;
@@ -397,7 +399,6 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
             return FT8_ENGINE_NO_MESSAGES;
         }
 
-        /* Keep one service unit bounded: LDPC begins on the next RX step. */
         return FT8_ENGINE_OK;
     }
 

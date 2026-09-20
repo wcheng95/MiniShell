@@ -42,20 +42,20 @@ static void test_candidate_search_contract(void)
     CHECK(ft8_decoder_find_candidates(&wf, candidates, 0, 0, &count) == FT8_DECODER_ERR_INVALID);
 }
 
-static void test_negative_time_offset_uses_retained_ring(void)
+static void test_negative_time_offset_uses_linear_preroll(void)
 {
     enum { MAX_BLOCKS = 16, NUM_BINS = 16, FREQ_OFFSET = 4 };
     static const uint8_t costas[7] = {3, 1, 4, 0, 6, 5, 2};
     uint8_t mag[MAX_BLOCKS * NUM_BINS];
     Ft8WaterfallView wf = {
-        .mag = mag,
+        .mag = mag + 10 * NUM_BINS,
         .max_blocks = MAX_BLOCKS,
         .num_blocks = 10,
         .num_bins = NUM_BINS,
         .time_osr = 1,
         .freq_osr = 1,
         .block_stride = NUM_BINS,
-        .anchor_index = 3,
+        .anchor_index = 0,
         .first_block = -10,
     };
     Ft8Candidate candidates[FT8_DECODER_CANDIDATE_CAPACITY];
@@ -67,8 +67,7 @@ static void test_negative_time_offset_uses_retained_ring(void)
     /* Put one complete first Costas group at logical blocks -10..-4. */
     for (int k = 0; k < 7; ++k) {
         int logical = -10 + k;
-        int physical = ((int)wf.anchor_index + logical) % (int)wf.max_blocks;
-        if (physical < 0) physical += (int)wf.max_blocks;
+        int physical = logical + 10;
         mag[(size_t)physical * wf.block_stride +
             FREQ_OFFSET + costas[k]] = 200u;
     }
@@ -199,7 +198,7 @@ int main(void)
     CHECK(FT8_DECODER_MAX_SCORE_TERMS == 75u);
 
     test_candidate_search_contract();
-    test_negative_time_offset_uses_retained_ring();
+    test_negative_time_offset_uses_linear_preroll();
     test_incremental_search_matches_synchronous();
     test_decode_failure_is_explicit();
     test_waterfall_validation();

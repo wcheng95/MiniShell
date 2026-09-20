@@ -18,9 +18,11 @@ typedef struct {
     size_t block_count;
     size_t finalize_count;
     size_t reset_count;
+    size_t capture_reset_count;
     int64_t begin_slots[8];
     int64_t finalize_slots[8];
     int64_t reset_slots[8];
+    int64_t capture_reset_slots[8];
     uint64_t sample_hash;
     size_t block_samples;
     int fail_on_next_block;
@@ -79,6 +81,14 @@ static int log_event(void *ctx, const RxSlotFramerEvent *event)
         if (log->reset_count < 8u)
             log->reset_slots[log->reset_count] = event->slot_id;
         log->reset_count++;
+        if (event->samples != NULL || event->sample_count != 0u)
+            return -1;
+        break;
+
+    case RX_SLOT_FRAMER_EVENT_CAPTURE_RESET:
+        if (log->capture_reset_count < 8u)
+            log->capture_reset_slots[log->capture_reset_count] = event->slot_id;
+        log->capture_reset_count++;
         if (event->samples != NULL || event->sample_count != 0u)
             return -1;
         break;
@@ -288,6 +298,35 @@ static int test_sink_failure_requires_reset(void)
     return 0;
 }
 
+static int test_scheduled_capture_geometry(void)
+{
+    RxSlotFramer framer;
+    EventLog log;
+
+    init_log(&log);
+    CHECK(rx_slot_framer_init(&framer, 200, RX_SLOT_FRAMER_REANCHOR_OFFSET) ==
+          RX_SLOT_FRAMER_OK);
+    CHECK(rx_slot_framer_start_capture(&framer, 201, log_event, &log) ==
+          RX_SLOT_FRAMER_OK);
+    CHECK(log.capture_reset_count == 1u);
+    CHECK(log.capture_reset_slots[0] == 201);
+
+    CHECK(feed_generated(&framer,
+                         RX_SLOT_FRAMER_WINDOW_BLOCKS *
+                             RX_SLOT_FRAMER_BLOCK_SAMPLES,
+                         257u, 0u, &log) == 0);
+
+    CHECK(log.block_count == RX_SLOT_FRAMER_WINDOW_BLOCKS);
+    CHECK(log.begin_count == 1u);
+    CHECK(log.begin_slots[0] == 201);
+    CHECK(log.finalize_count == 1u);
+    CHECK(log.finalize_slots[0] == 201);
+    CHECK(framer.capture_block_count == RX_SLOT_FRAMER_WINDOW_BLOCKS);
+    CHECK(framer.capture_begin_emitted == 1);
+    CHECK(framer.capture_primary_emitted == 1);
+    return 0;
+}
+
 int main(void)
 {
     if (test_invalid_and_empty() != 0 ||
@@ -295,7 +334,8 @@ int main(void)
         test_partial_first_slot() != 0 ||
         test_chunk_invariance_and_multi_slot() != 0 ||
         test_stream_reset() != 0 ||
-        test_sink_failure_requires_reset() != 0)
+        test_sink_failure_requires_reset() != 0 ||
+        test_scheduled_capture_geometry() != 0)
         return 1;
 
     puts("rx_slot_framer_rx4_test: PASS");

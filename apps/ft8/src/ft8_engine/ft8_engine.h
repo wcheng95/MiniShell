@@ -96,7 +96,11 @@ void ft8_engine_destroy(Ft8Engine *engine);
  */
 Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id);
 
-/* Reset DSP/ring continuity after a real stream discontinuity. */
+/* Scheduled UTC-1.6 s capture re-anchor.  Rewinds only the producer-side
+ * monitor; an already-running decode keeps its copied linear waterfall view. */
+Ft8EngineStatus ft8_engine_reset_window(Ft8Engine *engine);
+
+/* Reset DSP continuity after a real stream discontinuity. */
 Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine);
 
 /* Process exactly one continuous 960-sample / 6 kHz mono-float block. */

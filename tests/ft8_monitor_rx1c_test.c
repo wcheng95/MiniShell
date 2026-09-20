@@ -52,9 +52,9 @@ static void test_requirements(void)
     CHECK(req.min_bin == 32u);
     CHECK(req.max_bin == 465u);
     CHECK(req.num_bins == 433u);
-    CHECK(req.max_blocks == 94u);
+    CHECK(req.max_blocks == 93u);
     CHECK(req.block_stride == 1732u);
-    CHECK(req.waterfall_bytes == 162808u);
+    CHECK(req.waterfall_bytes == 161076u);
     CHECK(req.total_bytes > req.waterfall_bytes);
     CHECK(req.fft_plan_bytes > 0u);
     CHECK(req.alignment >= _Alignof(void *));
@@ -64,8 +64,8 @@ static void test_requirements(void)
     CHECK(ft8_monitor_query_requirements(&cfg, &req) == FT8_MONITOR_OK);
     CHECK(req.nfft == 960u);
     CHECK(req.block_stride == 866u);
-    CHECK(req.max_blocks == 113u);
-    CHECK(req.waterfall_bytes == FT8_MONITOR_RING_MIN_BYTES);
+    CHECK(req.max_blocks == 93u);
+    CHECK(req.waterfall_bytes == 80538u);
 
     cfg.sample_rate_hz = 12000u;
     CHECK(ft8_monitor_query_requirements(&cfg, &req) == FT8_MONITOR_ERR_INVALID);
@@ -187,7 +187,7 @@ out:
     free(workspace);
 }
 
-static void test_circular_waterfall(void)
+static void test_linear_waterfall(void)
 {
     Ft8MonitorConfig cfg = ft8_monitor_baseline_config();
     Ft8MonitorRequirements req;
@@ -195,30 +195,32 @@ static void test_circular_waterfall(void)
     Ft8WaterfallView view;
     void *workspace = NULL;
     float block[FT8_MONITOR_BLOCK_SIZE] = {0};
-    uint32_t i;
 
     cfg.freq_osr = 1u;
     CHECK(ft8_monitor_query_requirements(&cfg, &req) == FT8_MONITOR_OK);
-    CHECK(req.max_blocks == 113u);
+    CHECK(req.max_blocks == FT8_MONITOR_LINEAR_BLOCKS);
     CHECK(posix_memalign(&workspace, req.alignment, req.total_bytes) == 0);
     if (!workspace)
         return;
     CHECK(ft8_monitor_init(&mon, &cfg, workspace, req.total_bytes) == FT8_MONITOR_OK);
 
-    for (i = 0u; i < req.max_blocks + 3u; ++i)
+    for (uint32_t i = 0u; i < req.max_blocks; ++i)
         CHECK(ft8_monitor_process_block(&mon, block) == FT8_MONITOR_OK);
-
+    CHECK(ft8_monitor_process_block(&mon, block) == FT8_MONITOR_WATERFALL_FULL);
     CHECK(mon.num_blocks == req.max_blocks);
-    CHECK(mon.next_block_seq == (uint64_t)req.max_blocks + 3u);
-
-    CHECK(ft8_monitor_get_waterfall(&mon, &view) == FT8_MONITOR_OK);
-    CHECK(view.num_blocks == req.max_blocks);
-    CHECK(view.first_block == 0);
-    CHECK(view.anchor_index == 3u);
 
     CHECK(ft8_monitor_get_waterfall_at(&mon, 10u, &view) == FT8_MONITOR_OK);
-    CHECK(view.first_block == -7);
-    CHECK(view.anchor_index == 10u);
+    CHECK(view.first_block == -10);
+    CHECK(view.anchor_index == 0u);
+    CHECK(view.num_blocks == req.max_blocks);
+    CHECK(view.mag == mon.waterfall + 10u * req.block_stride);
+
+    /* Scheduled reset rewinds producer state without erasing old bytes. */
+    mon.waterfall[10u * req.block_stride] = 0x5au;
+    ft8_monitor_reset_window(&mon);
+    CHECK(mon.num_blocks == 0u);
+    CHECK(mon.next_block_seq == 0u);
+    CHECK(mon.waterfall[10u * req.block_stride] == 0x5au);
 
     ft8_monitor_destroy(&mon);
     free(workspace);
@@ -230,7 +232,7 @@ int main(void)
     test_workspace_failures();
     test_instance_independence();
     test_reset_semantics();
-    test_circular_waterfall();
+    test_linear_waterfall();
 
     if (failures != 0) {
         fprintf(stderr, "ft8_monitor_rx1c: %d failure(s)\n", failures);
