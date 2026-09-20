@@ -15,6 +15,15 @@
 #include "usb/cdc_acm_host.h"
 
 extern "C" uint32_t uac_host_t017_skipped_isoc_total(void);
+extern "C" void hcd_dwc_t017_isoc_diag_snapshot(uint32_t *total,
+                                                  uint32_t *packet_hist,
+                                                  uint32_t hist_len,
+                                                  uint32_t *last_packet,
+                                                  uint32_t *last_start_idx,
+                                                  uint32_t *last_desc_idx,
+                                                  uint32_t *last_stop_idx,
+                                                  uint32_t *last_interval,
+                                                  uint32_t *last_num_packets);
 
 namespace {
 constexpr minishell_backend_audio_t handle = (minishell_backend_audio_t)0x554143u;
@@ -178,6 +187,13 @@ void capture_task(void *)
     uac_host_device_handle_t &device = capture_device;
     bool streaming = false;
     uint32_t last_skipped = uac_host_t017_skipped_isoc_total();
+    uint32_t hcd_total = 0, hcd_hist[12] = {};
+    uint32_t hcd_last_packet = 0, hcd_last_start = 0, hcd_last_desc = 0, hcd_last_stop = 0;
+    uint32_t hcd_last_interval = 0, hcd_last_num_packets = 0;
+    hcd_dwc_t017_isoc_diag_snapshot(&hcd_total, hcd_hist, 12,
+                                    &hcd_last_packet, &hcd_last_start, &hcd_last_desc,
+                                    &hcd_last_stop, &hcd_last_interval, &hcd_last_num_packets);
+    uint32_t last_hcd_total = hcd_total;
     int64_t next_skip_report_us = esp_timer_get_time() + 15000000;
     while (!quit) {
         if (unplugged.exchange(false) && device) {
@@ -265,11 +281,29 @@ void capture_task(void *)
         if (now_us >= next_skip_report_us) {
             uint32_t total = uac_host_t017_skipped_isoc_total();
             uint32_t delta = total - last_skipped;
-            if (delta != 0u) {
-                ESP_LOGW(tag, "T017 RX pad summary: skipped=%u (+%u/15s)",
-                         (unsigned)total, (unsigned)delta);
+            hcd_dwc_t017_isoc_diag_snapshot(&hcd_total, hcd_hist, 12,
+                                            &hcd_last_packet, &hcd_last_start, &hcd_last_desc,
+                                            &hcd_last_stop, &hcd_last_interval, &hcd_last_num_packets);
+            uint32_t hcd_delta = hcd_total - last_hcd_total;
+            if (delta != 0u || hcd_delta != 0u) {
+                ESP_LOGW(tag, "T017 RX/HCD skipped=%u (+%u/15s) hcd=%u (+%u)",
+                         (unsigned)total, (unsigned)delta,
+                         (unsigned)hcd_total, (unsigned)hcd_delta);
+                ESP_LOGW(tag,
+                         "T017 HCD pkt[0..11]=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u "
+                         "last=p%u start=%u desc=%u stop=%u int=%u n=%u",
+                         (unsigned)hcd_hist[0], (unsigned)hcd_hist[1],
+                         (unsigned)hcd_hist[2], (unsigned)hcd_hist[3],
+                         (unsigned)hcd_hist[4], (unsigned)hcd_hist[5],
+                         (unsigned)hcd_hist[6], (unsigned)hcd_hist[7],
+                         (unsigned)hcd_hist[8], (unsigned)hcd_hist[9],
+                         (unsigned)hcd_hist[10], (unsigned)hcd_hist[11],
+                         (unsigned)hcd_last_packet, (unsigned)hcd_last_start,
+                         (unsigned)hcd_last_desc, (unsigned)hcd_last_stop,
+                         (unsigned)hcd_last_interval, (unsigned)hcd_last_num_packets);
             }
             last_skipped = total;
+            last_hcd_total = hcd_total;
             next_skip_report_us = now_us + 15000000;
         }
     }
