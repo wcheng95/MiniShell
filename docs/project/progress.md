@@ -26,6 +26,7 @@
 - T033 is COMPLETE: ADV WebFS read-only SoftAP/browser file management is hardware validated. `/flash` and `/sd` browsing plus downloads work without cable handoff; FT8/QMX works before and after WebFS in the same boot using CPU1-owned USB Host lifetime.
 - T034 is COMPLETE: safe WebFS mutations are hardware validated — streamed upload/replace with temp-file commit, mkdir, same-directory regular-file rename, file delete, empty-directory delete, interrupted replacement safety, `/sd` operation, and same-boot FT8/QMX all pass.
 - T035 is COMPLETE: WebFS uses stable SoftAP credentials from `/flash/minishell/setting.txt`; iPhone reconnects without re-entering a generated password, invalid/missing settings fall back safely, T034 file operations remain intact, and same-boot FT8/QMX still works.
+- T036 is READY: one-shot ADV MiniFT8 web mirror. WebFS remains the file manager; ADV `ft8` gets a separate mirror-only HTTP service for the exact 20x7 presented display plus normal key-event injection. Acceptance is make-or-break under concurrent Wi-Fi/HTTP + live QMX/FT8 RX.
 - ADV remains a validated embedded RX deployment target. Physical FT8 TX is currently accepted on Linux/QMX; carrying the proven TX boundary to ADV is future work rather than an active task.
 
 ## Current MiniFT8 baseline
@@ -120,6 +121,7 @@ T032         COMPLETE — V -> 3 current-day QSO compact view, hardware validate
 T033         COMPLETE — WebFS read-only SoftAP/browser, hardware validated
 T034         COMPLETE — safe WebFS mutations, hardware validated
 T035         COMPLETE — persistent WebFS SoftAP credentials, hardware validated
+T036         READY — ADV MiniFT8 mirrored web front panel, make-or-break
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 rpi3-2       RX/TX PASS — native AArch64 build; QMX ALSA decode + CDC CAT + physical TX validated
