@@ -212,7 +212,8 @@ static void success(unsigned poll_ms, unsigned late_ms, unsigned write_us)
     assert(auto_seq_active_count(&app.auto_seq)==0 && app_controller_rx_active(&app));
     assert(strstr(events,"Ea") && starts==2 && stops==1);
     assert(app.rx->timing_pending);
-    assert(app_controller_step_rx(&app,&changed) && reads==1);
+    assert(app_controller_step_rx(&app,&changed));
+    assert(reads == 1u + RX_READY_DRAIN_LIMIT);
     assert(!app.rx->timing_pending);
     assert(app.rx->live_capture_schedule_valid && !app.rx->live_capture_active);
     assert(app.rx->live_next_capture_slot == app.rx->framer.slot_id + 1);
