@@ -1,6 +1,6 @@
 # T033 — ADV WebFS read-only SoftAP proof
 
-Status: REVIEW
+Status: REVIEW — CHANGES REQUESTED
 
 ## Architect intent
 
@@ -623,19 +623,70 @@ Task set to **REVIEW**. No PR or GitHub Actions wait.
 
 ## Supervisor review
 
-Supervisor reviews the actual `main..<commit>` diff against T033, with special
-attention to:
+Reviewed implementation commit:
 
-- no filesystem bypass;
-- Wi-Fi/HTTP teardown order;
-- server handlers cannot outlive app lifecycle;
+```text
+ec027f5fd7c102b288e0259fd9c9a5832409d1e4
+```
+
+Result: **CHANGES REQUESTED — reduce permanent Wi-Fi IRAM cost before hardware testing.**
+
+The implementation is otherwise structurally sound:
+
+- WebFS remains ADV-only and foreground;
+- all file/directory/space operations go through the MiniShell Filesystem API;
+- no FATFS/VFS content bypass;
+- no USB MSC handoff, USB-console suspension, or QMX USB-host ownership change;
 - bounded path/query/transfer buffers;
-- traversal/encoding rejection;
-- directory streaming rather than arbitrary cache;
-- file streaming rather than whole-file buffering;
-- no USB handoff/console suspension;
-- no public API expansion;
-- ADV memory/firmware cost.
+- traversal and malformed encoding are rejected;
+- directory/file data are streamed rather than whole-object cached;
+- HTTP handlers are synchronous and stopped before app-owned context is freed;
+- no public MiniShell API/version change;
+- Linux 66/66, portable 15/15, architecture checks, ADV build and diff check pass.
+
+The blocking concern is the measured permanent internal-SRAM delta:
+
+```text
+Data + BSS     +20,872 B
+IRAM text      +27,072 B
+total SRAM     +48,008 B
+```
+
+This cost exists even when `webfs` is not running because the networking
+components are linked into the ADV image. That is too large to accept unchanged
+without first applying the obvious low-throughput WebFS tradeoff.
+
+T033 is a one-client local file manager, not a Wi-Fi throughput benchmark. Update
+`platform/adv/sdkconfig.defaults` to disable the ESP-IDF Wi-Fi IRAM throughput
+optimizations:
+
+```text
+# CONFIG_ESP_WIFI_IRAM_OPT is not set
+# CONFIG_ESP_WIFI_RX_IRAM_OPT is not set
+```
+
+If the resolved ESP-IDF configuration exposes an additional Wi-Fi/LwIP IRAM
+optimization that is enabled by default, measure it but do not broaden the
+change unnecessarily. `CONFIG_LWIP_IRAM_OPTIMIZATION` is normally disabled by
+default and should remain disabled.
+
+Then regenerate/rebuild the real ADV configuration and report the new exact
+`.iram0.text`, data/BSS and total internal-SRAM deltas. WebFS throughput may
+decrease; that is acceptable so long as normal directory browsing and file
+download remain practical.
+
+Do **not** change the 16 KiB foreground stack, HTTP 6 KiB stack, WebFS feature
+scope, MiniShell API, or FT8 memory profile as part of this amendment.
+
+Also tighten cleanup evidence while touching the lifecycle: do not silently
+discard a failure from `esp_event_loop_delete_default()`. Either handle/retry it
+without returning with an owned default loop, or retain explicit ownership state
+so the next start can recover deterministically.
+
+After the amendment, rerun all T033 gates and return a new commit SHA. Hardware
+validation remains pending until supervisor re-review.
+
+No other blocking finding was identified.
 
 No PR is required.
 
