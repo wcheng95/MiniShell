@@ -1,6 +1,6 @@
 # T034 — ADV WebFS safe file mutations
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -702,6 +702,62 @@ attention:
 - CPU1 USB Host/T033 lifecycle remains unchanged.
 
 No PR is required.
+
+## Supervisor review — implementation
+
+Reviewed implementation commit:
+
+```text
+67a19a7654af45a6e7fd14a94c0933f5183350bc
+```
+
+Result: **PASS — ready for ADV hardware validation.**
+
+The implementation satisfies the T034 safety boundary:
+
+- upload uses an exclusive same-parent temporary file and bounded streaming;
+- partial writes are completed before the next receive chunk;
+- sync and close occur before the commit rename;
+- the destination is never opened, truncated, or removed by the upload path;
+- every pre-commit failure prevents rename and best-effort removes only the temp;
+- acquired temp handles are closed exactly once;
+- existing destinations remain intact across tested receive/write/sync/close/
+  no-space/rename failures;
+- temp-name collision retry is bounded;
+- zero-byte upload is supported;
+- mkdir/file-delete/empty-rmdir use MiniShell Filesystem directly;
+- rename is regular-file policy through MiniShell and is restricted by WebFS to
+  the same parent;
+- root mutation, directory rename, recursive delete and cross-parent/cross-volume
+  rename are rejected/not exposed;
+- mutation endpoints are PUT/DELETE only; no POST, OPTIONS or CORS expansion;
+- no direct FATFS/VFS mutation calls were added to WebFS;
+- T033 SoftAP lifecycle, uppercase credential policy, CPU1 USB Host ownership,
+  FT8 profile and public API v3 are unchanged.
+
+Browser review also passes: mutation paths are constructed from one filename
+component, untrusted names use DOM text nodes, destructive/replacement operations
+have confirmations, sequential uploads refresh state between files, and
+directory rename is absent.
+
+Evidence is sufficient for hardware testing: Linux **71/71**, portable **15/15**,
+focused WebFS tests, architecture checks, real ADV build and diff check pass.
+Firmware is **1,374,432 B** with **0 B static SRAM delta** from the T034 baseline;
+WebFS buffers and task stack sizes are unchanged.
+
+The existing ADV FAT replace helper remains intentionally non-crash-atomic. T034
+acceptance is for normal network/I/O interruption safety before the commit point,
+not arbitrary power-loss atomicity.
+
+Hardware validation should prioritize:
+
+1. create/upload/replace/download exact-content checks on `/flash`;
+2. mkdir -> upload -> rename -> delete -> empty-rmdir;
+3. non-empty rmdir rejection;
+4. representative `/sd` mutations;
+5. interrupted large replacement with Q/Esc, proving the old destination remains
+   intact;
+6. same-boot FT8/QMX startup after WebFS exit.
 
 ## Architect test result
 
