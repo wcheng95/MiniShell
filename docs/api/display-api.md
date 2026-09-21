@@ -1,6 +1,6 @@
 # MiniShell Display API
 
-Status: **implemented on the Linux reference backend.**
+Status: **implemented on Linux and Cardputer ADV; ADV color/separator extensions are hardware-validated.**
 
 ## Purpose
 
@@ -144,7 +144,7 @@ Linux tests exercise:
 Add only when application requirements justify them:
 
 ```text
-foreground/background colors
+background colors beyond inverse semantics
 additional text styles
 font selection
 graphics/pixel drawing
@@ -156,7 +156,9 @@ multiple displays
 explicit partial-refresh policy
 ```
 
-The text API should remain useful independently of any future graphics sub-API.
+Foreground colors and the row-separator primitive are already implemented as
+optional capabilities below. The text API should remain useful independently of
+any future graphics sub-API.
 
 
 ## Optional text colors and row separators (T047)
