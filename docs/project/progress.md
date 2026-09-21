@@ -172,6 +172,7 @@ T039 ADV dirty Display present  BREAK — hardware pop remained through R1-R3 ex
 T040 Keyer unified transcript    TESTING — Alt/1 chooser dismissal hardware-pass; remaining acceptance pending
 T042 Mini-CW foundation          COMPLETE — external Mini-CW Keyer-mode app hardware validated
 T043 Mini-CW continuous audio    COMPLETE — paddle and M1 both pop-free, matching standalone Mini-CW
+T044A Mini-CW persistence        READY — Filesystem-only persistence; audio path frozen
 ```
 
 The controller keeps orchestration in `app_controller`:
@@ -287,5 +288,4 @@ See `docs/MiniCW/migration.md`.
 T042 hardware validation passed for the Mini-CW Keyer-mode platform skeleton. T043 then
 ported the pinned Mini-CW continuous-audio architecture below a generic MiniShell Tone
 capability; hardware validation passed with both paddle and automatic M1 clean and pop-free,
-matching standalone Mini-CW. T044 is persistence/time, T045 GPS where useful, and T046 final
-Keyer-mode parity.
+matching standalone Mini-CW. T044A is persistence only with an explicit audio freeze. T044B UTC/time is deferred until T044A hardware acceptance. T045 GPS is optional where useful, followed by T046 final Keyer-mode parity.
