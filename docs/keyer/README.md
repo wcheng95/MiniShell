@@ -1,6 +1,6 @@
 # Keyer on MiniShell
 
-Status: **K0/K1/K2/K3/K4 complete; K5 implemented / transport hardware-validated; K6 READY (T038)**
+Status: **K0/K1/K2/K3/K4 complete; K5 implemented / transport hardware-validated; K6 TESTING (T038)**
 Date: 2026-09-17
 
 ## Purpose
@@ -285,7 +285,7 @@ Status is **implemented / transport hardware-validated**. This evidence does not
 replace audible/operator end-to-end K7 field acceptance. Keyer timing remains in
 the engine/controller; K6 UI/settings and K7 validation remain future work.
 
-### K6 — READY / T038 — field UI, keyboard TX, memories and settings
+### K6 — TESTING / T038 — field UI, keyboard TX, memories and settings
 
 Authoritative task: `docs/project/codex/T038-keyer-k6-field-ui.md`.
 
@@ -312,7 +312,7 @@ K2 MiniShell Digital I/O V1          COMPLETE
 K3 portable Keyer engine             COMPLETE
 K4 GPIO KeyIn/KeyOut                 COMPLETE
 K5 sidetone                          IMPLEMENTED / TRANSPORT HARDWARE-VALIDATED
-K6 field UI/settings                  READY — T038
+K6 field UI/settings                  TESTING — T038
 
 MiniShell knows Keyer semantics      NO
 Keyer config path                    /flash/keyer/setting.txt
