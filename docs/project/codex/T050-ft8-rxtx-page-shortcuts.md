@@ -1,6 +1,6 @@
 # T050 — MiniFT8 RX/TX plain page shortcuts
 
-Status: TESTING
+Status: COMPLETE
 
 ## Baseline
 
@@ -245,3 +245,24 @@ The reported intermittent `linux_serial_unit` failure is pre-existing and
 unrelated to this diff; isolated retry and the full rerun passed.
 
 T050 is ready for brief ADV hardware acceptance.
+
+
+## Final hardware acceptance — 2026-09-21
+
+ADV keyboard validation passed.
+
+Accepted behavior:
+
+- RX top level: bare `;` = previous page, bare `.` = next page;
+- TX top level: same behavior;
+- no Fn is required for those two shortcuts;
+- existing special/Fn page navigation remains available;
+- O/S/V and submenus keep their existing navigation behavior.
+
+Implementation:
+
+```text
+967a7259f57aed64ba43297f2386481eb1e7a183
+```
+
+T050 is COMPLETE.
