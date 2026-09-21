@@ -1,6 +1,6 @@
 # T044A — Mini-CW Keyer persistence, audio-frozen
 
-Status: REVIEW
+Status: TESTING
 
 ## Safety baseline
 
@@ -619,3 +619,158 @@ audible regression, revert to `golden/minicw-clean-audio` at
 `48a40d79c13ed60ef9f8444a060164852d226fcd`; no audio debugging/tuning belongs in
 T044A. Missing or malformed settings remain recoverable, and failed saves leave
 runtime edits active but not durably committed until a later successful retry.
+
+
+## Supervisor review
+
+Reviewed implementation:
+
+```text
+94d9f7eefa265ddf8e623a680844d582b8c093e0
+```
+
+Result: **PASS — ready for cautious ADV hardware validation.**
+
+### Scope / audio freeze
+
+The implementation is bounded to Mini-CW application persistence and tests.
+No protected audio file changed. No public MiniShell API, resident Audio/Tone
+service, Keyer timing state machine, display cadence, FT8, or existing
+`apps/keyer` implementation changed.
+
+Resident ADV firmware is byte-for-byte identical to the T043 golden baseline:
+
+```text
+BIN size   1,381,280 bytes
+SHA256     051b656ad85111c2427ef4348b1ff012f0b26ade5a935a05f159cad8b706cb9b
+SRAM delta 0
+```
+
+Therefore T044A hardware testing does **not** require reflashing resident
+MiniShell if the board already runs the accepted T043 firmware. Only the new
+`minicw.elf` must be installed.
+
+### Persistence review
+
+The new storage service is allocation-free and uses MiniShell Filesystem only.
+
+Canonical persistence:
+
+```text
+/flash/minicw/setting.txt
+/flash/minicw/setting.tmp
+```
+
+The parser:
+
+- overlays partial valid files on compiled Mini-CW defaults;
+- ignores unknown sections/keys;
+- rejects a malformed known value as a whole snapshot;
+- preserves message spaces and every `=` after the first separator;
+- preserves the pinned Mini-CW mode vocabulary;
+- does not persist mute, RTC/time, GPS, USB or trainer state;
+- never automatically rewrites missing/invalid/unreadable startup files.
+
+The transactional writer performs:
+
+```text
+mkdir
+stale-temp cleanup
+open temp CREATE|TRUNC|WRITE
+complete short-write loop
+sync
+close
+rename temp -> destination
+```
+
+The existing destination is not removed before the commit rename. Failure
+retains the in-memory setting and leaves output/Tone cleanup independent.
+
+### Real-time protection review
+
+Runtime setting changes apply immediately, but flash I/O is deferred.
+
+A save is blocked while any of the following is observed:
+
+- delayed/pending automatic TX;
+- active/queued automatic TX;
+- M1 repeat active or waiting;
+- Tune/output hold;
+- Audio busy;
+- either physical KeyIn line asserted, including muted straight-key input.
+
+After all blockers clear, a 250 ms quiet interval must elapse before save.
+
+This also outlasts the current release tail after Audio busy clears. The
+foreground/keyer/audio scheduling loop itself is unchanged.
+
+There remains an unavoidable narrow race in a synchronous Filesystem design:
+a new physical key press could begin after the final quiet check while a flash
+write is already executing. T044A does not attempt to solve that by modifying
+the proven audio/keyer architecture. Hardware acceptance should specifically
+exercise editing followed by ordinary paddle use.
+
+### Startup / shutdown review
+
+Settings loading completes before Tone ownership is opened.
+
+Loaded volume/pitch/config are applied through existing Mini-CW setters.
+
+On clean exit:
+
+1. the current settings snapshot is captured before shutdown mutates KeyOut to
+   OFF;
+2. CW/Tune are stopped;
+3. Tone is closed;
+4. one best-effort dirty save occurs while Filesystem remains available;
+5. KeyOut/Digital-I/O cleanup still runs even if persistence fails.
+
+Thus the shutdown-only KeyOut OFF state is not accidentally persisted.
+
+### Evidence
+
+```text
+Linux CTest              83/83
+portable units           25/25
+focused minicw            5/5
+architecture/boundary    PASS
+ADV firmware build       PASS
+clean external ELF       PASS
+ELF import inspection    PASS
+git diff --check         PASS
+```
+
+External artifact:
+
+```text
+minicw.app.elf     40,388 bytes
+sole import        mini_api_get
+loaded delta       +4,700 bytes vs T043
+app heap           none
+```
+
+### Hardware gate
+
+Install only the new T044A `minicw.elf` over the accepted T043 resident
+MiniShell firmware.
+
+Validate in this order:
+
+1. paddle and M1 first — both must still be clean before spending time on
+   persistence;
+2. change WPM/volume/pitch/M1, exit, relaunch, confirm persistence;
+3. inspect `/flash/minicw/setting.txt` if convenient;
+4. verify invalid settings fall back safely;
+5. Tune/straight key remain clean;
+6. Ctrl+C returns silent;
+7. repeated launch/exit remains clean.
+
+Any audible regression is an immediate failure. Do not modify audio in T044A;
+restore:
+
+```text
+golden/minicw-clean-audio
+48a40d79c13ed60ef9f8444a060164852d226fcd
+```
+
+T044B UTC/time remains deferred until T044A hardware acceptance.
