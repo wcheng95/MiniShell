@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: REVIEW
+Status: COMPLETE
 
 
 ## Hardware correction addendum — 2026-09-21
@@ -1153,3 +1153,27 @@ session memory. No deviation from the full-table addendum.
 
 Commit reference: the single bounded correction commit containing this handoff;
 its exact SHA is returned after pushing. Task status: **REVIEW**.
+
+
+## Final hardware acceptance — full-table lookup — 2026-09-21
+
+Accepted implementation:
+
+```text
+a3ac0c4182432b26b9d6a68dcdec117433ba90c7
+```
+
+Hardware validation with the complete pinned V1.2 database passed. The full table
+loads through MiniShell Memory with no truncation. Calls beyond the former
+192-entry boundary resolve correctly, including `K7SO -> OP:SAT`, and end-of-file
+lookup also passes. Paddle and automatic M1 audio remain clean/no-pop, the fixed
+header remains unchanged, 72/73 clearing works, and Ctrl+C exits silently.
+
+This supersedes the earlier capped-table acceptance. T046 is COMPLETE.
+
+Architecture note: Mini-CW is not a RAM-bounded application. Dynamic application
+memory through the MiniShell Memory service is allowed and is the intended model
+for this lookup. MiniShell resident code and MiniFT8 remain RAM-bounded. The
+existing architecture checker name `no_heap_modules` still effectively guards
+against native/libc heap calls; renaming that policy for Mini-CW is bookkeeping
+cleanup, not a T046 product blocker.
