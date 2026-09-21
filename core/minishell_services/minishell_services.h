@@ -158,6 +158,8 @@ typedef struct {
                                   const void *buffer, uint32_t size,
                                   uint32_t *out_written, uint32_t timeout_ms);
     mini_result_t (*serial_close)(void *ctx, minishell_backend_serial_t serial);
+    /* Optional private provider table; service translates provider handles. */
+    const mini_audio_tone_api_t *audio_tone;
 } minishell_services_port_t;
 
 /* Configure the resident service layer. Safe to call again in host tests. */

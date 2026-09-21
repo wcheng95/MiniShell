@@ -170,7 +170,8 @@ K5 sidetone                   IMPLEMENTED / TRANSPORT HARDWARE-VALIDATED
 T038 / K6 field UI/settings    COMPLETE — hardware validated, including pop-free auto TX via Display deferral
 T039 ADV dirty Display present  BREAK — hardware pop remained through R1-R3 experiments
 T040 Keyer unified transcript    TESTING — Alt/1 chooser dismissal hardware-pass; remaining acceptance pending
-T042 Mini-CW foundation          READY — port Mini-CW Keyer-mode structure onto MiniShell services
+T042 Mini-CW foundation          COMPLETE — external Mini-CW Keyer-mode app hardware validated
+T043 Mini-CW continuous audio    COMPLETE — paddle and M1 both pop-free, matching standalone Mini-CW
 ```
 
 The controller keeps orchestration in `app_controller`:
@@ -283,6 +284,8 @@ not full standalone-firmware parity. Battery/sleep and USB-MSC remain MiniShell
 responsibilities; trainer/lesson/word/callsign/plaintext modes are not migrated.
 See `docs/MiniCW/migration.md`.
 
-T042 is the first silent Keyer-mode platform skeleton. T043 will own the known-good
-continuous-audio migration and must pass clean paddle + M1 hardware acceptance.
-T044 is persistence/time, T045 GPS where useful, and T046 final Keyer-mode parity.
+T042 hardware validation passed for the Mini-CW Keyer-mode platform skeleton. T043 then
+ported the pinned Mini-CW continuous-audio architecture below a generic MiniShell Tone
+capability; hardware validation passed with both paddle and automatic M1 clean and pop-free,
+matching standalone Mini-CW. T044 is persistence/time, T045 GPS where useful, and T046 final
+Keyer-mode parity.

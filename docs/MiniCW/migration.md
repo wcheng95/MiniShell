@@ -100,13 +100,12 @@ Proves:
 - monotonic timing via Time/Location;
 - no direct ESP-IDF/FreeRTOS/board imports in the external ELF.
 
-### T043 — known-good continuous audio
+### T043 — known-good continuous audio — COMPLETE
 
-Port the Mini-CW V1.2 continuous audio architecture to the MiniShell Audio
-boundary. This is a hardware-critical task and must compare actual task,
-segment, codec, I2S and DMA behavior against the pinned reference.
-
-Acceptance requires clean paddle and automatic M1 with live UI.
+The pinned Mini-CW V1.2 continuous-audio architecture is now ported below a
+generic MiniShell Tone capability. Cardputer ADV hardware validation passed:
+manual paddle and automatic M1 are both clean and pop-free with live UI, matching
+the standalone Mini-CW reference.
 
 ### T044 — persistence + system time
 

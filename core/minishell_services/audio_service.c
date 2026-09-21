@@ -15,6 +15,8 @@ static mini_audio_tx_api_t s_tx_api;
 static mini_audio_api_t s_audio_api;
 static audio_stream_state_t s_rx;
 static audio_stream_state_t s_tx;
+static mini_audio_tone_api_t s_tone_api;
+static mini_audio_tone_t s_tone, s_tone_backend;
 static mini_audio_stream_t s_next_handle = 1u;
 
 static mini_result_t validate_format(const mini_audio_format_t *format)
@@ -36,6 +38,7 @@ static mini_audio_stream_t allocate_public_handle(void)
         if (handle == MINI_AUDIO_STREAM_INVALID) continue;
         if (s_rx.open && handle == s_rx.public_handle) continue;
         if (s_tx.open && handle == s_tx.public_handle) continue;
+        if (handle == s_tone) continue;
         return handle;
     }
 }
@@ -148,7 +151,7 @@ static mini_result_t tx_open(const char *endpoint, const mini_audio_format_t *fo
     if (endpoint != NULL && endpoint[0] == '\0') return MINI_ERR_INVALID;
     mini_result_t result = validate_format(format);
     if (result != MINI_OK) return result;
-    if (s_tx.open) return MINI_ERR_TOO_MANY_OPEN;
+    if (s_tx.open || s_tone) return MINI_ERR_TOO_MANY_OPEN;
 
     minishell_backend_audio_t backend = MINISHELL_BACKEND_AUDIO_INVALID;
     result = port->audio_tx_open(port->ctx, endpoint, format->sample_rate_hz,
@@ -236,6 +239,66 @@ static mini_result_t tx_close(mini_audio_stream_t stream)
     return result;
 }
 
+static mini_result_t tone_config_valid(const mini_audio_tone_config_t *config)
+{
+    if (!config || config->struct_size < MINI_FIELD_END(mini_audio_tone_config_t, volume) ||
+        config->pitch_hz < 300 || config->pitch_hz > 999 || config->volume > 99) return MINI_ERR_INVALID;
+    return MINI_OK;
+}
+static const mini_audio_tone_api_t *tone_provider(void) { return minishell_services_port()->audio_tone; }
+static mini_result_t tone_open(const mini_audio_tone_config_t *config, mini_audio_tone_t *out)
+{
+    if (!out) return MINI_ERR_INVALID;
+    *out = MINI_AUDIO_TONE_INVALID;
+    mini_result_t result = tone_config_valid(config);
+    if (result != MINI_OK) return result;
+    if (!(s_audio_api.capabilities & MINI_AUDIO_CAP_TONE)) return MINI_ERR_UNSUPPORTED;
+    if (s_tone || s_tx.open) return MINI_ERR_TOO_MANY_OPEN;
+    result = tone_provider()->open(config, &s_tone_backend);
+    if (result != MINI_OK) return result;
+    if (!s_tone_backend) return MINI_ERR_IO;
+    s_tone = allocate_public_handle();
+    *out = s_tone;
+    return MINI_OK;
+}
+static mini_result_t tone_configure(mini_audio_tone_t h, const mini_audio_tone_config_t *config)
+{
+    if (!h || h != s_tone) return MINI_ERR_BAD_HANDLE;
+    mini_result_t result = tone_config_valid(config);
+    return result == MINI_OK ? tone_provider()->configure(s_tone_backend, config) : result;
+}
+static mini_result_t tone_enqueue(mini_audio_tone_t h, uint32_t ms)
+{
+    if (!h || h != s_tone) return MINI_ERR_BAD_HANDLE;
+    if (!ms || ms > 60000) return MINI_ERR_INVALID;
+    return tone_provider()->enqueue(s_tone_backend, ms);
+}
+static mini_result_t tone_hold(mini_audio_tone_t h, uint32_t active)
+{
+    if (!h || h != s_tone) return MINI_ERR_BAD_HANDLE;
+    if (active > 1) return MINI_ERR_INVALID;
+    return tone_provider()->hold(s_tone_backend, active);
+}
+static mini_result_t tone_stop(mini_audio_tone_t h)
+{
+    if (!h || h != s_tone) return MINI_ERR_BAD_HANDLE;
+    return tone_provider()->stop(s_tone_backend);
+}
+static mini_result_t tone_busy(mini_audio_tone_t h, uint32_t *out)
+{
+    if (!h || h != s_tone) return MINI_ERR_BAD_HANDLE;
+    if (!out) return MINI_ERR_INVALID;
+    *out = 0;
+    return tone_provider()->busy(s_tone_backend, out);
+}
+static mini_result_t tone_close(mini_audio_tone_t h)
+{
+    if (!h || h != s_tone) return MINI_ERR_BAD_HANDLE;
+    mini_result_t result = tone_provider()->close(s_tone_backend);
+    s_tone = s_tone_backend = MINI_AUDIO_TONE_INVALID;
+    return result;
+}
+
 void minishell_audio_service_configure(void)
 {
     const minishell_services_port_t *port = minishell_services_port();
@@ -262,6 +325,18 @@ void minishell_audio_service_configure(void)
     s_audio_api.rx = NULL;
     s_audio_api.tx = NULL;
     s_available = false;
+    s_audio_api.tone = NULL;
+    s_tone = s_tone_backend = MINI_AUDIO_TONE_INVALID;
+    s_tone_api = (mini_audio_tone_api_t){sizeof(s_tone_api), tone_open, tone_configure,
+        tone_enqueue, tone_hold, tone_stop, tone_busy, tone_close};
+    const mini_audio_tone_api_t *tone = port->audio_tone;
+    if ((port->audio_capabilities & MINI_AUDIO_CAP_TONE) && tone &&
+        tone->struct_size >= MINI_FIELD_END(mini_audio_tone_api_t, close) &&
+        tone->open && tone->configure && tone->enqueue && tone->hold && tone->stop && tone->busy && tone->close) {
+        s_available = true;
+        s_audio_api.capabilities |= MINI_AUDIO_CAP_TONE;
+        s_audio_api.tone = &s_tone_api;
+    }
 
     bool rx_ready = (port->audio_capabilities & MINI_AUDIO_CAP_RX) != 0u &&
                     port->audio_rx_open != NULL && port->audio_rx_start != NULL &&
@@ -286,11 +361,12 @@ void minishell_audio_service_configure(void)
 
 void minishell_audio_service_app_begin(void)
 {
-    /* Streams are app-owned. A previous app is cleaned at app_end(). */
+    if (s_tone) (void)tone_close(s_tone);
 }
 
 void minishell_audio_service_app_end(void)
 {
+    if (s_tone) (void)tone_close(s_tone);
     const minishell_services_port_t *port = minishell_services_port();
 
     if (s_rx.open) {

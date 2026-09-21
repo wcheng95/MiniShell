@@ -123,6 +123,27 @@ APP_RULES["keyer"]["no_heap_modules"] = {"keyer_engine", "ui_shell", "tx_engine"
 # Only its fopen call is exempt, not the tools directory or other platform rules.
 APP_RULES["ft8"]["native_exceptions"] = {"tools/ft8_decode.c": {"fopen"}}
 APP_RULES["ft8"]["no_heap_modules"] = {"auto_seq", "tx_encoder", "tx_offset"}
+APP_RULES["minicw"] = {
+    "enforced_roots": {"main", "src"},
+    "module_paths": {name: (path,) for name, path in {
+        "main": "main", "app_core": "src/app_core", "keyer_service": "src/keyer_service",
+        "ui_service": "src/ui_service", "audio_service": "src/audio_service",
+        "port": "src/port", "runtime": "src/runtime",
+    }.items()},
+    "allowed": {
+        "main": {"main", "port"},
+        "app_core": {"app_core", "keyer_service", "ui_service", "audio_service", "port", "runtime"},
+        "keyer_service": {"keyer_service", "audio_service", "port", "runtime"},
+        "ui_service": {"ui_service", "keyer_service", "audio_service", "port", "runtime"},
+        "audio_service": {"audio_service", "port", "runtime"},
+        "port": {"port", "app_core"},
+        "runtime": {"runtime"},
+    },
+    "private_headers": {"src/ui_service/ui_screen.h": "ui_service"},
+    "forbidden_source_patterns": {},
+    "api_modules": {"port"},
+    "no_heap_modules": {"main", "app_core", "keyer_service", "ui_service", "audio_service", "port", "runtime"},
+}
 for rule in APP_RULES.values():
     rule["include_roots"] = tuple(
         prefix for prefixes in rule["module_paths"].values() for prefix in prefixes

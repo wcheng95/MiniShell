@@ -1,0 +1,24 @@
+{
+  "commit": "3bfbf169b7c2d49a1be3e9a4c80f945edb32033e",
+  "functions": {
+    "audio_cw_phase_inc": "359d77a3758ecf3c430816972f73ce21b9eef7cee29d18ee17b0656308bdeb87",
+    "audio_cw_init_sine_lut": "5bdd58a6b521580540c33d1fea66d3ebf4311568d4a888f3f1a7f1d354d497d7",
+    "audio_cw_sin_q15": "42baed5f56e1bda9e8a71f241c380afed4fc7659cc65087b2f507032466cb2d3",
+    "audio_cw_rcos_rise_q15": "86a666a0ae94898e7ae9ff1ad7cf1505f53556b700578901bdc8bb557c89bd90",
+    "audio_cw_render_sample": "c5eb6a024cc8e64003d52ca0fc073e73958a485f9be10ba8329ee5401e68face",
+    "audio_cw_calculate_envelope_samples": "abb978c1dd6e17532ef0bf0f0b4b93dd4731603f105f4c1702d0329f3ca3e2a2",
+    "audio_cw_envelope_gain_q15": "dcabf705cc15e4b77044d78d8347c0b60f75053bc738e1cf33f9a2c0806a6b33",
+    "audio_cw_ms_to_samples": "c449971717807b12a80c691d89c48b30647443ff1e03c3ee3f85264d5ba90915",
+    "audio_cw_busy_generation": "b8482fb088dcb9df5faa379f7acf766e8c5c0f647015a3616f6f4bbfa7bf32f3",
+    "audio_cw_busy_add": "0c92fa0852fc84123d3def7a46929ed4b6ea842648dafb9f8a4ae84786edea6f",
+    "audio_cw_busy_sub": "674b18142c5be15c161033ae38713db0b344806310b9b5c0188feb481ec477ec",
+    "audio_cw_busy_clear": "b0832f557beb2353927073a6844fae027a8822e54d390c457f35b965389f0e34",
+    "audio_cw_seg_push": "46e03858e9fd4a1efd44d3e68dac74a27446d54a18fdd05b569cac2bb4655a13",
+    "audio_cw_seg_pop": "a7733bd2668fc2379d384c89a2e1d3f102e8a9f3458bcd1b76253958f6a7d3bf",
+    "audio_cw_seg_clear": "7a2c4ad3ac3f4f7447db039e85a47d5e3217761aef39bed8d678696f26756352",
+    "audio_cw_cursor_gain": "e173c7afd4cda0bcb06d72cfc38a934997eb46a60bd19e73f5a91add29a119bf",
+    "audio_cw_begin_release_locked": "32eb3dabbb8e5bd8d0d3a21e0d34773b661d2d85babc2b9f35993df949b446a4",
+    "audio_cw_refill_cursor": "14f5d0c62875e6554f3a9e83147f2fa69bff7b421214352adb20a6b4e221c4b8"
+  },
+  "sample_loop": "c05751d5a6a8c4e3630192cfddaa338d24a44e4bddd4f01c8b1a11c207ef47f0"
+}
