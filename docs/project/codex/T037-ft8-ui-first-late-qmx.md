@@ -1,6 +1,6 @@
 # T037 — Restore UI-first ADV FT8 startup with late QMX attach
 
-Status: TESTING
+Status: COMPLETE
 
 Architect clarification: **Escape remains Back; Q quits**, including while CAT
 is pending. This overrides the Q/Esc exit wording below.
@@ -676,4 +676,20 @@ Resource impact:
 Hardware acceptance should now focus on no-QMX UI responsiveness, late physical attachment, already-connected startup, and same-boot cleanup/retry.
 ## Architect test result
 
-Pending.
+PASS on Cardputer ADV, 2026-09-20.
+
+Hardware validation confirms:
+
+- with QMX disconnected, normal MiniFT8 UI appears immediately;
+- normal R/T/O/S/V navigation remains usable while hardware is absent;
+- V -> 3 and other read-only screens work while CAT is pending;
+- Escape retains Back behavior and Q quits normally;
+- waiting remains responsive for more than ten seconds;
+- attaching QMX later causes the existing CDC/UAC discovery and CAT sync to complete;
+- RX starts without restarting MiniFT8;
+- live decoding proceeds after late attachment;
+- already-connected startup remains normal;
+- cleanup/retry behavior remains usable in the same boot.
+
+T037 is COMPLETE. The T030 late-attach transport/session ownership remains intact,
+but the normal MiniFT8 UI is once again the waiting state.
