@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: TESTING
+Status: IMPLEMENTING
 
 ## Architect intent
 
@@ -1211,6 +1211,50 @@ Review the exact implementation diff, with special attention to:
 - runtime/output cleanup.
 
 No PR required.
+
+## Hardware finding — R1
+
+Initial ADV hardware testing of K6 is broadly good. The user reports the other
+tested functions are working, but choice editing in Operation has one input bug:
+
+```text
+Opt -> O1
+6   -> edit Paddle
+Fn+Right
+```
+
+does not advance `IambicA -> IambicB`.
+
+Root cause from supervisor review: ADV arrows are delivered as arrow special
+events carrying `MINI_MOD_FN`. In `ui_shell_input()`, Operation page navigation
+correctly consumes Fn+Up/Down when not editing, but the generic modifier rejection
+also discards Fn+arrow while an item is being edited before the editor's
+Left/Right/Up/Down adjustment logic sees it.
+
+R1 scope is deliberately narrow:
+
+- while `u->operation && u->editing`, accept `UI_FN + UI_LEFT/RIGHT/UP/DOWN`
+  as the corresponding editor direction;
+- keep Fn+Up/Down page navigation only at Operation top level;
+- do not change normal-screen shortcut behavior;
+- do not change keyboard TX, K3 engine, KeyOut, persistence, sidetone, or public APIs;
+- add/adjust a focused UI regression proving a choice item such as Paddle changes
+  through the actual ADV-style Fn+arrow event and commits/persists normally;
+- rerun the focused Keyer tests, full Linux/unit gates, architecture checks, ADV
+  firmware build and Keyer ELF build.
+
+Expected hardware flow after R1:
+
+```text
+Opt
+6
+Fn+Right    IambicA -> IambicB
+Enter       commit/save
+Opt         return
+```
+
+All other currently tested K6 functions remain accepted pending completion of
+H1-H7 after this R1 correction.
 
 ## Architect test result
 
