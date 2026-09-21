@@ -1236,14 +1236,16 @@ R1 scope is deliberately narrow:
 - while `u->operation && u->editing`, accept `UI_FN + UI_LEFT/RIGHT/UP/DOWN`
   as the corresponding editor direction;
 - keep Fn+Up/Down page navigation only at Operation top level;
-- do not change normal-screen shortcut behavior;
+- restore the Mini-CW-style normal-screen `\\` shortcut as a global sidetone
+  mute toggle; it must toggle `mute`, persist immediately, and must not enter
+  the TX FIFO or report `Unsupported char`;
 - do not change keyboard TX, K3 engine, KeyOut, persistence, sidetone, or public APIs;
 - add/adjust a focused UI regression proving a choice item such as Paddle changes
   through the actual ADV-style Fn+arrow event and commits/persists normally;
 - rerun the focused Keyer tests, full Linux/unit gates, architecture checks, ADV
   firmware build and Keyer ELF build.
 
-Expected hardware flow after R1:
+Expected hardware flows after R1:
 
 ```text
 Opt
@@ -1251,6 +1253,8 @@ Opt
 Fn+Right    IambicA -> IambicB
 Enter       commit/save
 Opt         return
+
+\\           toggle Mute ON/OFF and save immediately
 ```
 
 All other currently tested K6 functions remain accepted pending completion of
