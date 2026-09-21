@@ -107,11 +107,9 @@ generic MiniShell Tone capability. Cardputer ADV hardware validation passed:
 manual paddle and automatic M1 are both clean and pop-free with live UI, matching
 the standalone Mini-CW reference.
 
-### T044A — persistence — READY
+### T044A — persistence — COMPLETE
 
-Add only Mini-CW Keyer-mode persistence through MiniShell Filesystem. The
-hardware-validated T043 audio path is frozen; resident firmware is expected to
-remain byte-for-byte unchanged. Saves are deferred until CW/Tune/audio are idle.
+Mini-CW Keyer-mode persistence now uses MiniShell Filesystem. Hardware validation passed with settings persistence working and paddle/M1 audio remaining clean. The resident T043 audio path remained unchanged.
 
 ### T044B — UTC/time — DEFERRED
 
