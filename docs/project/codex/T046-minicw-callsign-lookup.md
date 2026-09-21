@@ -1,6 +1,143 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: REVIEW
+Status: READY
+
+
+## Hardware correction addendum — 2026-09-21
+
+Hardware acceptance exposed a real T046 loader defect. This addendum supersedes the
+original whole-file ~4 KiB CSV-read allowance while preserving every other T046
+ownership/audio/UI constraint.
+
+Observed on ADV:
+
+```text
+/flash/minicw/setting.txt      opens/reads normally
+/flash/minicw/qsocalls.csv     opens/reads normally after remount/recreate
+actual V1.2 qsocalls.csv       10,788 bytes / 814 lines
+small (<4 KiB) qsocalls.csv    lookup works on hardware
+full 10,788-byte file          Mini-CW reports "Lookup unavailable"
+```
+
+The pinned standalone V1.2 repository contains the same reference database shape:
+
+```text
+wcheng95/Mini-CW
+3bfbf169b7c2d49a1be3e9a4c80f945edb32033e
+examples/fatfs/qsocalls.csv
+10,788 bytes
+814 lines
+```
+
+Root cause in T046:
+
+```c
+char text[4096];
+minicw_port_file_read("/flash/minicw/qsocalls.csv", text, sizeof(text));
+```
+
+The private whole-file helper rejects input that cannot fit in 4,095 payload bytes.
+The real V1.2 database therefore maps to `STORAGE_OP_FAILED` and the UI status
+`Lookup unavailable`.
+
+### Required correction
+
+Keep this correction inside T046 and on the existing branch. Do not create T047.
+
+Replace only the callsign-table whole-file load with a bounded streaming read path.
+
+Required architecture:
+
+```text
+Mini-CW storage_service
+    owns CSV line assembly, validation, parsing and 192-entry policy
+        |
+        v
+Mini-CW private port
+    owns opaque MiniShell Filesystem open/read/close handles
+        |
+        v
+MiniShell Filesystem API
+```
+
+Do not expose `mini_file_t` or the public MiniShell API outside the private port.
+A small opaque Mini-CW read-stream handle/seam is acceptable.
+
+Streaming requirements:
+
+- no heap;
+- keep `MINICW_OP_ENTRY_CAP == 192`;
+- keep the existing 3,648-byte static operator table;
+- use only small bounded read/line buffers (128/256-byte scale);
+- support records split across arbitrary filesystem read boundaries;
+- support LF and CRLF;
+- trim/validate rows exactly as T046 already specifies;
+- skip overlong/malformed rows and resume at the next line;
+- preserve first-valid-row duplicate precedence;
+- continue scanning after 192 stored entries so a later valid row produces
+  `STORAGE_OP_TRUNCATED`;
+- no total CSV file-size limit;
+- a NUL/read/open/close failure remains nonfatal to Keyer startup and must not
+  leave a partially trusted table attached;
+- close the file on every exit path;
+- all callsign-file I/O must still complete before Tone opens;
+- no runtime reload;
+- do not change `setting.txt` loading/persistence.
+
+The existing small whole-file helper may remain for `setting.txt`; do not enlarge
+its 4 KiB buffer merely to make callsign lookup pass.
+
+### Regression requirement
+
+Add a regression representing the actual pinned V1.2 database scale:
+
+```text
+10,788 bytes
+814 CSV lines
+```
+
+It may use the pinned fixture itself or a deterministic fixture with exactly that
+size/line count and valid V1.2-schema rows. It must prove:
+
+- the loader reads past 4 KiB successfully;
+- all input is consumed/closed before Tone open;
+- only the first 192 valid rows are stored;
+- the result is `STORAGE_OP_TRUNCATED`, not `STORAGE_OP_FAILED`;
+- lookup from retained rows still works.
+
+Retain the existing short-read, malformed-row, open/read/close-failure, startup
+ordering, domain-recognition and UI-priority tests.
+
+### Freeze remains absolute
+
+Do not modify resident MiniShell production code or the protected Tone/audio path
+for this correction. In particular the following remain frozen:
+
+```text
+include/minishell/api.h
+core/minishell_services/audio_service.c
+platform/common/tone_stream.c
+platform/common/tone_stream.h
+platform/common/tone_sim.c
+platform/common/tone_sim.h
+platform/adv/adv_audio_speaker.cpp
+apps/minicw/src/audio_service/audio_service.c
+```
+
+Expected correction evidence:
+
+```text
+protected audio diff = NONE
+fixed header         = unchanged
+resident BIN         = identical
+resident SRAM delta  = 0
+sole ELF import      = mini_api_get
+```
+
+Run the original T046 full gates again and append the new exact commit SHA/results
+to this packet. Status returns to REVIEW after the correction commit is pushed.
+Hardware acceptance is then repeated with the full 10,788-byte V1.2 file.
+
 
 ## Audited baseline
 
