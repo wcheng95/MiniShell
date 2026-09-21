@@ -1,6 +1,6 @@
 # T044A — Mini-CW Keyer persistence, audio-frozen
 
-Status: READY
+Status: REVIEW
 
 ## Safety baseline
 
@@ -436,3 +436,186 @@ No PR and no hardware testing by Codex.
 
 Set T044A to REVIEW, push one bounded implementation commit, and return the exact
 SHA plus test/resource/binary guard evidence.
+
+
+## Implementation handoff
+
+Implementation baseline: `083d1b6eaff704d151a0be3cede919c9b176b5c2` on
+`codex/T044A-minicw-persistence`. Golden audio checkpoint:
+`48a40d79c13ed60ef9f8444a060164852d226fcd`. The baseline resident source/build
+inputs are unchanged from that checkpoint. Commit reference: the single
+implementation commit containing this handoff; exact SHA returned after push.
+
+### Implementation summary / files changed
+
+- `apps/minicw/src/storage_service/storage_service.{c,h}` adds allocation-free
+  defaults, Keyer-only snapshot parsing/validation, canonical serialization and
+  equality comparison. Reads are bounded to 4,095 bytes, lines to 159 bytes;
+  oversized input and embedded NUL are rejected. All known values are validated
+  before publishing any loaded snapshot. Unknown sections/keys are ignored.
+  Pinned mode labels, case-insensitive aliases and numeric mode aliases are
+  accepted; mycall remains strictly A–Z/0–9/slash. M1–M5 retain literal spaces,
+  printable punctuation and all `=` characters after the first separator.
+  Whole-line `#`/`;` comments are accepted; inline comments are not stripped from
+  message data. Missing/invalid/unreadable files never trigger startup writes.
+- `apps/minicw/src/port/minicw_port.{c,h}` adds generic private text-file read and
+  transactional replacement wrappers. Every operation uses MiniShell Filesystem.
+  The save sequence is mkdir (OK/EXISTS), best-effort stale-temp removal,
+  CREATE|TRUNC|WRITE, complete short-write loop, sync, close, rename. The existing
+  destination is never removed. Failures close the handle and clean the temporary
+  path where possible. Storage errors do not latch the application's fatal
+  hardware/service error state.
+- `apps/minicw/src/app_core/app_core.{c,h}` coordinates load/apply, complete
+  snapshot change detection and deferred saves. All startup reads/close finish
+  before the existing Tone open. The frozen audio initializer still opens at
+  700 Hz / 80; existing setters then apply loaded volume/pitch before the first
+  Keyer update. Neither its private wrapper nor its API sequence is redesigned.
+  Runtime edits apply immediately. Saves require 250 ms quiet with no active,
+  pending or queued automatic TX, M1 repeat cycle/wait, Tune, asserted physical
+  input (including muted straight key), or Audio busy. Existing config-copy
+  accessors include stabilized SK WPM; no timing/accessor changes were needed.
+  Failure displays `Save failed` and suppresses automatic retries until another
+  persisted change or clean exit. Invalid/read-error status is present in the
+  first displayed frame. Mute and non-Keyer settings are not persisted.
+- Clean exit snapshots settings **before** shutdown changes KeyOut to OFF, then
+  uses the existing CW stop/Tone close. One dirty save attempt follows successful
+  Tone close while Filesystem is still available, before remaining app resources
+  are released. Save failure cannot block KeyOut release or Tone cleanup. Fatal
+  service/cleanup exits do not attempt an additional filesystem flush.
+- `apps/minicw/sources.cmake`, `tests/minicw_tests.cmake` and
+  `tests/architecture_rules.py` register the storage module and its no-heap,
+  private-port-only dependencies. `tests/minicw_fs_fake.h` supplies a short-I/O,
+  fault-injectable MiniShell Filesystem fixture. Existing runtime tests now use
+  that fixture so their original UI assertions remain valid with a missing
+  settings file. `tests/minicw_persistence_test.c` adds the storage/coordinator/
+  cleanup cases; all accepted domain/runtime assertions remain.
+- `platform/adv/elf_apps/minicw/minicw.ld` now also pads `.rodata` to four bytes.
+  The first external inspection caught the new settings strings leaving it at
+  1,877 bytes, misaligning the loader's following packed section. Padding to
+  1,880 fixes that existing loader requirement without changing resident code
+  or weakening the inspector. This is external-app packaging only.
+- `apps/minicw/README.md` documents current settings behavior and ownership.
+
+### Behavior / invariants preserved
+
+No public API, resident production source, Tone wrapper, audio implementation,
+Keyer timing/state machine, UI input/render implementation, existing `keyer`,
+MiniFT8, USB ownership, DMA geometry or task configuration changed. The existing
+Mini-CW scheduling loop and display refresh calls are retained; persistence runs
+only at the guarded quiet point. No heap allocation, platform file calls, new
+worker or resident capability was added. No audio tuning or T044B work occurred.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+# PASS: 83/83
+cmake -S tests/unit -B /tmp/T044A-unit
+cmake --build /tmp/T044A-unit -j8
+ctest --test-dir /tmp/T044A-unit --output-on-failure
+# PASS: 25/25
+ctest --test-dir build-linux -R minicw --output-on-failure
+# PASS: 5/5 (domain, runtime, persistence, dependency/platform boundaries)
+ctest --test-dir build-linux -R 'tone|minicw|architecture|boundary' --output-on-failure
+# PASS: 18/18
+python3 tests/app_dependency_boundary.py . minicw
+python3 tests/app_platform_boundary.py . minicw
+# PASS
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real ADV firmware (before and after implementation)
+idf.py -C platform/adv/elf_apps/minicw fullclean
+idf.py -C platform/adv/elf_apps/minicw elf
+# PASS: final clean 1074-step external build
+python3 tests/minicw_elf_inspect.py platform/adv/elf_apps/minicw/build/minicw.app.elf
+# PASS: sole resident import mini_api_get; 595 mapped relocations; packed alignment valid
+xtensa-esp32s3-elf-readelf -rW platform/adv/elf_apps/minicw/build/minicw.app.elf
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+xtensa-esp32s3-elf-size -A platform/adv/elf_apps/minicw/build/minicw.app.elf
+cmp /tmp/T044A-baseline.bin platform/adv/build/minishell_adv.bin
+# PASS: byte-for-byte identical
+git diff --check
+# PASS
+```
+
+An intermediate full Linux run during clean ELF compilation hit the unchanged
+serial PTY filled-output-queue timeout assertion at `linux_serial_test.c:67`.
+The final full rerun passed 83/83; serial code/tests were not changed. As in
+T042/T043, `readelf` reports the packaging's removed `.dynamic` section while
+printing relocations; the independent inspector verifies imports and relocation
+mapping successfully.
+
+New coverage includes: missing/default/no-write startup; full and partial loads;
+unknown keys/sections; numeric boundaries and malformed values/modes/mycall/
+message text; oversize/NUL input; message length limits; spaces/additional equals
+round-trip; short reads/writes; open/read/write/zero-progress/sync/close/rename
+failures (including failure after partial I/O); intact previous destination;
+stale-temp cleanup; immediate volume/pitch/WPM edits; every quiet guard and
+muted physical hold; latest snapshot winning; one quiet save; no mute-only save;
+no retry loop; retry on later edit/exit; first-frame invalid/read-failure status;
+no bad-file rewrite; read completion before Tone open; loaded audio settings;
+final flush after Tone close and before resource release; failed final save still
+releasing both KeyOut lines and Tone. Existing M1/repeat/Tune/UI timing traces and
+all frozen audio algorithm/worker regressions pass unchanged.
+
+### Explicit binary / audio guard evidence
+
+Each of the eight task-listed protected files was compared byte-for-byte with
+`git show 48a40d79c13ed60ef9f8444a060164852d226fcd:<path>`:
+
+```text
+protected audio file diff: NONE
+resident firmware BIN:     IDENTICAL
+resident SRAM delta:       0 bytes
+external resident imports: mini_api_get only
+```
+
+Baseline and final local resident BIN are both **1,381,280 bytes**, SHA-256:
+
+```text
+051b656ad85111c2427ef4348b1ff012f0b26ade5a935a05f159cad8b706cb9b
+```
+
+The baseline was built before editing using resident inputs identical to the
+hardware-accepted golden checkpoint. Both builds used ESP-IDF v5.5.4 / Xtensa
+GCC 14.2.0. No build-nondeterminism exemption was needed.
+
+| Resident section | Golden-source baseline | T044A | Delta |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,016 | 27,016 | 0 |
+| `.dram0.bss` | 40,336 | 40,336 | 0 |
+| Static internal SRAM | — | — | **0** |
+
+| External `minicw.app.elf` | Baseline | T044A | Delta |
+| --- | ---: | ---: | ---: |
+| File bytes | 38,820 | 40,388 | +1,568 |
+| `.text` | 24,052 | 27,568 | +3,516 |
+| `.rodata` | 1,272 | 1,880 | +608 |
+| `.data` | 1,176 | 1,224 | +48 |
+| `.bss` | 2,740 | 3,268 | +528 |
+| Section-loader text + data allocation | 29,240 | 33,940 | +4,700 |
+
+Other final sections: `.hash` 40, `.dynsym` 80, `.dynstr` 38, `.rela.dyn` 7,140,
+`.rela.plt` 12, `.eh_frame` 44, `.got` 4; `size -A` total 41,298. File delta and
+loaded-section delta differ because of external ELF file/segment alignment.
+No app heap allocation is introduced. Startup uses a bounded 4,096-byte read
+buffer plus parser/snapshot stack locals; save uses a 1,024-byte serialization
+buffer. These use the existing foreground stack, whose size is unchanged.
+Resident SRAM/worker/queue allocations are unchanged; loaded external app memory
+is accounted separately above. No hardware stack high-water measurement was made.
+
+### Hardware/manual validation still required / risks
+
+No hardware testing or PR was performed. Supervisor review comes before the
+packet's persistence and paddle/M1/Tune/exit acceptance. Passing software gates
+and identical resident firmware are not a substitute for that acoustic check.
+Runtime filesystem work is admitted only after observed quiet; a new physical
+press during a synchronous filesystem operation cannot be predicted. On any
+audible regression, revert to `golden/minicw-clean-audio` at
+`48a40d79c13ed60ef9f8444a060164852d226fcd`; no audio debugging/tuning belongs in
+T044A. Missing or malformed settings remain recoverable, and failed saves leave
+runtime edits active but not durably committed until a later successful retry.

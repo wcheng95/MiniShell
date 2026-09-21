@@ -54,6 +54,65 @@ static void minicw_port_tone_close(void)
     if (s_tone) record(s_tone_api->close(s_tone));
     s_tone = MINI_AUDIO_TONE_INVALID; s_tone_api = NULL;
 }
+/* Storage remains optional and never poisons local Keyer operation. */
+static const mini_fs_api_t *filesystem(void)
+{
+    const mini_fs_api_t *fs = s_api ? s_api->fs : NULL;
+    if (!fs || fs->struct_size < offsetof(mini_fs_api_t, mkdir) + sizeof(fs->mkdir) ||
+        !fs->open || !fs->close || !fs->read || !fs->write || !fs->sync ||
+        !fs->mkdir || !fs->remove_file || !fs->rename) return NULL;
+    return fs;
+}
+minicw_file_result_t minicw_port_file_read(const char *path, char *out, uint32_t capacity)
+{
+    const mini_fs_api_t *fs = filesystem();
+    if (!fs || !out || capacity < 2) return MINICW_FILE_ERROR;
+    mini_file_t file = MINI_FILE_INVALID;
+    mini_result_t r = fs->open(path, MINI_FS_READ, &file);
+    if (r == MINI_ERR_NOT_FOUND) return MINICW_FILE_MISSING;
+    if (r != MINI_OK) return MINICW_FILE_ERROR;
+    uint32_t used = 0;
+    minicw_file_result_t result = MINICW_FILE_OK;
+    for (;;) {
+        char chunk[128]; uint32_t got = 0;
+        r = fs->read(file, chunk, sizeof(chunk), &got);
+        if (r != MINI_OK || got > sizeof(chunk)) { result = MINICW_FILE_ERROR; break; }
+        if (!got) break;
+        if (got >= capacity - used) { result = MINICW_FILE_INVALID; break; }
+        for (uint32_t i = 0; i < got; ++i) if (!chunk[i]) result = MINICW_FILE_INVALID;
+        if (result != MINICW_FILE_OK) break;
+        memcpy(out + used, chunk, got); used += got;
+    }
+    out[used] = 0;
+    if (fs->close(file) != MINI_OK) result = MINICW_FILE_ERROR;
+    return result;
+}
+bool minicw_port_file_replace(const char *directory, const char *temporary, const char *destination,
+                              const char *text, uint32_t size)
+{
+    const mini_fs_api_t *fs = filesystem();
+    if (!fs) return false;
+    mini_result_t r = fs->mkdir(directory);
+    if (r != MINI_OK && r != MINI_ERR_EXISTS) return false;
+    (void)fs->remove_file(temporary);
+    mini_file_t file = MINI_FILE_INVALID;
+    r = fs->open(temporary, MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_TRUNC, &file);
+    if (r != MINI_OK) { (void)fs->remove_file(temporary); return false; }
+    uint32_t offset = 0;
+    while (r == MINI_OK && offset < size) {
+        uint32_t written = 0;
+        r = fs->write(file, text + offset, size - offset, &written);
+        if (!written || written > size - offset) r = MINI_ERR_IO;
+        if (r == MINI_OK) offset += written;
+    }
+    if (r == MINI_OK) r = fs->sync(file);
+    mini_result_t closed = fs->close(file);
+    if (r == MINI_OK) r = closed;
+    /* The destination is untouched until this single commit operation. */
+    if (r == MINI_OK) r = fs->rename(temporary, destination);
+    if (r != MINI_OK) (void)fs->remove_file(temporary);
+    return r == MINI_OK;
+}
 uint32_t minicw_port_now_ms(void)
 {
     return (uint32_t)(s_api->time_location->monotonic_us() / 1000U);
@@ -180,6 +239,7 @@ int minicw_run(const mini_api_t *api)
         }
         app_core_shutdown();
         minicw_port_tone_close();
+        if (s_error == MINI_OK) app_core_save_on_exit();
     }
     /* Release both wires, including SK-M's normally asserted ring, even on partial init/error. */
     for (unsigned i = 2; i < 4; ++i)

@@ -6,3 +6,10 @@ SECTIONS
   .data : { *(.data .data.*) . = ALIGN(4); }
 }
 INSERT AFTER .data.rel.ro;
+
+/* New settings strings must not misalign the following packed .bss section. */
+SECTIONS
+{
+  .rodata : { *(.rodata .rodata.*) . = ALIGN(4); }
+}
+INSERT BEFORE .eh_frame;

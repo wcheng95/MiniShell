@@ -168,12 +168,14 @@ static const mini_display_api_t display_api = {
 };
 static const mini_key_input_api_t key_api = {.struct_size = sizeof(key_api), .read = input};
 static const mini_input_api_t input_api = {.struct_size = sizeof(input_api), .capabilities = MINI_INPUT_CAP_KEY, .key = &key_api};
+#include "minicw_fs_fake.h"
 static mini_api_t api = {
     .api_version = MINISHELL_API_VERSION, .struct_size = sizeof(api), .time_location = &time_api,
-    .digital_io = &io_api, .display = &display_api, .input = &input_api
+    .digital_io = &io_api, .display = &display_api, .input = &input_api, .fs = &fs_api
 };
 static void reset(void)
 {
+    fs_reset();
     reads = sleeps = opens = closes = presents = 0; now_us = 1000000;
     input_tip = input_ring = 1;
     for (unsigned i = 0; i < 4; ++i) assert(!live[i]);

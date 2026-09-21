@@ -1,6 +1,7 @@
 #include "app_core.h"
 #include "minicw_port.h"
 #include "audio_service.h"
+#include "storage_service.h"
 #include "keyer_service.h"
 #include "ui_service.h"
 #include "minicw_ascii.h"
@@ -35,6 +36,57 @@ typedef struct {
 
 } app_keyer_state_t;
 static app_keyer_state_t s_keyer;
+
+/* Only app_core decides when filesystem work is safe. Storage never drives CW. */
+static storage_snapshot_t s_settings;
+static bool s_settings_dirty, s_save_failed;
+static uint32_t s_quiet_since;
+static void app_core_snapshot(storage_snapshot_t *out)
+{
+    out->volume = audio_service_get_volume();
+    out->tone_hz = audio_service_get_tone_hz();
+    out->key_in = keyer_service_get_key_in_mode();
+    out->key_in_wpm = keyer_service_get_key_in_wpm();
+    keyer_service_get_config_copy(&out->keyer);
+}
+static void app_core_settings_changed(void)
+{
+    storage_snapshot_t current;
+    app_core_snapshot(&current);
+    if (!storage_equal(&current, &s_settings)) {
+        s_settings = current;
+        s_settings_dirty = true;
+        s_save_failed = false;
+        s_quiet_since = minicw_port_now_ms();
+    }
+}
+static void app_core_save_settings(void)
+{
+    if (storage_save(&s_settings)) {
+        s_settings_dirty = false;
+    } else {
+        s_save_failed = true;
+        ui_service_keyer_set_status("Save failed");
+        ui_service_refresh();
+    }
+}
+static void app_core_persistence_update(void)
+{
+    app_core_settings_changed();
+    if (!s_settings_dirty || s_save_failed) return;
+    /* Raw inactive pins also exclude muted straight-key holds. Audio busy alone
+     * cannot detect those; this does not alter the Keyer input state machine. */
+    if (s_keyer.tx_pending || keyer_service_is_tx_active() || keyer_service_tx_has_text() ||
+        s_keyer.m1_repeat_active || s_keyer.m1_repeat_waiting || s_keyer.tune_active ||
+        keyer_service_get_tune_output_active() || audio_service_is_busy() ||
+        minicw_port_read(13U) == 0 || minicw_port_read(15U) == 0) {
+        s_quiet_since = minicw_port_now_ms();
+        return;
+    }
+    /* A quiet interval also outlasts the reference's release tail after busy
+     * becomes false. No delay or blocking wait is added to Keyer scheduling. */
+    if ((uint32_t)(minicw_port_now_ms() - s_quiet_since) >= 250U) app_core_save_settings();
+}
 
 static void app_core_keyer_set_tx_display(void)
 {
@@ -480,9 +532,24 @@ static bool app_core_handle_keyer_mode_decoded_event(const keyer_event_t *event)
 void app_core_init(void)
 {
     memset(&s_keyer, 0, sizeof(s_keyer));
+    storage_load_t loaded = storage_load(&s_settings);
+    s_settings_dirty = s_save_failed = false;
+    s_quiet_since = minicw_port_now_ms();
+    /* All startup filesystem reads have finished before the frozen Tone open.
+     * Apply the snapshot through existing setters, without changing that seam. */
     audio_service_init();
     keyer_service_init();
+    if (loaded == STORAGE_OK) {
+        audio_service_set_volume(s_settings.volume);
+        audio_service_set_tone_hz(s_settings.tone_hz);
+        keyer_service_set_key_in_mode(s_settings.key_in);
+        keyer_service_set_key_in_wpm(s_settings.key_in_wpm);
+        keyer_service_set_config(&s_settings.keyer);
+    }
+    app_core_snapshot(&s_settings);
     ui_service_init();
+    if (loaded == STORAGE_INVALID) ui_service_keyer_set_status("Settings invalid");
+    if (loaded == STORAGE_READ_FAILED) ui_service_keyer_set_status("Settings read failed");
     ui_service_show_demo_screen();
 }
 
@@ -522,13 +589,21 @@ void app_core_step(void)
     }
     if (event.type != UI_INPUT_EVENT_NONE) ui_service_refresh();
     app_core_keyer_update();
+    app_core_persistence_update();
 }
 
 void app_core_shutdown(void)
 {
+    app_core_settings_changed();
     app_core_keyer_cancel_repeat();
     keyer_service_set_tune_active(false);
     keyer_service_tx_clear();
     keyer_service_set_key_out_mode(KEYER_KEY_OUT_OFF);
     audio_service_stop_all();
+}
+
+/* Called after Tone close, while Filesystem and other app resources still live. */
+void app_core_save_on_exit(void)
+{
+    if (s_settings_dirty) app_core_save_settings();
 }

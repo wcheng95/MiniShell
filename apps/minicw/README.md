@@ -1,16 +1,17 @@
-# Mini-CW Keyer (T042 foundation, T043 audio)
+# Mini-CW Keyer (T042 foundation, T043 audio, T044A persistence)
 
 Source: `wcheng95/Mini-CW` at
 `3bfbf169b7c2d49a1be3e9a4c80f945edb32033e` (MiniCW V1.2).
 This is a Keyer-mode extraction of that application, not a port of MiniShell's
-existing `keyer`. ADV audio uses the optional generic MiniShell continuous-tone owner. Settings reset to the pinned
-compiled defaults each launch; no files are read or written.
+existing `keyer`. ADV audio uses the optional generic MiniShell continuous-tone
+owner. Keyer settings load from `/flash/minicw/setting.txt` through MiniShell
+Filesystem; missing or invalid files fall back to the pinned compiled defaults.
 
 ## Ownership and provenance
 
 - `app_core`: pinned Keyer FIFO scheduling, TxDelay, M1 repeat, Tune timeout,
-  settings application and event routing. Other modes, logging and persistence
-  are omitted.
+  settings application, event routing and quiet-point persistence coordination.
+  Other modes and logging are omitted.
 - `keyer_service`: pinned physical/automatic timing, adaptive straight-key
   decoding, KeyIn/KeyOut modes and cancellation. Raw GPIO and ticks are private
   port calls. The decoder source/header are unchanged from the pinned source.
@@ -24,8 +25,10 @@ compiled defaults each launch; no files are read or written.
   and release; cancellation flushes queued work. No application PCM loop or
   RTOS object is created. Providers without the optional capability retain the
   T042 silent timing fallback. Linux simulates the resident renderer silently.
+- `storage_service`: bounded Keyer-only parsing, validation and canonical
+  serialization. No hardware or filesystem implementation access.
 - `port`: the only MiniShell API adapter. Owns Digital I/O handles, logical Input,
-  Display and Time/Location calls; releases both output lines before closing
+  Display, Time/Location and transactional Filesystem calls; releases both output lines before closing
   handles on normal exit and failure.
 - `runtime`: small allocation-free ASCII/format/string routines linked locally
   so the external ELF needs no resident libc imports.
@@ -80,10 +83,36 @@ xtensa-esp32s3-elf-readelf -rW platform/adv/elf_apps/minicw/build/minicw.app.elf
 The deployment artifact is `minicw.app.elf`, installed as `minicw.elf` by the
 architect after review. The sole resident import must be `mini_api_get`.
 Compiler division helpers are linked from the toolchain's libgcc. The linker
-fragment pads `.data` for the existing section loader; the inspector checks
+fragment pads `.data` and `.rodata` for the existing section loader; the inspector checks
 packed-section alignment and relocation destinations as well as imports.
 
 T043 adds the optional Audio tone capability and its resident ADV worker;
 ordinary PCM APIs, Keyer timing/UI, existing `keyer` and FT8 remain unchanged.
-T042 hardware acceptance is complete. T043 paddle/M1 audio parity, Tune,
-preemption and lifecycle acceptance remain pending supervisor review.
+T042 and T043 hardware acceptance is complete at the golden recovery point
+`48a40d79c13ed60ef9f8444a060164852d226fcd`. T044A leaves that audio path frozen;
+persistence hardware acceptance remains pending supervisor review.
+
+## Keyer settings persistence
+
+`/flash/minicw/setting.txt` is a bounded (at most 4,095 bytes) INI-style file.
+`[system]` holds volume, tone_hz, key_in and key_in_wpm; `[keyer]` holds key_out,
+paddle, sk_wpm, tx_delay_s, tune_timeout_s, repeat_interval_s, mycall and m1–m5.
+Mute remains session-only. GPIO assignments, GPS, date/time and other modes are
+not persisted. Labels and defaults retain the pinned Mini-CW vocabulary.
+
+Unknown sections/keys are ignored. Invalid known values reject the entire
+snapshot; neither invalid nor missing files are rewritten at startup. Blank
+lines and whole-line `#`/`;` comments are accepted. Message values retain spaces
+and additional `=` characters after the first separator; there are no inline
+comments. Parsing uses bounded 159-byte lines. Numeric values/modes trim outer
+spaces, and modes accept the pinned case-insensitive aliases.
+
+Startup reads finish before Tone opens. Existing audio initialization and setters
+apply loaded volume/pitch before the first Keyer update. Edits take effect
+immediately, but saves wait for 250 ms of quiet: no automatic active/pending/
+queued TX, no M1 repeat cycle, no Tune, no asserted physical input or Audio busy.
+The latest complete snapshot replaces `setting.txt` via `setting.tmp`, full
+write, sync, close and commit rename. A failure preserves the old destination
+and displays `Save failed`; retry waits for another settings change or clean
+exit. Clean exit captures settings before output shutdown and makes one dirty
+save attempt after Tone has closed, while Filesystem remains available.

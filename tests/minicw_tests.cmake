@@ -38,3 +38,13 @@ add_test(NAME adv_tone_worker COMMAND ${Python3_EXECUTABLE}
     ${MINICW_TEST_ROOT}/tests/adv_tone_worker_test.py ${MINICW_TEST_ROOT})
 add_test(NAME tone_reference COMMAND ${Python3_EXECUTABLE}
     ${MINICW_TEST_ROOT}/tests/tone_reference_test.py ${MINICW_TEST_ROOT})
+set(MINICW_PERSISTENCE_SOURCES ${MINICW_SOURCES})
+list(FILTER MINICW_PERSISTENCE_SOURCES EXCLUDE REGEX "/(app_core/app_core|port/minicw_port)\\.c$")
+add_executable(minicw_persistence_unit ${MINICW_TEST_ROOT}/tests/minicw_persistence_test.c
+    ${MINICW_PERSISTENCE_SOURCES} ${MINICW_TEST_ROOT}/platform/common/tone_stream.c
+    ${MINICW_TEST_ROOT}/platform/common/tone_sim.c)
+target_include_directories(minicw_persistence_unit PRIVATE ${MINICW_INCLUDES}
+    ${MINICW_TEST_ROOT}/core/minishell_services ${MINICW_TEST_ROOT}/platform/common)
+target_compile_options(minicw_persistence_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -fno-builtin -UNDEBUG)
+target_link_libraries(minicw_persistence_unit PRIVATE m)
+add_test(NAME minicw_persistence_unit COMMAND minicw_persistence_unit)
