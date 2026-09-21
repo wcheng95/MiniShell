@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: READY
+Status: REVIEW
 
 
 ## Hardware correction addendum — 2026-09-21
@@ -1023,3 +1023,133 @@ Expected resource direction:
 T046 returns to REVIEW only after the full-table correction commit is pushed and
 software/build/resource evidence is updated. Hardware acceptance must then use the
 full database and verify a call beyond the old 192-entry boundary.
+
+
+## Full-table correction implementation handoff
+
+Implementation baseline: `836d411dc6a3612fd7dd69c494058ab0798be461` on
+`codex/T046-minicw-callsign-lookup`. This handoff supersedes the prior capped-table
+implementation/resource evidence; the full-table addendum authorizes dynamic
+MiniShell Memory allocations, while native heap calls remain prohibited.
+
+### Implementation summary / files changed
+
+- `apps/minicw/src/storage_service/storage_service.{c,h}` retains the 128-byte
+  streaming read/line buffers and loads every valid row into an owned table.
+  Capacity grows 64/128/256/512/1024 and beyond, with uint32 byte-count overflow
+  protection. The obsolete caller-array parser interface and truncated result
+  are removed. Allocation, read, NUL and close failures free the entire draft;
+  count/pointer are published only on complete success.
+- `apps/minicw/src/port/minicw_port.{c,h}` adds optional private Memory wrappers.
+  Missing Memory service or allocation failure is recoverable and does not latch
+  a fatal app error. Existing filesystem and Tone wrappers are unchanged.
+- `apps/minicw/src/app_core/app_core.c` owns a session pointer, removes the
+  truncated warning, and detaches Keyer's borrowed table before explicit release
+  at shutdown. MiniShell app-end reclamation remains the abnormal-exit safety net.
+- `tests/minicw_memory_fake.h`, `tests/minicw_runtime_test.c` and
+  `tests/minicw_lookup_test.c` add tracked, moving allocations, failure injection,
+  full-scale lookup and lifecycle coverage. `apps/minicw/README.md` describes the
+  accepted full-table ownership. Architecture checks require no changes.
+
+### Behavior / invariants preserved
+
+CSV I/O completes before Tone opens; no runtime reload or CSV writes. Missing
+files remain silent. Failed loads display `Lookup unavailable` and local Keyer
+operation remains available. Row-6 operator precedence, the fixed header, parser
+field rules, first-match duplicate handling, callsign recognition, settings,
+Morse timing and all Tone behavior are unchanged. No resident/public API,
+existing Keyer/FT8, task, queue, DMA or hardware changes.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+# PASS: 85/85 (including linux_serial_unit)
+cmake -S tests/unit -B /tmp/T046F-unit
+cmake --build /tmp/T046F-unit -j8
+ctest --test-dir /tmp/T046F-unit --output-on-failure
+# PASS: 27/27
+ctest --test-dir build-linux -R 'minicw|tone|architecture|boundary' --output-on-failure
+# PASS: 20/20, including native-heap and platform/API boundaries
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: before and after correction
+idf.py -C platform/adv/elf_apps/minicw fullclean
+idf.py -C platform/adv/elf_apps/minicw elf
+# PASS: clean 1074-step build
+python3 tests/minicw_elf_inspect.py platform/adv/elf_apps/minicw/build/minicw.app.elf
+# PASS: sole import mini_api_get; 642 mapped relocations; packed alignment valid
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+xtensa-esp32s3-elf-size -A platform/adv/elf_apps/minicw/build/minicw.app.elf
+cmp /tmp/T046F-before.bin platform/adv/build/minishell_adv.bin
+cmp /tmp/T046F-before-size.txt /tmp/T046F-after-size.txt
+# PASS: resident BIN and complete section-size report identical
+git diff --check
+# PASS
+```
+
+The deterministic fixture is exactly 10,788 bytes / 814 lines / 813 valid rows.
+All rows load across 1/2/7/127/128/256-byte read limits (production requests remain
+128 bytes). First `K6ABC -> Alice`, formerly omitted `K7SO -> SAT`, and last
+`K0811 -> Person` resolve. Growth follows the expected doubling sizes. Failure
+at each of the five allocation/growth calls leaves no published table or live
+allocation. Late NUL/read failure at byte 6,000 and final-close failure also free
+all memory. These failures and an absent Memory service do not become fatal app
+errors. Repeated full-database launch/exit verifies one final free per session,
+with a pre-free observer proving the recognizer was already detached. Startup
+observers assert complete reading and close before Tone open and no later CSV I/O.
+Existing persistence, recognition and UI expectations remain intact.
+
+### Explicit guards / final resource evidence
+
+Protected audio diff = **NONE**: all eight frozen paths above match audited
+recovery `00d540baef94c2f5b36511818c9d3f728a909846` byte-for-byte.
+Resident/core/public API, existing Keyer/FT8 and the entire Mini-CW UI provider
+have no diff from this correction baseline. The private port adds Memory wrappers
+without changing any Tone function.
+
+Resident BIN = **IDENTICAL**, 1,381,280 bytes before/after; SHA-256:
+
+```text
+92d6cc995ccb78e6067ea2e63f31f3d9e56280a4e324c71e1eca54912fea9bb0
+```
+
+ESP-IDF v5.5.4 / Xtensa GCC 14.2.0:
+
+| Resident section | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,016 | 27,016 | 0 |
+| `.dram0.bss` | 40,336 | 40,336 | 0 |
+| Static internal SRAM | 131,311 | 131,311 | **0** |
+
+All other resident sections also match. External app accounting:
+
+| External ELF measure | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| File bytes | 44,592 | 44,832 | +240 |
+| `.text` | 30,884 | 31,112 | +228 |
+| `.rodata` | 2,032 | 2,012 | -20 |
+| `.data` | 1,284 | 1,284 | 0 |
+| `.bss` | 6,928 | 3,284 | -3,644 |
+| Section-loader text + data allocation | 41,128 | 37,692 | -3,436 |
+
+Sole resident ELF import: **`mini_api_get`**. The 813-entry test fixture requests
+**19,456 bytes** at capacity 1024 (19 bytes/entry; 15,447 bytes occupied by rows).
+This is app-owned runtime memory, not resident static SRAM. Loader sections plus
+that table require 57,148 payload bytes, excluding allocator/loader bookkeeping
+and stacks. A moving 512-to-1024 growth can temporarily hold 29,184 table payload
+bytes. No on-device free-heap measurements were performed.
+
+### Remaining validation / risks / commit reference
+
+No PR or hardware testing by Codex. Supervisor re-review is required before new
+hardware acceptance with the full database, including a call beyond the former
+192-entry boundary. Memory exhaustion intentionally disables lookup as a whole;
+it never silently publishes a partial table. Larger valid files consume more
+session memory. No deviation from the full-table addendum.
+
+Commit reference: the single bounded correction commit containing this handoff;
+its exact SHA is returned after pushing. Task status: **REVIEW**.

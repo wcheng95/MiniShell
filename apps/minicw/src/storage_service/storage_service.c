@@ -175,11 +175,12 @@ bool storage_save(const storage_snapshot_t *snapshot)
 
 typedef struct {
     char line[128];
-    size_t length, count;
-    bool overflow, truncated;
+    size_t length, count, capacity;
+    keyer_op_entry_t *entries;
+    bool overflow, failed;
 } op_parser_t;
 
-static void op_line(op_parser_t *parser, keyer_op_entry_t *entries)
+static void op_line(op_parser_t *parser)
 {
     size_t length = parser->length;
     if (parser->overflow) return;
@@ -208,41 +209,45 @@ static void op_line(op_parser_t *parser, keyer_op_entry_t *entries)
         if (ch < 32 || ch > 126 || ch == ',') valid = false;
     }
     if (!valid) return;
-    if (parser->count == MINICW_OP_ENTRY_CAP) { parser->truncated = true; return; }
-    memcpy(entries[parser->count].call, call, call_len + 1);
-    memcpy(entries[parser->count].name, name, name_len + 1);
+    if (parser->count == parser->capacity) {
+        /* Memory API byte counts are uint32_t; guard doubling and multiplication. */
+        if (parser->capacity > UINT32_MAX / sizeof(keyer_op_entry_t) / 2U) {
+            parser->failed = true; return;
+        }
+        size_t capacity = parser->capacity ? parser->capacity * 2U : 64U;
+        void *table = parser->entries;
+        if (!minicw_port_memory_resize(&table, (uint32_t)(capacity * sizeof(keyer_op_entry_t)))) {
+            parser->failed = true; return;
+        }
+        parser->entries = table;
+        parser->capacity = capacity;
+    }
+    memcpy(parser->entries[parser->count].call, call, call_len + 1);
+    memcpy(parser->entries[parser->count].name, name, name_len + 1);
     ++parser->count;
 }
-static bool op_byte(op_parser_t *parser, keyer_op_entry_t *entries, char ch)
+static bool op_byte(op_parser_t *parser, char ch)
 {
     if (!ch) return false;
     if (ch == '\n') {
-        op_line(parser, entries);
+        op_line(parser);
         parser->length = 0;
         parser->overflow = false;
     } else if (parser->length + 1 < sizeof(parser->line)) {
         parser->line[parser->length++] = ch;
     } else parser->overflow = true;
-    return true;
+    return !parser->failed;
 }
-static storage_op_result_t op_finish(op_parser_t *parser, keyer_op_entry_t *entries, size_t *count)
+void storage_op_free(keyer_op_entry_t *entries)
 {
-    op_line(parser, entries); /* Also accept a final line without LF. */
-    *count = parser->count;
-    return parser->truncated ? STORAGE_OP_TRUNCATED : STORAGE_OP_OK;
+    minicw_port_memory_release(entries);
 }
-storage_op_result_t storage_op_parse(const char *text, keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP], size_t *count)
-{
-    op_parser_t parser = {0};
-    while (*text) (void)op_byte(&parser, entries, *text++);
-    return op_finish(&parser, entries, count);
-}
-storage_op_result_t storage_op_load(keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP], size_t *count)
+storage_op_result_t storage_op_load(keyer_op_entry_t **entries, size_t *count)
 {
     op_parser_t parser = {0};
     char bytes[128];
     minicw_read_stream_t stream = NULL;
-    *count = 0;
+    *entries = NULL; *count = 0;
     minicw_file_result_t opened = minicw_port_read_open("/flash/minicw/qsocalls.csv", &stream);
     if (opened == MINICW_FILE_MISSING) return STORAGE_OP_MISSING;
     if (opened != MINICW_FILE_OK) return STORAGE_OP_FAILED;
@@ -252,11 +257,14 @@ storage_op_result_t storage_op_load(keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP
         if (!minicw_port_read_next(stream, bytes, sizeof(bytes), &got)) { valid = false; break; }
         if (!got) break;
         for (uint32_t i = 0; i < got; ++i) {
-            if (!op_byte(&parser, entries, bytes[i])) { valid = false; break; }
+            if (!op_byte(&parser, bytes[i])) { valid = false; break; }
         }
         if (!valid) break;
     }
+    if (valid) { op_line(&parser); valid = !parser.failed; } /* Final line without LF. */
     /* Never publish a partially trusted table, including close failures. */
     if (!minicw_port_read_close(stream)) valid = false;
-    return valid ? op_finish(&parser, entries, count) : STORAGE_OP_FAILED;
+    if (!valid) { storage_op_free(parser.entries); return STORAGE_OP_FAILED; }
+    *entries = parser.entries; *count = parser.count;
+    return STORAGE_OP_OK;
 }

@@ -32,3 +32,7 @@ typedef struct minicw_read_stream *minicw_read_stream_t;
 minicw_file_result_t minicw_port_read_open(const char *path, minicw_read_stream_t *out);
 bool minicw_port_read_next(minicw_read_stream_t stream, void *buffer, uint32_t size, uint32_t *read);
 bool minicw_port_read_close(minicw_read_stream_t stream);
+
+/* Optional Memory service; failures leave the original allocation owned. */
+bool minicw_port_memory_resize(void **pointer, uint32_t bytes);
+void minicw_port_memory_release(void *pointer);

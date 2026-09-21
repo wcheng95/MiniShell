@@ -15,8 +15,7 @@ bool storage_parse(const char *text, storage_snapshot_t *out);
 bool storage_serialize(const storage_snapshot_t *snapshot, char *out, size_t size);
 bool storage_equal(const storage_snapshot_t *a, const storage_snapshot_t *b);
 
-#define MINICW_OP_ENTRY_CAP 192U
-typedef enum { STORAGE_OP_OK, STORAGE_OP_MISSING, STORAGE_OP_FAILED, STORAGE_OP_TRUNCATED } storage_op_result_t;
-/* Caller owns the session-long table. No allocation or runtime reload. */
-storage_op_result_t storage_op_parse(const char *text, keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP], size_t *count);
-storage_op_result_t storage_op_load(keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP], size_t *count);
+typedef enum { STORAGE_OP_OK, STORAGE_OP_MISSING, STORAGE_OP_FAILED } storage_op_result_t;
+/* Storage/app owns the session table; Keyer only borrows it until detached. */
+storage_op_result_t storage_op_load(keyer_op_entry_t **entries, size_t *count);
+void storage_op_free(keyer_op_entry_t *entries);

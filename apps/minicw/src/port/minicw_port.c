@@ -18,6 +18,26 @@ static void record(mini_result_t result)
 {
     if (s_error == MINI_OK && result != MINI_OK) s_error = result;
 }
+/* Lookup allocation failure is recoverable and must not latch an app error. */
+bool minicw_port_memory_resize(void **pointer, uint32_t bytes)
+{
+    const mini_memory_api_t *memory = s_api->memory;
+    if (!memory || memory->struct_size < sizeof(*memory) ||
+        !memory->alloc || !memory->realloc || !memory->free) return false;
+    void *next = NULL;
+    mini_result_t (*resize)(void *, uint32_t, void **) = memory->realloc;
+    mini_result_t result = *pointer ? resize(*pointer, bytes, &next) : memory->alloc(bytes, &next);
+    if (result != MINI_OK) return false;
+    *pointer = next;
+    return true;
+}
+void minicw_port_memory_release(void *pointer)
+{
+    if (pointer) {
+        mini_result_t (*release)(void *) = s_api->memory->free;
+        (void)release(pointer);
+    }
+}
 /* Optional tail discovery must not read past a pre-T043 Audio object. */
 static const mini_audio_tone_api_t *s_tone_api;
 static mini_audio_tone_t s_tone;

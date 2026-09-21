@@ -13,32 +13,39 @@ static void unbind(void)
     for (unsigned i=0;i<4;++i) { live[i]=false; s_lines[i]=0; }
     s_api=NULL;
 }
-static keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP];
+static keyer_op_entry_t *entries;
+static storage_op_result_t load(size_t *count)
+{
+    storage_op_free(entries); entries = NULL;
+    storage_op_result_t result = storage_op_load(&entries, count);
+    if (result != STORAGE_OP_OK) assert(!entries && !*count && !memory_live);
+    return result;
+}
 static void csv_cases(void)
 {
     bind(); size_t count=123;
-    assert(storage_op_load(entries,&count)==STORAGE_OP_MISSING && count==0 && !fs_writes);
+    assert(load(&count)==STORAGE_OP_MISSING && count==0 && !fs_writes);
     strcpy(fs_csv,"call,name\r\n\n#comment\n ; comment\n k6abc , Alice \nW1XYZ,Bob\nK6ABC,Second\n"
         "badrow\nK1A,Two,Names\nK/1A,Bad\nLONG123,Bad\nK1A,TooLongName12\nK1A,\n,Name\nK1A,Bad\tName\nK1B,Bad\177Name\nK1C,Name Here\n");
     fs_csv_exists=true;
-    assert(storage_op_load(entries,&count)==STORAGE_OP_OK && count==4 && fs_csv_reads>1);
+    assert(load(&count)==STORAGE_OP_OK && count==4 && fs_csv_reads>1);
     assert(!strcmp(entries[0].call,"K6ABC") && !strcmp(entries[0].name,"Alice"));
     assert(!strcmp(entries[1].call,"W1XYZ") && !strcmp(entries[1].name,"Bob"));
     assert(!strcmp(entries[2].name,"Second") && !strcmp(entries[3].name,"Name Here"));
     const char *faults[]={"open_read","read","read_late","close_read"};
     for (unsigned i=0;i<4;++i) {
         fs_fail=faults[i]; fs_reads=0; count=123;
-        assert(storage_op_load(entries,&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
+        assert(load(&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
     }
     fs_fail=NULL; memset(fs_csv,'X',5000); fs_csv[5000]=0;
-    assert(storage_op_load(entries,&count)==STORAGE_OP_OK && count==0);
+    assert(load(&count)==STORAGE_OP_OK && count==0);
     memset(fs_csv,'X',200); strcpy(fs_csv+200,"\nK6ABC,Alice\n");
-    assert(storage_op_load(entries,&count)==STORAGE_OP_OK && count==1);
+    assert(load(&count)==STORAGE_OP_OK && count==1);
     fs_csv[0]=0;
     for (unsigned i=0;i<193;++i) { char line[32]; snprintf(line,sizeof(line),"K%u,N%u\n",i,i); strcat(fs_csv,line); }
-    assert(storage_op_load(entries,&count)==STORAGE_OP_TRUNCATED && count==192);
+    assert(load(&count)==STORAGE_OP_OK && count==193);
     assert(!strcmp(entries[191].call,"K191") && !strcmp(entries[191].name,"N191"));
-    assert(!fs_writes && !fs_attempts); unbind();
+    assert(!fs_writes && !fs_attempts); storage_op_free(entries); entries=NULL; unbind();
 }
 static void full_database(void)
 {
@@ -48,6 +55,7 @@ static void full_database(void)
         /* The app's minimal formatter space-pads numeric width: make the
          * deterministic fixture's calls alphanumeric with explicit zero fill. */
         for (unsigned j=1;j<5;++j) if (row[j]==' ') row[j]='0';
+        if (i==191) strcpy(row,"K7SO,SAT     \n");
         strcat(fs_csv,row);
     }
     unsigned lines=0; for (const char *p=fs_csv;*p;++p) if (*p=='\n') ++lines;
@@ -59,30 +67,42 @@ static void stream_cases(void)
     const unsigned chunks[]={1,2,7,127,128,256};
     for (unsigned i=0;i<sizeof(chunks)/sizeof(chunks[0]);++i) {
         fs_read_limit=chunks[i];
-        assert(storage_op_load(entries,&count)==STORAGE_OP_TRUNCATED && count==192);
+        assert(load(&count)==STORAGE_OP_OK && count==813);
         assert(fs_position==10788 && !fs_live && !strcmp(entries[0].name,"Alice"));
-        assert(!strcmp(entries[191].call,"K0190"));
+        assert(!strcmp(entries[812].call,"K0811"));
+        assert(memory_bytes==19456);
+        keyer_service_set_op_table(entries,count);
+        keyer_service_op_feed_text("K7SO "); assert(!strcmp(keyer_service_get_op_name(),"SAT"));
+        keyer_service_op_feed_text("K0811 "); assert(!strcmp(keyer_service_get_op_name(),"Person"));
+        keyer_service_set_op_table(NULL,0);
     }
-    /* Errors/NUL after the stored table is full still invalidate the whole load. */
-    fs_csv_nul_at=6000; assert(storage_op_load(entries,&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
+    storage_op_free(entries); entries=NULL;
+    for (unsigned fail=1;fail<=5;++fail) {
+        memory_calls=0; memory_fail_at=fail;
+        assert(load(&count)==STORAGE_OP_FAILED && count==0 && !fs_live && !memory_live);
+        assert(memory_calls==fail);
+    }
+    memory_fail_at=0;
+    /* Late failures discard all allocated rows. */
+    fs_csv_nul_at=6000; assert(load(&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
     fs_csv_nul_at=0; fs_csv_fail_at=6000;
-    assert(storage_op_load(entries,&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
+    assert(load(&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
     fs_csv_fail_at=0; fs_fail="close_read";
-    assert(storage_op_load(entries,&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
+    assert(load(&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
     fs_fail=NULL;
     /* Split CRLF, malformed lines, overlong lines and final unterminated record. */
     strcpy(fs_csv,"call,name\r\nK6ABC,Alice\r\nBad\r\n");
     size_t len=strlen(fs_csv); memset(fs_csv+len,'X',5000);
     strcpy(fs_csv+len+5000,"\r\nW1XYZ,Bob"); fs_read_limit=1;
-    assert(storage_op_load(entries,&count)==STORAGE_OP_OK && count==2 && !strcmp(entries[1].name,"Bob"));
-    /* Exactly 192 rows followed only by invalid rows is not truncation. */
+    assert(load(&count)==STORAGE_OP_OK && count==2 && !strcmp(entries[1].name,"Bob"));
+    /* Invalid rows consume no entries, including across the former cap. */
     fs_csv[0]=0;
     for (unsigned i=0;i<192;++i) strcat(fs_csv,"K1A,Name\n");
     strcat(fs_csv,"bad\nK/1A,Invalid\n");
-    assert(storage_op_load(entries,&count)==STORAGE_OP_OK && count==192);
+    assert(load(&count)==STORAGE_OP_OK && count==192);
     strcat(fs_csv,"K2A,Last");
-    assert(storage_op_load(entries,&count)==STORAGE_OP_TRUNCATED && count==192);
-    assert(!fs_writes && !fs_attempts); unbind();
+    assert(load(&count)==STORAGE_OP_OK && count==193);
+    assert(!fs_writes && !fs_attempts); storage_op_free(entries); entries=NULL; unbind();
 }
 static const keyer_op_entry_t domain_table[]={
     {"K6ABC","Alice"},{"K6ABC","Second"},{"W1XYZ","Bob"},{"AG6AQ","Own"},{"HELLO","NoDigit"}};
@@ -130,12 +150,16 @@ static mini_result_t input_exit(mini_key_event_t *key,uint32_t timeout)
 {
     (void)timeout; assert(tone_opened==1 && fs_csv_reads==csv_finished_reads && fs_csv_opens==1);
     if (strlen(fs_csv)==10788) {
-        assert(!strncmp(frame[6],"Lookup truncated",16));
-        lookup("K0191 ",""); /* first omitted record */
+        assert(strncmp(frame[6],"Lookup",6));
+        lookup("K7SO ","SAT"); lookup("K0811 ","Person");
     }
     lookup("K6ABC ","Alice");
     now_us+=1300000; ui_service_refresh(); assert(!strncmp(frame[6],"OP:Alice",8));
     return ch(key,3);
+}
+static void detached_before_free(void)
+{
+    lookup("K6ABC ","");
 }
 static void startup(void)
 {
@@ -143,14 +167,26 @@ static void startup(void)
     mini_audio_api_t audio={.struct_size=sizeof(audio),.capabilities=MINI_AUDIO_CAP_TONE,.tone=&tone};
     mini_key_input_api_t keys={.struct_size=sizeof(keys),.read=input_exit};
     mini_input_api_t in=input_api; in.key=&keys;
-    for (unsigned i=0;i<3;++i) {
-        reset(); if (i==2) full_database(); else { strcpy(fs_csv,"K6ABC,Alice\n"); fs_csv_exists=true; } fs_before_csv=before_csv;
-        tone_opened=0; api.audio=&audio; api.input=&in;
+    for (unsigned i=0;i<4;++i) {
+        reset(); if (i>=2) full_database(); else { strcpy(fs_csv,"K6ABC,Alice\n"); fs_csv_exists=true; } fs_before_csv=before_csv;
+        tone_opened=0; api.audio=&audio; api.input=&in; memory_before_free=detached_before_free;
         assert(minicw_run(&api)==0 && closes==4 && !fs_writes && fs_csv_opens==1 && fs_csv_reads==csv_finished_reads);
+        assert(!memory_live && memory_frees==1);
     }
     api.audio=NULL; api.input=&input_api;
+    for (unsigned fail=1;fail<=5;++fail) {
+        bind(); full_database(); memory_fail_at=fail;
+        app_core_init();
+        assert(s_error==MINI_OK && !memory_live && !fs_live && !s_op_table);
+        assert(!strncmp(frame[6],"Lookup unavailable",18));
+        app_core_shutdown(); unbind();
+    }
+    bind(); full_database(); api.memory=NULL;
+    app_core_init(); assert(s_error==MINI_OK && !memory_live && !fs_live);
+    assert(!strncmp(frame[6],"Lookup unavailable",18));
+    app_core_shutdown(); api.memory=&memory_api; unbind();
     bind(); for (unsigned i=0;i<193;++i) strcat(fs_csv,"K1A,Name\n"); fs_csv_exists=true;
-    app_core_init(); assert(!strncmp(frame[6],"Lookup truncated",16)); app_core_shutdown(); unbind();
+    app_core_init(); assert(strncmp(frame[6],"Lookup",6)); app_core_shutdown(); unbind();
     bind(); fs_csv_exists=true; fs_fail="read"; strcpy(fs_csv,"K6ABC,Alice\n");
     app_core_init(); assert(s_error==MINI_OK && !*keyer_service_get_op_name() && !fs_writes);
     app_core_shutdown(); unbind();

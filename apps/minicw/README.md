@@ -140,12 +140,13 @@ transaction and quiet-save mechanics are unchanged.
 
 T046 reads `/flash/minicw/qsocalls.csv` once per launch, after settings reads and
 before Tone opens. No file is created or rewritten. Callsign input is streamed with 128-byte read
-and line buffers, with no total file-size limit. The application retains the
-first 192 valid `call,name` rows in a
-static table (3,648 BSS bytes), with no heap allocation. Scanning continues after
-the table is full; a later valid row produces `Lookup truncated`. Open/read/close
-errors or any NUL leave an empty table and
-shows `Lookup unavailable`. Missing files are normal and silent.
+and line buffers, with no total file-size limit. The application retains every valid
+`call,name` row using MiniShell Memory through private port wrappers. Capacity
+starts at 64 entries and doubles; the 813-row reference scale uses 19,456 bytes
+at 1024-entry capacity. No native heap calls are used. Allocation, open/read/close
+errors or any NUL discard the whole table and show `Lookup unavailable`.
+The Keyer borrows the completed table until shutdown detaches and frees it.
+Missing files are normal and silent.
 
 An optional `call,name` header, blank lines, and whole-line `#`/`;` comments are
 accepted. Surrounding spaces/tabs are trimmed. Calls have 1–6 alphanumeric ASCII
