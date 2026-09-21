@@ -7,14 +7,15 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T038-keyer-k6-field-ui.md      TESTING
+T039-adv-display-dirty-present.md  READY
 ```
 
-T038 K6 passed supervisor software/build review and is now in hardware TESTING. It adds the dedicated 20x7 UI, UTC status row, keyboard/message CW TX, M1-M5, corrected SKS/SKM/OFF KeyOut modes, Opt-based three-page Operation UI, shortcuts, Tune, volume/mute and immediate persistent settings while preserving K3/K4/K5 boundaries.
+T038 K6 is COMPLETE and hardware validated. T039 is READY: optimize the shared ADV Display provider so present redraws only dirty rows/runs, then restore normal live Keyer display refresh during automatic TX while retaining the hardware-proven pop-free speaker behavior.
 
 Recently completed:
 
 ```text
+T038-keyer-k6-field-ui.md         COMPLETE — K6 field UI/settings + hardware acceptance
 T027-nonstandard-tx.md           COMPLETE — V2-compatible hash/type-4 TX
 T028-rx-message-order.md         COMPLETE — controller-owned RX priority/SNR order
 T029-rx-display-lifetime.md      COMPLETE — RX rows persist through TX, clear at TX end
