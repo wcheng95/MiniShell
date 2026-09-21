@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -2367,6 +2367,67 @@ Supervisor closeout remains pending. T038 is **REVIEW**.
 
 One R5 finalization commit on `codex/T038-keyer-k6-field-ui`; the exact commit SHA
 is returned in the engineer handoff. No PR.
+
+
+## Supervisor closeout — COMPLETE
+
+Finalization commit reviewed:
+
+```text
+587dbbbffabc496e17d228765e69b2f638fd9e59
+```
+
+Result: **PASS — T038 COMPLETE.**
+
+R5 changes no executable Keyer behavior. The hardware-validated R4 scheduling
+logic is unchanged; only comments and documentation were updated to describe the
+accepted permanent policy.
+
+Final accepted K6 behavior includes:
+
+- dedicated 20x7 Keyer UI;
+- corrected `PdL/PdR/SkT/SkR` KeyIn labels;
+- SKS/SKM/OFF KeyOut modes;
+- persistent Operation O1/O2/O3 settings;
+- keyboard/message TX, M1-M5 and repeat;
+- Mini-CW-style Alt memory overlay;
+- Tune, mute, volume and WPM shortcuts;
+- bare backtick Back/Cancel in Operation and automatic-TX cancel on the normal screen;
+- ADV Fn+arrow choice editing;
+- 5 ms raised-cosine sidetone envelope;
+- physical KeyIn preemption;
+- safe settings persistence;
+- accepted Display/audio scheduling rule: defer render/present during
+  `TX_ELEMENT`, `TX_ELEMENT_GAP`, `TX_CHAR_GAP` and `TX_WORD_GAP`, then
+  catch up on the first `TX_IDLE` tick.
+
+Hardware acceptance established that this Display deferral removes the automatic-TX
+speaker pop while manual paddle operation remains clean.
+
+Final software/build evidence:
+
+```text
+Linux CTest          74/74
+portable units       18/18
+focused Keyer/Audio   8/8
+Linux Audio           5/5
+architecture checks   PASS
+ADV firmware build    PASS
+Keyer ELF build       PASS
+git diff --check      PASS
+```
+
+Final external Keyer artifact:
+
+```text
+keyer.app.elf  23,396 bytes
+sha256         c306a8378229afe7007aef0002544e7385b842c5b1ce870086240b21b9bfd343
+resident import mini_api_get only
+resident firmware/SRAM delta 0
+```
+
+The R5 ELF is byte-for-byte identical to the hardware-validated R4 ELF. No further
+T038 hardware test is required. No PR was opened.
 
 
 ## Architect test result
