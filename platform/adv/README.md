@@ -2,9 +2,9 @@
 
 This directory is the ESP-IDF firmware composition for the Cardputer ADV backend.
 
-## Current stage: runtime ELF proven; Keyer next
+## Current stage: operational field baseline
 
-A1 proved the portable MiniShell runtime on real Cardputer ADV hardware. A2 added the real Cardputer display/keyboard plus System and Memory providers. A3 added Filesystem and Time/Location. P2 packaged the real MiniFT8 `ft8` application into the ADV static registry using the same MiniFT8 sources as Linux. K1 then hardware-validated runtime external ELF discovery, load, MiniShell API use, return, unload, repeated execution, and flash-over-SD precedence.
+A1-A3 established the portable runtime and resident Display/Input/Filesystem/Time/Location services; P2 packaged MiniFT8; K1 proved runtime external ELF loading. The current field baseline now includes operational MiniFT8 RX/TX, Mini-CW, WebFS/storage tools, optional color/separator Display features, and a 50-row resident console scrollback.
 
 The established ADV application resolution order is:
 
@@ -14,14 +14,14 @@ The established ADV application resolution order is:
 3. /sd/apps/<app>.elf
 ```
 
-The first field-usable external target is `keyer.elf`, valid in either external application directory:
+The accepted field external CW application is `minicw.elf`, valid in either external application directory:
 
 ```text
-/flash/apps/keyer.elf
-/sd/apps/keyer.elf
+/flash/apps/minicw.elf
+/sd/apps/minicw.elf
 ```
 
-The same binary must run unchanged from either location. If both external copies exist, `/flash/apps/keyer.elf` wins. `/sd/apps/keyer.elf` remains convenient for development/removable distribution and can later be copied to `/flash/apps/keyer.elf`.
+The same binary runs through the normal external application path. If both external copies exist, the established `/flash/apps` precedence applies.
 
 The ELF loader is a private MiniShell/ADV runtime mechanism. Portable Keyer code must use only the public MiniShell API; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or loader interfaces. Static applications remain available and retain first resolution priority.
 
@@ -53,7 +53,7 @@ minishell_run()
       `-- external ELF fallback
              /flash/apps/<app>.elf
              /sd/apps/<app>.elf
-             first field target: keyer.elf
+             accepted field CW app: minicw.elf
 ```
 
 Applications never include M5, ESP-IDF, TCA8418, GPIO, I2C, SPI, FATFS, wear-levelling, or display-driver headers. Those details remain backend-owned. `usbmsc` is deliberately an ADV platform utility because raw-media and USB-device ownership are backend concerns rather than portable application services.
@@ -82,7 +82,7 @@ usbmsc
 
 The filesystem utilities and `nano` are the existing portable MiniShell applications; ADV only supplies composition wrappers and the platform services they consume. `usbmsc` is different: it is intentionally platform-specific because it temporarily transfers raw storage ownership and the ESP32-S3 USB device peripheral.
 
-MiniFT8 remains deliberately compiled into the firmware for the current baseline. External-app work now proceeds with `keyer.elf`; converting existing static apps to ELF is not required.
+MiniFT8 remains deliberately compiled into the firmware for the current baseline. Mini-CW is the accepted external field CW application; converting existing static apps to ELF is not required.
 
 Because compiled-in applications have first priority, ELF loader tests use a non-colliding name such as `elfhello` rather than `hello`. That ensures a successful launch actually exercises the ELF path.
 
@@ -115,6 +115,10 @@ M$> ft8
 ```
 
 The normal ADV launch uses the 20 x 7 MiniFT8 presentation. Presentation is not stored in `/flash/ft8/station.txt`; the O-screen station `Profile` is a different concept.
+
+### QMX USB-host lifecycle caveat
+
+ADV currently tears down the USB Host plus UAC/CDC class drivers when the final QMX user exits. A second fresh QMX enumeration can fail on real hardware and may require power-cycling QMX before restarting MiniFT8. Linux normally avoids this path because the kernel keeps QMX enumerated while applications reopen ALSA/CDC handles. Persistent ADV QMX host ownership is future architecture work.
 
 ## M5 library policy
 
@@ -313,21 +317,21 @@ return to MiniShell               PASS
 /sd remount after usbmsc          PASS
 ```
 
-## Time policy — A3 complete
+## Time / location policy
 
-Cardputer ADV has no RTC/GPS source enabled yet. Every boot starts from the deterministic UTC anchor:
+ADV supports optional DS3231 and HYM8563/BM8563-compatible RTC hardware through
+the shared I2C backend. If no valid RTC sample is available, boot falls back to
+the deterministic UTC anchor:
 
 ```text
 2026-09-01 06:00:00 UTC
 ```
 
-MiniShell advances that anchor using monotonic time while powered on. The user may correct UTC for the current session with:
-
-```text
-M$> date YYYY-MM-DD HH:MM:SS
-```
-
-That correction is session-only. RTC and GPS providers are intentionally deferred. Default geographic location remains persistent as an ordinary file under `/flash/minishell/`; no NVS is used.
+The user may correct UTC with `date`; when a supported RTC is present, UTC can
+be persisted there. ADV also has a resident UART1 NMEA GPS provider that can
+publish live location/UTC when valid RMC data is available and can synchronize a
+present RTC. Default geographic location remains persistent under
+`/flash/minishell/`; no NVS is used.
 
 ## Flash layout
 
@@ -408,22 +412,19 @@ K1 runtime elfhello build                 PASS required
 FT8 Reference                             gated by FT8-sensitive changes
 ```
 
-Real ADV baseline validated:
+Real ADV field baseline validated:
 
 ```text
-/flash FATFS                 PASS
-/sd FATFS                    PASS
-shared-cache FATFS           PASS
-nano / ls / rm               PASS
-MiniFT8 launch/navigation    PASS
-MiniFT8 clean exit/memory    PASS
-usbmsc sd                    PASS
-usbmsc flash                 PASS
-usbmsc all                   PASS
-filesystem remount           PASS
-runtime ELF load/run/unload  PASS
-repeated ELF execution       PASS
-flash-over-SD precedence     PASS
+/flash FATFS + /sd FATFS             PASS
+nano / filesystem utilities          PASS
+WebFS read/write workflow            PASS
+MiniFT8 live RX/TX + UI               PASS
+Mini-CW clean paddle/M1 + UI/logging  PASS
+resident 50-row console scrollback   PASS
+usbmsc + filesystem remount           PASS
+runtime ELF load/run/unload           PASS
+flash-over-SD app precedence          PASS
 ```
 
-K1 is complete. External applications are discovered only under `/flash/apps` and `/sd/apps`; the next Keyer stage is K2 MiniShell Digital I/O, followed by the field-usable `keyer.elf` target.
+External applications are discovered only under `/flash/apps` and
+`/sd/apps`. The operational external CW target is `minicw.elf`.
