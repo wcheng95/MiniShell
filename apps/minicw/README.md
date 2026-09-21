@@ -1,4 +1,4 @@
-# Mini-CW Keyer (T042 foundation, T043 audio, T044A persistence, T045 UI/I/O, T046 lookup)
+# Mini-CW Keyer — accepted field baseline (T042-T048)
 
 Source: `wcheng95/Mini-CW` at
 `3bfbf169b7c2d49a1be3e9a4c80f945edb32033e` (MiniCW V1.2).
@@ -6,6 +6,10 @@ This is a Keyer-mode extraction of that application, not a port of MiniShell's
 existing `keyer`. ADV audio uses the optional generic MiniShell continuous-tone
 owner. Keyer settings load from `/flash/minicw/setting.txt` through MiniShell
 Filesystem; missing or invalid files fall back to the pinned compiled defaults.
+
+## Current accepted status
+
+Cardputer ADV hardware acceptance is complete for the Mini-CW Keyer-mode application: clean paddle and M1 audio, settings persistence, fixed header/UI behavior, full callsign lookup, color/separator presentation, and compact daily transcript logging with safe note mode. The MiniShell/Mini-CW ownership boundary is frozen by `docs/MiniCW/baseline-audit.md`.
 
 ## Ownership and provenance
 
@@ -94,8 +98,7 @@ T043 adds the optional Audio tone capability and its resident ADV worker;
 ordinary PCM APIs, Keyer timing/UI, existing `keyer` and FT8 remain unchanged.
 T042 and T043 hardware acceptance is complete at the golden recovery point
 `48a40d79c13ed60ef9f8444a060164852d226fcd`. T044A persistence is hardware accepted at
-`da934b03bce4cc8f908fbc1a40afed501a37196d`. T045 UI/I/O acceptance remains pending;
-the resident audio path stays frozen.
+`da934b03bce4cc8f908fbc1a40afed501a37196d`. T045 UI/I/O is hardware accepted; the resident audio path remains frozen.
 
 ## Keyer settings persistence
 
@@ -161,7 +164,7 @@ The existing recognizer, slash/base-call rules, own-call exclusion and 72/73
 clearing are unchanged. Its last matched base call and name appear as `<call>: <name>` on row 6
 only when Tune, transient status and TX-tail text are absent. The fixed UTC
 header never changes. Table edits take effect on the next launch; there is no
-runtime reload. T046 hardware/audio acceptance remains pending review.
+runtime reload. T046 hardware/audio acceptance is complete.
 
 
 ## Keyer transcript and safe notes
