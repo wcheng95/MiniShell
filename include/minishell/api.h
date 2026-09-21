@@ -195,9 +195,16 @@ typedef struct {
 } mini_time_location_api_t;
 
 #define MINI_DISPLAY_CAP_TEXT  (1ull << 0)
+#define MINI_DISPLAY_CAP_TEXT_COLOR (1ull << 1)
+#define MINI_DISPLAY_CAP_ROW_SEPARATOR (1ull << 2)
 
 #define MINI_TEXT_ATTR_NONE     0u
 #define MINI_TEXT_ATTR_INVERSE  (1u << 0)
+#define MINI_TEXT_ATTR_FG_MASK  (3u << 1)
+#define MINI_TEXT_ATTR_FG_DEFAULT (0u << 1)
+#define MINI_TEXT_ATTR_FG_WHITE (1u << 1)
+#define MINI_TEXT_ATTR_FG_GREEN (2u << 1)
+#define MINI_TEXT_ATTR_FG_CYAN  (3u << 1)
 
 typedef struct {
     uint32_t struct_size;
@@ -213,6 +220,10 @@ typedef struct {
     mini_result_t (*write_at)(uint32_t row, uint32_t column, const char *text, uint32_t byte_count);
     mini_result_t (*write_at_attr)(uint32_t row, uint32_t column, const char *text,
                                    uint32_t byte_count, uint32_t attributes);
+    /* Optional tail. DEFAULT removes the separator; other FG values select its
+     * color. Geometry is provider-owned; unsupported rows return UNSUPPORTED.
+     * Buffered until present(); clear() removes all separators. */
+    mini_result_t (*set_row_separator)(uint32_t after_row, uint32_t foreground);
 } mini_text_display_api_t;
 
 typedef struct {

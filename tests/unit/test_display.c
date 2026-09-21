@@ -1,5 +1,15 @@
 #include "test_support.h"
 
+static uint32_t captured_attr, captured_separator;
+static mini_result_t attr_write(void *ctx, uint32_t r, uint32_t c, const char *s, uint32_t n, uint32_t attr)
+{
+    (void)ctx; (void)r; (void)c; (void)s; (void)n; captured_attr = attr; return MINI_OK;
+}
+static mini_result_t separator(void *ctx, uint32_t row, uint32_t color)
+{
+    (void)ctx; if (row != 0) return MINI_ERR_UNSUPPORTED;
+    captured_separator = color; return MINI_OK;
+}
 bool test_display(void)
 {
     fake_reset();
@@ -41,6 +51,29 @@ bool test_display(void)
     mini_text_display_info_t small = {.struct_size = sizeof(uint32_t)};
     TEST_EQ(display->text->get_info(&small), MINI_ERR_INVALID);
 
+    p.display_text_write_at_attr = attr_write;
+    p.display_set_row_separator = separator;
+    p.display_capabilities |= MINI_DISPLAY_CAP_TEXT_COLOR | MINI_DISPLAY_CAP_ROW_SEPARATOR;
+    minishell_services_configure(&p);
+    TEST_CHECK(display->capabilities & MINI_DISPLAY_CAP_TEXT_COLOR);
+    TEST_CHECK(display->capabilities & MINI_DISPLAY_CAP_ROW_SEPARATOR);
+    const uint32_t colors[] = {MINI_TEXT_ATTR_FG_WHITE, MINI_TEXT_ATTR_FG_GREEN, MINI_TEXT_ATTR_FG_CYAN};
+    for (unsigned i=0;i<3;++i) {
+        uint32_t attr = colors[i] | MINI_TEXT_ATTR_INVERSE;
+        TEST_EQ(display->text->write_at_attr(0,0,"A",1,attr), MINI_OK);
+        TEST_EQ(captured_attr, attr);
+        TEST_EQ(display->text->set_row_separator(0,colors[i]), MINI_OK);
+        TEST_EQ(captured_separator, colors[i]);
+    }
+    TEST_EQ(display->text->write_at_attr(0,0,"A",1,8), MINI_ERR_INVALID);
+    TEST_EQ(display->text->set_row_separator(0,MINI_TEXT_ATTR_INVERSE), MINI_ERR_INVALID);
+    TEST_EQ(display->text->set_row_separator(4,0), MINI_ERR_INVALID);
+    TEST_EQ(display->text->set_row_separator(1,0), MINI_ERR_UNSUPPORTED);
+    p.display_capabilities = MINI_DISPLAY_CAP_TEXT;
+    minishell_services_configure(&p);
+    TEST_EQ(display->text->write_at_attr(0,0,"A",1,MINI_TEXT_ATTR_FG_GREEN), MINI_ERR_UNSUPPORTED);
+    TEST_EQ(display->text->set_row_separator(0,MINI_TEXT_ATTR_FG_GREEN), MINI_ERR_UNSUPPORTED);
+    TEST_EQ(display->text->write_at_attr(0,0,"A",1,MINI_TEXT_ATTR_INVERSE), MINI_OK);
     fake_reset();
     minishell_services_port_t no_display = fake_full_port();
     no_display.display_present = NULL;

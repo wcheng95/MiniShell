@@ -63,6 +63,7 @@ uint64_t adv_monotonic_us(void *ctx);
 mini_result_t adv_sleep_ms(void *ctx, uint32_t milliseconds);
 mini_result_t adv_input_wait(void *ctx, uint32_t timeout_ms);
 void adv_input_flush(void *ctx);
+mini_result_t adv_display_set_row_separator(void *ctx, uint32_t row, uint32_t foreground);
 
 #ifdef __cplusplus
 }

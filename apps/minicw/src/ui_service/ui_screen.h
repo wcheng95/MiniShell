@@ -1,7 +1,7 @@
-/* Private Mini-CW frame vocabulary. T042 uses the existing 20x7 text display;
- * color and pixel separator geometry have no MiniShell equivalent. */
+/* Private Mini-CW semantic frame vocabulary; geometry is rendered by Display. */
 
 #pragma once
+#include "minicw_port.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,12 +32,7 @@ extern "C" {
 
 #define UI_TOP_MODE_W 13
 
-typedef enum {
-    MINI_CW_SCREEN_COLOR_DEFAULT = 0,
-    MINI_CW_SCREEN_COLOR_WHITE,
-    MINI_CW_SCREEN_COLOR_GREEN,
-    MINI_CW_SCREEN_COLOR_CYAN,
-} mini_cw_screen_color_t;
+
 
 typedef struct {
     char mode[UI_TOP_MODE_W + 1];

@@ -1,6 +1,13 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+typedef enum {
+    MINI_CW_SCREEN_COLOR_DEFAULT = 0,
+    MINI_CW_SCREEN_COLOR_WHITE,
+    MINI_CW_SCREEN_COLOR_GREEN,
+    MINI_CW_SCREEN_COLOR_CYAN,
+} mini_cw_screen_color_t;
+
 /* Pinned Mini-CW sdkconfig uses 100 Hz. Keep its rounding and wrap arithmetic. */
 static inline uint32_t minicw_ticks_from_ms(uint32_t ms) { return ms / 10U; }
 uint32_t minicw_port_now_ms(void);
@@ -9,7 +16,7 @@ bool minicw_port_inputs_ready(void);
 bool minicw_port_outputs_ready(void);
 uint32_t minicw_port_read(uint32_t line);
 void minicw_port_write(uint32_t line, uint32_t level);
-void minicw_port_present(const char rows[7][21]);
+void minicw_port_present(const char rows[7][21], const uint8_t colors[7][20]);
 
 bool minicw_port_tone_open(uint16_t hz, uint8_t volume);
 void minicw_port_tone_configure(uint16_t hz, uint8_t volume);

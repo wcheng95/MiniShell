@@ -851,3 +851,5 @@ add_minishell_app(minicw apps/minicw/main/minicw_main.c ${MINICW_SOURCES})
 target_include_directories(minicw PRIVATE ${MINICW_INCLUDES})
 target_compile_options(minicw PRIVATE -Wall -Wextra -Werror -Wpedantic -fno-builtin)
 include(tests/minicw_tests.cmake)
+
+add_test(NAME adv_display_color COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_display_color_test.py)

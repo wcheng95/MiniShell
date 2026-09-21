@@ -18,8 +18,10 @@ Filesystem; missing or invalid files fall back to the pinned compiled defaults.
   OP lookup borrows a static, session-long table loaded before Tone opens.
 - `ui_service`: pinned Keyer normal screen, five-line decoded history, TX tail,
   memory overlay, Tune and three-page settings menu, numeric/text editors.
-  `ui_screen` maps frames to 20x7 MiniShell Display; foreground colors become
-  ordinary text and the pixel separator is omitted.
+  `ui_screen` maps frames to 20x7 MiniShell Display: white header, green rows
+  1–5, cyan row 6, and a green separator after the header. Optional generic
+  Display capabilities carry colors and the separator; monochrome providers
+  retain identical text. ADV renders the separator in its existing 2-pixel gap.
 - `audio_service`: pinned domain calls and Morse table over MiniShell tone
   ownership. Each dit/dah enqueues one finite duration; straight/Tune uses hold
   and release; cancellation flushes queued work. No application PCM loop or

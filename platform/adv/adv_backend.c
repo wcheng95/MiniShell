@@ -46,7 +46,8 @@ static void configure_services_port(void)
     adv_time_location_configure(&s_services_port);
 
     if (s_display_ready) {
-        s_services_port.display_capabilities = MINI_DISPLAY_CAP_TEXT;
+        s_services_port.display_capabilities = MINI_DISPLAY_CAP_TEXT | MINI_DISPLAY_CAP_TEXT_COLOR | MINI_DISPLAY_CAP_ROW_SEPARATOR;
+        s_services_port.display_set_row_separator = adv_display_set_row_separator;
         s_services_port.display_text_get_info = adv_display_text_get_info;
         s_services_port.display_text_clear = adv_display_text_clear;
         s_services_port.display_text_clear_at = adv_display_text_clear_at;

@@ -89,6 +89,7 @@ typedef struct {
     mini_result_t (*default_location_clear)(void *ctx);
 
     /* Display. */
+    mini_result_t (*display_set_row_separator)(void *ctx, uint32_t after_row, uint32_t foreground);
     uint64_t display_capabilities;
     mini_result_t (*display_text_get_info)(void *ctx, uint32_t *out_columns,
                                            uint32_t *out_rows);

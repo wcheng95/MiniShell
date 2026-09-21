@@ -13,6 +13,7 @@ static mini_result_t s_error;
 static bool s_exit;
 static char s_presented[7][21];
 static bool s_have_frame;
+static uint8_t s_presented_colors[7][20];
 
 static void record(mini_result_t result)
 {
@@ -203,18 +204,45 @@ void minicw_port_write(uint32_t line, uint32_t level)
     for (unsigned i = 2; i < 4; ++i)
         if (line_ids[i] == line && s_lines[i]) record(s_api->digital_io->write(s_lines[i], level));
 }
-void minicw_port_present(const char rows[7][21])
+static uint32_t text_color(uint8_t color)
 {
+    switch (color) {
+    case MINI_CW_SCREEN_COLOR_GREEN: return MINI_TEXT_ATTR_FG_GREEN;
+    case MINI_CW_SCREEN_COLOR_CYAN: return MINI_TEXT_ATTR_FG_CYAN;
+    default: return MINI_TEXT_ATTR_FG_WHITE;
+    }
+}
+void minicw_port_present(const char rows[7][21], const uint8_t colors[7][20])
+{
+    const mini_display_api_t *display = s_api->display;
+    const mini_text_display_api_t *text = display->text;
+    bool colored = (display->capabilities & MINI_DISPLAY_CAP_TEXT_COLOR) &&
+        text->struct_size >= offsetof(mini_text_display_api_t, write_at_attr) + sizeof(text->write_at_attr) && text->write_at_attr;
     bool changed = false;
+    if (!s_have_frame && (display->capabilities & MINI_DISPLAY_CAP_ROW_SEPARATOR) &&
+        text->struct_size >= offsetof(mini_text_display_api_t, set_row_separator) + sizeof(text->set_row_separator) && text->set_row_separator) {
+        mini_result_t result = text->set_row_separator(0, MINI_TEXT_ATTR_FG_GREEN);
+        if (result != MINI_ERR_UNSUPPORTED) record(result);
+        changed = result == MINI_OK;
+    }
     for (unsigned row = 0; row < 7; ++row) {
-        if (!s_have_frame || memcmp(rows[row], s_presented[row], 20)) {
-            record(s_api->display->text->write_at(row, 0, rows[row], 20));
+        if (!s_have_frame || memcmp(rows[row], s_presented[row], 20) ||
+            (colored && memcmp(colors[row], s_presented_colors[row], 20))) {
+            if (!colored) record(text->write_at(row, 0, rows[row], 20));
+            else for (unsigned start = 0; start < 20;) {
+                unsigned end = start + 1;
+                while (end < 20 && colors[row][end] == colors[row][start]) ++end;
+                mini_result_t result = text->write_at_attr(row, start, rows[row] + start, end - start, text_color(colors[row][start]));
+                if (result == MINI_ERR_UNSUPPORTED) result = text->write_at(row, start, rows[row] + start, end - start);
+                record(result); start = end;
+            }
             changed = true;
         }
     }
     if (changed) {
-        record(s_api->display->present());
+        record(display->present());
         memcpy(s_presented, rows, sizeof(s_presented));
+        memcpy(s_presented_colors, colors, sizeof(s_presented_colors));
         s_have_frame = true;
     }
 }
@@ -273,7 +301,7 @@ static bool available(const mini_api_t *api)
         api->input->key->struct_size >= sizeof(*api->input->key) && api->input->key->read &&
         api->display && api->display->struct_size >= sizeof(*api->display) &&
         (api->display->capabilities & MINI_DISPLAY_CAP_TEXT) && api->display->present &&
-        api->display->text && api->display->text->struct_size >= sizeof(*api->display->text) &&
+        api->display->text && api->display->text->struct_size >= offsetof(mini_text_display_api_t, write_at) + sizeof(api->display->text->write_at) &&
         api->display->text->get_info && api->display->text->write_at && api->display->text->clear;
 }
 int minicw_run(const mini_api_t *api)

@@ -205,4 +205,51 @@ static void startup(void)
     app_core_init(); assert(s_error==MINI_OK && !*keyer_service_get_op_name() && !fs_writes);
     app_core_shutdown(); unbind();
 }
-int main(void) { csv_cases(); stream_cases(); domain_and_ui(); startup(); puts("Mini-CW lookup: PASS"); return 0; }
+#include "../apps/minicw/src/ui_service/ui_screen.h"
+static uint32_t frame_attrs[7][20];
+static unsigned separators, attr_writes;
+static mini_result_t colored_write(uint32_t row,uint32_t col,const char *s,uint32_t n,uint32_t attr)
+{
+    assert(row<7 && col+n<=20); ++attr_writes;
+    memcpy(frame[row]+col,s,n);
+    for (unsigned i=0;i<n;++i) frame_attrs[row][col+i]=attr;
+    return MINI_OK;
+}
+static mini_result_t row_separator(uint32_t row,uint32_t color)
+{
+    assert(row==0 && color==MINI_TEXT_ATTR_FG_GREEN); ++separators; return MINI_OK;
+}
+static mini_result_t open_operation(mini_key_event_t *key,uint32_t timeout)
+{
+    (void)timeout; return special(key,MINI_KEY_OPT);
+}
+static void color_ui(void)
+{
+    bind(); app_core_init();
+    char plain[7][21]; memcpy(plain,frame,sizeof(plain));
+    mini_text_display_api_t text=text_api; text.write_at_attr=colored_write; text.set_row_separator=row_separator;
+    mini_display_api_t display=display_api; display.text=&text;
+    display.capabilities |= MINI_DISPLAY_CAP_TEXT_COLOR | MINI_DISPLAY_CAP_ROW_SEPARATOR;
+    api.display=&display; s_have_frame=false; ui_service_refresh();
+    assert(!memcmp(plain,frame,sizeof(plain)) && separators==1 && attr_writes==7);
+    for (unsigned r=0;r<7;++r) for (unsigned c=0;c<20;++c)
+        assert(frame_attrs[r][c]==(r==0?MINI_TEXT_ATTR_FG_WHITE:r==6?MINI_TEXT_ATTR_FG_CYAN:MINI_TEXT_ATTR_FG_GREEN));
+    mini_key_input_api_t keys={.struct_size=sizeof(keys),.read=open_operation};
+    mini_input_api_t in=input_api; in.key=&keys; api.input=&in;
+    app_core_step(); api.input=&input_api;
+    assert(!strncmp(frame[1],"1 Vol:",6) && !strcmp(frame[0],"--:-- PDN SKN 19 V80"));
+    for (unsigned r=0;r<7;++r) for (unsigned c=0;c<20;++c)
+        assert(frame_attrs[r][c]==(r==0?MINI_TEXT_ATTR_FG_WHITE:r==6?MINI_TEXT_ATTR_FG_CYAN:MINI_TEXT_ATTR_FG_GREEN));
+    memcpy(plain,frame,sizeof(plain)); api.display=&display_api; s_have_frame=false; ui_service_refresh();
+    assert(!memcmp(plain,frame,sizeof(plain))); api.display=&display;
+    mini_cw_screen_t screen={0}; strcpy(screen.top,"same text"); strcpy(screen.line[5],"K7SHR: PAUL");
+    ui_screen_render(&screen); unsigned writes=attr_writes;
+    screen.top_color[0]=MINI_CW_SCREEN_COLOR_CYAN; ui_screen_render(&screen);
+    assert(attr_writes>writes && frame_attrs[0][0]==MINI_TEXT_ATTR_FG_CYAN && separators==1);
+    memcpy(plain,frame,sizeof(plain));
+    /* Legacy prefix object: capability bits must not cause an absent tail read. */
+    text.struct_size=offsetof(mini_text_display_api_t,write_at_attr); s_have_frame=false;
+    ui_screen_render(&screen); assert(!memcmp(plain,frame,sizeof(plain)) && separators==1);
+    api.display=&display_api; app_core_shutdown(); unbind();
+}
+int main(void) { color_ui(); csv_cases(); stream_cases(); domain_and_ui(); startup(); puts("Mini-CW lookup: PASS"); return 0; }

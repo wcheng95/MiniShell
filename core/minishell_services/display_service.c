@@ -72,9 +72,11 @@ static mini_result_t display_write_at_attr(uint32_t row, uint32_t column,
                                            uint32_t attributes)
 {
     const minishell_services_port_t *port = minishell_services_port();
-    const uint32_t known_attributes = MINI_TEXT_ATTR_INVERSE;
+    const uint32_t known_attributes = MINI_TEXT_ATTR_INVERSE | MINI_TEXT_ATTR_FG_MASK;
     if ((s_display_api.capabilities & MINI_DISPLAY_CAP_TEXT) == 0u) return MINI_ERR_UNSUPPORTED;
     if ((attributes & ~known_attributes) != 0u) return MINI_ERR_INVALID;
+    if ((attributes & MINI_TEXT_ATTR_FG_MASK) &&
+        !(s_display_api.capabilities & MINI_DISPLAY_CAP_TEXT_COLOR)) return MINI_ERR_UNSUPPORTED;
     if (attributes == MINI_TEXT_ATTR_NONE) {
         return display_write_at(row, column, text, byte_count);
     }
@@ -93,6 +95,18 @@ static mini_result_t display_write_at_attr(uint32_t row, uint32_t column,
                                             byte_count, attributes);
 }
 
+static mini_result_t display_set_row_separator(uint32_t row, uint32_t foreground)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    if (!(s_display_api.capabilities & MINI_DISPLAY_CAP_ROW_SEPARATOR)) return MINI_ERR_UNSUPPORTED;
+    if (foreground & ~MINI_TEXT_ATTR_FG_MASK) return MINI_ERR_INVALID;
+    uint32_t columns, rows;
+    mini_result_t result = query_geometry(&columns, &rows);
+    if (result != MINI_OK) return result;
+    if (row >= rows) return MINI_ERR_INVALID;
+    return port->display_set_row_separator(port->ctx, row, foreground);
+}
+
 static mini_result_t display_present(void)
 {
     const minishell_services_port_t *port = minishell_services_port();
@@ -105,6 +119,7 @@ void minishell_display_service_configure(void)
     const minishell_services_port_t *port = minishell_services_port();
     s_available = port->display_present != NULL;
     s_text_api.struct_size = sizeof(s_text_api);
+    s_text_api.set_row_separator = display_set_row_separator;
     s_text_api.get_info = display_get_info;
     s_text_api.clear = display_clear;
     s_text_api.clear_at = display_clear_at;
@@ -121,6 +136,10 @@ void minishell_display_service_configure(void)
     if (s_available && text_available && (port->display_capabilities & MINI_DISPLAY_CAP_TEXT) != 0u) {
         s_display_api.capabilities |= MINI_DISPLAY_CAP_TEXT;
         s_display_api.text = &s_text_api;
+        if (port->display_text_write_at_attr)
+            s_display_api.capabilities |= port->display_capabilities & MINI_DISPLAY_CAP_TEXT_COLOR;
+        if (port->display_set_row_separator)
+            s_display_api.capabilities |= port->display_capabilities & MINI_DISPLAY_CAP_ROW_SEPARATOR;
     }
 }
 

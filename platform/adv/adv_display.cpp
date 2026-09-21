@@ -17,6 +17,7 @@ constexpr uint32_t kWhite = 0xFFFFFFu;
 
 char s_cells[kRows][kColumns];
 uint8_t s_attrs[kRows][kColumns];
+uint32_t s_separator = MINI_TEXT_ATTR_FG_DEFAULT;
 bool s_ready = false;
 bool s_console_mode = true;
 uint32_t s_console_row = 0u;
@@ -27,8 +28,18 @@ int32_t row_y(uint32_t row)
     return row == 0u ? 0 : 21 + static_cast<int32_t>(row - 1u) * kRowHeight;
 }
 
+uint32_t foreground(uint32_t attr)
+{
+    switch (attr & MINI_TEXT_ATTR_FG_MASK) {
+    case MINI_TEXT_ATTR_FG_GREEN: return 0x00FF00u;
+    case MINI_TEXT_ATTR_FG_CYAN: return 0x00FFFFu;
+    default: return kWhite;
+    }
+}
+
 void clear_buffers(void)
 {
+    s_separator = MINI_TEXT_ATTR_FG_DEFAULT;
     std::memset(s_cells, ' ', sizeof(s_cells));
     std::memset(s_attrs, 0, sizeof(s_attrs));
 }
@@ -38,7 +49,7 @@ void render_all(void)
     if (!s_ready) return;
 
     auto &display = M5.Display;
-    display.fillRect(0, kGapY, 240, kGapHeight, kBlack);
+    display.fillRect(0, kGapY, 240, kGapHeight, s_separator ? foreground(s_separator) : kBlack);
     display.setTextFont(1);
     display.setTextSize(2);
 
@@ -47,8 +58,8 @@ void render_all(void)
         for (uint32_t column = 0u; column < kColumns; ++column) {
             const int32_t x = static_cast<int32_t>(column) * kCellWidth;
             const bool inverse = (s_attrs[row][column] & MINI_TEXT_ATTR_INVERSE) != 0u;
-            const uint32_t fg = inverse ? kBlack : kWhite;
-            const uint32_t bg = inverse ? kWhite : kBlack;
+            const uint32_t fg = inverse ? kBlack : foreground(s_attrs[row][column]);
+            const uint32_t bg = inverse ? foreground(s_attrs[row][column]) : kBlack;
             display.fillRect(x, y, kCellWidth, kRowHeight, bg);
             display.setTextColor(fg);
             display.setCursor(x, y + 1);
@@ -203,6 +214,17 @@ extern "C" mini_result_t adv_display_text_write_at_attr(void *ctx, uint32_t row,
         s_cells[row][column + i] = display_char(static_cast<uint8_t>(text[i]));
         s_attrs[row][column + i] = static_cast<uint8_t>(attributes);
     }
+    s_console_mode = false;
+    return MINI_OK;
+}
+
+extern "C" mini_result_t adv_display_set_row_separator(void *ctx, uint32_t row, uint32_t color)
+{
+    (void)ctx;
+    if (!s_ready) return MINI_ERR_NOT_READY;
+    if (color & ~MINI_TEXT_ATTR_FG_MASK) return MINI_ERR_INVALID;
+    if (row != 0u) return MINI_ERR_UNSUPPORTED;
+    s_separator = color;
     s_console_mode = false;
     return MINI_OK;
 }
