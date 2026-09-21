@@ -2005,6 +2005,12 @@ void keyer_service_clear_op_name(void)
     keyer_op_reset_stream();
 }
 
+bool keyer_service_has_manual_work(void)
+{
+    return s_paddle_state != KEYER_PADDLE_IDLE || s_straight_key_down || s_bug_dah_down ||
+        s_dit_memory || s_dah_memory || s_mode_b_extra_pending || s_key_out_element_active;
+}
+
 bool keyer_service_is_tx_active(void)
 {
     return keyer_tx_playback_active();

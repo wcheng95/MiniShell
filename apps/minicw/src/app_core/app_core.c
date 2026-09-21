@@ -1,4 +1,5 @@
 #include "app_core.h"
+#include "transcript.h"
 #include "minicw_port.h"
 #include "audio_service.h"
 #include "storage_service.h"
@@ -42,6 +43,8 @@ static storage_snapshot_t s_settings;
 static keyer_op_entry_t *s_op_table;
 static bool s_settings_dirty, s_save_failed;
 static uint32_t s_quiet_since;
+static bool s_note_active, s_note_mute;
+static keyer_key_out_mode_t s_note_key_out;
 static void app_core_snapshot(storage_snapshot_t *out)
 {
     out->volume = audio_service_get_volume();
@@ -49,6 +52,7 @@ static void app_core_snapshot(storage_snapshot_t *out)
     out->key_in = keyer_service_get_key_in_mode();
     out->key_in_wpm = keyer_service_get_key_in_wpm();
     keyer_service_get_config_copy(&out->keyer);
+    if (s_note_active) out->keyer.key_out_mode = s_note_key_out;
 }
 static void app_core_settings_changed(void)
 {
@@ -71,16 +75,20 @@ static void app_core_save_settings(void)
         ui_service_refresh();
     }
 }
+static bool app_core_safe_idle(void)
+{
+    return !keyer_service_has_manual_work() && !s_keyer.tx_pending && !keyer_service_is_tx_active() && !keyer_service_tx_has_text() &&
+        !s_keyer.m1_repeat_active && !s_keyer.m1_repeat_waiting && !s_keyer.tune_active &&
+        !keyer_service_get_tune_output_active() && !audio_service_is_busy() &&
+        minicw_port_read(13U) != 0 && minicw_port_read(15U) != 0;
+}
 static void app_core_persistence_update(void)
 {
     app_core_settings_changed();
     if (!s_settings_dirty || s_save_failed) return;
     /* Raw inactive pins also exclude muted straight-key holds. Audio busy alone
      * cannot detect those; this does not alter the Keyer input state machine. */
-    if (s_keyer.tx_pending || keyer_service_is_tx_active() || keyer_service_tx_has_text() ||
-        s_keyer.m1_repeat_active || s_keyer.m1_repeat_waiting || s_keyer.tune_active ||
-        keyer_service_get_tune_output_active() || audio_service_is_busy() ||
-        minicw_port_read(13U) == 0 || minicw_port_read(15U) == 0) {
+    if (!app_core_safe_idle()) {
         s_quiet_since = minicw_port_now_ms();
         return;
     }
@@ -123,6 +131,39 @@ static void app_core_keyer_clear_tx_fifo(void)
     app_core_keyer_sync_tx_display(true);
 }
 
+static void app_core_note_toggle(void)
+{
+    if (!s_note_active) {
+        if (!app_core_safe_idle()) return;
+        s_note_key_out = keyer_service_get_key_out_mode();
+        s_note_mute = keyer_service_get_mute();
+        s_note_active = true;
+        keyer_service_set_key_out_mode(KEYER_KEY_OUT_OFF);
+        keyer_service_set_mute(false);
+        transcript_text("**");
+    } else {
+        transcript_text("**");
+        app_core_keyer_clear_tx_fifo();
+        /* Reset manual/Tune state as well as automatic playback while OFF. */
+        keyer_service_set_tune_active(false);
+        s_keyer.tune_active = s_keyer.tune_timeout_pending = false;
+        ui_service_keyer_set_tune_active(false);
+        audio_service_stop_all();
+        keyer_service_set_key_out_mode(KEYER_KEY_OUT_OFF);
+        keyer_service_set_key_out_mode(s_note_key_out);
+        keyer_service_set_mute(s_note_mute);
+        s_note_active = false;
+    }
+    ui_service_refresh();
+}
+/* Match V1.2's separator decision before appending to the TX FIFO. */
+static bool app_core_log_insert_space(const char *text, bool insert_space)
+{
+    char tail[2];
+    if (!insert_space || !text || !*text || *text == ' ') return false;
+    keyer_service_tx_copy_text(tail, sizeof(tail));
+    return tail[0] && tail[0] != ' ';
+}
 static void app_core_keyer_schedule_tx(void)
 {
     uint8_t delay_s;
@@ -169,11 +210,14 @@ static void app_core_keyer_append_tx_char(char key)
 
     app_core_keyer_cancel_repeat();
     insert_space = s_keyer.last_append_was_message && normalized != ' ';
+    bool log_space = app_core_log_insert_space(text, insert_space);
     if (!keyer_service_tx_append_text(text, insert_space)) {
         ui_service_keyer_set_status("TX buffer full");
         return;
     }
 
+    if (log_space) transcript_append(' ');
+    transcript_text(text);
     if (insert_space) {
         keyer_service_op_feed_char(' ');
     }
@@ -186,6 +230,7 @@ static void app_core_keyer_append_tx_char(char key)
 static void app_core_keyer_backspace_tx(void)
 {
     if (keyer_service_tx_backspace()) {
+        transcript_backspace();
         if (!keyer_service_tx_has_text()) {
             s_keyer.tx_pending = false;
             s_keyer.last_append_was_message = false;
@@ -211,11 +256,14 @@ static void app_core_keyer_append_message(uint8_t message_index)
 
     insert_space = keyer_service_tx_has_text();
     message = keyer_service_get_message((uint8_t)(message_index - 1U));
+    bool log_space = app_core_log_insert_space(message, insert_space);
     if (!keyer_service_tx_append_text(message, insert_space)) {
         ui_service_keyer_set_status("TX buffer full");
         return;
     }
 
+    if (log_space) transcript_append(' ');
+    transcript_text(message);
     if (insert_space) {
         keyer_service_op_feed_char(' ');
     }
@@ -260,6 +308,7 @@ static void app_core_keyer_repeat_update(void)
         return;
     }
 
+    transcript_text(message);
     keyer_service_op_feed_text(message);
     s_keyer.last_append_was_message = true;
     app_core_keyer_sync_tx_display(true);
@@ -402,6 +451,7 @@ static void app_core_handle_key_in_mode_changed(const ui_input_event_t *event)
 
 static void app_core_handle_key_out_mode_changed(const ui_input_event_t *event)
 {
+    if (s_note_active) return;
     int direction = 1;
 
     if (event != NULL && event->delta != 0) {
@@ -426,6 +476,7 @@ static void app_core_handle_keyer_paddle_mode_changed(const ui_input_event_t *ev
 
 static void app_core_handle_keyer_mute_changed(const ui_input_event_t *event)
 {
+    if (s_note_active) return;
     if (event != NULL && event->setting == UI_SETTING_KEYER_MUTE) {
         keyer_service_set_mute(event->value != 0);
     } else {
@@ -499,14 +550,17 @@ static bool app_core_handle_keyer_mode_decoded_event(const keyer_event_t *event)
 
     switch (event->type) {
     case KEYER_EVENT_CHAR_COMPLETE:
+        transcript_append(event->decoded_char);
         keyer_service_op_feed_char(event->decoded_char);
         ui_service_keyer_append_decoded_char(event->decoded_char);
         return true;
     case KEYER_EVENT_WORD_SPACE:
+        transcript_append(' ');
         keyer_service_op_feed_char(' ');
         ui_service_keyer_append_decoded_char(' ');
         return true;
     case KEYER_EVENT_BACKSPACE:
+        transcript_backspace();
         ui_service_keyer_backspace_decoded();
         return true;
     case KEYER_EVENT_ENTER:
@@ -532,6 +586,7 @@ static bool app_core_handle_keyer_mode_decoded_event(const keyer_event_t *event)
 
 void app_core_init(void)
 {
+    transcript_init(); s_note_active = false;
     memset(&s_keyer, 0, sizeof(s_keyer));
     storage_load_t loaded = storage_load(&s_settings);
     size_t op_count = 0;
@@ -567,6 +622,7 @@ void app_core_step(void)
     }
     ui_input_event_t event = ui_service_poll_input();
     switch (event.type) {
+    case UI_INPUT_EVENT_NOTE_TOGGLE: app_core_note_toggle(); break;
     case UI_INPUT_EVENT_CANCEL:
         if (s_keyer.tune_active) app_core_keyer_set_tune_active(false);
         app_core_keyer_clear_tx_fifo();
@@ -595,10 +651,14 @@ void app_core_step(void)
     if (event.type != UI_INPUT_EVENT_NONE) ui_service_refresh();
     app_core_keyer_update();
     app_core_persistence_update();
+    transcript_update();
+    if (!app_core_safe_idle()) s_quiet_since = minicw_port_now_ms();
+    else if ((uint32_t)(minicw_port_now_ms() - s_quiet_since) >= 250U) transcript_drain_one();
 }
 
 void app_core_shutdown(void)
 {
+    if (s_note_active) app_core_note_toggle();
     keyer_service_set_op_table(NULL, 0);
     storage_op_free(s_op_table);
     s_op_table = NULL;
@@ -608,7 +668,10 @@ void app_core_shutdown(void)
     keyer_service_tx_clear();
     keyer_service_set_key_out_mode(KEYER_KEY_OUT_OFF);
     audio_service_stop_all();
+    transcript_finalize();
 }
+
+void app_core_finish_transcript(bool persist) { transcript_drain(persist); }
 
 /* Called after Tone close, while Filesystem and other app resources still live. */
 void app_core_save_on_exit(void)

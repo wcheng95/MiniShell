@@ -19,7 +19,7 @@ static void record(mini_result_t result)
 {
     if (s_error == MINI_OK && result != MINI_OK) s_error = result;
 }
-/* Lookup allocation failure is recoverable and must not latch an app error. */
+/* App storage allocation failures are recoverable, never fatal app errors. */
 bool minicw_port_memory_resize(void **pointer, uint32_t bytes)
 {
     const mini_memory_api_t *memory = s_api->memory;
@@ -165,6 +165,50 @@ bool minicw_port_file_replace(const char *directory, const char *temporary, cons
     if (r == MINI_OK) r = fs->rename(temporary, destination);
     if (r != MINI_OK) (void)fs->remove_file(temporary);
     return r == MINI_OK;
+}
+bool minicw_port_file_append(const char *directory, const char *path, const char *text, uint32_t size)
+{
+    const mini_fs_api_t *fs = filesystem();
+    if (!fs) return false;
+    mini_result_t result = fs->mkdir(directory);
+    if (result != MINI_OK && result != MINI_ERR_EXISTS) return false;
+    mini_file_t file = MINI_FILE_INVALID;
+    result = fs->open(path, MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_APPEND, &file);
+    if (result != MINI_OK) return false;
+    uint32_t offset = 0;
+    while (result == MINI_OK && offset < size) {
+        uint32_t written = 0;
+        result = fs->write(file, text + offset, size - offset, &written);
+        if (!written || written > size - offset) result = MINI_ERR_IO;
+        if (result == MINI_OK) offset += written;
+    }
+    if (result == MINI_OK) result = fs->sync(file);
+    mini_result_t closed = fs->close(file); /* Consumed once, never retry. */
+    return result == MINI_OK && closed == MINI_OK;
+}
+bool minicw_port_utc_minute(uint32_t *date, uint16_t *minute)
+{
+    const mini_time_location_api_t *time = s_api->time_location;
+    mini_utc_time_t utc = {.struct_size = sizeof(utc)};
+    if (!(time->capabilities & MINI_TIMELOC_CAP_UTC) || !time->utc_get ||
+        time->utc_get(&utc) != MINI_OK) return false;
+    /* Proleptic Gregorian calendar, years 1..9999, without platform time APIs. */
+    if (utc.unix_seconds < -62135596800LL || utc.unix_seconds > 253402300799LL) return false;
+    int64_t days = utc.unix_seconds / 86400, seconds = utc.unix_seconds % 86400;
+    if (seconds < 0) { seconds += 86400; --days; }
+    int32_t z = (int32_t)days + 719468;
+    int32_t era = (z >= 0 ? z : z - 146096) / 146097;
+    uint32_t doe = (uint32_t)(z - era * 146097);
+    uint32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int32_t year = (int32_t)yoe + era * 400;
+    uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    uint32_t mp = (5 * doy + 2) / 153;
+    uint32_t day = doy - (153 * mp + 2) / 5 + 1;
+    uint32_t month = mp < 10 ? mp + 3 : mp - 9;
+    year += month <= 2;
+    *date = (uint32_t)year * 10000U + month * 100U + day;
+    *minute = (uint16_t)(seconds / 60);
+    return true;
 }
 bool minicw_port_utc_hm(uint8_t *hour, uint8_t *minute)
 {
@@ -331,6 +375,7 @@ int minicw_run(const mini_api_t *api)
         }
         app_core_shutdown();
         minicw_port_tone_close();
+        app_core_finish_transcript(s_error == MINI_OK);
         if (s_error == MINI_OK) app_core_save_on_exit();
     }
     /* Release both wires, including SK-M's normally asserted ring, even on partial init/error. */

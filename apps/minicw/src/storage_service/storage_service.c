@@ -1,4 +1,4 @@
-/* Keyer-only settings. No heap, hardware, or filesystem implementation access. */
+/* Keyer storage policy; all resource access stays in the private port. */
 #include "storage_service.h"
 #include "minicw_port.h"
 #include "minicw_ascii.h"
@@ -267,4 +267,13 @@ storage_op_result_t storage_op_load(keyer_op_entry_t **entries, size_t *count)
     if (!valid) { storage_op_free(parser.entries); return STORAGE_OP_FAILED; }
     *entries = parser.entries; *count = parser.count;
     return STORAGE_OP_OK;
+}
+
+bool storage_transcript_append(uint32_t date, const char *line)
+{
+    char path[] = "/flash/minicw/00000000.txt";
+    for (unsigned i = 0; i < 8; ++i) {
+        path[sizeof("/flash/minicw/") - 1 + 7 - i] = (char)('0' + date % 10U); date /= 10U;
+    }
+    return minicw_port_file_append("/flash/minicw", path, line, (uint32_t)strlen(line));
 }

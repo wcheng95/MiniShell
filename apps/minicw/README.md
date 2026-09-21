@@ -11,7 +11,7 @@ Filesystem; missing or invalid files fall back to the pinned compiled defaults.
 
 - `app_core`: pinned Keyer FIFO scheduling, TxDelay, M1 repeat, Tune timeout,
   settings application, event routing and quiet-point persistence coordination.
-  Other modes and logging are omitted.
+  Other modes are omitted; T048 adds Keyer transcript logging.
 - `keyer_service`: pinned physical/automatic timing, adaptive straight-key
   decoding, KeyIn/KeyOut modes and cancellation. Raw GPIO and ticks are private
   port calls. The decoder source/header are unchanged from the pinned source.
@@ -162,3 +162,31 @@ clearing are unchanged. Its last matched base call and name appear as `<call>: <
 only when Tune, transient status and TX-tail text are absent. The fixed UTC
 header never changes. Table edits take effect on the next launch; there is no
 runtime reload. T046 hardware/audio acceptance remains pending review.
+
+
+## Keyer transcript and safe notes
+
+T048 captures one chronological transcript from decoded characters/spaces,
+accepted keyboard TX text, appended M1–M5 messages and automatic M1 repeats.
+As in standalone V1.2, TX text is recorded when appended, not when transmission
+finishes; Backspace corrects the still-current minute. Each minute holds up to
+1024 payload bytes, followed by one ` [TRUNC]` suffix if input exceeded capacity.
+
+UTC selects `/flash/minicw/YYYYMMDD.txt`; each line is `HHMM <transcript>`.
+There are no GPS/grid, QSO or secondary-format records. Finalized minutes queue
+in MiniShell Memory and append only after a safe idle interval, with no TX,
+repeat, Tune, Audio or physical key activity. Shutdown cancels output, closes
+Tone, and drains the final partial minute before Filesystem teardown. Unavailable
+UTC does not fabricate a timestamp. Allocation failure drops only that minute;
+filesystem failures are nonfatal and records are attempted once to avoid
+repeating an ambiguous append.
+
+On the normal screen, either `'` or `"` toggles a temporary note mode. Entry is
+accepted only while idle. It saves KeyOut/Mute, sets KeyOut OFF and Mute OFF, and
+adds transcript-only `**`. Type a note such as `20M` through normal local CW;
+either quote then adds closing `**`, cancels pending note playback, and restores
+the saved values. Quote keys and generated delimiters never enter the TX FIFO.
+The transcript contains `**20M**`. Operation editors retain their existing key
+handling. KeyOut/Mute changes are ignored during the safety overlay, and settings
+snapshots retain the saved logical KeyOut. Exiting the app closes an active note
+before taking the final settings snapshot.

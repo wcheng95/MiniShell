@@ -19,3 +19,5 @@ typedef enum { STORAGE_OP_OK, STORAGE_OP_MISSING, STORAGE_OP_FAILED } storage_op
 /* Storage/app owns the session table; Keyer only borrows it until detached. */
 storage_op_result_t storage_op_load(keyer_op_entry_t **entries, size_t *count);
 void storage_op_free(keyer_op_entry_t *entries);
+
+bool storage_transcript_append(uint32_t date, const char *line);

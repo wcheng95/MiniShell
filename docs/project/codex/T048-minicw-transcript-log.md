@@ -1,6 +1,6 @@
 # T048 — Mini-CW transcript logging + safe annotation shortcut
 
-Status: READY
+Status: REVIEW
 
 ## Baseline
 
@@ -452,3 +452,171 @@ This revision supersedes the original T048 line format and shortcut details:
 - note content is bracketed in the transcript by generated `**` delimiters;
 - The generated `**` delimiters are transcript-only metadata: they are never appended to the TX FIFO, never keyed, and never sounded.
 - minute transcript payload is fixed at 1024 bytes (+ implementation terminator).
+
+
+## Implementation handoff
+
+Task branch baseline: `f35e6eb910a03bdaf15cb8f1ae87ba7dab77d164`, containing
+accepted recovery `53cd7f45e1b7464cde159955263d8f553f02093d`.
+Status: **REVIEW** on `codex/T048-minicw-transcript-log`.
+
+### Implementation summary / changed files
+
+- `apps/minicw/src/app_core/transcript.{c,h}` owns the 1024-byte current minute,
+  captured UTC date/minute, truncation and Backspace semantics, and a linked
+  queue of finalized canonical lines. Capture/rollover is RAM-only; queue nodes
+  use private MiniShell Memory wrappers. Failed allocation drops only its record.
+- `apps/minicw/src/app_core/app_core.{c,h}` connects V1.2 transcript feed points
+  (decoded text, accepted TX append, actual inserted spaces, messages/repeats,
+  Backspace), note entry/exit and persistence isolation. Queued logs drain only
+  after 250 ms of safe idle, one record per tick so input/audio conditions are
+  rechecked between records. Normal
+  shutdown closes a note before settings snapshot, cancels output, finalizes the
+  minute and drains after Tone close. Abnormal runtime shutdown discards/frees
+  queued records rather than attempting disk I/O.
+- `apps/minicw/src/keyer_service/keyer_service.{c,h}` adds only a read-only
+  `keyer_service_has_manual_work()` query. A muted element can remain active
+  after both pins release; the query excludes this and remembered paddle work
+  from note-entry/log-write idle conditions. No timing or state transition changes.
+- `apps/minicw/src/storage_service/storage_service.{c,h}` constructs the daily
+  filename from the captured record date and requests append through the port.
+  Settings format and callsign loader are unchanged.
+- `apps/minicw/src/port/minicw_port.{c,h}` adds UTC date/minute conversion and
+  append-through-Filesystem (mkdir, WRITE|CREATE|APPEND, bounded short-write loop,
+  sync, exactly one close). Failures never latch a fatal app error; no append is
+  retried. It invokes transcript shutdown after the existing Tone-close point.
+- `apps/minicw/src/ui_service/ui_service.{c,h}` consumes both quote keys as the
+  same note-toggle event only in the normal view. Existing renderers/editors
+  remain unchanged. `apps/minicw/sources.cmake` includes the transcript module.
+- `tests/minicw_transcript_test.c` / `tests/minicw_tests.cmake` add focused
+  transcript, queue, failure, runtime lifecycle and note safety coverage.
+  `apps/minicw/README.md` and this packet document the behavior/evidence.
+
+### Preserved behavior / reference evidence
+
+Used pinned standalone `3bfbf169b7c2d49a1be3e9a4c80f945edb32033e` app-core
+transcript normalization, append/Backspace and inserted-space decisions, adapted
+to compact daily UTC records and deferred app-owned queueing. There is no GPS,
+QSO or other record format. All persisted records begin with four HHMM digits
+and a space, never V1.2's `T [` or `G [` prefixes.
+
+Note entry saves runtime KeyOut/Mute and sets OFF/OFF; busy entry consumes the
+quote without changing state or transcript. Exit adds only log delimiters,
+cancels repeat/pending TX/FIFO, resets manual/Tune state through existing calls,
+stops Tone and releases KeyOut while OFF, then restores saved KeyOut/Mute.
+KeyOut/Mute UI actions cannot defeat the overlay. Settings snapshots substitute
+the saved logical KeyOut, including when other settings are edited during notes.
+
+Protected Audio source/header diff = **NONE** against recovery: core Audio,
+tone stream/simulator, ADV speaker and Mini-CW Audio are unchanged. Public API,
+resident code, existing Keyer/FT8 and Mini-CW screen/color renderer are unchanged.
+The Keyer implementation differs only by the read-only work-state query; Morse
+scheduling, lookup, KeyOut transitions and input engine remain intact. The UI
+implementation differs only by quote event interception: fixed header, colors,
+separator, lookup row and priority remain unchanged.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+# Final PASS: 87/87
+cmake -S tests/unit -B /tmp/T048-unit
+cmake --build /tmp/T048-unit -j8
+ctest --test-dir /tmp/T048-unit --output-on-failure
+# PASS: 28/28
+ctest --test-dir build-linux -R 'minicw|storage|tone|architecture|boundary' --output-on-failure
+# PASS: 22/22
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: before and after implementation
+idf.py -C platform/adv/elf_apps/minicw fullclean
+idf.py -C platform/adv/elf_apps/minicw elf
+# PASS: clean 1075-step build
+python3 tests/minicw_elf_inspect.py platform/adv/elf_apps/minicw/build/minicw.app.elf
+# PASS: sole resident import mini_api_get, 683 mapped relocations
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+cmp /tmp/T048-before.bin platform/adv/build/minishell_adv.bin
+cmp /tmp/T048-before-size.txt /tmp/T048-after-size.txt
+# PASS: identical resident BIN and all section sizes
+git diff --check
+# PASS
+```
+
+An intermediate full Linux run hit the previously reported `linux_serial_unit`
+line-67 PTY timeout assertion. Its immediate isolated rerun passed, followed by
+final full-suite 87/87 success; no Serial code/tests were changed. Initial ELF
+inspection caught an unintended `strcpy` import in the new formatter; bounded
+`memcpy` replaced it, and the subsequent clean build/import inspection passed.
+
+Focused coverage includes:
+
+- decoded text/word spaces, keyboard TX, M1–M5, automatic M1 repeat, actual space
+  insertion and Backspace; exact `1842 CQ X A B C D EA` compact output;
+- exact 1024-byte fit, over-limit dropping with one suffix, Backspace after
+  overflow, and delimiters consuming payload capacity;
+- UTC failure without fake records, Gregorian leap date and pre-epoch UTC,
+  captured-date midnight rollover preserving existing files and queued order;
+- multiple busy minutes without writes and rechecking physical activity between
+  queued records; all TX/pending/repeat/Tune/Audio/pin
+  guards, including a muted paddle element after pin release;
+- allocation failure preserving earlier/later records; short writes plus
+  mkdir/open/write/partial-write/zero-progress/oversized-result/sync/close
+  failures, one close per acquired handle, nonfatal behavior and no retries;
+- both entry keys and cross-key exit; `**20M**`, audible local Tone path with
+  inactive KeyOut, no quote/delimiter playback, pending-note cancellation before
+  mode restoration, no RF tail after restore, saved settings/mute preservation;
+- note spanning minute boundaries, normal-view-only shortcut and
+  active-note shutdown; repeated actual `minicw_run()` exit with/without a lookup
+  table, closed Tone before shutdown append, no live queue allocations, and
+  abnormal-return cleanup without disk writes.
+
+### Resident / external resource evidence
+
+ESP-IDF v5.5.4 / Xtensa GCC 14.2.0. Resident BIN **identical**, 1,381,568 bytes,
+SHA-256 before/after:
+
+```text
+54aceebc8f283ee4c2ae0f93e70e1d0c5501efd453ed9b024e5232b917acff51
+```
+
+| Resident section | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,016 | 27,016 | 0 |
+| `.dram0.bss` | 40,336 | 40,336 | 0 |
+| Static internal SRAM | 131,311 | 131,311 | **0** |
+
+All other resident sections match as well.
+
+| External measure | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| ELF bytes | 45,324 | 48,372 | +3,048 |
+| `.text` | 31,556 | 34,020 | +2,464 |
+| `.rodata` | 2,012 | 2,056 | +44 |
+| `.data` | 1,284 | 1,284 | 0 |
+| `.bss` | 3,432 | 4,488 | +1,056 |
+| Section-loader text + data | 38,284 | 41,848 | +3,564 |
+
+Sole resident import: **`mini_api_get`**. Current-minute storage is 1024 payload
+bytes plus terminator. Each queued minute requests **1,048 bytes** on ADV,
+confirmed by an Xtensa compile-time `sizeof(transcript_record_t)` probe
+(`nm` size `0x418`). Queue memory grows with finalized minutes awaiting safe
+idle; no task, PCM buffer or fixed queue limit is added. Queue nodes are freed
+after one append attempt or abnormal-shutdown discard. Existing lookup allocation
+is unchanged. These are static/build and instrumented software measurements;
+no on-device heap/audio measurements were performed.
+
+### Remaining risks / hardware validation / commit reference
+
+No PR or hardware testing by Codex. Supervisor review precedes the task's ADV
+acceptance: compact daily file contents, normal paddle/M1 clean audio, local
+note audio without RF, safe KeyOut/Mute restore, and final-minute flush on Ctrl+C.
+Queued memory can grow during long continuous activity; exhaustion drops that
+finalized record. A failed append may leave a partial line on disk, and records
+are not retried after any failure (including ambiguous sync/close) to avoid
+possible duplication. Log failure remains nonfatal. No scope deviations.
+
+Commit reference: the single implementation commit containing this handoff;
+exact SHA returned after push. Status: **REVIEW**.

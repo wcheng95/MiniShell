@@ -108,6 +108,8 @@ const char *keyer_service_key_in_mode_label(keyer_key_in_mode_t mode);
 const char *keyer_service_key_out_mode_label(keyer_key_out_mode_t mode);
 const char *keyer_service_paddle_mode_label(keyer_paddle_mode_t mode);
 
+/* Read-only idle guard, including muted elements and remembered paddle work. */
+bool keyer_service_has_manual_work(void);
 bool keyer_service_is_tx_active(void);
 bool keyer_service_tx_append_text(const char *text, bool insert_space);
 bool keyer_service_tx_backspace(void);

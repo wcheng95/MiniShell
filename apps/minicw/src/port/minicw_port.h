@@ -43,3 +43,7 @@ bool minicw_port_read_close(minicw_read_stream_t stream);
 /* Optional Memory service; failures leave the original allocation owned. */
 bool minicw_port_memory_resize(void **pointer, uint32_t bytes);
 void minicw_port_memory_release(void *pointer);
+
+/* Captured UTC calendar date YYYYMMDD and minute within that date. */
+bool minicw_port_utc_minute(uint32_t *date, uint16_t *minute);
+bool minicw_port_file_append(const char *directory, const char *path, const char *text, uint32_t size);

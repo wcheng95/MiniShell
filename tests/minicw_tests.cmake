@@ -64,3 +64,13 @@ target_include_directories(minicw_lookup_unit PRIVATE ${MINICW_INCLUDES}
 target_compile_options(minicw_lookup_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -fno-builtin -UNDEBUG)
 target_link_libraries(minicw_lookup_unit PRIVATE m)
 add_test(NAME minicw_lookup_unit COMMAND minicw_lookup_unit)
+set(MINICW_TRANSCRIPT_SOURCES ${MINICW_PERSISTENCE_SOURCES})
+list(FILTER MINICW_TRANSCRIPT_SOURCES EXCLUDE REGEX "/app_core/transcript\\.c$")
+add_executable(minicw_transcript_unit ${MINICW_TEST_ROOT}/tests/minicw_transcript_test.c
+    ${MINICW_TRANSCRIPT_SOURCES} ${MINICW_TEST_ROOT}/platform/common/tone_stream.c
+    ${MINICW_TEST_ROOT}/platform/common/tone_sim.c)
+target_include_directories(minicw_transcript_unit PRIVATE ${MINICW_INCLUDES}
+    ${MINICW_TEST_ROOT}/core/minishell_services ${MINICW_TEST_ROOT}/platform/common)
+target_compile_options(minicw_transcript_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -fno-builtin -UNDEBUG)
+target_link_libraries(minicw_transcript_unit PRIVATE m)
+add_test(NAME minicw_transcript_unit COMMAND minicw_transcript_unit)

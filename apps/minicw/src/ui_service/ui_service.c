@@ -1635,6 +1635,13 @@ ui_input_event_t ui_service_poll_input(void)
         return UI_EVENT_NONE;
     }
 
+    if (s_ui.mode == UI_SERVICE_MODE_KEYER && s_ui.view == UI_VIEW_NORMAL &&
+        (port_event.ch == '\'' || port_event.ch == '"')) {
+        ui_input_event_t note = UI_EVENT_NONE;
+        ui_service_set_event(&note, UI_INPUT_EVENT_NOTE_TOGGLE, port_event.ch);
+        return note;
+    }
+
     if (s_ui.mode == UI_SERVICE_MODE_KEYER && s_ui.view == UI_VIEW_NORMAL) {
         ui_input_event_t tune_event = UI_EVENT_NONE;
         if (ui_service_handle_keyer_tune_char(port_event.ch, &tune_event)) {
