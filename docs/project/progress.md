@@ -294,3 +294,4 @@ matching standalone Mini-CW. T044A is persistence only with an explicit audio fr
 
 T046 Mini-CW callsign lookup     COMPLETE — full V1.2 table, <base-call>: <name> row, audio/header/clearing/exit all hardware accepted
 T047 Mini-CW color UI            COMPLETE — V1.2 white/green/cyan text and 2-pixel green separator accepted on ADV; audio and lookup remain clean
+T048 Mini-CW transcript log      READY — V1.2 minute transcript only, daily /flash/minicw/YYYYMMDD.txt, no G records, safe quote annotation overlay
