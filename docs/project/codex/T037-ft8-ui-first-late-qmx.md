@@ -1,6 +1,6 @@
 # T037 — Restore UI-first ADV FT8 startup with late QMX attach
 
-Status: REVIEW
+Status: TESTING
 
 Architect clarification: **Escape remains Back; Q quits**, including while CAT
 is pending. This overrides the Q/Esc exit wording below.
@@ -634,6 +634,46 @@ Review the exact implementation diff. Special attention:
 
 No PR required.
 
+## Supervisor review — implementation
+
+Reviewed implementation commit:
+
+```text
+79b8373521295363c628d69db249360ce57ee7f0
+```
+
+Result: **PASS — ready for ADV hardware validation.**
+
+The implementation restores the intended UI-first lifecycle without undoing T030 transport ownership:
+
+- normal MiniFT8 frame is rendered before the first live CAT readiness attempt;
+- `MINI_ERR_NOT_READY` from a live CAT endpoint becomes a 300 ms monotonic pending retry;
+- the pending path remains in the normal MiniFT8 loop with ordinary R/T/O/S/V navigation;
+- Escape retains normal Back behavior and Q quits;
+- RX remains inactive and TX progression is gated while CAT is pending;
+- CAT synchronization runs once when readiness appears;
+- RX and the decode worker start once, only after CAT success;
+- hard CAT errors remain hard errors;
+- fixture/file/offline/tone-test paths preserve their existing semantics;
+- portable MiniFT8 contains no QMX/ADV/USB knowledge;
+- the ADV wrapper no longer renders or owns a `waiting for QMX` UI;
+- ADV composition begins one private QMX discovery hold before entering MiniFT8 and ends it on return;
+- held `serial:qmx` opens use a zero-time CDC readiness check and return NOT_READY promptly without session churn;
+- outside the discovery hold, the existing approximately three-second generic Serial-open behavior is unchanged;
+- CAT and UAC public handles share the same retained USB session;
+- final discovery-end cleanup uses the existing `release_unused()` ownership path;
+- CPU1 USB Host ownership, FIFO 91/18/91, UAC buffering, FT8 DSP profile, WebFS and public APIs are unchanged.
+
+Validation evidence is sufficient for hardware testing: Linux 74/74, portable 15/15, focused 11/11, architecture checks, real ADV build and diff check all pass.
+
+Resource impact:
+
+- firmware: +224 B;
+- permanent static SRAM: 0 B;
+- no new heap allocation;
+- no task or stack-size change.
+
+Hardware acceptance should now focus on no-QMX UI responsiveness, late physical attachment, already-connected startup, and same-boot cleanup/retry.
 ## Architect test result
 
 Pending.
