@@ -2197,6 +2197,51 @@ pop remains    -> revert the diagnostic suppression and continue investigation.
 ```
 
 
+## Architect hardware result — R4
+
+**PASS — root cause confirmed on Cardputer ADV.**
+
+Using the exact reviewed R4 ELF, the previously reproducible popping between
+automatic-TX characters disappeared when Display render/present was suppressed
+through the active automatic-TX phases.
+
+Combined hardware evidence:
+
+- the same message sent manually with the paddle had no popping;
+- R3's raised-cosine envelope alone did not remove the automatic-TX pop;
+- R4 changed no Audio, sidetone, TX timing or KeyOut behavior;
+- R4 changed only Display scheduling during automatic TX;
+- with that suppression enabled, the pop disappeared.
+
+Conclusion: synchronous foreground Display work was starving the ADV speaker/I2S
+feed during automatic TX and causing an audible underrun/discontinuity.
+
+The R4 scheduling rule is therefore accepted as the permanent K6 behavior:
+
+```text
+automatic TX active phase:
+    TX_ELEMENT / TX_ELEMENT_GAP / TX_CHAR_GAP / TX_WORD_GAP
+        -> defer Display render/present
+
+TX_IDLE:
+        -> immediately catch up Display
+
+manual paddle:
+        -> normal Display behavior remains enabled
+
+TxDelay / idle M1 repeat wait:
+        -> normal Display behavior remains enabled
+```
+
+This keeps the fix local to the Keyer application, avoids resident Audio/DMA/API
+changes, preserves exact KeyOut/TX timing, and avoids adding tasks or buffering
+architecture solely for UI refresh continuity.
+
+Future optimization may revisit live display updates during automatic TX only if
+there is a demonstrated usability need and an independently buffered audio path.
+It is not required for K6 correctness.
+
+
 ## Architect test result
 
 Pending.
