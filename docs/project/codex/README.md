@@ -7,8 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active / next tasks
 
 ```text
-T040-keyer-unified-transcript.md  TESTING — hardware acceptance in progress
-T042-minicw-foundation.md         READY   — first Mini-CW -> MiniShell migration stage
+T044A-minicw-persistence.md       READY   — persistence only; validated audio path frozen
 ```
 
 T038 K6 is COMPLETE. T039 is BREAK after multiple hardware attempts failed to eliminate the remaining Keyer speaker pop. T040 is in hardware testing. The next architecture track is the Mini-CW migration: T042 ports Mini-CW Keyer-mode structure onto MiniShell services, with the pinned Mini-CW V1.2-era source as the golden reference and audio deliberately deferred to T043.
@@ -44,6 +43,15 @@ RR73-vs-locator disambiguation is deferred.
 Workflow remains: one temporary task branch -> local build/tests -> supervisor
 diff review -> real-system validation when required -> fast-forward `main` ->
 delete the temporary branch.
+
+Golden recovery checkpoint for Mini-CW audio work:
+
+```text
+golden/minicw-clean-audio
+48a40d79c13ed60ef9f8444a060164852d226fcd
+```
+
+Any audible regression in T044A is an immediate stop/revert condition.
 
 ## Rule
 
