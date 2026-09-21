@@ -1,6 +1,6 @@
 # T043 — Mini-CW known-good continuous audio under MiniShell
 
-Status: TESTING
+Status: COMPLETE
 
 ## Objective
 
@@ -574,3 +574,38 @@ Acceptance requires:
 
 Do not mark COMPLETE unless both paddle and M1 are acoustically clean against
 standalone MiniCW V1.2.
+
+
+## Architect hardware acceptance
+
+Cardputer ADV acoustic validation: **PASS**.
+
+The architect tested the T043 resident MiniShell firmware together with the T043
+external `minicw.elf` on the same Cardputer ADV previously used for standalone
+`MiniCW_V1_2.bin`.
+
+Observed result:
+
+```text
+paddle        clean — no pop
+automatic M1  clean — no pop
+overall sound matches standalone Mini-CW reference
+```
+
+This satisfies the decisive H1/H2 acceptance gate. The migrated continuous-tone
+path now reproduces the standalone Mini-CW acoustic behavior under MiniShell.
+
+The accepted architecture is:
+
+```text
+minicw.elf
+  -> generic MiniShell Tone capability
+  -> resident Mini-CW-derived 64-segment / 5 ms continuous worker
+  -> esp_codec_dev_write()
+  -> ES8311 / I2S
+```
+
+This is the first MiniShell Keyer path validated with both live UI and clean
+paddle + automatic M1 sidetone without Display suppression.
+
+T043 is COMPLETE.
