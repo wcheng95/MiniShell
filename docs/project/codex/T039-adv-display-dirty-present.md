@@ -1,6 +1,6 @@
 # T039 — ADV dirty-row Display present + live Keyer TX refresh
 
-Status: READY
+Status: BREAK
 
 ## Objective
 
@@ -348,3 +348,24 @@ Codex handoff:
 Supervisor reviews the actual diff before hardware testing.
 
 Do not merge to `main` until H1-H4 pass.
+
+
+## Closeout — BREAK
+
+The architect stopped T039 after repeated Cardputer ADV hardware experiments did
+not eliminate the Keyer speaker pop.
+
+The experimental branch remains preserved with detailed R1-R3 evidence. In
+summary:
+
+- dirty-row Display rendering restored live automatic-TX refresh but the pop
+  remained;
+- a resident CPU1 continuous-tone worker with zero PCM during silence did not
+  eliminate the pop, and manual paddle could occasionally pop;
+- changing only that worker from direct I2S writes to Mini-CW's
+  `esp_codec_dev_write()` transport still did not eliminate the pop.
+
+None of the T039 production experiments were merged to `main`.
+
+The project returns to the T038 code line. The remaining sound-pop issue is
+explicitly deferred while Keyer UI/transcript simplification continues in T040.
