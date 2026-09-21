@@ -1,6 +1,6 @@
 # T043 — Mini-CW known-good continuous audio under MiniShell
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -487,3 +487,90 @@ and passing host tests do not establish acoustic parity or real-time scheduling
 on ADV. Dynamic free-heap/stack high-water and full driver-allocation totals
 remain unmeasured on device. If either paddle or M1 still pops, compare exact
 PCM/queue/task/codec behavior with the pinned source before any redesign.
+
+
+## Supervisor review
+
+Reviewed implementation:
+
+```text
+63b01a98a7e78bb43a7e0c2ebefcfe81531854cc
+```
+
+Result: **PASS — ready for ADV acoustic hardware validation.**
+
+### Findings
+
+No software blocker found.
+
+The implementation preserves the pinned Mini-CW audio architecture rather than
+reusing the failed T039 design:
+
+- 64-entry 12-byte segment ring;
+- 5 ms / 240-frame renderer;
+- 48 kHz S16 mono;
+- exact pinned DDS/envelope math;
+- continuous zero PCM while idle;
+- eight zero chunks before first unmute;
+- priority-5 / 6144-byte dedicated worker;
+- finite and hold segments;
+- preempt/release semantics;
+- generation-guarded committed-sample busy accounting;
+- 4 x 120 I2S DMA geometry;
+- `esp_codec_dev_write()` transport;
+- ES8311 remains enabled between elements.
+
+Ordinary PCM TX remains on the existing direct-I2S path and retains its existing
+API semantics. Tone/ordinary speaker TX are mutually exclusive.
+
+The external `minicw.elf` remains platform-independent and imports only
+`mini_api_get`.
+
+The only substantial new behavior with no standalone Mini-CW equivalent is
+worker destruction/recreation on application lifetime. Review found this
+lifecycle conservative: no running task is force-deleted; timeout retains
+private ownership/resources until deterministic later reap.
+
+### Software evidence
+
+```text
+Linux CTest              82/82
+portable units           24/24
+tone/minicw focused       8/8
+architecture/boundary    PASS
+ADV firmware build       PASS
+clean minicw ELF         PASS
+ELF import inspection    PASS
+git diff --check         PASS
+```
+
+Resource delta:
+
+```text
+resident firmware        +5,504 bytes
+resident static SRAM     +1,488 bytes
+worker stack              6,144 bytes
+external minicw ELF      38,820 bytes
+resident import          mini_api_get only
+```
+
+### Hardware gate
+
+T043 requires flashing both:
+
+1. the new resident MiniShell firmware containing `MINI_AUDIO_CAP_TONE`;
+2. the new T043 `minicw.elf`.
+
+Acceptance requires:
+
+- paddle clean/no pop;
+- M1 clean/no character-boundary pop;
+- Tune/straight-key clean start/stop;
+- physical preemption leaves no stale tone;
+- volume/mute/pitch work;
+- Ctrl+C returns silent;
+- repeated launch/exit works;
+- ordinary MiniShell Audio/FT8 remains usable after exit.
+
+Do not mark COMPLETE unless both paddle and M1 are acoustically clean against
+standalone MiniCW V1.2.
