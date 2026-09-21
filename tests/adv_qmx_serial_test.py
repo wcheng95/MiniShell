@@ -52,18 +52,19 @@ constexpr esp_err_t ESP_OK = 0, ESP_ERR_TIMEOUT = 1, ESP_ERR_INVALID_STATE = 2;
 int cdc_mutex;
 bool serial_reserved, cdc_running = true, cdc_unplugged;
 void *cdc_device = (void *)1;
-bool session_ready, session_dirty, reserved;
+bool session_ready, session_dirty, reserved, discovery_held;
 bool prepare_ok = true, release_ok = true, lock_ok = true, locked;
 int prepares, releases, writes;
 std::string transmitted;
-uint32_t driver_timeout, advance_ms;
+uint32_t driver_timeout, advance_ms, lock_wait;
 int64_t now;
 esp_err_t tx_result;
 static int64_t esp_timer_get_time() { return now; }
 static void vTaskDelay(int) { now += 10000; }
 static bool prepare() { ++prepares; return prepare_ok; }
 static bool release() { ++releases; return release_ok; }
-static int xSemaphoreTake(int, TickType_t) {
+static int xSemaphoreTake(int, TickType_t wait) {
+    lock_wait = wait;
     now += (int64_t)advance_ms * 1000;
     if (!lock_ok) return 0;
     assert(!locked); locked = true; return pdTRUE;
@@ -164,14 +165,33 @@ int main() {
     assert(serial_close(nullptr, serial) == MINI_OK && !session_dirty);
     before = releases;
     assert(release_unused() && releases == before);
+    cdc_device = nullptr;
+    int before_prepare = prepares;
+    assert(adv_qmx_discovery_begin() == MINI_OK && discovery_held && session_ready);
+    assert(prepares == before_prepare + 1);
+    int64_t held_now = now;
+    for (unsigned i = 0; i < 200; ++i) {
+        serial = 99;
+        assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_ERR_NOT_READY);
+        assert(serial == 0 && now == held_now && lock_wait == 0 && releases == before);
+        assert(prepares == before_prepare + 1 && session_ready);
+    }
+    cdc_device = (void *)1; lock_ok = false;
+    assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_ERR_NOT_READY && !serial);
+    assert(now == held_now && releases == before && lock_wait == 0);
+    lock_ok = true;
+    assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_OK);
+    assert(serial_close(nullptr, serial) == MINI_OK && releases == before && session_ready);
+    assert(adv_qmx_discovery_end() == MINI_OK && releases == before + 1 && !session_dirty);
+    assert(!discovery_held);
 }
 '''
 functions = '\n'.join(function(s) for s in ('bool release_unused()', 'bool acquire_session()',
     'mini_result_t serial_open(', 'mini_result_t serial_write(', 'mini_result_t serial_close(',
     'void loss()', 'mini_result_t rx_open(', 'mini_result_t rx_start(',
     'mini_result_t rx_stop(', 'mini_result_t rx_close(',
-    'extern "C" mini_result_t adv_qmx_prepare_serial(',
-    'extern "C" mini_result_t adv_qmx_release_unused('))
+    'extern "C" mini_result_t adv_qmx_discovery_begin(',
+    'extern "C" mini_result_t adv_qmx_discovery_end('))
 integration = r'''
 static mini_api_t api;
 static mini_serial_api_t serial_api;
@@ -195,8 +215,12 @@ static void console_write(const char *text) {
 }
 static mini_result_t key_read(mini_key_event_t *event, uint32_t timeout) {
     assert(timeout == 100 && session_ready && !serial_reserved && !reserved);
-    assert(transmitted.empty() && entries == 0);
+    assert(transmitted.empty() && entries == 1 && discovery_held);
     now += 100000; ++polls;
+    if (scenario == 2 && polls == 41) {
+        event->type = MINI_KEY_EVENT_CHAR; event->codepoint = 'q';
+        return MINI_OK;
+    }
     if (polls == 40) {
         if (scenario == 1 || scenario == 2) {
             event->type = scenario == 1 ? MINI_KEY_EVENT_CHAR : MINI_KEY_EVENT_SPECIAL;
@@ -212,8 +236,21 @@ extern "C" int test_ft8_entry(int argc, char **argv) {
     assert(argc == 5 && strcmp(argv[2], "uac:qmx") == 0 && strcmp(argv[4], "serial:qmx") == 0);
     ++entries;
     if (scenario == 6) return 3; // Portable configuration/UI failure before CAT.
+    assert(now == 0 && discovery_held && session_ready); // No pre-entry readiness wait.
     RadioControl radio = {};
-    mini_result_t synced = radio_control_open_qmx(&radio, &api, argv[4], 7074000);
+    mini_result_t synced;
+    int session_prepares = prepares, session_releases = releases;
+    while ((synced = radio_control_open_qmx(&radio, &api, argv[4], 7074000)) == MINI_ERR_NOT_READY) {
+        assert(lock_wait == 0 && now == (int64_t)polls * 100000);
+        assert(!serial_reserved && radio.stream == MINI_SERIAL_INVALID);
+        assert(prepares == session_prepares && releases == session_releases);
+        mini_key_event_t event = {};
+        mini_result_t input = key_read(&event, 100);
+        if (input == MINI_OK) {
+            if (event.type == MINI_KEY_EVENT_CHAR && event.codepoint == 'q') return 0;
+            assert(event.key == MINI_KEY_ESCAPE); // Back, then a later Q quits.
+        } else if (input != MINI_ERR_TIMEOUT) return 6;
+    }
     if (synced != MINI_OK) return 12;
     assert(transmitted == "MD6;FR0;FT0;FA00007074000;");
     assert(!reserved); // Real radio adapter synchronized before RX acquisition.
@@ -222,6 +259,7 @@ extern "C" int test_ft8_entry(int argc, char **argv) {
     assert(rx_start(nullptr, audio) == MINI_OK && started && serial_reserved);
     assert(radio_control_close(&radio) == MINI_OK && session_ready);
     assert(rx_close(nullptr, audio) == MINI_OK);
+    assert(session_ready && discovery_held && releases == session_releases);
     return 0;
 }
 static void test_late_attach() {
@@ -241,12 +279,12 @@ static void test_late_attach() {
         int before_prepare = prepares, before_release = releases;
         char name[] = "ft8"; char *argv[] = {name, nullptr};
         int result = minishell_app_ft8_main(1, argv);
-        assert(result == (scenario >= 3 && scenario != 6 ? 12 : scenario == 6 ? 3 : 0));
-        assert(!serial_reserved && !reserved && !session_dirty && !ring);
+        assert(result == (scenario == 3 ? 6 : scenario == 6 ? 3 : scenario >= 4 ? 12 : 0));
+        assert(!serial_reserved && !reserved && !session_dirty && !ring && !discovery_held);
         assert(prepares == before_prepare + 1 && releases == before_release + 1);
-        assert(polls == (scenario == 4 || scenario == 5 ? 0 : 40));
-        assert(announcements == (polls ? 1 : 0));
-        assert(entries == (scenario == 0 || scenario == 6 || scenario == 7 ? 1 : 0));
+        assert(polls == (scenario == 4 || scenario == 5 || scenario == 6 ? 0 : scenario == 2 ? 41 : 40));
+        assert(announcements == 0);
+        assert(entries == (scenario == 4 ? 0 : 1));
         if (scenario != 0) assert(transmitted.empty());
     }
 }

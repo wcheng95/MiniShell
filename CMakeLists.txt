@@ -833,3 +833,13 @@ target_compile_options(adv_webfs_settings_unit PRIVATE -Wall -Wextra -Werror -Wp
 add_test(NAME adv_webfs_settings_unit COMMAND adv_webfs_settings_unit)
 add_test(NAME adv_webfs_wifi_settings
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_webfs_wifi_settings_test.py ${CMAKE_SOURCE_DIR})
+
+add_executable(ft8_pending_start_unit tests/ft8_pending_start_test.c
+    apps/ft8/main/ft8_ui_adapter.c apps/ft8/src/ui_shell/ui_shell.c
+    apps/ft8/src/presentation_profile/presentation_profile.c
+    apps/ft8/src/radio_control/radio_control.c apps/ft8/src/radio_control/radio_qmx.c)
+target_include_directories(ft8_pending_start_unit PRIVATE include apps/ft8/include apps/ft8/main
+    apps/ft8/src/app_controller apps/ft8/src/ui_shell apps/ft8/src/presentation_profile apps/ft8/src/radio_control)
+target_compile_options(ft8_pending_start_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+target_link_libraries(ft8_pending_start_unit PRIVATE m)
+add_test(NAME ft8_pending_start_unit COMMAND ft8_pending_start_unit)

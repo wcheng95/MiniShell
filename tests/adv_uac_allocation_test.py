@@ -49,7 +49,7 @@ bool connected = true;
 static int64_t esp_timer_get_time() { return 0; }
 static void vTaskDelay(int) {}
 std::atomic<unsigned> read_errors{0}, transfer_errors{0};
-bool capture_running, serial_reserved, session_ready, session_dirty;
+bool capture_running, serial_reserved, session_ready, session_dirty, discovery_held;
 uint32_t rx_generation;
 #define portENTER_CRITICAL(unused) ((void)0)
 #define portEXIT_CRITICAL(unused) ((void)0)

@@ -37,7 +37,7 @@ std::atomic<bool> host_installed{false};
 std::atomic<esp_err_t> host_start_result{ESP_ERR_INVALID_STATE};
 constexpr minishell_backend_serial_t serial_handle = 0x434443u;
 // Public owners are foreground-only; worker-visible RX state uses lock/atomics.
-bool serial_reserved, session_ready, session_dirty;
+bool serial_reserved, session_ready, session_dirty, discovery_held;
 uint32_t rx_generation;
 bool uac_installed, cdc_installed, capture_running, host_running, cdc_running;
 // Worker-owned until joined; retain failed closes for foreground cleanup retry.
@@ -399,7 +399,7 @@ bool prepare()
 // Retain incomplete teardown for retry without retaining a consumed public handle.
 bool release_unused()
 {
-    if (reserved || serial_reserved) return true;
+    if (reserved || serial_reserved || discovery_held) return true;
     session_ready = false;
     if (!session_dirty) return true;
     if (!release()) return false;
@@ -422,6 +422,16 @@ mini_result_t serial_open(void *, const char *endpoint, minishell_backend_serial
     if (!endpoint || strcmp(endpoint, "serial:qmx") != 0) return MINI_ERR_INVALID;
     if (serial_reserved) return MINI_ERR_TOO_MANY_OPEN;
     if (!acquire_session()) return MINI_ERR_IO;
+    if (discovery_held) {
+        if (!cdc_running) return MINI_ERR_IO;
+        if (xSemaphoreTake(cdc_mutex, 0) != pdTRUE) return MINI_ERR_NOT_READY;
+        bool ready = cdc_device && !cdc_unplugged;
+        xSemaphoreGive(cdc_mutex);
+        if (!ready) return MINI_ERR_NOT_READY;
+        serial_reserved = true;
+        *out = serial_handle;
+        return MINI_OK;
+    }
     // Enumeration is asynchronous. Match first-attach/reconnect without an
     // unbounded foreground open when the radio is absent.
     int64_t deadline = esp_timer_get_time() + 3000000;
@@ -569,16 +579,15 @@ mini_result_t rx_close(void *ctx, minishell_backend_audio_t audio)
     return release_unused() ? MINI_OK : MINI_ERR_IO;
 }
 } // namespace
-extern "C" mini_result_t adv_qmx_prepare_serial(void)
+extern "C" mini_result_t adv_qmx_discovery_begin(void)
 {
-    if (!acquire_session() || !cdc_running) return MINI_ERR_IO;
-    if (xSemaphoreTake(cdc_mutex, 0) != pdTRUE) return MINI_ERR_NOT_READY;
-    bool ready = cdc_device && !cdc_unplugged;
-    xSemaphoreGive(cdc_mutex);
-    return ready ? MINI_OK : MINI_ERR_NOT_READY;
+    if (!acquire_session()) return MINI_ERR_IO;
+    discovery_held = true;
+    return MINI_OK;
 }
-extern "C" mini_result_t adv_qmx_release_unused(void)
+extern "C" mini_result_t adv_qmx_discovery_end(void)
 {
+    discovery_held = false;
     return release_unused() ? MINI_OK : MINI_ERR_IO;
 }
 extern "C" void adv_audio_uac_configure(minishell_services_port_t *port)

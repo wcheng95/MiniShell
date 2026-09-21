@@ -16,8 +16,8 @@ harness = r'''
 #include "adv_internal.h"
 const mini_api_t *mini_api_get(void) { return NULL; }
 static int probes, releases;
-mini_result_t adv_qmx_prepare_serial(void) { ++probes; return MINI_OK; }
-mini_result_t adv_qmx_release_unused(void) { ++releases; return MINI_OK; }
+mini_result_t adv_qmx_discovery_begin(void) { ++probes; return MINI_OK; }
+mini_result_t adv_qmx_discovery_end(void) { ++releases; return MINI_OK; }
 
 #include <assert.h>
 #include <stdbool.h>

@@ -133,6 +133,8 @@ int main(int argc, char **argv)
     bool decode_worker_started = false;
     bool have_rendered_frame = false;
     bool running = true;
+    bool cat_ready = false, cat_attempted = false, startup_complete = false;
+    uint64_t last_cat_attempt_us = 0;
     int result = 0;
 
     if (api == NULL || api->api_version != MINISHELL_API_VERSION ||
@@ -175,34 +177,16 @@ int main(int argc, char **argv)
     }
     adapter_initialized = true;
 
-    if (options.cat_endpoint && app_controller_start_cat(app, options.cat_endpoint) != MINI_OK) {
-        say_system(api, "ft8: CAT open/synchronization failed\n");
-        result = 12;
-        goto cleanup;
-    }
-
-    if (options.rx_endpoint != NULL) {
-        AppRxStartConfig rx_config = {
-            .endpoint = options.rx_endpoint,
-            .has_explicit_timing = options.has_rx_slot,
-            .slot_id = options.rx_slot_id,
-            .sample_offset = 0u,
-        };
-        if (!app_controller_start_rx(app, &rx_config)) {
-            say_system(api, "ft8: failed to start RX audio\n");
-            result = 8;
-            goto cleanup;
-        }
-        if (!FT8_PLATFORM_DECODE_WORKER_START(app)) {
-            say_system(api, "ft8: failed to start decode worker\n");
-            result = 14;
-            goto cleanup;
-        }
-        decode_worker_started = true;
-    }
-
     ui_shell_init(&ui, options.presentation);
     memset(&rendered_frame, 0, sizeof(rendered_frame));
+    app_controller_build_model(app, &model);
+    ui_shell_render(&ui, &model, &rendered_frame);
+    if (!ft8_ui_adapter_render(&adapter, &rendered_frame)) {
+        result = 5;
+        goto cleanup;
+    }
+    have_rendered_frame = true;
+    cat_ready = options.cat_endpoint == NULL;
 
     while (running) {
         bool step_changed = false;
@@ -212,6 +196,45 @@ int main(int argc, char **argv)
         UiFrame frame;
         AppAction action;
 
+        /* Pending control uses the normal UI loop; no retry work after success. */
+        if (!cat_ready) {
+            const mini_time_location_api_t *time = api->time_location;
+            uint64_t now = time && time->monotonic_us ? time->monotonic_us() : 0;
+            if (!cat_attempted || now - last_cat_attempt_us >= 300000u) {
+                mini_result_t cat = app_controller_start_cat(app, options.cat_endpoint);
+                cat_attempted = true;
+                last_cat_attempt_us = time && time->monotonic_us ? time->monotonic_us() : now;
+                if (cat == MINI_OK) cat_ready = true;
+                else if (cat != MINI_ERR_NOT_READY || options.has_rx_slot || !time || !time->monotonic_us) {
+                    say_system(api, "ft8: CAT open/synchronization failed\n");
+                    result = 12;
+                    break;
+                }
+            }
+        }
+        if (cat_ready && !startup_complete) {
+            if (options.rx_endpoint != NULL) {
+                AppRxStartConfig rx_config = {
+                    .endpoint = options.rx_endpoint,
+                    .has_explicit_timing = options.has_rx_slot,
+                    .slot_id = options.rx_slot_id,
+                    .sample_offset = 0u,
+                };
+                if (!app_controller_start_rx(app, &rx_config)) {
+                    say_system(api, "ft8: failed to start RX audio\n");
+                    result = 8;
+                    break;
+                }
+                if (!FT8_PLATFORM_DECODE_WORKER_START(app)) {
+                    say_system(api, "ft8: failed to start decode worker\n");
+                    result = 14;
+                    break;
+                }
+                decode_worker_started = true;
+            }
+            startup_complete = true;
+        }
+
         /* MiniShell owns GPS hardware and publishes live location. FT8 only
          * consumes that service state and turns it into its transient working
          * Maidenhead grid. */
@@ -220,7 +243,7 @@ int main(int argc, char **argv)
             break;
         }
 
-        if (!app_controller_step_cat(app)) {
+        if (cat_ready && !app_controller_step_cat(app)) {
             result = 12;
             break;
         }
@@ -235,7 +258,7 @@ int main(int argc, char **argv)
          * synthetic RX slot identity with the host's wall-clock TX lifecycle.
          * Live operation (including --rx without --rx-slot) uses MiniShell UTC.
          */
-        if (!options.has_rx_slot) {
+        if (startup_complete && !options.has_rx_slot) {
             if (!app_controller_step_tx(app, &step_changed)) {
                 result = 10;
                 break;
