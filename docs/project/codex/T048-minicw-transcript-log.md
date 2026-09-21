@@ -37,11 +37,11 @@ Reference transcript behavior is in `components/app_core/app_core.c` and
 4. Preserve the standalone Mini-CW transcript *behavior* (one chronological
    Keyer transcript grouped by UTC minute), with this task's compact line format.
 5. Both **`'`** (single quote) and **`"`** (double quote) toggle the same
-   temporary safe annotation mode. They are interchangeable:
+   temporary safe note mode. They are interchangeable:
    - first quote key saves current KeyOut and Mute;
    - runtime KeyOut becomes `OFF`;
    - runtime Mute becomes `OFF`;
-   - append `**` to the transcript before note text;
+   - append transcript-only `**` before note text; it must not enter TX/audio;
    - either quote key pressed again appends closing `**`, then safely stops/
      discards remaining annotation playback and restores the saved KeyOut/Mute.
    The purpose is to add extra transcript information such as band without keying RF.
@@ -52,8 +52,10 @@ No PR and no hardware testing by Codex.
 
 ## Architect revision — 2026-09-21
 
+The 1024-byte size supersedes any earlier 256-byte draft wording.
+
 - Persisted line format is compact `HHMM <transcript>`.
-- Keep the V1.2 1024-byte per-minute buffer.
+- Keep the V1.2 **1024-byte per-minute buffer**.
 - Both ASCII apostrophe (`'`) and double quote (`"`) toggle note mode.
 - Successful note entry/exit inserts literal `**` delimiters around the note text.
 
@@ -80,8 +82,7 @@ Example:
 Do not emit the old V1.2 prefix `T [YYYYMMDD HHMMSS][x.xxx]`. Do not emit
 frequency placeholders, CAT metadata, QSO formatting, or `G [...]` records.
 
-The transcript payload limit is **256 bytes per UTC minute**. This is sized for
-normal roughly 16-20 WPM operation while leaving comfortable headroom for the
+The transcript payload limit is **1024 bytes per UTC minute**. This retains the V1.2 capacity and provides ample headroom for normal 16-20 WPM operation while leaving comfortable headroom for the
 combined chronological transcript. The payload limit excludes the `HHMM `
 prefix and excludes the optional truncation suffix.
 
@@ -202,7 +203,7 @@ boundary.
 If queue allocation fails, drop that finalized record cleanly and continue Keyer
 operation. Never corrupt or partially publish another record.
 
-## Safe annotation mode — `'` or `"`
+## Safe note mode — `'` or `"`
 
 This is a temporary runtime overlay, not a persisted setting.
 
@@ -211,7 +212,7 @@ This is a temporary runtime overlay, not a persisted setting.
 The shortcut is active only in the normal Keyer view, not inside Operation/text
 editing. Either quote key invokes the same toggle.
 
-A first quote press may enter annotation mode only from a safe idle state. It
+A first quote press may enter note mode only from a safe idle state. It
 must not interrupt an existing real transmission, Tune, pending TX, active M1
 repeat, or active paddle/SK element. If busy, consume the shortcut without
 changing KeyOut/Mute and without adding `**`.
@@ -254,10 +255,10 @@ while the overlay is active.
 ### Exit
 
 A second quote press—either `'` or `"`, regardless of which key entered the
-mode—exits annotation mode immediately.
+mode—exits note mode immediately.
 
-First append the closing `**` to the transcript stream. Then, before restoring
-KeyOut:
+First append the closing `**` directly to the transcript buffer (log only, not
+TX/audio). Then, before restoring KeyOut:
 
 1. cancel M1 repeat state;
 2. cancel pending TX;
@@ -270,7 +271,7 @@ Only then:
 
 6. restore the saved KeyOut mode;
 7. restore the saved Mute value;
-8. clear annotation-mode state;
+8. clear note-mode state;
 9. refresh the UI.
 
 This ordering is mandatory: no queued annotation tail may become RF after the
@@ -281,7 +282,7 @@ unchanged.
 
 ### Shutdown while active
 
-If the app exits while annotation mode is active, append the closing `**` and
+If the app exits while note mode is active, append the closing `**` and
 perform the same safe exit sequence **before** the normal settings snapshot/save.
 Then finalize and drain the transcript log. The temporary OFF value must never be
 written to `setting.txt`.
@@ -348,8 +349,8 @@ Prove:
 - minute transition creates separate compact `HHMM ...` records;
 - each record contains no date, seconds, `T [` prefix, or `[x.xxx]`;
 - captured UTC date selects the daily filename;
-- **256 payload bytes** fit without truncation;
-- byte 257 and later payload are dropped and finalized output gets exactly one
+- **1024 payload bytes** fit without truncation;
+- byte 1025 and later payload are dropped and finalized output gets exactly one
   ` [TRUNC]` suffix;
 - note delimiters count toward the 256-byte payload;
 - no `G [` record is emitted anywhere.
@@ -398,7 +399,7 @@ Prove at minimum:
 11. entering while real TX/Tune/repeat/paddle activity is busy does not alter
     KeyOut/Mute and adds no delimiters;
 12. temporary `KeyOut=OFF` never changes serialized `setting.txt`;
-13. shutdown while annotation mode is active appends closing `**` and restores
+13. shutdown while note mode is active appends closing `**` and restores
     saved values before settings snapshot/save;
 14. manual KeyOut/Mute setting actions cannot defeat the active safety overlay.
 
@@ -451,4 +452,5 @@ This revision supersedes the original T048 line format and shortcut details:
 - seconds, `T [..]`, and `[x.xxx]` are removed;
 - both single quote and double quote toggle note mode;
 - note content is bracketed in the transcript by generated `**` delimiters;
-- minute transcript payload is fixed at 256 bytes (+ implementation terminator).
+- The generated `**` delimiters are transcript-only metadata: they are never appended to the TX FIFO, never keyed, and never sounded.
+- minute transcript payload is fixed at 1024 bytes (+ implementation terminator).
