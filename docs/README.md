@@ -97,23 +97,31 @@ docs/MiniFT8/architecture.md ownership/dependency architecture
 ```
 
 Current MiniFT8 baseline includes continuous Linux/QMX and ADV/QMX live RX,
-V2-compatible 12.64-second decoding, AutoSeq AS-0..AS-8, Linux/QMX physical
-FT8 TX, a completed real two-way QSO, V2-compatible RxTxLog, daily ADIF,
-Field Day Cabrillo, CQ/POTA beacon control, and Random/Fixed/RX TX-offset
-selection. WinBook/TW700 also runs the pc-1-built Linux binaries with validated
-QMX RX and CAT/TX.
+V2-compatible 12.64-second decoding, AutoSeq AS-0..AS-8, physical QMX FT8 TX on
+Linux and ADV, a completed real two-way Linux QSO, V2-compatible RxTxLog, daily
+ADIF, Field Day Cabrillo, CQ/POTA beacon control, Random/Fixed/RX TX-offset
+selection, ADV color status, and bare RX/TX page shortcuts. WinBook/TW700 and
+rpi3-2 also validate Linux portability.
 
 The many `rx-*` and `as-*` documents under `docs/MiniFT8/` are retained as implementation history, design rationale, and regression anchors. They are subordinate to the four current-state documents above when old planning language conflicts with current behavior.
 
-## Keyer
+## Mini-CW
 
-Canonical entry point:
+Current field CW application:
 
 ```text
-docs/keyer/README.md
+apps/minicw/README.md
+docs/MiniCW/migration.md
+docs/MiniCW/baseline-audit.md
 ```
 
-Keyer K1 runtime ELF, K2 Digital I/O, K3 portable engine, and K4 physical GPIO KeyIn/KeyOut are complete. K5 sidetone is implemented with ADV Audio TX transport hardware validation; K6 UI/settings and K7 full field validation remain future work.
+The Mini-CW Keyer-mode migration and follow-on features T042-T048 are hardware
+accepted: clean paddle/M1 audio, settings persistence, UI/I/O cleanup, callsign
+lookup, color UI, and compact transcript/note logging.
+
+The older `apps/keyer` / `docs/keyer/README.md` path remains as development
+history for the runtime-ELF, Digital I/O, GPIO and early sidetone/UI experiments;
+it is not the current field CW application.
 
 ## Other application/research areas
 
@@ -127,6 +135,7 @@ Current repo-wide status:
 
 ```text
 docs/project/progress.md
+docs/project/milestone-2026-09-21-field-baseline.md
 ```
 
 Completed architecture cleanup:
