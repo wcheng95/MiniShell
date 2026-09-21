@@ -295,3 +295,4 @@ matching standalone Mini-CW. T044A is persistence only with an explicit audio fr
 T046 Mini-CW callsign lookup     COMPLETE — full V1.2 table, <base-call>: <name> row, audio/header/clearing/exit all hardware accepted
 T047 Mini-CW color UI            COMPLETE — V1.2 white/green/cyan text and 2-pixel green separator accepted on ADV; audio and lookup remain clean
 T048 Mini-CW transcript log      COMPLETE — compact daily transcript, whitespace-aware truncation, dual-quote **note** mode and clean audio all accepted on ADV
+T049 MiniFT8 color status         READY — white/red TX separator plus RX reply-to-me red, CQ green, others white; generic RED Display palette extension
