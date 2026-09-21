@@ -1,6 +1,6 @@
 # T048 — Mini-CW transcript logging + safe annotation shortcut
 
-Status: TESTING
+Status: COMPLETE
 
 ## Baseline
 
@@ -886,3 +886,31 @@ ordinary repeated whitespace outside note boundaries is preserved. Generated
 
 T048 is ready for the brief remaining ADV formatting confirmation. The already
 reported hardware success for logging/note safety remains valid.
+
+
+## Final hardware acceptance — 2026-09-21
+
+The corrected T048 behavior is accepted on ADV.
+
+Accepted implementation lineage:
+
+```text
+7e39f652ba0913250e01400b0952298fc27c8bf6  initial T048 implementation
+34255268a7d50e12d87e15e2dff1f6fc40aa4259  final formatting/bound correction
+```
+
+Hardware acceptance includes:
+
+- daily `/flash/minicw/YYYYMMDD.txt` transcript logging;
+- compact `HHMM ...` lines;
+- 1024-byte per-minute buffering;
+- whitespace-aware truncation;
+- both `'` and `"` note toggles;
+- exactly spaced inline `**note**` formatting;
+- local note sidetone with KeyOut held OFF;
+- safe KeyOut/Mute restore with no RF tail;
+- normal paddle/M1 audio remains clean;
+- colors, callsign lookup, settings and Ctrl+C behavior remain correct.
+
+No further Mini-CW improvement is currently required. T048 is COMPLETE and this
+state is suitable as the new Mini-CW golden baseline.
