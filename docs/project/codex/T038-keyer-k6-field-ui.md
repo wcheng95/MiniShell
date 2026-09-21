@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1519,6 +1519,43 @@ Measured with `wc -c` and `xtensa-esp32s3-elf-size -A` against pre-R2 artifacts:
 
 One R2 amendment on `codex/T038-keyer-k6-field-ui`; the exact SHA is returned in
 the engineer handoff. T038 is REVIEW. No PR or additional hardware testing.
+
+## Supervisor review — R2
+
+Reviewed R2 commit:
+
+```text
+38dd1298d911e92c51494de3928fa188d94bff7a
+```
+
+Result: **PASS — return to ADV hardware TESTING.**
+
+R2 changes only the Operation Back/Cancel condition:
+
+- bare backtick with no modifiers now follows the same path as Escape while in
+  Operation;
+- at Operation top level it returns to the normal Keyer screen;
+- inside numeric, choice, or M1-M5 editing it cancels the draft without SAVE;
+- Enter commit/save is unchanged;
+- Fn+` / Escape behavior is unchanged;
+- on the normal Keyer screen bare backtick still returns the existing automatic
+  TX-cancel action.
+
+Focused UiShell and controller tests cover top-level exit, numeric/choice/all-five
+message edit cancellation, no persistence on cancelled drafts, modifier
+discrimination, and active automatic-TX cancellation/release on the normal screen.
+Full Linux/unit/architecture/ADV firmware/ELF gates pass.
+
+Resource impact remains external-app only:
+
+```text
+keyer.app.elf  22,972 bytes  (+20 from R1)
+resident firmware/SRAM delta 0
+resident import             mini_api_get only
+```
+
+No blocker found.
+
 
 ## Architect test result
 
