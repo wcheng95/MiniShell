@@ -1929,6 +1929,31 @@ the same foreground loop. The ADV speaker DMA is only 4 x 120 frames = 480 frame
 starve I2S and create the observed pop. The user recalls a similar issue during
 Mini-CW development.
 
+Additional hardware evidence before R4 implementation:
+
+- sending the same text manually with the paddle has **no popping**;
+- manual paddle decode still causes normal decoded-history display refreshes;
+- therefore Display activity by itself is not sufficient to create the pop;
+- the stronger suspect is the **timing of automatic-TX display work** relative
+  to the exact Morse schedule.
+
+In the current foreground controller, automatic TX can pop the next FIFO
+character and assert `down=true`, write only one 48-frame / 1 ms sidetone
+block, then perform a display render/present in the same loop iteration. Because
+the TX-tail row changed at the character transition, that render can become a
+real display write while audio is already active. A sufficiently long display
+operation can consume the ADV speaker's ~10 ms DMA reserve and underrun I2S.
+
+Manual paddle history updates occur after decoder character completion, while the
+key is already up and human spacing normally provides more slack before the next
+element. This explains why manual keying can refresh the screen without the same
+audible artifact.
+
+This makes R4-A a high-confidence isolation test: if suppressing display work
+during active automatic-TX phases removes the pop, the permanent fix should
+prevent synchronous display work from running in the audio-critical automatic-TX
+window rather than further changing the tone envelope.
+
 ### R4-A — temporary display-suppression diagnostic
 
 This is an isolation experiment, not the final architecture.
