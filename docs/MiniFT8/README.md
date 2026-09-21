@@ -29,14 +29,14 @@ continuous multi-slot RX         COMPLETE
 AutoSeq AS-0..AS-8              COMPLETE
 V2-style ADIF logging            COMPLETE
 V2-style Field Day Cabrillo      COMPLETE
-physical QMX CAT TX              COMPLETE — Linux/QMX hardware validated
+physical QMX CAT TX              COMPLETE — Linux/QMX and ADV/QMX hardware validated
 live QMX band CAT sync           COMPLETE — 1 s debounce, hardware validated
 V -> 3 daily QSO view            COMPLETE — compact current-day ADIF list, validated
 first real two-way QSO           COMPLETE — 2026-09-18 UTC
 WinBook/TW700 QMX RX/CAT/TX      PASS
 ```
 
-Linux remains the deterministic regression/reference environment and the accepted physical-TX platform. T031 also makes runtime O -> 3 band changes synchronize an already-connected QMX after a 1-second final-selection debounce, with hardware validation completed on 2026-09-20. T032 adds the read-only V -> 3 current-day QSO view sourced from the existing daily ADIF log; its compact six-row pagination and large-page header behavior were validated on 2026-09-20. Linux/pc-1 + QMX has completed a real two-way MiniFT8-V3 QSO, and WinBook/TW700 has independently run the pc-1-built binaries with QMX RX/decode and CAT/TX. ADV remains a fully validated embedded RX deployment target; carrying the proven physical-TX boundary to ADV is future work.
+Linux remains the deterministic regression/reference environment. Linux/pc-1 + QMX has completed a real two-way MiniFT8-V3 QSO; WinBook/TW700 and rpi3-2 also validate portable Linux RX/CAT/TX. Cardputer ADV is now an accepted embedded RX/TX deployment target: real QMX CAT transmission, RX recovery, band sync, color status, and compact RX/TX paging have been exercised on hardware. T031 and T032 remain the accepted live band-sync and current-day QSO-view baselines.
 
 ## Working live QMX path
 
@@ -134,12 +134,14 @@ load were not measured and `freq_osr=2` substantially increases compute as well 
 RAM. It is therefore deferred rather than classified as a decoder failure.
 `freq_osr=1` remains the validated production profile.
 
-T017 hardware acceptance is complete: live decode across consecutive slots,
-initial disconnected start followed by first QMX attachment, repeated
-`ft8 -> quit -> ft8`, provider continuity/ring diagnostics, and post-FT8
-`usbmsc` all pass. Recovery from unplugging and replugging an already-enumerated
-QMX is not required: the device can fail its own second enumeration, matching the
-practical V2 limitation.
+T017 hardware acceptance established live decode across consecutive slots,
+initial disconnected start followed by first QMX attachment, provider/ring
+diagnostics, and post-FT8 `usbmsc`. One practical limitation remains: ADV tears
+down the USB Host/UAC/CDC session when the final QMX user exits, and real QMX
+hardware can fail a subsequent fresh enumeration. In that case QMX must be
+power-cycled before another ADV MiniFT8 session. Linux normally does not show
+this because the kernel keeps QMX enumerated while applications only reopen
+ALSA/CDC handles.
 
 ## FT8 slot timing
 
@@ -236,16 +238,9 @@ The receive-safe startup synchronization changes QMX to the selected MiniFT8
 mode/VFO/dial frequency while live FT8 RX continues. Hardware validation also
 confirms clean repeated close/reopen and no RF keying.
 
-T019 deliberately does not emit:
-
-```text
-TX;
-RX;
-TA...;
-TM...;
-```
-
-Physical transmit remains future work.
+T019 itself deliberately did not emit TX/RX/TA/TM CAT commands. Later T022-T024
+and the ADV physical-TX integration added the accepted transmitter lifecycle
+without changing the T019 receive-safe synchronization contract.
 
 ## AutoSeq
 
@@ -318,7 +313,8 @@ New QSO records are inserted before `END-OF-LOG:` and acknowledged independently
 
 ### RX/TX trace log
 
-V2 also has optional `RTYYMMDD.txt` traffic logging controlled by `rxtx_log`. V3 does not yet expose that setting, so this optional diagnostic log has not been enabled silently.
+V2-compatible `RTYYMMDD.txt` traffic logging is implemented in V3 and controlled
+by `rxtx_log` in `station.txt`; it is part of the accepted physical-TX baseline.
 
 ## UI
 
@@ -342,7 +338,8 @@ R T O S V Q
 
 Switching screens always enters the destination at top level. Page navigation wraps. UIScreen selection and TX/RX state are independent.
 
-See `ui.md` for the canonical UI contract.
+See `ui.md` for the canonical UI contract. T049 color status and T050 bare
+`;`/`.` RX/TX page shortcuts are hardware accepted on ADV.
 
 ## Configuration
 
@@ -429,7 +426,8 @@ regular       strongest -> weakest
 
 Equal-SNR entries preserve original decode order. Manual selection maps the
 displayed row back to the original factual RxMessage. Live validation passed.
-Color coding remains deferred.
+T049 adds presentation-only coloring from the same factual flags: reply-to-me
+red, CQ green, regular white.
 
 ## RX display lifetime
 
@@ -456,7 +454,7 @@ messages after a TX slot has completed. Live Linux/QMX validation passed.
 
 ## Current follow-up boundaries
 
-The Linux/QMX physical-TX boundary is complete:
+The QMX physical-TX boundary is complete on Linux and operational on ADV:
 
 ```text
 AutoSeq TxIntent
@@ -475,4 +473,8 @@ Two portability/protocol follow-ups are deliberately deferred rather than active
 2. Stable Linux QMX endpoint discovery so ALSA card and tty enumeration do not
    require host-specific numeric endpoints after reboot.
 
-ADV physical TX remains future work after the Linux behavior is considered stable.
+ADV USB-host reuse remains a future architecture improvement: after FT8 exits,
+ADV currently tears down the complete host/class-driver session. A second fresh
+QMX enumeration can fail and require a QMX power cycle. A persistent resident
+QMX session would make repeated ADV FT8 launches more Linux-like without
+changing AutoSeq or FT8 encoding.
