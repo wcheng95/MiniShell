@@ -188,6 +188,13 @@ TCA8418   0x34 @ 400 kHz
 matrix    7 x 8
 ```
 
+The resident `M$>` console retains 50 physical 20-column rows. While entering a
+shell command, Fn+Up (Fn+`;`) reviews five rows older; Fn+Down (Fn+`.`) moves
+five rows newer. The seven-row viewport clamps at both ends. Typing or any new
+console output returns to the live prompt. History survives full-screen app
+launch/exit, and scrolling does not replay USB output. This shell-only behavior
+does not change application key mappings.
+
 ## Storage
 
 Canonical ADV storage policy:

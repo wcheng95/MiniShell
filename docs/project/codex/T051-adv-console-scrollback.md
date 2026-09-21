@@ -1,6 +1,6 @@
 # T051 — ADV resident console scrollback
 
-Status: READY
+Status: REVIEW
 
 ## Baseline
 
@@ -74,8 +74,8 @@ physical Fn + .   -> MINI_KEY_DOWN with MINI_MOD_FN
 In `minishell_platform_console_read_line()`, while the resident shell owns the
 keyboard:
 
-- `MINI_KEY_UP` with `MINI_MOD_FN` scrolls one history row older;
-- `MINI_KEY_DOWN` with `MINI_MOD_FN` scrolls one row newer;
+- `MINI_KEY_UP` with `MINI_MOD_FN` scrolls five history rows older;
+- `MINI_KEY_DOWN` with `MINI_MOD_FN` scrolls five rows newer;
 - consume these events; they must not alter the command input buffer or echo
   characters;
 - standalone Fn and all existing Enter/Backspace/Delete/character behavior remain
@@ -171,7 +171,7 @@ M$> _
 ```
 
 The restored console should include the pre-launch shell lines that are still
-within the last 100 physical rows, plus the new prompt.
+within the last 50 physical rows, plus the new prompt.
 
 ## USB behavior
 
@@ -314,3 +314,102 @@ Supersedes the original 100-row / one-row-step draft:
 
 The physical ADV console viewport is seven rows, so a five-row step leaves two
 rows visible in common between adjacent views.
+
+
+## Implementation handoff
+
+### Summary / files changed
+
+Implemented from task branch head `766894b8e8582f77668b609d1daecc17202bb297`
+(production baseline `6cb48d5667275f174635c32ac7453112d98ad8f6`).
+The architect revision controls: **50 physical rows, five-row steps**. Stale
+one-row/100-row wording above has been aligned with that revision.
+
+- `platform/adv/adv_display.cpp`: independent fixed 50x20 character ring,
+  retained partial row/cursor, clamped viewport offset, live-tail projection,
+  and restoration after application Display ownership. Existing console
+  parsing and application Display rendering remain intact.
+- `platform/adv/adv_internal.h`: private scroll entry point only.
+- `platform/adv/adv_console.c`: consume Fn+Up/Down in the resident physical-key
+  handler and scroll +5/-5 without editing or echoing the command.
+- `tests/adv_console_scrollback_test.py` and `CMakeLists.txt`: registered host
+  regression executes the actual renderer and actual console write/editor/
+  event/polling-loop source with hardware and USB transport stubs. Checks
+  startup alignment, parsing, immediate column-20 wrap, capacity/eviction,
+  tail/partial-row retention, five-row steps/clamps, immutable history while
+  scrolling, output returning live, long wrapped output, full-screen handoff,
+  colors/separator reset, no USB replay, physical editing, and USB stdin.
+- `tests/adv_display_color_test.py`: removed the stale blanket ban on the word
+  `history` from ADV Display source; T051 now explicitly owns console history
+  there. Application-specific vocabulary checks and all rendering assertions
+  remain unchanged.
+- `docs/api/console-api.md`, `platform/adv/README.md`: documented implemented
+  private console history, controls, output routing and full-screen handoff.
+- This task packet: review status and measured evidence.
+
+### Preserved behavior / boundaries
+
+No public API, application, Linux backend, keyboard mapping, Audio, USB Host,
+filesystem or task changes. No new allocation, task or persistence. History
+contains only resident console output, never app Display pixels or diagnostic
+System output. Existing console USB/debug routing and locking remain unchanged;
+scrolling only redraws the TFT. Fn alone, characters, Enter, Backspace/Delete
+and USB stdin retain their existing behavior. App Display operations cannot
+modify the separate history ring. No deviation from the architect revision.
+
+### Validation commands / results
+
+```sh
+python3 tests/adv_console_scrollback_test.py
+python3 tests/adv_display_color_test.py
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T051-unit
+cmake --build /tmp/T051-unit -j8
+ctest --test-dir /tmp/T051-unit --output-on-failure
+ctest --test-dir build-linux -R 'adv_.*(console|display|input|keyboard)|architecture|boundary|ft8_ui|minicw' --output-on-failure
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+git diff --check
+```
+
+- Both direct host regressions passed.
+- Full Linux configure/build and CTest: **89/89 passed**, including the new
+  scrollback test, Linux input, USB ownership, MiniFT8 and Mini-CW regressions.
+- Portable units: **28/28 passed**.
+- Focused console/display/input logic and architecture/boundary/application UI
+  regressions: **21/21 passed**.
+- Real ADV baseline and implementation firmware builds: passed, ESP-IDF v5.5.4.
+  Existing dependency pedantic warnings remain; no build failure.
+- `git diff --check`: passed.
+
+### Resident resource evidence
+
+Measured sequential real ADV builds, with the baseline build finished before
+production edits (bytes):
+
+| Resource | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Firmware BIN | 1,382,096 | 1,382,288 | +192 |
+| `.flash.text` | 1,052,778 | 1,052,982 | +204 |
+| `.flash.rodata` | 236,788 | 236,788 | 0 |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,016 | 27,016 | 0 |
+| `.dram0.bss` | 40,336 | 41,344 | +1,008 |
+| Sum of measured static internal SRAM sections | 131,311 | 132,319 | +1,008 |
+
+The fixed ring is 1,000 character bytes; net bookkeeping adds eight bytes.
+No dynamic memory or new worker/stack is introduced.
+
+### Remaining validation / risks / commit reference
+
+Supervisor review and the hardware acceptance checklist above remain pending.
+No flashing, hardware testing or PR performed. Host tests stub the hardware
+transport; physical key delivery and TFT/USB operation still require the
+architect's acceptance. No known software limitation beyond the specified
+bounded, volatile history.
+
+Evidence is included in the single implementation commit on
+`codex/T051-adv-console-scrollback`; the exact SHA is returned after push.

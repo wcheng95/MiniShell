@@ -62,9 +62,21 @@ Console.write()
     -> USB Serial/JTAG mirror
 ```
 
-If a foreground full-screen application previously owned Display, the first Console output returns the physical display to resident-console presentation. The following `M$>` prompt then continues below the utility output rather than clearing the screen back to row 0.
+If a foreground full-screen application previously owned Display, the first Console output restores the retained console history and appends the new output. Application Display content, colors and separators are not retained in console history. The following `M$>` prompt continues below the utility output.
 
-A later ADV enhancement may retain about 50 lines of resident-console history and scroll the 7-row viewport. That history remains private resident-console behavior; applications still write only to Console.
+ADV retains 50 physical 20-column rows in a fixed resident ring, including the
+current partial row. Wrapped output consumes additional rows. The live viewport
+shows the newest seven rows, top-aligned until seven rows exist.
+
+While the resident shell reads a command, Fn+Up scrolls five rows older and
+Fn+Down scrolls five rows newer, clamping at either end. Scrolling preserves the
+command edit buffer and does not replay output to USB. Any new Console output
+(including typed echo, Backspace, Enter and the prompt) returns to the live tail.
+
+History survives foreground Display use but not reboot/deep sleep. System
+diagnostics are excluded. This is private ADV resident-console behavior, not
+part of the application Console API; applications still write only to Console.
+Linux scrollback remains owned by the host terminal.
 
 ## Ownership rule
 

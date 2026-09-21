@@ -201,6 +201,12 @@ static int accept_key_event(const mini_key_event_t *event, char *buffer, size_t 
     }
     if (event->type != MINI_KEY_EVENT_SPECIAL) return 0;
 
+    if ((event->modifiers & MINI_MOD_FN) != 0u &&
+        (event->key == MINI_KEY_UP || event->key == MINI_KEY_DOWN)) {
+        adv_display_console_scroll(event->key == MINI_KEY_UP ? 5 : -5);
+        return 0;
+    }
+
     if (event->key == MINI_KEY_ENTER) return accept_character('\n', buffer, capacity, length);
     if (event->key == MINI_KEY_BACKSPACE || event->key == MINI_KEY_DELETE) {
         return accept_character('\b', buffer, capacity, length);

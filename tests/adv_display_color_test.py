@@ -2,7 +2,7 @@
 import pathlib, subprocess, tempfile
 root = pathlib.Path(__file__).resolve().parents[1]
 source = (root/'platform/adv/adv_display.cpp').read_text()
-assert all(word not in source.lower() for word in ('minicw','history','operator','ft8','reply'))
+assert all(word not in source.lower() for word in ('minicw','operator','ft8','reply'))
 source = source.replace('#include "adv_internal.h"', '#include "minishell/api.h"')
 with tempfile.TemporaryDirectory() as tmp:
     d = pathlib.Path(tmp)

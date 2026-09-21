@@ -853,6 +853,7 @@ target_compile_options(minicw PRIVATE -Wall -Wextra -Werror -Wpedantic -fno-buil
 include(tests/minicw_tests.cmake)
 
 add_test(NAME adv_display_color COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_display_color_test.py)
+add_test(NAME adv_console_scrollback COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_console_scrollback_test.py)
 
 add_executable(ft8_color_adapter_unit tests/ft8_color_adapter_test.c
     apps/ft8/main/ft8_ui_adapter.c apps/ft8/src/ui_shell/ui_shell.c

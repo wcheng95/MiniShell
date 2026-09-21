@@ -20,7 +20,11 @@ uint8_t s_attrs[kRows][kColumns];
 uint32_t s_separator = MINI_TEXT_ATTR_FG_DEFAULT;
 bool s_ready = false;
 bool s_console_mode = true;
-uint32_t s_console_row = 0u;
+constexpr uint32_t kHistoryRows = 50u;
+char s_history[kHistoryRows][kColumns];
+uint32_t s_history_first = 0u;
+uint32_t s_history_count = 1u;
+uint32_t s_console_offset = 0u;
 uint32_t s_console_column = 0u;
 
 int32_t row_y(uint32_t row)
@@ -69,28 +73,36 @@ void render_all(void)
     }
 }
 
-void scroll_console(void)
+uint32_t console_tail(void)
 {
-    std::memmove(&s_cells[0][0], &s_cells[1][0], (kRows - 1u) * kColumns);
-    std::memmove(&s_attrs[0][0], &s_attrs[1][0], (kRows - 1u) * kColumns);
-    std::memset(&s_cells[kRows - 1u][0], ' ', kColumns);
-    std::memset(&s_attrs[kRows - 1u][0], 0, kColumns);
-    s_console_row = kRows - 1u;
+    return (s_history_first + s_history_count - 1u) % kHistoryRows;
 }
 
 void console_newline(void)
 {
     s_console_column = 0u;
-    ++s_console_row;
-    if (s_console_row >= kRows) scroll_console();
+    if (s_history_count < kHistoryRows) {
+        ++s_history_count;
+    } else {
+        s_history_first = (s_history_first + 1u) % kHistoryRows;
+    }
+    std::memset(s_history[console_tail()], ' ', kColumns);
 }
 
-void ensure_console_mode(void)
+uint32_t console_max_offset(void)
 {
-    if (s_console_mode) return;
+    return s_history_count > kRows ? s_history_count - kRows : 0u;
+}
+
+void restore_console_view(void)
+{
+    // App Display buffers never own the retained console rows.
     clear_buffers();
-    s_console_row = 0u;
-    s_console_column = 0u;
+    const uint32_t start = console_max_offset() - s_console_offset;
+    for (uint32_t row = 0u; row < kRows && start + row < s_history_count; ++row) {
+        const uint32_t index = (s_history_first + start + row) % kHistoryRows;
+        std::memcpy(s_cells[row], s_history[index], kColumns);
+    }
     s_console_mode = true;
 }
 
@@ -112,7 +124,10 @@ extern "C" int adv_display_prepare(void)
     M5.Display.fillScreen(kBlack);
 
     clear_buffers();
-    s_console_row = 0u;
+    std::memset(s_history, ' ', sizeof(s_history));
+    s_history_first = 0u;
+    s_history_count = 1u;
+    s_console_offset = 0u;
     s_console_column = 0u;
     s_console_mode = true;
     s_ready = true;
@@ -128,7 +143,7 @@ extern "C" bool adv_display_ready(void)
 extern "C" void adv_display_console_write(const char *text)
 {
     if (!s_ready || text == nullptr) return;
-    ensure_console_mode();
+    s_console_offset = 0u;
 
     for (const unsigned char *p = reinterpret_cast<const unsigned char *>(text); *p != 0u; ++p) {
         const unsigned char ch = *p;
@@ -140,18 +155,28 @@ extern "C" void adv_display_console_write(const char *text)
         if (ch == '\b') {
             if (s_console_column > 0u) {
                 --s_console_column;
-                s_cells[s_console_row][s_console_column] = ' ';
-                s_attrs[s_console_row][s_console_column] = 0u;
+                s_history[console_tail()][s_console_column] = ' ';
             }
             continue;
         }
         if (ch < 0x20u || ch > 0x7eu) continue;
 
-        s_cells[s_console_row][s_console_column] = static_cast<char>(ch);
-        s_attrs[s_console_row][s_console_column] = 0u;
+        s_history[console_tail()][s_console_column] = static_cast<char>(ch);
         ++s_console_column;
         if (s_console_column >= kColumns) console_newline();
     }
+    restore_console_view();
+    render_all();
+}
+
+extern "C" void adv_display_console_scroll(int delta)
+{
+    if (!s_ready || !s_console_mode) return;
+    const int64_t offset = static_cast<int64_t>(s_console_offset) + delta;
+    const uint32_t maximum = console_max_offset();
+    s_console_offset = offset < 0 ? 0u :
+                       offset > maximum ? maximum : static_cast<uint32_t>(offset);
+    restore_console_view();
     render_all();
 }
 
