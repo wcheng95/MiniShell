@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active / next tasks
 
 ```text
-T045-minicw-ui-io-cleanup.md       READY — external-only UI/I/O cleanup; audio frozen
+T045-minicw-ui-io-cleanup.md       COMPLETE — hardware accepted; boundary audit passed
 ```
 
 T038 K6 is COMPLETE. T039 is BREAK after multiple hardware attempts failed to eliminate the remaining Keyer speaker pop. T040 is in hardware testing. The next architecture track is the Mini-CW migration: T042 ports Mini-CW Keyer-mode structure onto MiniShell services, with the pinned Mini-CW V1.2-era source as the golden reference and audio deliberately deferred to T043.
