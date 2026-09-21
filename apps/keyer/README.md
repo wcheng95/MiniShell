@@ -21,7 +21,7 @@ Ordinary letters (including Q/O), digits and supported punctuation enter CW text
 | Up/Down or 1–6 | Select Operation item |
 | Enter | Edit/commit in Operation; bypass TxDelay in normal screen |
 | Left/Right or Up/Down (also ADV Fn+arrows) | Adjust a numeric/choice edit |
-| Escape | Cancel edit/back from Operation |
+| Escape or bare backtick | Cancel edit/back from Operation |
 | `[`, `]` | Speed −/+1, clamped 5–60 |
 | `{`, `}` | Volume −/+5, clamped 0–99 |
 | `\` | Toggle mute and save immediately |

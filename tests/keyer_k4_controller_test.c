@@ -19,6 +19,8 @@ static uint32_t s_level[64];
 static uint64_t s_now_us;
 static bool s_q_sent;
 static unsigned scenario, input_index;
+static const mini_key_event_t *r2_events;
+static unsigned r2_count;
 static uint64_t final_release;
 static char saved[1024], temporary[1024];
 static unsigned write_position;
@@ -83,6 +85,14 @@ static mini_result_t fake_key_read(mini_key_event_t *out_event, uint32_t timeout
 {
     (void)timeout_ms;
     if (out_event == NULL) return MINI_ERR_INVALID;
+    if (scenario >= 8) {
+        if (input_index < r2_count && s_now_us >= (uint64_t)input_index * 10000u) {
+            *out_event = r2_events[input_index++]; return MINI_OK;
+        }
+        if (s_now_us < 300000) return MINI_ERR_NOT_READY;
+        out_event->type = MINI_KEY_EVENT_CHAR; out_event->codepoint = 'c';
+        out_event->modifiers = MINI_MOD_CTRL; return MINI_OK;
+    }
     if (scenario >= 5) {
         static const mini_key_event_t choice_events[] = {
             {.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_OPT},
@@ -153,7 +163,7 @@ static mini_result_t fake_dio_read(mini_digital_io_t line, uint32_t *out_level)
     if (id >= 64u || !s_opened[id]) return MINI_ERR_BAD_HANDLE;
 
     if (id == 13u) {
-        if (scenario == 3) *out_level = 1;
+        if (scenario == 3 || scenario == 9) *out_level = 1;
         else if (scenario == 4) *out_level = s_now_us >= 10000 && s_now_us < 20000 ? 0u : 1u;
         else *out_level = scenario == 1 ? (s_now_us >= 100000 && s_now_us < 110000 ? 0u : 1u) : (s_now_us < 10000u ? 0u : 1u);
     } else if (id == 15u) {
@@ -298,7 +308,7 @@ static void run_scenario(unsigned which)
     CHECK(app_controller_run() == 0);
     CHECK(s_saw_key_down);
     CHECK(s_level[3] == (scenario == 3 ? 0u : 1u) && s_level[6] == s_level[3]);
-    CHECK(decoded_seen == (scenario != 3));
+    CHECK(decoded_seen == (scenario != 3 && scenario != 9));
     if (scenario == 4) CHECK(final_release == 70000);
     CHECK(strcmp(screen[0], scenario == 2 ? "--:-- Pdl SKS 21 V80" : "--:-- Pdl SKS 20 V80") == 0);
     if (scenario == 1) {
@@ -324,6 +334,13 @@ static void run_scenario(unsigned which)
         CHECK(saved_seen && save_count == 1);
         CHECK(strstr(saved, "paddle=IambicB\n") != NULL);
     }
+    if (scenario >= 8) {
+        CHECK(save_count == 0 && !saved_seen && !save_failed_seen);
+        if (scenario == 9) {
+            CHECK(final_release == 20000); /* Active dah cancelled at backtick. */
+            CHECK(!strcmp(screen[6], "                    "));
+        }
+    }
     CHECK(strstr(s_console, "<BS>") == NULL);
 
     app_controller_shutdown();
@@ -332,10 +349,39 @@ static void run_scenario(unsigned which)
     CHECK(s_level[3] == 1u && s_level[6] == 1u);
 
 }
+static void operation_backtick_r2(void)
+{
+    const mini_key_event_t edit_cancel[] = {
+        {.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_OPT},
+        {.type = MINI_KEY_EVENT_CHAR, .codepoint = '3'},
+        {.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_RIGHT, .modifiers = MINI_MOD_FN},
+        {.type = MINI_KEY_EVENT_CHAR, .codepoint = '`'},
+        {.type = MINI_KEY_EVENT_CHAR, .codepoint = '`'},
+    };
+    mini_key_event_t events[6];
+    memcpy(events, edit_cancel, sizeof(edit_cancel));
+    r2_events = events; r2_count = 5;
+    char old[1024]; strcpy(old, saved);
+    run_scenario(8); CHECK(!strcmp(old, saved)); /* numeric */
+    events[1].codepoint = '6';
+    run_scenario(8); CHECK(!strcmp(old, saved)); /* choice */
+    events[1] = (mini_key_event_t){.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_DOWN, .modifiers = MINI_MOD_FN};
+    events[2] = (mini_key_event_t){.type = MINI_KEY_EVENT_CHAR, .codepoint = '1'};
+    events[3] = (mini_key_event_t){.type = MINI_KEY_EVENT_CHAR, .codepoint = 'X'};
+    events[4] = events[5] = (mini_key_event_t){.type = MINI_KEY_EVENT_CHAR, .codepoint = '`'};
+    r2_count = 6;
+    run_scenario(8); CHECK(!strcmp(old, saved)); /* message */
+    events[0] = (mini_key_event_t){.type = MINI_KEY_EVENT_CHAR, .codepoint = 'T'};
+    events[1] = (mini_key_event_t){.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_ENTER};
+    events[2] = (mini_key_event_t){.type = MINI_KEY_EVENT_CHAR, .codepoint = '`'};
+    r2_count = 3;
+    run_scenario(9); CHECK(!strcmp(old, saved));
+}
 int main(void)
 {
     run_scenario(0); run_scenario(1); run_scenario(2); run_scenario(3); run_scenario(4);
     run_scenario(5); run_scenario(6); run_scenario(7);
+    operation_backtick_r2();
     char old[1024]; strcpy(old, saved); fail_save = true; run_scenario(2);
     run_scenario(5);
     CHECK(!strcmp(old, saved));

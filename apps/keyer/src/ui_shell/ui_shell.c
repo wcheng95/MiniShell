@@ -90,7 +90,7 @@ ui_result_t ui_shell_input(ui_shell_t *u, keyer_config_t *c, ui_input_t e)
     }
     if (u->operation) {
         unsigned i = item(u);
-        if (e.key == UI_ESCAPE) {
+        if (e.key == UI_ESCAPE || (e.key == UI_CHAR && e.ch == '`' && !e.mods)) {
             if (u->editing) u->editing = false; else u->operation = false;
             return r;
         }

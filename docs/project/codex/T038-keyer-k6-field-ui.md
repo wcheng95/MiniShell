@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: IMPLEMENTING
+Status: REVIEW
 
 ## Architect intent
 
@@ -1435,6 +1435,90 @@ R2 scope is deliberately narrow:
   edit cancel without persistence, message-edit cancel, and unchanged
   normal-screen TX cancel;
 - rerun focused Keyer tests plus full T038 software/build gates.
+
+## Codex R2 implementation / validation
+
+Implemented from `01abbc4df0024c65d4c5f9b52744a6f93f0dec21` on
+`codex/T038-keyer-k6-field-ui`. R2 is ready for supervisor review.
+
+### Implementation and files changed
+
+- `apps/keyer/src/ui_shell/ui_shell.c`: extend the existing Operation Escape
+  condition to also accept a bare backtick character with no modifiers. Top-level
+  Operation exits; an active editor cancels to Operation top level without a save
+  action. This branch precedes message text insertion, so M1–M5 also cancel.
+- `tests/keyer_k6_ui_test.c`: top-level exit; numeric, choice and all five message
+  cancellations returning no save action; unchanged committed settings and fresh
+  values on reopening; Enter commit, Fn/Escape, modifier discrimination and
+  normal-screen TX-cancel action remain covered.
+- `tests/keyer_k4_controller_test.c`: MiniShell events through the adapter and
+  controller cancel numeric/choice/message edits, return to the normal screen,
+  and cause zero saves with unchanged file contents. A normal-screen backtick
+  during an active dah releases output at the event timestamp and clears TX.
+- `apps/keyer/README.md`: document bare backtick as Operation Back/Cancel.
+- This packet: R2 evidence and REVIEW status.
+
+### Invariants and remaining validation
+
+Only one production condition changed. Escape/Fn+backtick, Enter commit/save,
+normal-screen automatic-TX cancellation, all other shortcuts, the controller,
+K3 engine, TX scheduler, KeyOut, sidetone, persistence architecture and public APIs
+are unchanged. Cancelled drafts are discarded using the existing Escape behavior;
+reopening an editor copies the committed configuration again. No scope deviation
+or new known limitation. Hardware confirmation remains with the architect after
+supervisor review; no additional hardware testing or PR was performed.
+
+### Software/build gates
+
+All passed:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 74/74 PASS
+cmake -S tests/unit -B /tmp/T038-R2-unit
+cmake --build /tmp/T038-R2-unit -j"$(nproc)"
+ctest --test-dir /tmp/T038-R2-unit --output-on-failure
+# 18/18 PASS
+ctest --test-dir /tmp/T038-R2-unit -R 'keyer|api_audio' --output-on-failure
+# 8/8 PASS, including K3/K4/K5 and K6
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R 'audio|Audio' --output-on-failure
+# 5/5 PASS
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . keyer
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . keyer
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+idf.py -C platform/adv/elf_apps/keyer fullclean
+idf.py -C platform/adv/elf_apps/keyer elf
+xtensa-esp32s3-elf-readelf -rW platform/adv/elf_apps/keyer/build/keyer.app.elf
+# Exactly one R_XTENSA_JMP_SLOT: mini_api_get
+# Expected loader-stripped .dynamic warning, unchanged from R1.
+git diff --check
+```
+
+### Size / SRAM evidence
+
+Measured with `wc -c` and `xtensa-esp32s3-elf-size -A` against pre-R2 artifacts:
+
+| Artifact / section | Before bytes | R2 bytes | Delta |
+| --- | ---: | ---: | ---: |
+| Resident firmware BIN | 1,375,776 | 1,375,776 | 0 |
+| Resident `.iram0.text` | 63,959 | 63,959 | 0 |
+| Resident `.dram0.data` | 27,000 | 27,000 | 0 |
+| Resident `.dram0.bss` | 38,864 | 38,864 | 0 |
+| Static internal SRAM, sum above | 129,823 | 129,823 | 0 |
+| External `keyer.app.elf` | 22,952 | 22,972 | +20 |
+| External `.text` | 15,346 | 15,366 | +20 |
+| External `.rodata` | 1,449 | 1,449 | 0 |
+| External `.data.rel.ro` | 676 | 676 | 0 |
+| External `.bss` | 3,628 | 3,628 | 0 |
+
+### Commit reference
+
+One R2 amendment on `codex/T038-keyer-k6-field-ui`; the exact SHA is returned in
+the engineer handoff. T038 is REVIEW. No PR or additional hardware testing.
 
 ## Architect test result
 

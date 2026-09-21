@@ -117,4 +117,36 @@ static void adv_r1(void)
     assert(input(UI_CHAR, '\\', 0).action == UI_ACT_NONE && !c.mute);
     assert(!strcmp(u.edit, "\\"));
 }
-int main(void) { render_tests(); inputs(); editors(); adv_r1(); puts("keyer K6 UI: PASS"); }
+static void operation_backtick_r2(void)
+{
+    reset(); input(UI_OPT, 0, 0);
+    assert(input(UI_CHAR, '`', 0).action == UI_ACT_NONE && !u.operation);
+    assert(input(UI_CHAR, '`', 0).action == UI_ACT_CANCEL);
+    /* Numeric, choice, and each message editor cancel without a save action.
+     * Reopening starts from the committed value, never the cancelled draft. */
+    for (unsigned i = 0; i < 7; ++i) {
+        reset(); input(UI_OPT, 0, 0);
+        unsigned row = i == 0 ? '3' : i == 1 ? '6' : '1' + i - 2;
+        if (i >= 2) input(UI_DOWN, 0, UI_FN);
+        input(UI_CHAR, row, 0);
+        if (i == 0) input(UI_CHAR, '9', 0);
+        else if (i == 1) input(UI_RIGHT, 0, UI_FN);
+        else input(UI_CHAR, 'X', 0);
+        assert(u.editing);
+        assert(input(UI_CHAR, '`', 0).action == UI_ACT_NONE);
+        assert(u.operation && !u.editing);
+        assert(c.wpm == 20 && c.paddle_mode == KEYER_ENGINE_PADDLE_IAMBIC_A);
+        if (i >= 2) assert(!strcmp(c.messages[i - 2], i == 2 ? "CQ POTA" : ""));
+        input(UI_CHAR, row, 0);
+        if (i == 0) assert(!strcmp(u.edit, "20"));
+        else if (i == 1) assert(u.draft.paddle_mode == KEYER_ENGINE_PADDLE_IAMBIC_A);
+        else assert(!strcmp(u.edit, c.messages[i - 2]));
+        assert(input(UI_ENTER, 0, 0).action == UI_ACT_SAVE && !u.editing);
+        input(UI_CHAR, row, 0);
+        assert(input(UI_ESCAPE, 0, UI_FN).action == UI_ACT_NONE && !u.editing);
+        assert(input(UI_ESCAPE, 0, UI_FN).action == UI_ACT_NONE && !u.operation);
+    }
+    reset(); input(UI_OPT, 0, 0); input(UI_CHAR, '6', 0);
+    input(UI_CHAR, '`', UI_CTRL); assert(u.editing);
+}
+int main(void) { render_tests(); inputs(); editors(); adv_r1(); operation_backtick_r2(); puts("keyer K6 UI: PASS"); }
