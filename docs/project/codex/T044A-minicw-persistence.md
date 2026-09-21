@@ -1,6 +1,6 @@
 # T044A — Mini-CW Keyer persistence, audio-frozen
 
-Status: TESTING
+Status: COMPLETE
 
 ## Safety baseline
 
@@ -774,3 +774,37 @@ golden/minicw-clean-audio
 ```
 
 T044B UTC/time remains deferred until T044A hardware acceptance.
+
+
+## Architect hardware acceptance
+
+Cardputer ADV validation: **PASS**.
+
+The architect installed the T044A external `minicw.elf` over the already
+hardware-accepted T043 resident MiniShell firmware.
+
+Observed result:
+
+```text
+persistence   PASS
+paddle audio  clean / no pop
+M1 audio      clean / no pop
+audio quality unchanged from T043 golden state
+```
+
+Persistence therefore works without disturbing the hardware-validated Mini-CW
+continuous-audio path.
+
+This confirms the intended T044A architecture:
+
+- all persistence remains external-app side;
+- resident MiniShell firmware/audio is unchanged;
+- settings use MiniShell Filesystem;
+- startup reads complete before Tone open;
+- runtime saves wait for a quiet point;
+- clean-audio behavior is preserved.
+
+T044A is COMPLETE.
+
+T044B UTC/time remains deferred. There is no requirement to proceed merely
+because T044A succeeded; the current system is already usable and stable.
