@@ -291,3 +291,5 @@ T042 hardware validation passed for the Mini-CW Keyer-mode platform skeleton. T0
 ported the pinned Mini-CW continuous-audio architecture below a generic MiniShell Tone
 capability; hardware validation passed with both paddle and automatic M1 clean and pop-free,
 matching standalone Mini-CW. T044A is persistence only with an explicit audio freeze. T044B UTC/time is deferred until T044A hardware acceptance. T045 GPS is optional where useful, followed by T046 final Keyer-mode parity.
+
+T046 Mini-CW callsign lookup     READY — bounded no-heap CSV lookup from audited baseline
