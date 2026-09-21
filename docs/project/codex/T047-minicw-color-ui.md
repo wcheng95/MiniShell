@@ -1,6 +1,6 @@
 # T047 — Mini-CW V1.2 color UI
 
-Status: REVIEW
+Status: TESTING
 
 ## Baseline
 
@@ -336,3 +336,35 @@ Providers without optional styling remain monochrome. No scope deviations.
 
 Commit reference: the single implementation commit containing this evidence;
 exact SHA returned after pushing `codex/T047-minicw-color-ui`. Status: REVIEW.
+
+
+## Supervisor review
+
+Reviewed implementation commit:
+
+```text
+afc4f548647d3b47b563172ba912079c36c228ab
+```
+
+No functional blocker found.
+
+The Display API extension is generic: foreground-color attributes and
+row-separator capability contain no Mini-CW/CW/history/operator semantics.
+ADV owns only RGB mapping and physical separator geometry. Mini-CW retains
+semantic color policy and degrades to unchanged monochrome text when optional
+styling is unavailable. The exact V1.2 separator geometry (y=19, height=2) and
+white/green/cyan mapping are covered by provider-level tests.
+
+The public API append is guarded by capability and `struct_size` checks, so
+legacy text-table prefixes remain usable. Audio/timing/lookup/persistence have no
+diff.
+
+Minor cleanup debt, not a hardware blocker: `mini_cw_screen_color_t` currently
+lives in the private `minicw_port.h` so both UI and port can share it. Semantic
+color vocabulary conceptually belongs to Mini-CW UI/shared-private types rather
+than the platform adapter. This can be cleaned up before or with the next
+architecture-hygiene pass without changing T047 behavior.
+
+Hardware acceptance remains: physical white header, green separator and rows
+1-5, cyan bottom row, unchanged callsign text, clean paddle/M1 audio, normal
+exit.
