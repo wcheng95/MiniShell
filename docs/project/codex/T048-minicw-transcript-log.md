@@ -671,3 +671,85 @@ extra line byte consumes existing end padding, but measure rather than assume.
 
 No other blocker found. Do not change transcript semantics, note behavior, audio,
 lookup, color UI or persistence policy while correcting this bound.
+
+
+## Hardware feedback refinements — 2026-09-21
+
+Hardware logging and note mode are working well. Fold these two small refinements
+into the existing correction commit together with the supervisor's one-byte
+record-bound fix.
+
+### 1. Truncation must prefer a whitespace boundary
+
+Keep the 1024-byte per-minute payload limit.
+
+When a minute overflows and will receive ` [TRUNC]`, do not leave the visible
+payload ending in the middle of a word when a prior ASCII space exists.
+
+Required finalization rule:
+
+1. if the payload never overflowed, preserve it byte-for-byte;
+2. if overflowed, search backward from the end of the buffered payload for the
+   last ASCII space (`' '`);
+3. if one exists after at least one non-space payload byte, trim the finalized
+   payload to that boundary and remove trailing spaces;
+4. append exactly one ` [TRUNC]` suffix;
+5. if no useful whitespace boundary exists, fall back to the existing hard
+   1024-byte cut.
+
+This is a truncation-boundary refinement only. Do not introduce arbitrary
+fixed-width wrapping or multiple physical records within one UTC minute.
+
+Backspace behavior before finalization remains unchanged.
+
+Examples:
+
+```text
+buffer end before overflow: "... CQ POTA DE AG6"
+finalized:                 "... CQ POTA [TRUNC]"
+```
+
+if the last complete whitespace-delimited token before the hard limit ends after
+`POTA`.
+
+### 2. Note token needs exactly one outside space on each side
+
+A completed note must appear in the chronological transcript as a separated
+token:
+
+```text
+... **20M** ...
+```
+
+The generated markers remain transcript-only and never enter TX/audio.
+
+Spacing rules:
+
+- before opening `**`: ensure exactly one transcript space separates the note
+  from preceding transcript text;
+- if the note is the first transcript payload in a minute, the existing
+  `HHMM ` line prefix already provides the visual leading separation; do not
+  create an unnecessary second leading space in the payload;
+- after closing `**`: ensure exactly one transcript space before any following
+  transcript text;
+- collapse only the boundary spacing introduced by note mode; do not generally
+  normalize user transcript whitespace;
+- quote keys themselves remain absent from transcript/TX.
+
+Thus:
+
+```text
+CQ DE AG6AQ + note 20M + TU
+-> HHMM CQ DE AG6AQ **20M** TU
+```
+
+not:
+
+```text
+HHMM CQ DE AG6AQ**20M**TU
+HHMM CQ DE AG6AQ  **20M**  TU
+```
+
+Update focused tests to cover note entry after ordinary text, note as the first
+minute content, following text after note exit, both quote keys/cross-key exit,
+and the whitespace-aware truncated-line fallback.
