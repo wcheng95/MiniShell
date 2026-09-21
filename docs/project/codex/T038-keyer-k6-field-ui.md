@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: TESTING
+Status: IMPLEMENTING
 
 ## Architect intent
 
@@ -1392,6 +1392,49 @@ resident import             mini_api_get only
 Hardware retest only needs to reconfirm these R1 fixes plus a quick regression
 of the already-good K6 controls before final T038 acceptance.
 
+
+## Hardware finding — R2
+
+R1 hardware retest passed:
+
+- `\\` mute toggle works;
+- ADV Fn+arrow choice editing works.
+
+One minor usability issue remains. Once an Operation item is selected for editing,
+the current convenient exit path is only Enter to commit; Fn+` produces Escape
+and already cancels correctly, but that chord is not convenient or discoverable.
+
+R2 behavior:
+
+```text
+Operation top level:
+  bare `        -> leave Operation and return to Keyer
+  Escape/Fn+`   -> same
+
+Operation editing:
+  bare `        -> cancel edit, discard draft, return to Operation top level
+  Escape/Fn+`   -> same
+
+Normal Keyer screen:
+  bare `        -> unchanged: cancel active/queued automatic TX
+```
+
+Backtick is no longer required as a literal M1-M5 message-memory character. Inside
+Operation message editing, bare backtick should therefore act as Back/Cancel
+rather than be inserted into the message.
+
+R2 scope is deliberately narrow:
+
+- implement the above Operation-only bare-backtick Back/Cancel behavior;
+- preserve Enter commit/save behavior;
+- preserve normal-screen backtick automatic-TX cancel behavior;
+- preserve Fn+` / Escape behavior;
+- do not change any other K6 shortcut, TX scheduler, KeyOut, sidetone,
+  persistence architecture, public API, or K3 engine behavior;
+- add focused UI/controller regression tests for top-level Operation exit,
+  edit cancel without persistence, message-edit cancel, and unchanged
+  normal-screen TX cancel;
+- rerun focused Keyer tests plus full T038 software/build gates.
 
 ## Architect test result
 
