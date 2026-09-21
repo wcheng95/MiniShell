@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: TESTING
+Status: COMPLETE
 
 
 ## Hardware correction addendum — 2026-09-21
@@ -1351,3 +1351,13 @@ ownership, audio/Tone, fixed header and resident code are unchanged.
 
 Hardware validation is limited to confirming the new row text and one existing
 clear path. Prior full-table and audio acceptance remain valid.
+
+
+## Final hardware acceptance — callsign/operator row — 2026-09-21
+
+Implementation `9cb5cc7ce89efad890305750b72111adfd91acca` is accepted on ADV.
+The row-6 format `<base-call>: <name>` is correct in hardware use, including
+base-call presentation and the paired clear behavior. Prior full-table lookup,
+audio, fixed-header, persistence and exit acceptance remain valid.
+
+T046 is COMPLETE and this state is suitable as the pre-color Mini-CW baseline.
