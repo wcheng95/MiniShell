@@ -23,6 +23,8 @@ static uint64_t final_release;
 static char saved[1024], temporary[1024];
 static unsigned write_position;
 static bool fail_save;
+static unsigned save_count;
+static bool mute_on_seen, mute_off_seen, unsupported_seen;
 static bool s_saw_key_down;
 static char s_console[1024];
 static size_t s_console_len;
@@ -81,6 +83,27 @@ static mini_result_t fake_key_read(mini_key_event_t *out_event, uint32_t timeout
 {
     (void)timeout_ms;
     if (out_event == NULL) return MINI_ERR_INVALID;
+    if (scenario >= 5) {
+        static const mini_key_event_t choice_events[] = {
+            {.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_OPT},
+            {.type = MINI_KEY_EVENT_CHAR, .codepoint = '6'},
+            {.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_RIGHT, .modifiers = MINI_MOD_FN},
+            {.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_ENTER},
+            {.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_OPT},
+        };
+        unsigned count = scenario == 7 ? 5 : scenario == 6 ? 2 : 1;
+        if (input_index < count) {
+            if (scenario == 7) *out_event = choice_events[input_index];
+            else {
+                if (input_index == 1) CHECK(strstr(saved, "mute=On\n") != NULL && save_count == 1);
+                out_event->type = MINI_KEY_EVENT_CHAR; out_event->codepoint = '\\';
+            }
+            ++input_index; return MINI_OK;
+        }
+        if (s_now_us < 300000) return MINI_ERR_NOT_READY;
+        out_event->type = MINI_KEY_EVENT_CHAR; out_event->codepoint = 'c';
+        out_event->modifiers = MINI_MOD_CTRL; return MINI_OK;
+    }
     if (scenario && input_index == 0) {
         ++input_index;
         out_event->type = (scenario == 1 || scenario == 3) ? MINI_KEY_EVENT_SPECIAL : MINI_KEY_EVENT_CHAR;
@@ -181,7 +204,7 @@ static mini_result_t fake_fs_rename(const char *a, const char *b)
 {
     (void)a; CHECK(!strcmp(b, "/flash/keyer/setting.txt"));
     if (fail_save) return MINI_ERR_IO;
-    strcpy(saved, temporary); return MINI_OK;
+    strcpy(saved, temporary); ++save_count; return MINI_OK;
 }
 
 static const mini_fs_api_t FS = {
@@ -231,6 +254,9 @@ static mini_result_t display_write(uint32_t r, uint32_t c, const char *s, uint32
     memcpy(screen[r], s, n); screen[r][20] = 0;
     if (strstr(screen[r], "Save failed")) save_failed_seen = true;
     if (strstr(screen[r], "Saved")) saved_seen = true;
+    if (strstr(screen[r], "Mute:ON")) mute_on_seen = true;
+    if (strstr(screen[r], "Mute:OFF")) mute_off_seen = true;
+    if (strstr(screen[r], "Unsupported char")) unsupported_seen = true;
     if (r > 0 && r < 6 && strchr(screen[r], 'E')) decoded_seen = true;
     return MINI_OK;
 }
@@ -253,6 +279,7 @@ static void run_scenario(unsigned which)
 {
     scenario = which; input_index = 0; final_release = 0; decoded_seen = false;
     save_failed_seen = saved_seen = false;
+    save_count = 0; mute_on_seen = mute_off_seen = unsupported_seen = false;
     memset(s_opened, 0, sizeof(s_opened));
     memset(s_mode, 0, sizeof(s_mode));
     for (size_t i = 0u; i < 64u; ++i) s_level[i] = 1u;
@@ -283,6 +310,20 @@ static void run_scenario(unsigned which)
         CHECK(save_failed_seen == fail_save && saved_seen != fail_save);
         if (!fail_save) CHECK(strstr(saved, "wpm=21\n") != NULL);
     }
+    if (scenario == 5 || scenario == 6) {
+        CHECK(!unsupported_seen && !saved_seen);
+        if (fail_save) CHECK(save_failed_seen && !mute_on_seen && save_count == 0);
+        else {
+            CHECK(mute_on_seen && mute_off_seen == (scenario == 6));
+            CHECK(save_count == (scenario == 6 ? 2u : 1u));
+            CHECK(strstr(saved, scenario == 6 ? "mute=Off\n" : "mute=On\n") != NULL);
+            CHECK(!strncmp(screen[6], scenario == 6 ? "Mute:OFF" : "Mute:ON", scenario == 6 ? 8 : 7));
+        }
+    }
+    if (scenario == 7) {
+        CHECK(saved_seen && save_count == 1);
+        CHECK(strstr(saved, "paddle=IambicB\n") != NULL);
+    }
     CHECK(strstr(s_console, "<BS>") == NULL);
 
     app_controller_shutdown();
@@ -294,7 +335,9 @@ static void run_scenario(unsigned which)
 int main(void)
 {
     run_scenario(0); run_scenario(1); run_scenario(2); run_scenario(3); run_scenario(4);
+    run_scenario(5); run_scenario(6); run_scenario(7);
     char old[1024]; strcpy(old, saved); fail_save = true; run_scenario(2);
+    run_scenario(5);
     CHECK(!strcmp(old, saved));
     puts("keyer_k4_controller_test: PASS");
     return 0;

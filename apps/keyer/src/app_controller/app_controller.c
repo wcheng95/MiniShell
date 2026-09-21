@@ -168,7 +168,10 @@ static mini_result_t apply_config(const keyer_config_t *old, uint64_t now)
     if (old->wpm != s_config.wpm) keyer_engine_set_wpm(&s_engine, s_config.wpm);
     sidetone_settings(&s_sidetone, s_config.sidetone_hz, s_config.volume, s_config.mute);
     rc = config_service_save(s_api, &s_config);
-    ui_shell_status(&s_ui, rc == MINI_OK ? "Saved" : "Save failed", now);
+    const char *status = "Saved";
+    if (!s_ui.operation && old->mute != s_config.mute)
+        status = s_config.mute ? "Mute:ON" : "Mute:OFF";
+    ui_shell_status(&s_ui, rc == MINI_OK ? status : "Save failed", now);
     if (rc != MINI_OK) console_write("keyer: setting.txt save failed; runtime setting retained\n");
     return MINI_OK;
 }

@@ -20,10 +20,11 @@ Ordinary letters (including Q/O), digits and supported punctuation enter CW text
 | Fn+Up/Down | Wrap the three Operation pages |
 | Up/Down or 1–6 | Select Operation item |
 | Enter | Edit/commit in Operation; bypass TxDelay in normal screen |
-| Left/Right or Up/Down | Adjust a numeric/choice edit |
+| Left/Right or Up/Down (also ADV Fn+arrows) | Adjust a numeric/choice edit |
 | Escape | Cancel edit/back from Operation |
 | `[`, `]` | Speed −/+1, clamped 5–60 |
 | `{`, `}` | Volume −/+5, clamped 0–99 |
+| `\` | Toggle mute and save immediately |
 | Alt+1–5 | Queue M1–M5 atomically |
 | Tab | Toggle latched Tune |
 | Backtick | Cancel automatic TX, Tune and M1 repeat |

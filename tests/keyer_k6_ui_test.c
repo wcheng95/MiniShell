@@ -82,4 +82,39 @@ static void editors(void)
         assert(u.editing); assert(input(UI_ENTER,0,0).action==UI_ACT_SAVE);
     }
 }
-int main(void) { render_tests(); inputs(); editors(); puts("keyer K6 UI: PASS"); }
+static void adv_r1(void)
+{
+    reset();
+    assert(input(UI_CHAR, '\\', 0).action == UI_ACT_SAVE && c.mute);
+    assert(input(UI_CHAR, '\\', 0).action == UI_ACT_SAVE && !c.mute);
+    const unsigned modifiers[] = {UI_CTRL, UI_ALT, UI_FN, UI_OPT_MOD};
+    for (unsigned i = 0; i < sizeof(modifiers) / sizeof(modifiers[0]); ++i)
+        assert(input(UI_CHAR, '\\', modifiers[i]).action == UI_ACT_NONE && !c.mute);
+    input(UI_OPT, 0, 0);
+    input(UI_CHAR, '6', 0);
+    assert(u.editing && u.page == 0);
+    const ui_key_t arrows[] = {UI_RIGHT, UI_LEFT, UI_UP, UI_DOWN};
+    const keyer_engine_paddle_mode_t expected[] = {
+        KEYER_ENGINE_PADDLE_IAMBIC_B, KEYER_ENGINE_PADDLE_IAMBIC_A,
+        KEYER_ENGINE_PADDLE_IAMBIC_B, KEYER_ENGINE_PADDLE_IAMBIC_A,
+    };
+    for (unsigned i = 0; i < 4; ++i) {
+        input(arrows[i], 0, UI_FN);
+        assert(u.editing && u.page == 0 && u.draft.paddle_mode == expected[i]);
+        assert(c.paddle_mode == KEYER_ENGINE_PADDLE_IAMBIC_A);
+    }
+    input(UI_RIGHT, 0, UI_FN | UI_CTRL);
+    assert(u.draft.paddle_mode == KEYER_ENGINE_PADDLE_IAMBIC_A);
+    input(UI_RIGHT, 0, UI_FN);
+    assert(input(UI_ENTER, 0, 0).action == UI_ACT_SAVE);
+    assert(c.paddle_mode == KEYER_ENGINE_PADDLE_IAMBIC_B && !u.editing);
+    input(UI_UP, 0, UI_FN); assert(u.page == 2);
+    input(UI_DOWN, 0, UI_FN); assert(u.page == 0);
+    input(UI_CHAR, '6', 0); input(UI_UP, 0, UI_FN); input(UI_ESCAPE, 0, UI_FN);
+    assert(c.paddle_mode == KEYER_ENGINE_PADDLE_IAMBIC_B && !u.editing);
+    /* The shortcut remains normal-screen only; a memory may contain backslash. */
+    input(UI_DOWN, 0, UI_FN); input(UI_CHAR, '2', 0);
+    assert(input(UI_CHAR, '\\', 0).action == UI_ACT_NONE && !c.mute);
+    assert(!strcmp(u.edit, "\\"));
+}
+int main(void) { render_tests(); inputs(); editors(); adv_r1(); puts("keyer K6 UI: PASS"); }

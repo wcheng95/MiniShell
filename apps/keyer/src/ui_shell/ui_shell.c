@@ -98,6 +98,11 @@ ui_result_t ui_shell_input(ui_shell_t *u, keyer_config_t *c, ui_input_t e)
             u->page = (u->page + (e.key == UI_UP ? 2 : 1)) % 3;
             u->selected = 0; return r;
         }
+        /* ADV arrows carry Fn: inside an editor they adjust the value,
+         * while the top-level page navigation above retains ownership. */
+        if (u->editing && e.mods == UI_FN &&
+            (e.key == UI_LEFT || e.key == UI_RIGHT || e.key == UI_UP || e.key == UI_DOWN))
+            e.mods = 0;
         if (e.mods & (UI_CTRL | UI_ALT | UI_FN | UI_OPT_MOD)) return r;
         if (!u->editing) {
             if (e.key == UI_UP) u->selected = (u->selected + 5) % 6;
@@ -149,7 +154,9 @@ ui_result_t ui_shell_input(ui_shell_t *u, keyer_config_t *c, ui_input_t e)
     case UI_BACKSPACE: r.action = UI_ACT_BACKSPACE; break;
     case UI_CHAR:
         if (e.ch == '`' && !e.mods) r.action = UI_ACT_CANCEL;
-        else if ((e.ch == '[' || e.ch == ']') && !e.mods) {
+        else if (e.ch == '\\' && !e.mods) {
+            c->mute = !c->mute; r.action = UI_ACT_SAVE;
+        } else if ((e.ch == '[' || e.ch == ']') && !e.mods) {
             c->wpm = (uint8_t)clamp(c->wpm + (e.ch == ']' ? 1 : -1), 5, 60); r.action = UI_ACT_SAVE;
         } else if (e.ch == '{' || e.ch == '}') {
             c->volume = (uint8_t)clamp(c->volume + (e.ch == '}' ? 5 : -5), 0, 99); r.action = UI_ACT_SAVE;

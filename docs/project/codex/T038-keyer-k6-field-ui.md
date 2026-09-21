@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: IMPLEMENTING
+Status: REVIEW
 
 ## Architect intent
 
@@ -1259,6 +1259,96 @@ Opt         return
 
 All other currently tested K6 functions remain accepted pending completion of
 H1-H7 after this R1 correction.
+
+## Codex R1 implementation / validation
+
+R1 implemented from `9c1f7c5554c8c50f0faf408956debe6fe5e96a9b` on
+`codex/T038-keyer-k6-field-ui`. Ready for supervisor re-review; no additional
+hardware testing performed.
+
+### Implementation summary and files changed
+
+- `apps/keyer/src/ui_shell/ui_shell.c`: accept exact Fn+arrow direction events
+  inside an active Operation editor, after the existing top-level page navigation
+  branch. Other disallowed modifiers remain rejected. Bare normal-screen `\`
+  toggles mute and returns the existing save action instead of a TX-text action.
+- `apps/keyer/src/app_controller/app_controller.c`: the existing apply/save path
+  displays `Mute:ON` / `Mute:OFF` for a successful normal-screen mute change.
+  Failed saves still display `Save failed` and retain the runtime setting under
+  the established policy. Sidetone settings are applied before saving as before.
+- `tests/keyer_k6_ui_test.c`: all four ADV-style Fn+arrow editor directions,
+  unchanged page navigation outside editing, commit/cancel and modifier rejection;
+  both mute-toggle directions and normal-screen-only shortcut discrimination.
+- `tests/keyer_k4_controller_test.c`: actual MiniShell input events through the
+  adapter/controller for Opt -> 6 -> Fn+Right -> Enter -> Opt; verifies persisted
+  `paddle=IambicB`. Backslash scenarios verify immediate `mute=On`/`mute=Off`
+  saves, both displayed statuses, no unsupported-character status, physical KeyOut
+  operation while muted, and preservation of the old file/status on save failure.
+- `apps/keyer/README.md`: document the restored shortcut and ADV editor arrows.
+- This packet: R1 evidence and REVIEW status.
+
+### Preserved behavior / limitations
+
+K3 engine, automatic TX scheduler, KeyOut implementation, configuration writer,
+sidetone transport, public APIs and resident firmware sources are unchanged.
+No new action type, persistence mechanism, task or allocation was introduced.
+Top-level Fn+Up/Down still wraps Operation pages. Operation message editing still
+accepts printable backslash text; only the normal screen treats it as mute.
+No scope deviations. Hardware confirmation remains with the architect after
+supervisor review; this amendment contains software/build evidence only.
+
+### Tests and builds
+
+All commands passed:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 74/74 PASS
+cmake -S tests/unit -B /tmp/T038-R1-unit
+cmake --build /tmp/T038-R1-unit -j"$(nproc)"
+ctest --test-dir /tmp/T038-R1-unit --output-on-failure
+# 18/18 PASS
+ctest --test-dir /tmp/T038-R1-unit -R 'keyer|api_audio' --output-on-failure
+# 8/8 PASS, including K3/K4/K5 and K6 regressions
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R 'audio|Audio' --output-on-failure
+# 5/5 PASS
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . keyer
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . keyer
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+idf.py -C platform/adv/elf_apps/keyer fullclean
+idf.py -C platform/adv/elf_apps/keyer elf
+xtensa-esp32s3-elf-readelf -rW platform/adv/elf_apps/keyer/build/keyer.app.elf
+# Exactly one R_XTENSA_JMP_SLOT: mini_api_get
+# Expected warning: loader-stripped .dynamic section, as in initial K6 build.
+git diff --check
+```
+
+### Firmware / memory evidence
+
+Measured with `wc -c` and `xtensa-esp32s3-elf-size -A` against pre-amendment
+artifacts (the reviewed K6 ELF was 22,800 bytes):
+
+| Artifact / section | Before bytes | R1 bytes | Delta |
+| --- | ---: | ---: | ---: |
+| Resident firmware BIN | 1,375,776 | 1,375,776 | 0 |
+| Resident `.iram0.text` | 63,959 | 63,959 | 0 |
+| Resident `.dram0.data` | 27,000 | 27,000 | 0 |
+| Resident `.dram0.bss` | 38,864 | 38,864 | 0 |
+| Static internal SRAM, sum of above sections | 129,823 | 129,823 | 0 |
+| External `keyer.app.elf` | 22,800 | 22,952 | +152 |
+| External `.text` | 15,238 | 15,346 | +108 |
+| External `.rodata` | 1,429 | 1,449 | +20 |
+| External `.data.rel.ro` | 676 | 676 | 0 |
+| External `.bss` | 3,628 | 3,628 | 0 |
+
+### Commit reference
+
+One R1 amendment commit on `codex/T038-keyer-k6-field-ui`; its exact SHA is
+returned in the engineer handoff. No PR. T038 is REVIEW.
 
 ## Architect test result
 
