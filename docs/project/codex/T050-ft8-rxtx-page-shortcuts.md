@@ -1,6 +1,6 @@
 # T050 — MiniFT8 RX/TX plain page shortcuts
 
-Status: READY
+Status: REVIEW
 
 ## Baseline
 
@@ -139,3 +139,84 @@ On ADV:
 6. confirm RX colors, TX red separator, QMX operation and Ctrl+C remain normal.
 
 Return exact implementation SHA and evidence.
+
+## Implementation handoff
+
+Implemented on task branch baseline `59a01f2a0a6ac2bfd6d1d4bf1935b07f9cecab1a`
+(production baseline `fc7a54b1798d0431ee250a6fa314fa6c3867b9cc`).
+
+### Implementation summary / files changed
+
+- `apps/ft8/src/ui_shell/ui_shell.c`: top-level RX/TX character handling
+  delegates `;` / `.` to existing `move_page()` and returns no AppAction.
+  RX/TX desktop footers now include `;/. page` within 30 columns.
+- `tests/ft8_ui_smoke.c`: exercises both presentation profiles and all pages
+  of 13-row RX/TX lists, both wrap directions, selected-line reset, all four
+  special navigation inputs, one-page behavior, other screens and every
+  submenu, screen switching, and page-relative 1..6 actions. Frames from
+  plain and special navigation compare identically, including T049 metadata.
+  Existing QSO special paging/action and color regressions remain in place.
+- `docs/MiniFT8/ui.md`: documents shortcut direction, scope and unchanged
+  ADV geometry. This task file records validation and review status.
+
+### Behavior / invariants preserved
+
+No adapter remapping or API changes. RX/TX use exactly the existing page
+movement semantics, including retaining selection on a single page. O/S/V
+and submenus ignore these plain characters. Existing radio, DSP, AutoSeq,
+CAT, TX queue, logging, color/separator and screen-selection behavior remain
+unchanged. No deviations from the task.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+ctest --test-dir build-linux -R '^linux_serial_unit$' --output-on-failure
+ctest --test-dir build-linux --output-on-failure
+ctest --test-dir build-linux -R 'ft8|display|architecture|boundary|minicw' --output-on-failure
+cmake -S tests/unit -B /tmp/T050-unit
+cmake --build /tmp/T050-unit -j8
+ctest --test-dir /tmp/T050-unit --output-on-failure
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+git diff --check
+```
+
+- Linux configure/build passed. First full CTest: 87/88, with the previously
+  reported `linux_serial_unit` line-67 timeout assertion. Isolated retry
+  passed 1/1; full rerun passed **88/88**. No Serial code/test changes.
+- Focused FT8/UI, display, MiniCW and architecture/boundary regressions:
+  **52/52 passed**.
+- Portable units: **28/28 passed**.
+- Real ADV firmware: baseline and implementation builds passed with ESP-IDF
+  v5.5.4. No flashing or hardware tests performed.
+- `git diff --check`: passed.
+
+### Resident resource evidence
+
+Measured sequential baseline and implementation builds in the same checkout,
+with the baseline build completed before production edits (bytes):
+
+| Resource | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Firmware BIN | 1,382,016 | 1,382,096 | +80 |
+| `.flash.text` | 1,052,698 | 1,052,778 | +80 |
+| `.flash.rodata` | 236,788 | 236,788 | 0 |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,016 | 27,016 | 0 |
+| `.dram0.bss` | 40,336 | 40,336 | 0 |
+| Sum of measured static internal SRAM sections | 131,311 | 131,311 | 0 |
+
+No new persistent state or allocation. FT8 remains resident; no external ELF
+port is introduced.
+
+### Remaining validation / risks / commit reference
+
+Supervisor review and the ADV hardware acceptance checklist above remain
+pending. The pre-existing intermittent Linux Serial timeout test remains a
+validation limitation; it passed on retry. No known shortcut-specific issue.
+This handoff is included in the single implementation commit on
+`codex/T050-ft8-rxtx-page-shortcuts`; the exact SHA is returned after push.

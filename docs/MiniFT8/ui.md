@@ -149,6 +149,12 @@ A UIScreen is at its **top level** when the user has entered that UIScreen but h
 
 Page Up/Down navigation does not leave the top level.
 
+At RX and TX top level, bare `;` selects the previous page and bare `.`
+selects the next page, with wraparound, just like Up/PageUp and Down/PageDown.
+No Fn is required. These character shortcuts do not apply to O/S/V or any
+submenu, including V -> QSO. Desktop footers show `;/. page`; ADV keeps its
+20x7 layout without a footer.
+
 ### UIScreen switching
 
 At the top level of any UIScreen, these letter keys are reserved and case-insensitive:

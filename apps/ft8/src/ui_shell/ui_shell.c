@@ -194,7 +194,7 @@ static void render_rx(const UiShell *ui, const UiModel *model, UiFrame *frame)
                                       model->rx_kind[index] == UI_RX_CQ ? UI_COLOR_GREEN : UI_COLOR_WHITE;
         }
     }
-    frame_footer(frame, "R T O S V  1-6 select q quit");
+    frame_footer(frame, "R T O S V  1-6 select ;/. page");
 }
 
 static void render_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -206,7 +206,7 @@ static void render_tx(const UiShell *ui, const UiModel *model, UiFrame *frame)
             frame_set(frame, i + 1, "%d %s", i + 1, model->tx_lines[index]);
         }
     }
-    frame_footer(frame, "1-6 drop  Enter rotate  Up/Dn");
+    frame_footer(frame, "1-6 drop Enter rotate ;/. page");
 }
 
 static void render_o_root(const UiShell *ui, const UiModel *model, UiFrame *frame)
@@ -674,6 +674,12 @@ bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
     clear_action(action_out);
 
     if (input.type == UI_INPUT_CHAR) {
+        if ((ui->screen == SCREEN_RX || ui->screen == SCREEN_TX) &&
+            ui->submenu == UI_SUBMENU_NONE &&
+            (input.ch == ';' || input.ch == '.')) {
+            move_page(ui, model, input.ch == ';' ? -1 : +1);
+            return false;
+        }
         int ch = tolower((unsigned char)input.ch);
         if (ch == 'r') { enter_screen(ui, SCREEN_RX); return false; }
         if (ch == 't') { enter_screen(ui, SCREEN_TX); return false; }

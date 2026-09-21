@@ -376,8 +376,95 @@ static void color_status(void)
     }
 }
 
+static void test_plain_page_shortcuts(void)
+{
+    UiModel model;
+    AppAction action;
+    set_default_model(&model);
+    model.rx_count = model.tx_count = 13;
+    model.tx_active = true;
+    for (unsigned i = 0; i < 13; ++i) {
+        snprintf(model.rx_lines[i], UI_TEXT_CAP, "RX %u", i);
+        snprintf(model.tx_lines[i], UI_TEXT_CAP, "TX %u", i);
+        model.rx_kind[i] = i % 3 == 0 ? UI_RX_TO_ME :
+                           i % 3 == 1 ? UI_RX_CQ : UI_RX_NORMAL;
+    }
+    const UiInputType nav[] = {UI_INPUT_UP, UI_INPUT_PAGE_PREV,
+                              UI_INPUT_DOWN, UI_INPUT_PAGE_NEXT};
+    const ft8_presentation_profile_t profiles[] = {
+        FT8_PRESENTATION_ADV, FT8_PRESENTATION_DESKTOP
+    };
+    for (unsigned profile = 0; profile < 2; ++profile) {
+        for (Screen screen = SCREEN_RX; screen <= SCREEN_TX; ++screen) {
+            UiShell ui;
+            ui_shell_init(&ui, profiles[profile]);
+            ui.screen = screen;
+            /* Every page and direction, including both wrap boundaries. */
+            for (unsigned page = 0; page < 3; ++page) {
+                for (unsigned n = 0; n < 4; ++n) {
+                    ui.page_index = page;
+                    ui.selected_line = 4;
+                    UiShell expected = ui;
+                    UiFrame plain_frame, special_frame;
+                    assert(!ui_shell_handle_input(&expected, &model, special(nav[n]), &action));
+                    action.type = APP_ACTION_LOAD_QSO_PAGE;
+                    assert(!ui_shell_handle_input(&ui, &model, key(n < 2 ? ';' : '.'), &action));
+                    assert(action.type == APP_ACTION_NONE);
+                    assert(ui.page_index == (page + (n < 2 ? 2 : 1)) % 3);
+                    assert(ui.selected_line == 0);
+                    assert(ui.page_index == expected.page_index);
+                    ui_shell_render(&ui, &model, &plain_frame);
+                    ui_shell_render(&expected, &model, &special_frame);
+                    assert(!memcmp(&plain_frame, &special_frame, sizeof(plain_frame)));
+                    if (profiles[profile] == FT8_PRESENTATION_DESKTOP)
+                        assert(strstr(plain_frame.rows[7], ";/. page"));
+                }
+            }
+            ui.page_index = 1;
+            for (char c = '1'; c <= '6'; ++c) {
+                assert(ui_shell_handle_input(&ui, &model, key(c), &action));
+                assert(action.type == (screen == SCREEN_RX ? APP_ACTION_SELECT_RX_MESSAGE : APP_ACTION_DROP_TX_QSO));
+                assert(action.value.index == 6 + c - '1');
+            }
+            model.rx_count = model.tx_count = 6;
+            ui.page_index = 0;
+            ui.selected_line = 4;
+            for (unsigned n = 0; n < 2; ++n) {
+                assert(!ui_shell_handle_input(&ui, &model, key(n ? '.' : ';'), &action));
+                assert(action.type == APP_ACTION_NONE && ui.page_index == 0);
+                assert(ui.selected_line == 4); /* Existing single-page move_page semantics. */
+            }
+            model.rx_count = model.tx_count = 13;
+        }
+    }
+    /* Neither other screens nor any submenu consumes characters as paging. */
+    for (Screen screen = SCREEN_RX; screen <= SCREEN_V; ++screen) {
+        for (UiSubmenu submenu = UI_SUBMENU_NONE; submenu <= UI_SUBMENU_V_ABOUT; ++submenu) {
+            if (screen <= SCREEN_TX && submenu == UI_SUBMENU_NONE) continue;
+            UiShell ui;
+            ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+            ui.screen = screen; ui.submenu = submenu;
+            ui.page_index = 1; ui.selected_line = 4;
+            UiShell before = ui;
+            for (unsigned n = 0; n < 2; ++n) {
+                assert(!ui_shell_handle_input(&ui, &model, key(n ? '.' : ';'), &action));
+                assert(action.type == APP_ACTION_NONE);
+                assert(!memcmp(&ui, &before, sizeof(ui)));
+            }
+        }
+    }
+    UiShell ui;
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    const char switches[] = "rtosv";
+    for (unsigned i = 0; i < 5; ++i) {
+        assert(!ui_shell_handle_input(&ui, &model, key(switches[i]), &action));
+        assert(ui.screen == (Screen)i && ui.submenu == UI_SUBMENU_NONE);
+    }
+}
+
 int main(void)
 {
+    test_plain_page_shortcuts();
     color_status();
     test_qso_view();
     test_cq_beacon_controls();
