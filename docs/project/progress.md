@@ -278,8 +278,11 @@ wcheng95/Mini-CW
 ```
 
 Standalone Mini-CW V1.2 hardware comparison is clean for both paddle and automatic M1.
-The migration goal is to preserve Mini-CW application/domain behavior while replacing
-direct board/ESP-IDF ownership with MiniShell services. See `docs/MiniCW/migration.md`.
+The migration goal is specifically Mini-CW **Keyer-mode** behavior under MiniShell,
+not full standalone-firmware parity. Battery/sleep and USB-MSC remain MiniShell
+responsibilities; trainer/lesson/word/callsign/plaintext modes are not migrated.
+See `docs/MiniCW/migration.md`.
 
 T042 is the first silent Keyer-mode platform skeleton. T043 will own the known-good
 continuous-audio migration and must pass clean paddle + M1 hardware acceptance.
+T044 is persistence/time, T045 GPS where useful, and T046 final Keyer-mode parity.
