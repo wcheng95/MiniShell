@@ -7,7 +7,7 @@
 - ADV application resolution is `compiled-in > /flash/apps/<app>.elf > /sd/apps/<app>.elf`.
 - Public MiniShell API generation is v3 and exposes App, System, Console, Memory, Filesystem, Time/Location, Display, Input, Audio, and Digital I/O.
 - Architecture cleanup C0-C4 is complete.
-- K1 runtime ELF, K2 Digital I/O, K3 Keyer engine, and K4 GPIO KeyIn/KeyOut are complete. K5 sidetone is implemented/transport-validated; T038/K6 field UI, keyboard TX, memories and persistent settings is TESTING after software/build review; hardware validation is pending.
+- The older `apps/keyer` K1-K6 path is retained as development history, but it is no longer the field application baseline. Mini-CW (`minicw`) is the accepted CW application under MiniShell; T042-T048 and the ownership audit are hardware accepted.
 - MiniFT8 AutoSeq AS-0..AS-8 is complete.
 - MiniFT8 live Linux/QMX RX is working continuously across consecutive FT8 slots. T018 makes bare Linux `ft8` the validated operator command: ADV presentation plus live `alsa:hw:2,0` QMX RX by default.
 - MiniFT8 live Cardputer ADV/QMX USB-host RX is fully hardware-validated at 240 MHz with the V2-compatible `time_osr=2, freq_osr=1` engine profile: live decode, consecutive slots, initial late attach, repeated FT8 lifecycle, provider continuity, and post-FT8 `usbmsc` all pass.
@@ -28,7 +28,7 @@
 - T035 is COMPLETE: WebFS uses stable SoftAP credentials from `/flash/minishell/setting.txt`; iPhone reconnects without re-entering a generated password, invalid/missing settings fall back safely, T034 file operations remain intact, and same-boot FT8/QMX still works.
 - T036 is BREAK / NOT ACCEPTED: the one-shot ADV MiniFT8 web mirror passed software/build review but prevented FT8 RX startup on hardware under concurrent Wi-Fi/HTTP + QMX preflight. The experimental mirror code was removed from main; T033-T035 remain the accepted WebFS/Wi-Fi baseline.
 - T037 is COMPLETE: UI-first ADV FT8 startup is hardware validated. MiniFT8 remains fully usable with QMX absent, late attachment transitions through existing CAT sync into RX without restarting the app, and already-connected startup/cleanup behavior remains intact.
-- ADV remains a validated embedded RX deployment target. Physical FT8 TX is currently accepted on Linux/QMX; carrying the proven TX boundary to ADV is future work rather than an active task.
+- ADV is a validated embedded MiniFT8 RX/TX deployment target. Physical QMX CAT TX, RX recovery, the red TX-status separator, RX message colors, and RX/TX paging shortcuts have been exercised on real ADV/QMX hardware.
 
 ## Current MiniFT8 baseline
 
@@ -124,6 +124,9 @@ T034         COMPLETE — safe WebFS mutations, hardware validated
 T035         COMPLETE — persistent WebFS SoftAP credentials, hardware validated
 T036         BREAK — mirrored web front panel not accepted; code reverted from main
 T037         COMPLETE — UI-first FT8 startup with late QMX attach, hardware validated
+T049         COMPLETE — ADV color status: TX separator red/white; CQ green; reply-to-me red path software-proven
+T050         COMPLETE — bare `;` / `.` RX/TX page shortcuts on ADV
+T051         COMPLETE — 50-row ADV resident console scrollback, 5-row Fn+Up/Down steps
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 rpi3-2       RX/TX PASS — native AArch64 build; QMX ALSA decode + CDC CAT + physical TX validated
@@ -158,49 +161,40 @@ AutoSeq owns pure log eligibility/events and per-format ACK state. `app_controll
 
 V2-compatible `RTYYMMDD.txt` RxTxLog is implemented and hardware validated through T022-T026; `rxtx_log` defaults ON and is configurable in `station.txt`. It captured the first completed two-way QSO and the responder RR73 regression evidence.
 
-## Keyer baseline
+## CW application baseline
+
+The original `apps/keyer` development track (K0-K6 / T038-T040) is historical.
+It proved runtime ELF, Digital I/O, GPIO KeyIn/KeyOut, sidetone transport and UI
+experiments, but it is not the current field CW application.
+
+The accepted CW application is `minicw`, derived from the pinned standalone
+Mini-CW V1.2 behavior:
 
 ```text
-K0 architecture gate          COMPLETE
-K1 ADV runtime ELF proof      COMPLETE
-K2 MiniShell Digital I/O      COMPLETE
-K3 portable Keyer engine      COMPLETE
-K4 GPIO KeyIn/KeyOut          COMPLETE
-K5 sidetone                   IMPLEMENTED / TRANSPORT HARDWARE-VALIDATED
-T038 / K6 field UI/settings    COMPLETE — hardware validated, including pop-free auto TX via Display deferral
-T039 ADV dirty Display present  BREAK — hardware pop remained through R1-R3 experiments
-T040 Keyer unified transcript    TESTING — Alt/1 chooser dismissal hardware-pass; remaining acceptance pending
-T042 Mini-CW foundation          COMPLETE — external Mini-CW Keyer-mode app hardware validated
-T043 Mini-CW continuous audio    COMPLETE — paddle and M1 both pop-free, matching standalone Mini-CW
-T044A Mini-CW persistence        COMPLETE — persistence works; clean paddle/M1 audio preserved
-T045 Mini-CW UI/I/O cleanup      COMPLETE — hardware accepted; audio remains clean
-Mini-CW boundary audit           COMPLETE — ownership/lifecycle boundary frozen as baseline
+T042 foundation / platform boundary   COMPLETE
+T043 continuous tone audio            COMPLETE — paddle + M1 clean/no-pop
+T044A persistence                     COMPLETE
+T045 UI / I/O cleanup                 COMPLETE
+boundary audit                        COMPLETE
+T046 full callsign lookup             COMPLETE
+T047 color UI                         COMPLETE
+T048 transcript + safe note mode      COMPLETE
 ```
 
-The controller keeps orchestration in `app_controller`:
+Current Mini-CW behavior includes the fixed 20x7 header, clean CW audio,
+persistent settings, full callsign lookup, white/green/cyan presentation with
+2-pixel green separator, and daily compact transcript logging with dual-quote
+safe note mode.
+
+Canonical current documents:
 
 ```text
-config_service
-      |
-      v
-                  +--> keyin ------> MiniShell Digital I/O
-                  +--> keyer_engine
-app_controller ---+--> keyout ------> MiniShell Digital I/O
-                  `--> sidetone ----> MiniShell Audio TX
+docs/MiniCW/migration.md
+docs/MiniCW/baseline-audit.md
+apps/minicw/README.md
 ```
 
-K5 software is implemented; T009/T010 provide ADV Audio TX transport hardware evidence. T038 K6 is COMPLETE with the dedicated 20x7 UI, keyboard/message TX, M1-M5, corrected SKS/SKM/OFF KeyOut modes, shortcuts, immediate persistence, raised-cosine sidetone and Alt overlay. T039 is BREAK after dirty-row Display, independent continuous-tone worker and codec-write transport experiments all left the Cardputer ADV pop present. T040 is the active UI simplification: rows 1-6 become one transmitted/decoded transcript, the visible TX-tail row is removed, and the M1-M5 chooser closes immediately after selection. The remaining speaker pop is deferred as a separate issue.
-
-Default ADV deployment remains:
-
-```text
-G13  KeyIn tip    active-low input + pull-up
-G15  KeyIn ring   active-low input + pull-up
-G3   KeyOut tip   active-low open-drain
-G6   KeyOut ring  active-low open-drain
-```
-
-Real Cardputer ADV hardware validation passed for physical GPIO KeyIn/KeyOut, clean application exit, released outputs, and no observable RAM leakage across repeated load/run/exit.
+The older `docs/keyer/README.md` remains an explicitly historical record.
 
 ## Configuration ownership
 
@@ -272,6 +266,26 @@ platform/adv/elf_apps/keyer/README.md
 ```
 
 
+## Field-use milestone — 2026-09-21
+
+MiniShell + MiniFT8 + Mini-CW is considered operational for this development
+round. Current production `main` is the field/learning baseline:
+
+```text
+48909320646f3a989c812a88052b0b7420a32dc7
+```
+
+Accepted ADV behavior includes MiniFT8 RX/TX, Mini-CW, WebFS, filesystem tools,
+50-row resident console scrollback, color/separator Display support, and normal
+foreground app return to `M$>`.
+
+Known operational caveat: ADV currently tears down the ESP32-S3 USB Host/UAC/CDC
+session when the final QMX user exits. A subsequent fresh QMX enumeration can
+fail on real hardware and may require power-cycling QMX. Linux hosts keep the
+device enumerated in the kernel, so restarting MiniFT8 there normally only
+reopens ALSA/CDC handles. Treat persistent/reusable ADV QMX USB-host ownership as
+future architecture work, not a blocker for this milestone.
+
 ## Mini-CW migration track
 
 Pinned golden reference:
@@ -287,10 +301,7 @@ not full standalone-firmware parity. Battery/sleep and USB-MSC remain MiniShell
 responsibilities; trainer/lesson/word/callsign/plaintext modes are not migrated.
 See `docs/MiniCW/migration.md`.
 
-T042 hardware validation passed for the Mini-CW Keyer-mode platform skeleton. T043 then
-ported the pinned Mini-CW continuous-audio architecture below a generic MiniShell Tone
-capability; hardware validation passed with both paddle and automatic M1 clean and pop-free,
-matching standalone Mini-CW. T044A is persistence only with an explicit audio freeze. T044B UTC/time is deferred until T044A hardware acceptance. T045 GPS is optional where useful, followed by T046 final Keyer-mode parity.
+T042-T045 completed the Mini-CW Keyer-mode migration and ownership cleanup. The pinned Mini-CW continuous-audio behavior is preserved under MiniShell Tone, with both paddle and automatic M1 hardware-validated clean and pop-free. UTC is read through MiniShell Time/Location; GPS remains outside Mini-CW scope. T046-T048 are completed feature additions from the audited baseline.
 
 T046 Mini-CW callsign lookup     COMPLETE — full V1.2 table, <base-call>: <name> row, audio/header/clearing/exit all hardware accepted
 T047 Mini-CW color UI            COMPLETE — V1.2 white/green/cyan text and 2-pixel green separator accepted on ADV; audio and lookup remain clean
