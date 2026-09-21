@@ -293,4 +293,4 @@ capability; hardware validation passed with both paddle and automatic M1 clean a
 matching standalone Mini-CW. T044A is persistence only with an explicit audio freeze. T044B UTC/time is deferred until T044A hardware acceptance. T045 GPS is optional where useful, followed by T046 final Keyer-mode parity.
 
 T046 Mini-CW callsign lookup     COMPLETE — full V1.2 table, <base-call>: <name> row, audio/header/clearing/exit all hardware accepted
-T047 Mini-CW color UI            TESTING — generic Display color/separator implementation passed software review; ADV physical color/audio validation pending
+T047 Mini-CW color UI            COMPLETE — V1.2 white/green/cyan text and 2-pixel green separator accepted on ADV; audio and lookup remain clean
