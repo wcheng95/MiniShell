@@ -168,7 +168,8 @@ K3 portable Keyer engine      COMPLETE
 K4 GPIO KeyIn/KeyOut          COMPLETE
 K5 sidetone                   IMPLEMENTED / TRANSPORT HARDWARE-VALIDATED
 T038 / K6 field UI/settings    COMPLETE — hardware validated, including pop-free auto TX via Display deferral
-T039 ADV dirty Display present  READY — restore live auto-TX refresh without speaker starvation
+T039 ADV dirty Display present  BREAK — hardware pop remained through R1-R3 experiments
+T040 Keyer unified transcript    READY — six-line sent/decoded text; chooser closes on selection
 ```
 
 The controller keeps orchestration in `app_controller`:
@@ -183,7 +184,7 @@ app_controller ---+--> keyout ------> MiniShell Digital I/O
                   `--> sidetone ----> MiniShell Audio TX
 ```
 
-K5 software is implemented; T009/T010 provide ADV Audio TX transport hardware evidence. T038 K6 is COMPLETE and hardware validated: dedicated 20x7 UI, keyboard/message TX, M1-M5, corrected SKS/SKM/OFF KeyOut modes, shortcuts, immediate persistence, raised-cosine sidetone, Alt overlay, and the hardware-confirmed Display-starvation workaround. T039 is the active follow-up: make the shared ADV Display provider present only dirty rows/runs, restore live Keyer display refresh during automatic TX, and retain pop-free audio.
+K5 software is implemented; T009/T010 provide ADV Audio TX transport hardware evidence. T038 K6 is COMPLETE with the dedicated 20x7 UI, keyboard/message TX, M1-M5, corrected SKS/SKM/OFF KeyOut modes, shortcuts, immediate persistence, raised-cosine sidetone and Alt overlay. T039 is BREAK after dirty-row Display, independent continuous-tone worker and codec-write transport experiments all left the Cardputer ADV pop present. T040 is the active UI simplification: rows 1-6 become one transmitted/decoded transcript, the visible TX-tail row is removed, and the M1-M5 chooser closes immediately after selection. The remaining speaker pop is deferred as a separate issue.
 
 Default ADV deployment remains:
 
