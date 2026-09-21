@@ -230,7 +230,11 @@ int app_controller_run(void)
             (void)keyout_release(&s_keyout); return 5;
         }
         emit_decoded_events();
-        if (now >= next_render) {
+        /* R4 diagnostic only: isolate foreground Display work from automatic
+         * elements and gaps. Pending TxDelay/repeat and manual keying stay live. */
+        if (s_tx.phase != TX_IDLE) {
+            next_render = 0; /* Catch up on the first idle tick. */
+        } else if (now >= next_render) {
             if (render(now) != MINI_OK) { (void)keyout_release(&s_keyout); return 6; }
             next_render = now + 50000u;
         }

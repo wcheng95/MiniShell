@@ -19,6 +19,11 @@ static uint32_t s_level[64];
 static uint64_t s_now_us;
 static bool s_q_sent;
 static unsigned scenario, input_index;
+static bool display_diagnostic, manual_render;
+static unsigned render_calls, present_calls, diagnostic_read;
+static bool delay_render, idle_repeat_render, catchup_render;
+static uint64_t last_render;
+static const char diagnostic_config[] = "m1=I E\nrepeat_s=1\n";
 static const mini_key_event_t *r2_events;
 static unsigned r2_count;
 static uint64_t final_release;
@@ -52,12 +57,19 @@ static mini_result_t fake_fs_open(const char *path, uint32_t flags, mini_file_t 
         CHECK(!strcmp(path, "/flash/keyer/setting.tmp"));
         *out_file = 1; write_position = 0; temporary[0] = 0; return MINI_OK;
     }
+    if (display_diagnostic) { *out_file = 2; diagnostic_read = 0; return MINI_OK; }
     return MINI_ERR_NOT_FOUND;
 }
 
 static mini_result_t fake_fs_read(mini_file_t file, void *buffer, uint32_t size,
                                   uint32_t *out_read)
 {
+    if (display_diagnostic && file == 2) {
+        unsigned remaining = (unsigned)strlen(diagnostic_config) - diagnostic_read;
+        if (size > remaining) size = remaining;
+        memcpy(buffer, diagnostic_config + diagnostic_read, size);
+        diagnostic_read += size; *out_read = size; return MINI_OK;
+    }
     (void)file;
     (void)buffer;
     (void)size;
@@ -86,6 +98,17 @@ static mini_result_t fake_key_read(mini_key_event_t *out_event, uint32_t timeout
 {
     (void)timeout_ms;
     if (out_event == NULL) return MINI_ERR_INVALID;
+    if (display_diagnostic) {
+        if (!input_index && s_now_us >= 2000) {
+            ++input_index; out_event->type = MINI_KEY_EVENT_CHAR;
+            out_event->codepoint = '1'; out_event->modifiers = MINI_MOD_ALT; return MINI_OK;
+        }
+        if (s_now_us >= 2100000) {
+            out_event->type = MINI_KEY_EVENT_CHAR; out_event->codepoint = 'c';
+            out_event->modifiers = MINI_MOD_CTRL; return MINI_OK;
+        }
+        return MINI_ERR_NOT_READY;
+    }
     if (scenario >= 8) {
         if (input_index < r2_count && s_now_us >= (uint64_t)input_index * (scenario >= 10 ? 100000u : 10000u)) {
             *out_event = r2_events[input_index++]; return MINI_OK;
@@ -163,6 +186,7 @@ static mini_result_t fake_dio_read(mini_digital_io_t line, uint32_t *out_level)
     id = line - 1u;
     if (id >= 64u || !s_opened[id]) return MINI_ERR_BAD_HANDLE;
 
+    if (display_diagnostic) { *out_level = 1; return MINI_OK; }
     if (id == 13u) {
         if (scenario == 11) *out_level = s_now_us >= 150000 && s_now_us < 160000 ? 0u : 1u;
         else if (scenario == 3 || scenario == 9) *out_level = 1;
@@ -228,9 +252,34 @@ static const mini_fs_api_t FS = {
     .rename = fake_fs_rename, .remove_file = fake_fs_remove,
 };
 
+/* At 20 WPM, M1="I E" selected at 2 ms starts after TxDelay at 1002 ms:
+ * element 1002-1062, element-gap 1062-1122, element 1122-1182,
+ * word-gap 1182-1602, element 1602-1662, char-gap 1662-1842 ms.
+ * Repeat wait is idle from 1842 ms until 2662 ms. */
+static void check_display_window(void)
+{
+    CHECK(s_now_us < 1002000 || s_now_us >= 1842000);
+}
+static mini_result_t fake_utc_get(mini_utc_time_t *utc)
+{
+    if (!display_diagnostic) {
+        if (scenario == 0 && s_now_us == 0 && s_level[3] == 0) manual_render = true;
+        return MINI_ERR_NOT_READY;
+    }
+    check_display_window();
+    ++render_calls; last_render = s_now_us;
+    if (s_now_us >= 2000 && s_now_us < 1002000) delay_render = true;
+    if (s_now_us == 1842000) catchup_render = true;
+    if (s_now_us > 1842000) idle_repeat_render = true;
+    /* Change the header each render so the adapter must also present. */
+    utc->unix_seconds = (int64_t)(s_now_us / 1000 % 1440) * 60;
+    return MINI_OK;
+}
+
 static const mini_time_location_api_t TIME_LOCATION = {
     .struct_size = sizeof(mini_time_location_api_t),
     .monotonic_us = fake_monotonic_us,
+    .utc_get = fake_utc_get,
     .sleep_ms = fake_sleep_ms,
 };
 
@@ -262,6 +311,7 @@ static mini_result_t display_info(mini_text_display_info_t *i)
 static mini_result_t display_clear(void) { return MINI_OK; }
 static mini_result_t display_write(uint32_t r, uint32_t c, const char *s, uint32_t n, uint32_t attr)
 {
+    if (display_diagnostic) check_display_window();
     (void)attr; CHECK(r < 7 && c == 0 && n == 20);
     memcpy(screen[r], s, n); screen[r][20] = 0;
     if (strstr(screen[r], "Save failed")) save_failed_seen = true;
@@ -276,7 +326,12 @@ static mini_result_t display_write(uint32_t r, uint32_t c, const char *s, uint32
 static const mini_text_display_api_t TEXT = {
     .get_info = display_info, .clear = display_clear, .write_at_attr = display_write,
 };
-static const mini_display_api_t DISPLAY = {.text = &TEXT, .present = display_clear};
+static mini_result_t display_present(void)
+{
+    if (display_diagnostic) { check_display_window(); ++present_calls; }
+    return MINI_OK;
+}
+static const mini_display_api_t DISPLAY = {.text = &TEXT, .present = display_present};
 static const mini_api_t API = {
     .api_version = MINISHELL_API_VERSION,
     .struct_size = sizeof(mini_api_t),
@@ -290,6 +345,7 @@ static const mini_api_t API = {
 
 static void run_scenario(unsigned which)
 {
+    manual_render = false;
     scenario = which; input_index = 0; final_release = 0; decoded_seen = false;
     save_failed_seen = saved_seen = overlay_seen = false;
     save_count = 0; mute_on_seen = mute_off_seen = unsupported_seen = false;
@@ -310,10 +366,11 @@ static void run_scenario(unsigned which)
 
     CHECK(app_controller_run() == 0);
     CHECK(s_saw_key_down);
+    if (scenario == 0) CHECK(manual_render);
     CHECK(s_level[3] == (scenario == 3 ? 0u : 1u) && s_level[6] == s_level[3]);
     CHECK(decoded_seen == (scenario != 3 && scenario != 9 && scenario != 12));
     if (scenario == 4) CHECK(final_release == 70000);
-    CHECK(strcmp(screen[0], scenario == 2 ? "--:-- Pdl SKS 21 V80" : "--:-- Pdl SKS 20 V80") == 0);
+    CHECK(strcmp(screen[0], scenario == 2 ? "--:-- PdL SKS 21 V80" : "--:-- PdL SKS 20 V80") == 0);
     if (scenario == 1) {
         CHECK(final_release == 160000); /* Tune preempted by physical dit. */
         CHECK(s_now_us == 400000); /* Bare q did not exit. */
@@ -407,12 +464,32 @@ static void memory_overlay_r3(void)
     r2_count = 1;
     run_scenario(12); /* Ctrl+C while overlay visible still releases resources. */
 }
+static void display_starvation_r4(void)
+{
+    display_diagnostic = true;
+    render_calls = present_calls = diagnostic_read = 0;
+    delay_render = idle_repeat_render = catchup_render = false;
+    input_index = 0; s_now_us = 0; s_saw_key_down = false;
+    s_console_len = 0;
+    CHECK(app_controller_init(&API) == MINI_OK);
+    present_calls = 0;
+    CHECK(app_controller_run() == 0);
+    CHECK(s_saw_key_down && s_level[3] == 1 && s_level[6] == 1);
+    CHECK(delay_render && catchup_render && idle_repeat_render);
+    CHECK(render_calls > 2 && present_calls == render_calls);
+    CHECK(last_render > 1842000 && s_now_us == 2100000);
+    CHECK(!strcmp(screen[6], "                    "));
+    app_controller_shutdown();
+    CHECK(!s_opened[3] && !s_opened[6] && !s_opened[13] && !s_opened[15]);
+    display_diagnostic = false;
+}
 int main(void)
 {
     run_scenario(0); run_scenario(1); run_scenario(2); run_scenario(3); run_scenario(4);
     run_scenario(5); run_scenario(6); run_scenario(7);
     operation_backtick_r2();
     memory_overlay_r3();
+    display_starvation_r4();
     char old[1024]; strcpy(old, saved); fail_save = true; run_scenario(2);
     run_scenario(5);
     CHECK(!strcmp(old, saved));

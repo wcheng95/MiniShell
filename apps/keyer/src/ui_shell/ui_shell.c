@@ -1,7 +1,7 @@
 #include "ui_shell.h"
 #include "keyer_text.h"
 
-static const char *const kin[] = {"Pdl", "PdR", "SkT", "SkR"};
+static const char *const kin[] = {"PdL", "PdR", "SkT", "SkR"};
 static const char *const kout[] = {"SKS", "SKM", "OFF"};
 static const char *const paddle[] = {"IambicA", "IambicB", "Bug"};
 static unsigned clamp(int n, unsigned low, unsigned high)
