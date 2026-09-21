@@ -1,7 +1,11 @@
 # Keyer on MiniShell
 
-Status: **K0/K1/K2/K3/K4 complete; K5 implemented / transport hardware-validated; K6 TESTING (T038)**
-Date: 2026-09-17
+Status: **HISTORICAL / SUPERSEDED for field use by Mini-CW (`minicw`, T042-T048).**
+Date: 2026-09-21
+
+## Historical status
+
+This document records the original `apps/keyer` development track and its runtime-ELF/Digital-I/O/GPIO/audio experiments. It is retained for engineering history and regression rationale, but it is not the current CW application roadmap. The accepted field CW application is Mini-CW; see `apps/minicw/README.md` and `docs/MiniCW/migration.md`. Stage labels below describe that historical track and should not be read as current TODOs.
 
 ## Purpose
 
