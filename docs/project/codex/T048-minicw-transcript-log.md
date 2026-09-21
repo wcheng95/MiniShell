@@ -620,3 +620,54 @@ possible duplication. Log failure remains nonfatal. No scope deviations.
 
 Commit reference: the single implementation commit containing this handoff;
 exact SHA returned after push. Status: **REVIEW**.
+
+
+## Supervisor review — buffer-bound blocker
+
+Reviewed implementation commit:
+
+```text
+7e39f652ba0913250e01400b0952298fc27c8bf6
+```
+
+The implementation matches the requested compact transcript, 1024-byte minute
+payload, daily UTC file routing, dual quote note mode, transcript-only `**`
+markers, deferred append policy and shutdown ordering.
+
+One software blocker remains in `apps/minicw/src/app_core/transcript.c`.
+
+Current record storage is:
+
+```c
+char line[5 + TRANSCRIPT_CAPACITY + 8 + 1];
+```
+
+but the maximum finalized truncated line requires:
+
+```text
+5 bytes                  "HHMM "
+1024 bytes               payload
+9 bytes                  " [TRUNC]\n"
+1 byte                   terminating NUL
+------------------------------------------------
+1039 bytes total
+```
+
+The current array is 1038 bytes. At a full 1024-byte truncated payload,
+`memcpy(..., sizeof(" [TRUNC]\n"))` copies the 9-byte suffix plus its NUL and
+writes one byte past `line[]`.
+
+Required correction:
+
+- size the line buffer from the actual suffix size rather than hand-counting;
+- add a compile-time/static bound assertion or equivalent focused regression so
+  the maximum 1024-byte truncated record cannot overrun the buffer;
+- rerun the focused transcript test, full Linux/portable gates, ADV build and
+  clean ELF inspection;
+- re-report `sizeof(transcript_record_t)` and resource deltas.
+
+Expected Xtensa result: the record should likely remain 1,048 bytes because the
+extra line byte consumes existing end padding, but measure rather than assume.
+
+No other blocker found. Do not change transcript semantics, note behavior, audio,
+lookup, color UI or persistence policy while correcting this bound.
