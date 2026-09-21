@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: COMPLETE
+Status: READY
 
 
 ## Hardware correction addendum — 2026-09-21
@@ -1177,3 +1177,63 @@ for this lookup. MiniShell resident code and MiniFT8 remain RAM-bounded. The
 existing architecture checker name `no_heap_modules` still effectively guards
 against native/libc heap calls; renaming that policy for Mini-CW is bookkeeping
 cleanup, not a T046 product blocker.
+
+
+## Final UI refinement — callsign + operator — 2026-09-21
+
+Architect-requested display change:
+
+```text
+old: OP:<name>
+new: <base-call>: <name>
+```
+
+Examples:
+
+```text
+K7SHR: PAUL
+7N1FRE: KAZ
+K6ABC/P lookup -> K6ABC: Alice
+F/K6ABC lookup -> K6ABC: Alice
+```
+
+Use the matched **base callsign** that was actually used for the table lookup,
+not the raw portable/slash candidate. This guarantees the row fits the 20-column
+display:
+
+```text
+max call 6 + ": " 2 + max name 11 = 19 characters
+```
+
+Required implementation:
+
+- when a lookup succeeds, retain both the matched base call and operator name;
+- expose the matched call through the keyer-service domain API alongside
+  `keyer_service_get_op_name()`;
+- clear matched call and name together on all existing clear/reset paths,
+  including 72/73, Tune/reset, table detach/init;
+- UI row-6 fallback becomes `<call>: <name>`;
+- preserve priority exactly:
+  `Tune > transient status > TX tail > matched call/name > blank`;
+- fixed T045 header remains untouched;
+- no persistence/file-format change;
+- no callsign-recognition behavior change;
+- no audio/Tone/resident change.
+
+Tests must prove:
+
+- `K7SHR -> K7SHR: PAUL`;
+- `K6ABC/P -> K6ABC: Alice`;
+- `F/K6ABC -> K6ABC: Alice`;
+- 72/73 clears both call and name;
+- unknown calls do not manufacture a stale/new pair;
+- Tune/reset clears both;
+- table detach clears both;
+- 19-character maximum display fits without truncating the name;
+- row-6 priority and fixed header remain unchanged.
+
+This is a small T046 UI refinement on the existing branch, not a new feature task.
+After implementation, return T046 to REVIEW with the exact SHA and normal
+software/audio/resident guards. Hardware validation only needs to confirm the
+new row text plus one clear path; the already accepted full-table lookup and
+audio behavior remain the baseline.
