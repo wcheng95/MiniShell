@@ -140,9 +140,9 @@ static void app_core_note_toggle(void)
         s_note_active = true;
         keyer_service_set_key_out_mode(KEYER_KEY_OUT_OFF);
         keyer_service_set_mute(false);
-        transcript_text("**");
+        transcript_note_open();
     } else {
-        transcript_text("**");
+        transcript_note_close();
         app_core_keyer_clear_tx_fifo();
         /* Reset manual/Tune state as well as automatic playback while OFF. */
         keyer_service_set_tune_active(false);

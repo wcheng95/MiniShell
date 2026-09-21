@@ -170,7 +170,9 @@ T048 captures one chronological transcript from decoded characters/spaces,
 accepted keyboard TX text, appended M1–M5 messages and automatic M1 repeats.
 As in standalone V1.2, TX text is recorded when appended, not when transmission
 finishes; Backspace corrects the still-current minute. Each minute holds up to
-1024 payload bytes, followed by one ` [TRUNC]` suffix if input exceeded capacity.
+1024 payload bytes. After overflow, finalization trims to the last useful ASCII
+space (removing trailing spaces) and adds one ` [TRUNC]` suffix. Without a useful
+boundary it keeps the hard cut; non-overflowed text is unchanged.
 
 UTC selects `/flash/minicw/YYYYMMDD.txt`; each line is `HHMM <transcript>`.
 There are no GPS/grid, QSO or secondary-format records. Finalized minutes queue
@@ -186,7 +188,9 @@ accepted only while idle. It saves KeyOut/Mute, sets KeyOut OFF and Mute OFF, an
 adds transcript-only `**`. Type a note such as `20M` through normal local CW;
 either quote then adds closing `**`, cancels pending note playback, and restores
 the saved values. Quote keys and generated delimiters never enter the TX FIFO.
-The transcript contains `**20M**`. Operation editors retain their existing key
+The transcript contains a separated token, for example `CQ **20M** TU`. Only
+note-boundary spaces are collapsed; other user spacing remains unchanged. A
+note at the start of a minute adds no extra leading space. Operation editors retain their existing key
 handling. KeyOut/Mute changes are ignored during the safety overlay, and settings
 snapshots retain the saved logical KeyOut. Exiting the app closes an active note
 before taking the final settings snapshot.

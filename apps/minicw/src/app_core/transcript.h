@@ -4,6 +4,8 @@ void transcript_init(void);
 void transcript_append(char ch);
 void transcript_text(const char *text);
 void transcript_backspace(void);
+void transcript_note_open(void);
+void transcript_note_close(void);
 void transcript_update(void);
 void transcript_finalize(void);
 /* Caller owns the idle/audio boundary; false discards pending records. */

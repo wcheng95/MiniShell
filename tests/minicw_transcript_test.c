@@ -273,8 +273,49 @@ static void runtime_shutdown(void)
         fail_sleep=false;
     }
 }
+static void formatting_correction(void)
+{
+    setup();
+    /* Exact full-length fallback reaches the final NUL within the array. */
+    for (unsigned i=0;i<1025;++i) transcript_append('X');
+    transcript_finalize();
+    assert(sizeof(s_head->line)==5+1024+sizeof(" [TRUNC]\n"));
+    assert(strlen(s_head->line)==5+1024+strlen(" [TRUNC]\n"));
+    assert(s_head->line[sizeof(s_head->line)-1]==0);
+    assert(!memcmp(s_head->line+5+1024," [TRUNC]\n",sizeof(" [TRUNC]\n")));
+    finish();
+    setup(); transcript_text("CQ  POTA   ");
+    while(s_length<1024) transcript_append('X');
+    transcript_append('Y'); transcript_finalize();
+    assert(!strcmp(s_head->line,"1842 CQ  POTA [TRUNC]\n")); finish();
+    /* Leading-only spaces are not a useful word boundary. */
+    setup(); transcript_text("   ");
+    while(s_length<1024) transcript_append('X');
+    transcript_append('Y'); transcript_finalize();
+    assert(strlen(s_head->line)==5+1024+strlen(" [TRUNC]\n")); finish();
+    setup(); transcript_text("CQ  POTA   "); finish();
+    assert(!strcmp(daily[0],"1842 CQ  POTA   \n"));
+    /* Backspace edits the RAM payload, not a prematurely trimmed copy. */
+    setup(); transcript_text("CQ "); while(s_length<1024) transcript_append('X');
+    transcript_append('Y'); transcript_backspace(); assert(s_length==1023 && s_payload[1022]=='X');
+    finish(); assert(!strcmp(daily[0],"1842 CQ [TRUNC]\n"));
+    const char *before[]={"CQ DE AG6AQ","CQ DE AG6AQ ","CQ DE AG6AQ   ",""};
+    for (unsigned i=0;i<4;++i) {
+        setup(); transcript_text(before[i]);
+        send_char(i%2?'"':'\''); send_char('2'); send_char('0'); send_char('M');
+        send_char(i%2?'\'':'"');
+        send_char(' '); send_char(' '); send_char('T'); send_char('U');
+        finish(); assert(!strcmp(daily[0],i==3?"1842 **20M** TU\n":"1842 CQ DE AG6AQ **20M** TU\n"));
+    }
+    setup(); transcript_text("CQ  DE"); transcript_note_open(); transcript_text("20M"); transcript_note_close();
+    transcript_text("   TU  73"); finish();
+    assert(!strcmp(daily[0],"1842 CQ  DE **20M** TU  73\n"));
+    setup(); transcript_note_open(); transcript_text("20M"); transcript_note_close();
+    utc_seconds+=60; transcript_text("  TU"); finish();
+    assert(!strcmp(daily[0],"1842 **20M**\n1843 TU\n"));
+}
 int main(void)
 {
-    plain_capture();minute_queue();bounds_and_time();append_failures();notes();busy_guards();muted_manual();runtime_shutdown();
+    formatting_correction();plain_capture();minute_queue();bounds_and_time();append_failures();notes();busy_guards();muted_manual();runtime_shutdown();
     assert(!alloc_count);puts("Mini-CW transcript/note mode: PASS");return 0;
 }

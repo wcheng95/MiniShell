@@ -753,3 +753,107 @@ HHMM CQ DE AG6AQ  **20M**  TU
 Update focused tests to cover note entry after ordinary text, note as the first
 minute content, following text after note exit, both quote keys/cross-key exit,
 and the whitespace-aware truncated-line fallback.
+
+
+## Correction handoff — record bound and hardware formatting feedback
+
+Baseline: `664231d1c6766283317286650a822f91b4bb4525`.
+Branch: `codex/T048-minicw-transcript-log`. Status: **REVIEW**.
+
+### Implementation summary / changed files
+
+- `apps/minicw/src/app_core/transcript.c`: sizes `line[]` from the prefix,
+  1024-byte capacity and actual `sizeof(" [TRUNC]\n")`, including NUL. A static
+  assertion guards the bound. Finalization of overflowed records searches for
+  the last ASCII space and removes trailing spaces only when a non-space byte
+  precedes the boundary. Otherwise the hard cut remains. The RAM payload and
+  pre-finalization Backspace behavior are unchanged.
+- `apps/minicw/src/app_core/transcript.{c,h}` adds note delimiter helpers:
+  opening collapses the immediately preceding space run to one outside space,
+  without adding a leading payload space; closing defers one outside separator
+  until following non-space text. Only that boundary's spaces are collapsed,
+  including across minute rollover. Backspace editing clears the pending boundary.
+- `apps/minicw/src/app_core/app_core.c` replaces just the two direct delimiter
+  appends with these helpers. Entry/exit safety ordering is untouched.
+- `tests/minicw_transcript_test.c` adds exact maximum buffer/NUL checks,
+  useful-space and leading-space-only fallback cases, unmodified non-overflow
+  whitespace, Backspace before finalization, both quote/cross-key combinations,
+  notes after text/space runs, first-minute notes, subsequent text, ordinary
+  repeated whitespace preservation and spacing across a minute boundary.
+- `apps/minicw/README.md` and this task packet document the refinements/evidence.
+
+### Behavior / invariants preserved
+
+Exactly one compact line per finalized minute; 1024-byte payload capacity and
+one truncation suffix. No wrapping, new format, queue/append-policy change or
+new resource API. Note markers remain transcript-only. Existing note safety,
+Tone/audio, keyer timing, lookup, colors, fixed header, settings and all resident
+code/public APIs are unchanged. Protected audio diff = **NONE**. No deviations
+from the requested correction.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux -R minicw_transcript --output-on-failure
+# PASS: focused correction regression
+ctest --test-dir build-linux --output-on-failure
+# PASS: 87/87
+cmake -S tests/unit -B /tmp/T048R-unit
+cmake --build /tmp/T048R-unit -j8
+ctest --test-dir /tmp/T048R-unit --output-on-failure
+# PASS: 28/28
+ctest --test-dir build-linux -R 'minicw|storage|tone|architecture|boundary' --output-on-failure
+# PASS: 22/22
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: before/after builds
+idf.py -C platform/adv/elf_apps/minicw fullclean
+idf.py -C platform/adv/elf_apps/minicw elf
+# PASS: clean 1075-step build
+python3 tests/minicw_elf_inspect.py platform/adv/elf_apps/minicw/build/minicw.app.elf
+# PASS: sole resident import mini_api_get, 688 mapped relocations
+cmp /tmp/T048R-before.bin platform/adv/build/minishell_adv.bin
+cmp /tmp/T048R-before-size.txt /tmp/T048R-after-size.txt
+# PASS: identical resident BIN and section sizes
+git diff --check
+# PASS
+```
+
+### Resource evidence
+
+The exact maximum line uses 1039 array bytes. Xtensa compile-time size probes
+reported `line[] = 0x40f` (**1039**) and `transcript_record_t = 0x418`
+(**1048**, unchanged); the extra array byte uses existing struct padding.
+Each queued minute still requests 1048 bytes.
+
+Resident BIN is identical: **1,381,568 bytes**, SHA-256 before/after:
+
+```text
+fd3197dc7a48075b9a50ce8b671d632994c86b3525d4b62d40374d7723e8f61c
+```
+
+Resident `.iram0.text` **63,959**, `.dram0.data` **27,016**, `.dram0.bss`
+**40,336** bytes before/after. Static internal SRAM delta = **0**; all other
+resident sections match. ESP-IDF v5.5.4 / Xtensa GCC 14.2.0 external evidence:
+
+| External measure | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| ELF file bytes | 48,372 | 48,700 | +328 |
+| `.text` | 34,020 | 34,272 | +252 |
+| `.rodata` | 2,056 | 2,056 | 0 |
+| `.data` | 1,284 | 1,284 | 0 |
+| `.bss` | 4,488 | 4,488 | 0 |
+| Section-loader text + data | 41,848 | 42,100 | +252 |
+
+The pending note-boundary boolean fits existing BSS alignment. Sole resident
+import remains **`mini_api_get`**.
+
+### Remaining validation / risks / commit reference
+
+No PR or hardware testing by Codex. Supervisor re-review precedes any further
+hardware validation of the new formatting. Existing allocation/append-failure
+record-loss limitations remain unchanged; no new known limitation.
+Commit reference: the single correction commit containing this evidence; exact
+SHA returned after pushing. Task remains REVIEW.
