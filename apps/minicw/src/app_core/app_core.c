@@ -39,6 +39,7 @@ static app_keyer_state_t s_keyer;
 
 /* Only app_core decides when filesystem work is safe. Storage never drives CW. */
 static storage_snapshot_t s_settings;
+static keyer_op_entry_t s_op_table[MINICW_OP_ENTRY_CAP];
 static bool s_settings_dirty, s_save_failed;
 static uint32_t s_quiet_since;
 static void app_core_snapshot(storage_snapshot_t *out)
@@ -533,12 +534,15 @@ void app_core_init(void)
 {
     memset(&s_keyer, 0, sizeof(s_keyer));
     storage_load_t loaded = storage_load(&s_settings);
+    size_t op_count = 0;
+    storage_op_result_t lookup = storage_op_load(s_op_table, &op_count);
     s_settings_dirty = s_save_failed = false;
     s_quiet_since = minicw_port_now_ms();
     /* All startup filesystem reads have finished before the frozen Tone open.
      * Apply the snapshot through existing setters, without changing that seam. */
     audio_service_init();
     keyer_service_init();
+    keyer_service_set_op_table(s_op_table, op_count);
     if (loaded == STORAGE_OK) {
         audio_service_set_volume(s_settings.volume);
         audio_service_set_tone_hz(s_settings.tone_hz);
@@ -548,6 +552,8 @@ void app_core_init(void)
     }
     app_core_snapshot(&s_settings);
     ui_service_init();
+    if (lookup == STORAGE_OP_TRUNCATED) ui_service_keyer_set_status("Lookup truncated");
+    if (lookup == STORAGE_OP_FAILED) ui_service_keyer_set_status("Lookup unavailable");
     if (loaded == STORAGE_INVALID) ui_service_keyer_set_status("Settings invalid");
     if (loaded == STORAGE_READ_FAILED) ui_service_keyer_set_status("Settings read failed");
     ui_service_show_demo_screen();

@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: READY
+Status: REVIEW
 
 ## Audited baseline
 
@@ -384,3 +384,171 @@ codex/T046-minicw-callsign-lookup
 No PR and no hardware testing by Codex.
 
 Set T046 to REVIEW and return exact SHA plus tests/resource/audio guard evidence.
+
+
+## Implementation handoff
+
+Task branch baseline: `fb2fb0059dddeff6ef737aa3bd2ebab9864346c6`.
+Recovery: `00d540baef94c2f5b36511818c9d3f728a909846`.
+Branch: `codex/T046-minicw-callsign-lookup`. Commit reference: the single
+implementation commit containing this handoff; exact SHA returned after push.
+
+### Implementation summary / files changed
+
+- `apps/minicw/src/storage_service/storage_service.{c,h}` adds the bounded CSV
+  loader/parser and the 192-entry limit. The existing private MiniShell text-read
+  wrapper enforces a 4,095-byte payload limit and closes before parsing/returning.
+  CSV parsing uses a 128-byte line buffer; overlong/malformed rows are skipped.
+  Names retain case, calls normalize to uppercase, and first duplicate wins.
+  Optional headers/comments/blank lines and CRLF are supported. Extra commas,
+  non-ASCII/nonprintable names and invalid call characters are rejected per row.
+  Oversized/NUL-containing/unreadable files yield an empty, nonfatal result.
+- `apps/minicw/src/app_core/app_core.c` owns the static 192-entry table and performs
+  settings load, CSV load, existing Tone open, Keyer initialization, borrowed-table
+  attachment and UI initialization in that order. It surfaces `Lookup truncated`
+  or `Lookup unavailable`; settings errors retain priority if both occur. Missing
+  CSV files remain silent. No callsign I/O is performed after startup and no
+  callsign writes are added. Settings persistence/quiet-save functions have no
+  changes. The settings and CSV 4 KiB read buffers have sequential lifetimes.
+- `apps/minicw/src/keyer_service/keyer_service.{c,h}` changes the table pointer to
+  const and adds a borrowed-table attachment setter, which initializes name/
+  recognition state. No allocation/free or ownership transfer. Existing
+  candidate, slash/base-call, own-call, duplicate lookup and 72/73 routines are
+  unchanged. As in the pinned recognizer, the last match persists until an
+  existing clear/reset event; unmatched text does not assign a new name.
+- `apps/minicw/src/ui_service/ui_service.c` adds only the normal lower-line OP
+  fallback and an idle transient-status expiry refresh so OP can become visible
+  after a status expires without waiting for another key or UTC minute. Priority
+  is Tune > transient status > TX tail > OP > blank. Cyan lower-line styling and
+  the fixed T045 header are unchanged. No screen/menu or timer/task is added.
+- `tests/minicw_fs_fake.h` adds a separate read-only CSV fixture; existing settings
+  and fault-injection behavior remains. `tests/minicw_lookup_test.c` and
+  `tests/minicw_tests.cmake` add parser/load, domain, display-priority and startup
+  ordering regressions. Existing Mini-CW/Tone/persistence tests remain passing.
+  `apps/minicw/README.md` documents lookup behavior and limits.
+
+### External packaging adaptation
+
+The initial clean build and a link-only retry reproducibly failed in Xtensa
+GCC 14.2.0's linker with `double free or corruption (out)` while linking with
+`--strip-all --strip-debug --strip-discarded`. The partial artifact was not
+accepted. Removing only those link-time strip options, then running the existing
+post-link `elf-strip` command, succeeded and passed the unchanged ELF inspector.
+
+`platform/adv/elf_apps/minicw/CMakeLists.txt` now makes that narrowly scoped
+adaptation to a **build-local** copy of the pinned `elf_loader.cmake` module.
+It requires the exact upstream strip-options block, failing configuration if
+that block changes, and removes it from the local copy. The final existing
+`--strip-unneeded`/section-removal command remains unchanged. Managed dependency
+sources, resident build settings, compiler optimization/relaxation, linker
+geometry and Mini-CW runtime code are not altered by this adaptation. A fresh
+fullclean/build then passed all 1,074 build steps. This external packaging change
+was necessary to deliver the required clean ELF; no resident/audio change or
+architecture expansion was used.
+
+### Behavior / invariants preserved
+
+All eight protected files match the audited recovery commit byte-for-byte.
+The fixed `ui_service_keyer_header()` implementation also matches byte-for-byte.
+No public API, resident production code, audio wrapper, Tone worker, DMA/task/
+queue/profile, Morse timing, KeyOut, existing `keyer` or FT8 change. No heap,
+network, runtime reload, callsign-file mutation or new persisted setting. Table
+storage belongs exclusively to the external app for its full session lifetime.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+# PASS: 85/85
+cmake -S tests/unit -B /tmp/T046-unit
+cmake --build /tmp/T046-unit -j8
+ctest --test-dir /tmp/T046-unit --output-on-failure
+# PASS: 27/27
+ctest --test-dir build-linux -R minicw --output-on-failure
+# PASS: 7/7
+ctest --test-dir build-linux -R 'minicw|tone|architecture|boundary' --output-on-failure
+# PASS: 20/20, including dependency/platform/no-heap checks
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real resident build before/after changes
+idf.py -C platform/adv/elf_apps/minicw fullclean
+idf.py -C platform/adv/elf_apps/minicw elf
+# PASS: final clean build after the packaging adaptation above
+python3 tests/minicw_elf_inspect.py platform/adv/elf_apps/minicw/build/minicw.app.elf
+# PASS: sole resident import mini_api_get; 634 mapped relocations; packed alignment valid
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+xtensa-esp32s3-elf-size -A platform/adv/elf_apps/minicw/build/minicw.app.elf
+cmp /tmp/T046-before.bin platform/adv/build/minishell_adv.bin
+# PASS: identical
+git diff --check
+# PASS
+```
+
+New tests cover missing files/no writes, headers/comments/blank rows, CRLF,
+normalized/trimmed fields, invalid/extra commas, invalid and overlong fields,
+long-row skipping, first 192 entries retained, short reads, open/read/partial-read/
+close failures, oversized input, exact and slash-call matching, own-call/no-digit/
+unknown candidates, duplicate precedence, 72/73 clear, Tune reset, lower-line
+priority and idle status expiry without header changes. Startup observers prove
+CSV close/read completion before Tone open, no subsequent CSV reads/opens, and
+repeated clean launches. Nonfatal loader errors/truncation retain normal startup.
+
+### Explicit binary / audio / resource evidence
+
+All protected paths were compared to
+`git show 00d540baef94c2f5b36511818c9d3f728a909846:<path>`:
+
+```text
+protected audio diff: NONE
+fixed header code:    IDENTICAL
+resident BIN:         IDENTICAL (before/after real build)
+resident SRAM delta:  0 bytes
+resident imports:     mini_api_get only
+```
+
+The task-baseline resident inputs match the audited recovery checkpoint. Both
+local resident BINs are 1,381,280 bytes, SHA-256:
+
+```text
+b11fc8c6c2af06f6efd02ec8784208e97db0177ff659aeedaa514b685a017416
+```
+
+ESP-IDF v5.5.4 / Xtensa GCC 14.2.0:
+
+| Resident section | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,016 | 27,016 | 0 |
+| `.dram0.bss` | 40,336 | 40,336 | 0 |
+| Static internal SRAM delta | — | — | **0** |
+
+| External `minicw.app.elf` | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| File bytes | 43,024 | 44,128 | +1,104 |
+| `.text` | 29,648 | 30,508 | +860 |
+| `.rodata` | 1,940 | 2,032 | +92 |
+| `.data` | 1,284 | 1,284 | 0 |
+| `.bss` | 3,276 | 6,924 | **+3,648** |
+| Section-loader text + data allocation | 36,148 | 40,748 | +4,600 |
+
+The table is exactly 192 × 19 = **3,648 bytes**, entirely in external BSS.
+Other final ELF sections: `.hash` 40, `.dynsym` 80, `.dynstr` 38, `.rela.dyn`
+7,632, `.rela.plt` 12, `.eh_frame` 92, `.got` 4; `size -A` total 48,646. File-size
+and loaded-size totals differ due to ELF packing/BSS. No heap allocation or new
+stack/task is added. Sequential startup reads use one 4,096-byte buffer at a
+time; the CSV parser's 128-byte line buffer is smaller than the settings parser's
+160-byte line buffer. Hardware stack/free-heap readings were not taken.
+
+### Hardware/manual validation still required / known risks
+
+No PR or hardware testing was performed. After supervisor review, install only
+the new external ELF over the audited resident firmware and follow the packet's
+ordered acceptance: paddle/M1 audio first, then persistence, CSV/OP display and
+clearing, unchanged header and silent exit. Software tests and binary guards do
+not establish acoustic acceptance. Any audible regression requires stopping and
+reverting to `golden/minicw-audited-baseline` at
+`00d540baef94c2f5b36511818c9d3f728a909846`; no audio tuning belongs in T046.
+The file and table limits are intentional; edits require a new app launch.

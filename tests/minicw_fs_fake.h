@@ -1,5 +1,8 @@
 /* In-memory MiniShell FS contract fake: no test bypasses the app's private port. */
-static char fs_destination[8192], fs_temporary[8192];
+static char fs_destination[8192], fs_temporary[8192], fs_csv[8192];
+static bool fs_csv_exists, fs_csv_active;
+static unsigned fs_csv_opens, fs_csv_reads;
+static void (*fs_before_csv)(void);
 static bool fs_exists, fs_temp_exists, fs_writing, fs_live;
 static unsigned fs_position, fs_writes, fs_reads, fs_commits, fs_attempts, fs_closes, fs_removes;
 static unsigned fs_read_limit = 7, fs_write_limit = 11;
@@ -10,10 +13,15 @@ static mini_result_t fs_open(const char *path, uint32_t flags, mini_file_t *out)
 {
     assert(!fs_live);
     fs_writing = flags != MINI_FS_READ;
-    assert(!strcmp(path, fs_writing ? "/flash/minicw/setting.tmp" : "/flash/minicw/setting.txt"));
+    fs_csv_active = !strcmp(path, "/flash/minicw/qsocalls.csv");
+    if (fs_csv_active) {
+        assert(!fs_writing);
+        ++fs_csv_opens;
+        if (fs_before_csv) fs_before_csv();
+    } else assert(!strcmp(path, fs_writing ? "/flash/minicw/setting.tmp" : "/flash/minicw/setting.txt"));
     if (fs_writing) { ++fs_attempts; assert(flags == (MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_TRUNC)); }
     if (fs_failure(fs_writing ? "open_write" : "open_read")) return MINI_ERR_IO;
-    if (!fs_writing && !fs_exists) return MINI_ERR_NOT_FOUND;
+    if (!fs_writing && !(fs_csv_active ? fs_csv_exists : fs_exists)) return MINI_ERR_NOT_FOUND;
     if (fs_writing) { fs_temporary[0] = 0; fs_temp_exists = true; }
     fs_position = 0; fs_live = true; *out = 77; return MINI_OK;
 }
@@ -26,10 +34,12 @@ static mini_result_t fs_read(mini_file_t f, void *buf, uint32_t n, uint32_t *got
 {
     assert(f == 77 && fs_live && !fs_writing); ++fs_reads;
     if (fs_failure("read") || (fs_failure("read_late") && fs_reads > 1)) return MINI_ERR_IO;
-    size_t left = strlen(fs_destination) - fs_position;
+    if (fs_csv_active) ++fs_csv_reads;
+    const char *source = fs_csv_active ? fs_csv : fs_destination;
+    size_t left = strlen(source) - fs_position;
     if (n > left) n = (uint32_t)left;
     if (n > fs_read_limit) n = fs_read_limit;
-    memcpy(buf, fs_destination + fs_position, n);
+    memcpy(buf, source + fs_position, n);
     if (n && fs_failure("nul")) ((char *)buf)[0] = 0;
     fs_position += n; *got = n; return MINI_OK;
 }
@@ -74,5 +84,6 @@ static void fs_reset(void)
     assert(!fs_live);
     fs_exists = fs_temp_exists = false; fs_destination[0] = fs_temporary[0] = 0;
     fs_writes = fs_reads = fs_commits = fs_attempts = fs_closes = fs_removes = 0;
+    fs_csv_exists = fs_csv_active = false; fs_csv[0] = 0; fs_csv_opens = fs_csv_reads = 0; fs_before_csv = NULL;
     fs_fail = NULL; fs_before_save = NULL; fs_read_limit = 7; fs_write_limit = 11;
 }

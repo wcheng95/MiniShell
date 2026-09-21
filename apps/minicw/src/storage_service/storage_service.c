@@ -172,3 +172,60 @@ bool storage_save(const storage_snapshot_t *snapshot)
     char text[1024];
     return storage_serialize(snapshot, text, sizeof(text)) && minicw_port_file_replace("/flash/minicw", "/flash/minicw/setting.tmp", "/flash/minicw/setting.txt", text, strlen(text));
 }
+
+storage_op_result_t storage_op_parse(const char *text, keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP], size_t *count)
+{
+    *count = 0;
+    storage_op_result_t result = STORAGE_OP_OK;
+    while (*text) {
+        char line[128]; size_t length = 0;
+        bool overflow = false;
+        while (*text && *text != '\n') {
+            if (length + 1 < sizeof(line)) line[length++] = *text;
+            else overflow = true;
+            ++text;
+        }
+        if (*text) ++text;
+        if (overflow) continue;
+        if (length && line[length - 1] == '\r') --length;
+        line[length] = 0;
+        char *call = trim(line);
+        if (!*call || *call == '#' || *call == ';') continue;
+        char *name = call;
+        while (*name && *name != ',') ++name;
+        if (!*name) continue;
+        *name++ = 0;
+        call = trim(call); name = trim(name);
+        /* Keep the standalone optional header handling and duplicate order. */
+        if (equal_ci(call, "call") && equal_ci(name, "name")) continue;
+        size_t call_len = strlen(call), name_len = strlen(name);
+        if (!call_len || call_len > KEYER_OP_CALL_MAX_LEN ||
+            !name_len || name_len > KEYER_OP_NAME_MAX_LEN) continue;
+        bool valid = true;
+        for (size_t i = 0; i < call_len; ++i) {
+            unsigned char ch = (unsigned char)call[i];
+            if (!minicw_alnum(ch)) valid = false;
+            call[i] = (char)minicw_upper(ch);
+        }
+        for (size_t i = 0; i < name_len; ++i) {
+            unsigned char ch = (unsigned char)name[i];
+            if (ch < 32 || ch > 126 || ch == ',') valid = false;
+        }
+        if (!valid) continue;
+        if (*count == MINICW_OP_ENTRY_CAP) { result = STORAGE_OP_TRUNCATED; continue; }
+        memcpy(entries[*count].call, call, call_len + 1);
+        memcpy(entries[*count].name, name, name_len + 1);
+        ++*count;
+    }
+    return result;
+}
+storage_op_result_t storage_op_load(keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP], size_t *count)
+{
+    /* Sequential with the settings loader: never two 4 KiB buffers live together. */
+    char text[4096];
+    *count = 0;
+    minicw_file_result_t result = minicw_port_file_read("/flash/minicw/qsocalls.csv", text, sizeof(text));
+    if (result == MINICW_FILE_MISSING) return STORAGE_OP_MISSING;
+    if (result != MINICW_FILE_OK) return STORAGE_OP_FAILED;
+    return storage_op_parse(text, entries, count);
+}

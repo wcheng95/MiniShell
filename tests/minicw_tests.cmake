@@ -56,3 +56,11 @@ target_include_directories(minicw_ui_io_unit PRIVATE ${MINICW_INCLUDES}
 target_compile_options(minicw_ui_io_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -fno-builtin -UNDEBUG)
 target_link_libraries(minicw_ui_io_unit PRIVATE m)
 add_test(NAME minicw_ui_io_unit COMMAND minicw_ui_io_unit)
+add_executable(minicw_lookup_unit ${MINICW_TEST_ROOT}/tests/minicw_lookup_test.c
+    ${MINICW_PERSISTENCE_SOURCES} ${MINICW_TEST_ROOT}/platform/common/tone_stream.c
+    ${MINICW_TEST_ROOT}/platform/common/tone_sim.c)
+target_include_directories(minicw_lookup_unit PRIVATE ${MINICW_INCLUDES}
+    ${MINICW_TEST_ROOT}/core/minishell_services ${MINICW_TEST_ROOT}/platform/common)
+target_compile_options(minicw_lookup_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -fno-builtin -UNDEBUG)
+target_link_libraries(minicw_lookup_unit PRIVATE m)
+add_test(NAME minicw_lookup_unit COMMAND minicw_lookup_unit)

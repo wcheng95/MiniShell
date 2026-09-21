@@ -123,7 +123,7 @@ static uint8_t s_tx_pattern_pos;
 static keyer_tx_state_t s_tx_state = KEYER_TX_IDLE;
 static uint32_t s_tx_due_tick;
 static uint32_t s_tx_revision;
-static keyer_op_entry_t *s_op_entries;
+static const keyer_op_entry_t *s_op_entries;
 static size_t s_op_entry_count;
 static char s_op_name[KEYER_OP_NAME_MAX_LEN + 1U];
 static char s_op_candidate[KEYER_OP_CANDIDATE_MAX_LEN + 1U];
@@ -1978,6 +1978,13 @@ void keyer_service_op_feed_text(const char *text)
     while (*text != '\0') {
         keyer_service_op_feed_char(*text++);
     }
+}
+
+void keyer_service_set_op_table(const keyer_op_entry_t *entries, size_t count)
+{
+    s_op_entries = entries;
+    s_op_entry_count = entries ? count : 0;
+    keyer_service_clear_op_name();
 }
 
 const char *keyer_service_get_op_name(void)

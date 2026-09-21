@@ -1025,6 +1025,11 @@ static void ui_service_render_keyer_normal(mini_cw_screen_t *screen)
         }
     }
 
+    if (!s_ui.keyer_tune_active && !*line6 && *keyer_service_get_op_name()) {
+        snprintf(tune_line, sizeof(tune_line), "OP:%s", keyer_service_get_op_name());
+        line6 = tune_line;
+    }
+
     ui_service_copy_tail(screen->line[5], sizeof(screen->line[5]), line6, strlen(line6));
     screen->line_color[5] = MINI_CW_SCREEN_COLOR_CYAN;
 }
@@ -1567,7 +1572,13 @@ ui_input_event_t ui_service_poll_input(void)
     /* Keep the UTC minute live even with no keyboard/decoder activity. */
     char clock[5];
     ui_service_time_chars(clock);
-    if (memcmp(clock, s_header_time, sizeof(clock))) ui_service_refresh();
+    bool status_expired = s_keyer_status_text[0] &&
+        ui_service_tick_reached(minicw_port_ticks(), s_keyer_status_until_tick);
+    if (memcmp(clock, s_header_time, sizeof(clock)) ||
+        (s_ui.view == UI_VIEW_NORMAL && status_expired)) {
+        if (status_expired) s_keyer_status_text[0] = '\0';
+        ui_service_refresh();
+    }
     minicw_input_event_t port_event;
     bool port_event_ready = minicw_input_poll_input(&port_event);
 

@@ -1,4 +1,4 @@
-# Mini-CW Keyer (T042 foundation, T043 audio, T044A persistence, T045 UI/I/O)
+# Mini-CW Keyer (T042 foundation, T043 audio, T044A persistence, T045 UI/I/O, T046 lookup)
 
 Source: `wcheng95/Mini-CW` at
 `3bfbf169b7c2d49a1be3e9a4c80f945edb32033e` (MiniCW V1.2).
@@ -15,7 +15,7 @@ Filesystem; missing or invalid files fall back to the pinned compiled defaults.
 - `keyer_service`: pinned physical/automatic timing, adaptive straight-key
   decoding, KeyIn/KeyOut modes and cancellation. Raw GPIO and ticks are private
   port calls. The decoder source/header are unchanged from the pinned source.
-  OP lookup remains inactive because no storage table is loaded in T042.
+  OP lookup borrows a static, session-long table loaded before Tone opens.
 - `ui_service`: pinned Keyer normal screen, five-line decoded history, TX tail,
   memory overlay, Tune and three-page settings menu, numeric/text editors.
   `ui_screen` maps frames to 20x7 MiniShell Display; foreground colors become
@@ -26,7 +26,8 @@ Filesystem; missing or invalid files fall back to the pinned compiled defaults.
   RTOS object is created. Providers without the optional capability retain the
   T042 silent timing fallback. Linux simulates the resident renderer silently.
 - `storage_service`: bounded Keyer-only parsing, validation and canonical
-  serialization. No hardware or filesystem implementation access.
+  serialization, plus bounded read-only callsign CSV parsing. No hardware or
+  filesystem implementation access.
 - `port`: the only MiniShell API adapter. Owns Digital I/O handles, logical Input,
   Display, Time/Location and transactional Filesystem calls; releases both output lines before closing
   handles on normal exit and failure.
@@ -133,3 +134,25 @@ T044A/standalone labels and numeric aliases still load, including
 `Paddle_Reverse`; old Paddle/PaddleR outputs load as SKN. Existing files need no
 manual migration. The next ordinary settings save uses canonical labels;
 transaction and quiet-save mechanics are unchanged.
+
+
+## Callsign lookup
+
+T046 reads `/flash/minicw/qsocalls.csv` once per launch, after settings reads and
+before Tone opens. No file is created or rewritten. The maximum file payload is
+4,095 bytes. The application retains the first 192 valid `call,name` rows in a
+static table (3,648 BSS bytes), with no heap allocation. Over-capacity input
+shows `Lookup truncated`; unreadable/oversized input leaves an empty table and
+shows `Lookup unavailable`. Missing files are normal and silent.
+
+An optional `call,name` header, blank lines, and whole-line `#`/`;` comments are
+accepted. Surrounding spaces/tabs are trimmed. Calls have 1–6 alphanumeric ASCII
+characters and normalize to uppercase; names contain 1–11 printable ASCII
+characters and retain case. Extra commas, invalid fields and overlong rows are
+skipped. Duplicate calls retain the first loaded match.
+
+The existing recognizer, slash/base-call rules, own-call exclusion and 72/73
+clearing are unchanged. Its last matched name appears as `OP:<name>` on row 6
+only when Tune, transient status and TX-tail text are absent. The fixed UTC
+header never changes. Table edits take effect on the next launch; there is no
+runtime reload. T046 hardware/audio acceptance remains pending review.
