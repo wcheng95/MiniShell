@@ -1,6 +1,6 @@
 # T049 — MiniFT8 TX separator + RX message colors
 
-Status: REVIEW
+Status: TESTING
 
 ## Baseline
 
@@ -482,3 +482,37 @@ monochrome fallback and the measured stack payload increase.
 
 Commit reference: the single implementation commit containing this evidence;
 exact SHA returned after push. Task status: **REVIEW**.
+
+
+## Supervisor review
+
+Reviewed implementation commit:
+
+```text
+c908d8d08e8cb317b7fa3119e9af94abe80e07f2
+```
+
+No software blocker found.
+
+The generic Display extension preserves the existing DEFAULT/WHITE/GREEN/CYAN
+numeric values, adds RED without an API table/version change, rejects reserved
+foreground selectors at the MiniShell service boundary, and keeps ADV free of
+FT8/CQ/reply semantics.
+
+MiniFT8 projects existing factual `RxMessage.is_to_me` / `is_cq` metadata
+through the same T028 ordered indexes as the displayed text. UiShell alone owns
+the red/green/white presentation mapping. The entire numbered RX row receives
+the message color; paging retains text/category alignment.
+
+The separator state is driven by `app_controller_tx_active()`: queued or pending
+TX remains white; only successful physical TX active state is red; completion
+and failure return white. Because the new UiFrame metadata participates in the
+existing full-frame comparison, separator-only state transitions still cause a
+render even when text bytes are unchanged.
+
+The adapter treats color and separator support as optional and falls back to the
+pre-T049 monochrome text path. The reported 6,720-frame differential text check,
+full regression gates, zero static-SRAM delta and unchanged Audio/DSP/Radio/Mini-CW
+scope are consistent with the reviewed diff.
+
+T049 is ready for ADV/QMX hardware acceptance.
