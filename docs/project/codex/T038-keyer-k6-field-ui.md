@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: TESTING
+Status: IMPLEMENTING
 
 ## Architect intent
 
@@ -1555,6 +1555,164 @@ resident import             mini_api_get only
 ```
 
 No blocker found.
+
+
+## Hardware finding — R3
+
+After the otherwise-good K6/R1 hardware exercise, two Mini-CW compatibility
+issues remain.
+
+### R3-A — sidetone popping between automatic-TX characters
+
+Observed on ADV while sending M1 (for example Alt/1): audible popping/clicking
+between Morse characters.
+
+Reference behavior was re-checked against `wcheng95/Mini-CW`:
+
+```text
+components/audio_service/audio_service.c
+```
+
+Mini-CW does not use a simple linear key envelope. Its CW renderer uses:
+
+```text
+AUDIO_CW_ENVELOPE_MS = 5
+5 ms raised-cosine attack on every keyed element
+5 ms raised-cosine release on every keyed element
+free-running DDS phase
+continuous PCM stream
+explicit zero-valued gap segments
+```
+
+The raised-cosine edge reaches silence with zero slope and is the field-proven
+click-suppression behavior.
+
+Current MiniShell K6 already has the correct higher-level architecture:
+
+```text
+physical/automatic logical key_down
+        -> sidetone
+        -> existing continuous MiniShell Audio TX stream
+```
+
+Do **not** port Mini-CW's FreeRTOS audio task, segment FIFO, HAL, or Audio service.
+Keep the existing K5/K6 MiniShell Audio TX ownership and 48-frame/48 kHz streaming
+path.
+
+R3-A scope:
+
+- replace the current linear `gain_q8++/--` edge with a portable
+  Mini-CW-compatible approximately 5 ms raised-cosine attack/release;
+- at 48 kHz, nominal edge length is 240 samples;
+- preserve the current free-running tone phase across keyed and silent periods;
+- continue writing PCM continuously while the Keyer Audio stream is open;
+- silent gaps remain zero-valued PCM through the existing foreground write path;
+- volume and mute remain application-side scaling;
+- no public Audio API change;
+- no new task/thread;
+- no ESP-IDF/FreeRTOS/libm dependency in the external ELF;
+- retain only `mini_api_get` as resident import;
+- manual paddle sidetone, automatic keyboard/M1-M5 TX, and Tune all use the same
+  improved envelope behavior where applicable;
+- a cancellation/preemption must still release the tone cleanly rather than create
+  a new click.
+
+The exact implementation may use a small fixed integer/LUT approximation of the
+same raised-cosine law. Do not add runtime floating point or libm merely to make
+the curve mathematically exact.
+
+Add deterministic sidetone tests proving:
+
+- attack starts at/near zero and rises monotonically;
+- release falls monotonically to zero;
+- edge length is approximately 5 ms / 240 samples at 48 kHz;
+- element/gap transitions do not jump directly from full-scale tone to full-scale
+  silence;
+- volume 0/1/50/99 and mute remain correct;
+- phase remains continuous across key-up gaps;
+- cancellation/release is bounded and ends at zero.
+
+### R3-B — Mini-CW Alt M1-M5 shortcut overlay
+
+Observed: K6 supports direct Alt+1..5 memory selection but pressing Alt itself
+does not show the M1-M5 overlay that Mini-CW provides.
+
+Reference behavior from Mini-CW `components/ui_service/ui_service.c`:
+
+- pressing Alt itself toggles `keyer_shortcut_active`;
+- while active, normal decoded-history rows are temporarily replaced by:
+
+```text
+M1:<message 1 preview>
+M2:<message 2 preview>
+M3:<message 3 preview>
+M4:<message 4 preview>
+M5:<message 5 preview>
+```
+
+- each row is 20 columns; Mini-CW uses `M#:%.17s`;
+- the normal top status row remains visible;
+- the normal bottom TX/status row remains visible;
+- pressing plain `1`..`5` while overlay is active selects/queues that memory;
+- Alt toggles the overlay off again;
+- decoded-history contents are preserved underneath and reappear when the overlay
+  is closed;
+- entering Tune clears the overlay in Mini-CW.
+
+MiniShell ADV already emits pressing Alt itself as `MINI_KEY_ALT`; K6's adapter
+currently maps modifier state but does not expose the special Alt key as a UiShell
+action.
+
+R3-B scope:
+
+- add a pure UiShell memory-overlay state;
+- map physical `MINI_KEY_ALT` through `ui_adapter`;
+- on normal Keyer screen, Alt special-key press toggles the overlay;
+- overlay rows 1-5 show `M1:`..`M5:` plus up to 17 message characters;
+- while overlay active, plain `1`..`5` queues the matching memory through the
+  existing TX engine;
+- direct `Alt+1..5` remains supported for compatibility/convenience;
+- pressing Alt again closes the overlay;
+- Tab/Tune closes the overlay before entering Tune;
+- Opt/Operation closes or suspends the overlay so Operation is never obscured;
+- Ctrl+C still quits;
+- physical KeyIn preemption remains unchanged;
+- no persistence is needed for overlay state;
+- no change to M1 repeat semantics or stored message format.
+
+Add focused UI/controller tests for:
+
+- Alt special-event toggle on/off;
+- exact `M1:`..`M5:` previews at 20 columns;
+- decoded history restored after closing overlay;
+- plain 1..5 selection while overlay active;
+- direct Alt+1..5 still works;
+- Tune/Operation interaction;
+- Ctrl+C and physical-input behavior unchanged.
+
+### R3 non-goals
+
+Do not redesign:
+
+- K3 physical engine;
+- TX scheduler timing;
+- KeyOut;
+- settings file format;
+- Audio public API;
+- ADV speaker provider;
+- MiniShell resident code;
+- FT8.
+
+Run the full T038 software/build gates after R3, including focused sidetone/UI/
+controller regressions, ADV firmware build, clean Keyer ELF build, import check,
+size/SRAM evidence and `git diff --check`.
+
+Hardware retest after supervisor review should specifically compare:
+
+1. M1 audio against the previous popping behavior;
+2. manual paddle sidetone for any new envelope artifact;
+3. Alt overlay display and plain 1..5 selection;
+4. previously accepted K6 shortcuts as a quick regression.
 
 
 ## Architect test result
