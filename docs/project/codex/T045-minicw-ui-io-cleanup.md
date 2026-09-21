@@ -1,6 +1,6 @@
 # T045 — Mini-CW Keyer UI / I/O mode cleanup, audio-frozen
 
-Status: READY
+Status: REVIEW
 
 ## Golden baseline / recovery
 
@@ -481,3 +481,158 @@ No PR and no hardware testing by Codex.
 
 Set T045 to REVIEW, push one bounded implementation commit, and return exact SHA
 with tests and binary/audio guard evidence.
+
+
+## Implementation handoff
+
+Baseline: `9be7cec313258deae69136d07b244e6ee99ed638` on
+`codex/T045-minicw-ui-io-cleanup`. Recovery checkpoint:
+`da934b03bce4cc8f908fbc1a40afed501a37196d`. Commit reference: the single
+implementation commit containing this handoff; exact SHA returned after push.
+
+### Implementation summary / changed files
+
+- `apps/minicw/src/keyer_service/keyer_service.{c,h}` appends SKB (numeric 4),
+  expands KeyIn cycling, and dispatches tip OR ring into the existing straight
+  timing/decoder/hold/release path. On automatic-TX cancellation, both currently
+  asserted contacts are independently consumed until release. Existing four
+  KeyIn dispatches and SKT/SKR timing routines are unchanged. KeyOut setters and
+  config canonicalize old Paddle/PaddleR to SKN; cycling exposes only the existing
+  SK/SK-M/OFF implementations. Electrical output routines are unchanged.
+- `apps/minicw/src/ui_service/ui_service.c` moves the Operation toggle to Opt;
+  Ctrl alone is ignored. The shared exact 20-column header uses UTC, short mode
+  codes, appropriate WPM and zero-padded volume on normal/Tune/Operation pages.
+  It refreshes on UTC-minute/availability changes even during idle, using the
+  existing foreground loop. No new task, delay or timer is added. Long menu
+  labels fit via `5 In:` and `6 Out:`. OP lookup cannot override the header.
+  Tune/status and the Alt memory overlay retain their lower-row behavior.
+- `apps/minicw/src/port/minicw_port.{c,h}` adds one private optional UTC read
+  helper; failed/missing UTC does not latch an application error. HH:MM is derived
+  with integer day arithmetic, including negative Unix timestamps, without
+  platform time calls or new imports. Existing Tone and Filesystem wrappers are
+  unchanged.
+- `apps/minicw/src/storage_service/storage_service.c` updates only mode labels,
+  aliases/ranges and obsolete-output canonicalization. Existing T044A files load
+  unchanged; new labels and SKB round-trip. Old numeric values 0–3 for KeyIn
+  retain their meanings; old KeyOut 0/1 map to SKN. No startup migration write is
+  added. Parser bounds, all-or-nothing load, transaction and quiet-save policy
+  remain unchanged; `app_core` has no diff.
+- `tests/minicw_domain_test.c` adds SKB electrical/hold/decoder/overlap/cancel and
+  mode-cycling cases. Legacy output expectations are narrowly changed to the
+  newly required SKN canonicalization. All existing paddle, straight, automatic,
+  Tune, decoder and timing traces remain.
+- `tests/minicw_runtime_test.c` uses Opt in its existing Operation trace and checks
+  the new normal/Tune header; Ctrl+C and Alt traces remain. The persistence test
+  changes only its canonical SK-M serialization expectation to SK-Mono; quiet
+  save and transactional fault assertions are unchanged.
+- `tests/minicw_ui_io_test.c` and `tests/minicw_tests.cmake` add injected UTC,
+  input/header and persistence compatibility coverage. `apps/minicw/README.md`
+  documents the new controls/modes/header. No external packaging change was needed.
+
+### Behavior / invariants preserved
+
+All eight protected audio files match the stable recovery commit byte-for-byte.
+No resident source, public API, PCM/Tone semantics, task/stack/queue/DMA,
+application audio wrapper, persistence transaction/save timing, existing `keyer`
+or FT8 changes. No heap allocation was introduced. SKB shares the existing
+straight-key implementation; SKN/SKM reuse the proven electrical implementation.
+No audio tuning, hardware testing, UTC setting or time persistence occurred.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+# PASS: 84/84
+cmake -S tests/unit -B /tmp/T045-unit
+cmake --build /tmp/T045-unit -j8
+ctest --test-dir /tmp/T045-unit --output-on-failure
+# PASS: 26/26
+ctest --test-dir build-linux -R minicw --output-on-failure
+# PASS: 6/6
+ctest --test-dir build-linux -R 'minicw|tone|architecture|boundary' --output-on-failure
+# PASS: 19/19
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real ADV build, before/after implementation
+idf.py -C platform/adv/elf_apps/minicw fullclean
+idf.py -C platform/adv/elf_apps/minicw elf
+# PASS: clean 1074-step external build
+python3 tests/minicw_elf_inspect.py platform/adv/elf_apps/minicw/build/minicw.app.elf
+# PASS: sole import mini_api_get; 622 mapped relocations; packed alignment valid
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+xtensa-esp32s3-elf-size -A platform/adv/elf_apps/minicw/build/minicw.app.elf
+cmp /tmp/T045-before.bin platform/adv/build/minishell_adv.bin
+# PASS: identical
+git diff --check
+# PASS
+```
+
+Focused coverage proves: Opt open/close, Ctrl inactivity both inside/outside
+Operation, preserved Ctrl+C/Alt; all 15 KIN/KOUT header combinations on normal
+and all Operation pages; midnight, 00:05, 09:37, 23:59, failed/absent UTC and idle
+minute advance; V00/V05/V99 and WPM 05; adaptive SK WPM selection; SKB tip-only,
+ring-only, simultaneous, overlap and last-release behavior; one hold/release per
+element; SKB duration/decode/adaptation matches SKT; two-contact cancellation
+consumption; KeyIn and KeyOut cycling, legacy setter/config canonicalization,
+SKN/SKM/OFF outputs and shutdown release; legacy label/numeric compatibility and
+canonical round-trip for every new mode. T044A save guards/fault tests and all
+frozen audio regressions remain passing.
+
+### Explicit audio / binary / resource evidence
+
+Each protected file was compared with
+`git show da934b03bce4cc8f908fbc1a40afed501a37196d:<path>`:
+
+```text
+protected audio diff:  NONE
+resident BIN:          IDENTICAL (local baseline vs final real build)
+resident SRAM delta:   0 bytes
+resident ELF imports:  mini_api_get only
+```
+
+Resident source/build inputs at the task baseline match the recovery checkpoint;
+there is no diff under `core/`, `include/` or `platform/`. Baseline and final
+resident BIN are both 1,381,280 bytes with SHA-256:
+
+```text
+72d644ef5f07cbd3ff5c60c0360b75e686426fe6edf284afe3c31f8647bd995a
+```
+
+ESP-IDF v5.5.4 / Xtensa GCC 14.2.0:
+
+| Resident section | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,016 | 27,016 | 0 |
+| `.dram0.bss` | 40,336 | 40,336 | 0 |
+| Static internal SRAM delta | — | — | **0** |
+
+| External `minicw.app.elf` | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| File bytes | 40,388 | 43,024 | +2,636 |
+| `.text` | 27,568 | 29,648 | +2,080 |
+| `.rodata` | 1,880 | 1,940 | +60 |
+| `.data` | 1,224 | 1,284 | +60 |
+| `.bss` | 3,268 | 3,276 | +8 |
+| Section-loader text + data allocation | 33,940 | 36,148 | +2,208 |
+
+Other final sections: `.hash` 40, `.dynsym` 80, `.dynstr` 38, `.rela.dyn` 7,488,
+`.rela.plt` 12, `.eh_frame` 92, `.got` 4; `size -A` total 43,902. File-size and
+loaded-size deltas differ because of ELF packing. Integer division helpers are
+linked locally from the existing libgcc packaging; no new resident import.
+No heap, task or resident SRAM allocation was added. Hardware stack/free-heap
+measurements were not taken.
+
+### Hardware/manual validation still required / known risks
+
+No PR or hardware testing was performed. After supervisor review, install only
+the external `minicw.elf` over the validated resident firmware and execute the
+packet's ordered acceptance: paddle/M1 audio first, then header, Opt/Ctrl, all
+KeyIn modes including SKB, three KeyOut modes, legacy persistence/relaunch, Tune
+and silent Ctrl+C exit. Software tests and unchanged audio files do not replace
+that hardware acceptance. Any audible regression requires stopping/reverting to
+`golden/minicw-persistence-clean-audio` at
+`da934b03bce4cc8f908fbc1a40afed501a37196d`; no audio tuning belongs in T045.

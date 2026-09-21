@@ -956,36 +956,39 @@ static void ui_service_format_text_edit_line(char *dest, size_t dest_size)
     dest[out] = '\0';
 }
 
+static char s_header_time[5];
+static void ui_service_time_chars(char text[5])
+{
+    uint8_t hour, minute;
+    memcpy(text, "--:--", 5);
+    if (minicw_port_utc_hm(&hour, &minute)) {
+        text[0] = '0' + hour / 10; text[1] = '0' + hour % 10;
+        text[3] = '0' + minute / 10; text[4] = '0' + minute % 10;
+    }
+}
+static void ui_service_keyer_header(mini_cw_screen_t *screen)
+{
+    static const char *const inputs[] = {"PDN", "PDR", "SKT", "SKR", "SKB"};
+    keyer_key_in_mode_t in = keyer_service_get_key_in_mode();
+    keyer_key_out_mode_t out = keyer_service_get_key_out_mode();
+    uint8_t wpm = in >= KEYER_KEY_IN_SK_T ? keyer_service_get_sk_wpm() : keyer_service_get_key_in_wpm();
+    uint8_t volume = audio_service_get_volume();
+    char top[21];
+    snprintf(top, sizeof(top), "--:-- %s %s %c%c V%c%c", inputs[in],
+        out == KEYER_KEY_OUT_SK_M ? "SKM" : out == KEYER_KEY_OUT_OFF ? "OFF" : "SKN",
+        '0' + wpm / 10, '0' + wpm % 10, '0' + volume / 10, '0' + volume % 10);
+    ui_service_time_chars(s_header_time);
+    memcpy(top, s_header_time, sizeof(s_header_time));
+    ui_service_set_top_chars(screen, top, MINI_CW_SCREEN_COLOR_WHITE);
+}
+
 static void ui_service_render_keyer_normal(mini_cw_screen_t *screen)
 {
     uint8_t row;
-    char top[UI_COLS + 1];
     char tune_line[UI_COLS + 1];
     const char *line6 = s_keyer_tx_text;
-    keyer_key_in_mode_t key_in_mode = keyer_service_get_key_in_mode();
-    const char *key_in = keyer_service_key_in_mode_label(key_in_mode);
-    const char *key_out = keyer_service_key_out_mode_label(keyer_service_get_key_out_mode());
-    const char *op_name = keyer_service_get_op_name();
-    uint8_t wpm = (key_in_mode == KEYER_KEY_IN_SK_T || key_in_mode == KEYER_KEY_IN_SK_R)
-                      ? keyer_service_get_sk_wpm()
-                      : keyer_service_get_key_in_wpm();
-
-    if (screen == NULL) {
-        return;
-    }
-
-    if (wpm > 99U) {
-        wpm = 99U;
-    }
-
-    if (!s_ui.keyer_tune_active && op_name != NULL && op_name[0] != '\0') {
-        snprintf(top, sizeof(top), "Keyer %-11.11s %2u", op_name, (unsigned)wpm);
-    } else if (s_ui.keyer_tune_active) {
-        snprintf(top, sizeof(top), "Tune  %5.5s %5.5s %2u", key_in, key_out, (unsigned)wpm);
-    } else {
-        snprintf(top, sizeof(top), "Keyer %5.5s %5.5s %2u", key_in, key_out, (unsigned)wpm);
-    }
-    ui_service_set_top_chars(screen, top, MINI_CW_SCREEN_COLOR_WHITE);
+    if (screen == NULL) return;
+    ui_service_keyer_header(screen);
 
     if (!s_ui.keyer_tune_active && s_ui.keyer_shortcut_active) {
         for (row = 0U; row < UI_KEYER_VISIBLE_LINES; ++row) {
@@ -1057,11 +1060,11 @@ static void ui_service_render_keyer_menu(void)
                                      "Hz");
         snprintf(screen.line[4],
                  sizeof(screen.line[4]),
-                 "5 keyIn:%s",
+                 "5 In:%s",
                  keyer_service_key_in_mode_label(keyer_service_get_key_in_mode()));
         snprintf(screen.line[5],
                  sizeof(screen.line[5]),
-                 "6 keyOut:%s",
+                 "6 Out:%s",
                  keyer_service_key_out_mode_label(keyer_service_get_key_out_mode()));
     } else if (s_ui.menu_page == 1U) {
         for (uint8_t i = 0U; i < KEYER_MESSAGE_COUNT; ++i) {
@@ -1117,6 +1120,7 @@ static void ui_service_render_keyer_menu(void)
         ui_service_set_text(screen.line[5], sizeof(screen.line[5]), "");
     }
 
+    ui_service_keyer_header(&screen);
     ui_screen_render(&screen);
 }
 
@@ -1525,6 +1529,7 @@ static bool ui_service_handle_keyer_shortcut_char(char key, ui_input_event_t *ou
 void ui_service_init(void)
 {
     memset(&s_ui, 0, sizeof(s_ui));
+    memset(s_header_time, 0, sizeof(s_header_time));
     s_ui.mode = UI_SERVICE_MODE_KEYER;
     s_keyer_history_len = 0;
     s_keyer_history_scroll_top = 0;
@@ -1559,6 +1564,10 @@ ui_service_mode_t ui_service_get_mode(void)
 
 ui_input_event_t ui_service_poll_input(void)
 {
+    /* Keep the UTC minute live even with no keyboard/decoder activity. */
+    char clock[5];
+    ui_service_time_chars(clock);
+    if (memcmp(clock, s_header_time, sizeof(clock))) ui_service_refresh();
     minicw_input_event_t port_event;
     bool port_event_ready = minicw_input_poll_input(&port_event);
 
@@ -1575,12 +1584,11 @@ ui_input_event_t ui_service_poll_input(void)
         return UI_EVENT_NONE;
     }
 
-    if (port_event.type == MINICW_INPUT_EVENT_OPT) {
-        /* Other Mini-CW modes are outside T042. */
+    if (port_event.type == MINICW_INPUT_EVENT_CTRL) {
         return UI_EVENT_NONE;
     }
 
-    if (port_event.type == MINICW_INPUT_EVENT_CTRL) {
+    if (port_event.type == MINICW_INPUT_EVENT_OPT) {
         ui_service_toggle_mode_menu();
         return UI_EVENT_NONE;
     }

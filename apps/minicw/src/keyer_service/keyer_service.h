@@ -27,6 +27,7 @@ typedef enum {
     KEYER_KEY_IN_PADDLE_R,
     KEYER_KEY_IN_SK_T,
     KEYER_KEY_IN_SK_R,
+    KEYER_KEY_IN_SK_B,
 } keyer_key_in_mode_t;
 
 typedef enum {

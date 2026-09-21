@@ -162,7 +162,7 @@ static void exit_cases(void)
         tone_opens=tone_closes=0; api.audio=&audio; api.input=&in; fs_before_save=save_after_tone_close;
         assert(minicw_run(&api)==0 && tone_closes==1 && closes==4 && levels[2]==1 && levels[3]==1);
         assert(fs_attempts==1 && fs_commits==(i ? 0U : 1U));
-        if (!i) assert(strstr(fs_destination,"key_out=SK-M") && strstr(fs_destination,"key_in_wpm=27"));
+        if (!i) assert(strstr(fs_destination,"key_out=SK-Mono") && strstr(fs_destination,"key_in_wpm=27"));
     }
     api.audio=NULL; api.input=&input_api;
 }

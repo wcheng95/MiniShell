@@ -23,3 +23,6 @@ typedef enum { MINICW_FILE_OK, MINICW_FILE_MISSING, MINICW_FILE_INVALID, MINICW_
 minicw_file_result_t minicw_port_file_read(const char *path, char *out, uint32_t capacity);
 bool minicw_port_file_replace(const char *directory, const char *temporary, const char *destination,
                               const char *text, uint32_t size);
+
+/* Optional UTC display only; errors never become application failures. */
+bool minicw_port_utc_hm(uint8_t *hour, uint8_t *minute);

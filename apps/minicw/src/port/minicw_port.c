@@ -113,6 +113,18 @@ bool minicw_port_file_replace(const char *directory, const char *temporary, cons
     if (r != MINI_OK) (void)fs->remove_file(temporary);
     return r == MINI_OK;
 }
+bool minicw_port_utc_hm(uint8_t *hour, uint8_t *minute)
+{
+    const mini_time_location_api_t *time = s_api->time_location;
+    mini_utc_time_t utc = {.struct_size = sizeof(utc)};
+    if (!(time->capabilities & MINI_TIMELOC_CAP_UTC) || !time->utc_get ||
+        time->utc_get(&utc) != MINI_OK) return false;
+    int64_t day = utc.unix_seconds % 86400;
+    if (day < 0) day += 86400;
+    *hour = (uint8_t)(day / 3600);
+    *minute = (uint8_t)((day % 3600) / 60);
+    return true;
+}
 uint32_t minicw_port_now_ms(void)
 {
     return (uint32_t)(s_api->time_location->monotonic_us() / 1000U);

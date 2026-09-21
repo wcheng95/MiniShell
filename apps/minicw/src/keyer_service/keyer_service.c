@@ -24,7 +24,7 @@
 #define KEYER_DEFAULT_TX_WPM 19U
 #define KEYER_MIN_TX_WPM 5U
 #define KEYER_MAX_TX_WPM 60U
-#define KEYER_KEY_IN_MODE_COUNT 4
+#define KEYER_KEY_IN_MODE_COUNT 5
 #define KEYER_KEY_OUT_MODE_COUNT 5
 #define KEYER_PADDLE_MODE_COUNT 3
 #define KEYER_GPIO_TIP 13U
@@ -175,7 +175,7 @@ static keyer_key_in_mode_t keyer_clamp_key_in_mode(keyer_key_in_mode_t mode)
 
 static keyer_key_out_mode_t keyer_clamp_key_out_mode(keyer_key_out_mode_t mode)
 {
-    if ((int)mode < 0 || (int)mode >= KEYER_KEY_OUT_MODE_COUNT) {
+    if ((int)mode < KEYER_KEY_OUT_SK || (int)mode >= KEYER_KEY_OUT_MODE_COUNT) {
         return KEYER_KEY_OUT_SK;
     }
 
@@ -1619,7 +1619,7 @@ void keyer_service_set_key_out_mode(keyer_key_out_mode_t mode)
 void keyer_service_cycle_key_out_mode(int direction)
 {
     keyer_service_set_key_out_mode((keyer_key_out_mode_t)keyer_cycle_int(
-        (int)s_key_out_mode, KEYER_KEY_OUT_MODE_COUNT, direction));
+        (int)s_key_out_mode - KEYER_KEY_OUT_SK, 3, direction) + KEYER_KEY_OUT_SK);
 }
 
 uint8_t keyer_service_get_key_in_wpm(void)
@@ -1818,34 +1818,20 @@ void keyer_service_toggle_mute(void)
 const char *keyer_service_key_in_mode_label(keyer_key_in_mode_t mode)
 {
     switch (mode) {
-    case KEYER_KEY_IN_PADDLE:
-        return "Pdl";
-    case KEYER_KEY_IN_PADDLE_R:
-        return "Pdl-R";
-    case KEYER_KEY_IN_SK_T:
-        return "SK-T";
-    case KEYER_KEY_IN_SK_R:
-        return "SK-R";
-    default:
-        return "Unknown";
+    case KEYER_KEY_IN_PADDLE: return "Paddle-Normal";
+    case KEYER_KEY_IN_PADDLE_R: return "Paddle-Reverse";
+    case KEYER_KEY_IN_SK_T: return "SK-Tip";
+    case KEYER_KEY_IN_SK_R: return "SK-Ring";
+    case KEYER_KEY_IN_SK_B: return "SK-Both";
+    default: return "Unknown";
     }
 }
-
 const char *keyer_service_key_out_mode_label(keyer_key_out_mode_t mode)
 {
-    switch (mode) {
-    case KEYER_KEY_OUT_PADDLE:
-        return "Pdl";
-    case KEYER_KEY_OUT_PADDLE_R:
-        return "Pdl-R";
-    case KEYER_KEY_OUT_SK:
-        return "SK";
-    case KEYER_KEY_OUT_SK_M:
-        return "SK-M";
-    case KEYER_KEY_OUT_OFF:
-        return "OFF";
-    default:
-        return "Unknown";
+    switch (keyer_clamp_key_out_mode(mode)) {
+    case KEYER_KEY_OUT_SK_M: return "SK-Mono";
+    case KEYER_KEY_OUT_OFF: return "OFF";
+    default: return "SK-Normal";
     }
 }
 
@@ -2092,6 +2078,17 @@ void keyer_service_update(void)
         break;
     case KEYER_KEY_IN_SK_R:
         keyer_update_straight_key_mode(ring_pressed, false);
+        break;
+    case KEYER_KEY_IN_SK_B:
+        if ((tip_pressed || ring_pressed) &&
+            (keyer_tx_playback_active() || keyer_tx_has_remaining_text())) {
+            /* Consume every asserted contact independently until its release. */
+            (void)keyer_cancel_tx_with_straight_key(tip_pressed);
+            if (tip_pressed) s_cancel_ignore_tip = true;
+            if (ring_pressed) s_cancel_ignore_ring = true;
+        } else {
+            keyer_update_straight_key_mode(tip_pressed || ring_pressed, tip_pressed);
+        }
         break;
     default:
         keyer_reset_input_state();

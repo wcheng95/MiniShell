@@ -5,8 +5,8 @@
 #include "minicw_libc.h"
 #include <string.h>
 
-static const char *const in_labels[] = {"Pdl", "Pdl-R", "SK-T", "SK-R"};
-static const char *const out_labels[] = {"Pdl", "Pdl-R", "SK", "SK-M", "OFF"};
+static const char *const in_labels[] = {"Paddle-Normal", "Paddle-Reverse", "SK-Tip", "SK-Ring", "SK-Both"};
+static const char *const out_labels[] = {"SK-Normal", "SK-Normal", "SK-Normal", "SK-Mono", "OFF"};
 static const char *const paddle_labels[] = {"IambicA", "IambicB", "Bug"};
 static bool equal_ci(const char *a, const char *b)
 {
@@ -29,6 +29,14 @@ static bool mode(const char *s, const char *const *labels, unsigned count, unsig
 {
     for (unsigned i = 0; i < count; ++i) if (equal_ci(s, labels[i])) { *out = i; return true; }
     /* Pinned Mini-CW settings aliases, including numeric modes. */
+    static const char *const old_in[] = {"Pdl", "Pdl-R", "SK-T", "SK-R"};
+    static const char *const old_out[] = {"Pdl", "Pdl-R", "SK", "SK-M", "OFF"};
+    if (labels != paddle_labels) {
+        const char *const *old = labels == in_labels ? old_in : old_out;
+        unsigned old_count = labels == in_labels ? 4 : 5;
+        for (unsigned i = 0; i < old_count; ++i) if (equal_ci(s, old[i])) { *out = i; return true; }
+        if (labels == in_labels && equal_ci(s, "Paddle_Reverse")) { *out = 1; return true; }
+    }
     if (labels == paddle_labels) {
         if (equal_ci(s, "Iambic-A")) { *out = 0; return true; }
         if (equal_ci(s, "Iambic-B")) { *out = 1; return true; }
@@ -79,13 +87,13 @@ static bool field(storage_snapshot_t *s, unsigned section, const char *key, char
         NUM("volume", s->volume, 0, 99)
         NUM("tone_hz", s->tone_hz, 300, 999)
         NUM("key_in_wpm", s->key_in_wpm, 5, 60)
-        if (equal_ci(key, "key_in")) { if (!mode(value, in_labels, 4, &n)) return false; s->key_in = (keyer_key_in_mode_t)n; }
+        if (equal_ci(key, "key_in")) { if (!mode(value, in_labels, 5, &n)) return false; s->key_in = (keyer_key_in_mode_t)n; }
     } else if (section == 2) {
         NUM("sk_wpm", s->keyer.sk_wpm, 5, 60)
         NUM("tx_delay_s", s->keyer.tx_delay_s, 0, 99)
         NUM("tune_timeout_s", s->keyer.tune_timeout_s, 0, 20)
         NUM("repeat_interval_s", s->keyer.repeat_interval_s, 1, 99)
-        if (equal_ci(key, "key_out")) { if (!mode(value, out_labels, 5, &n)) return false; s->keyer.key_out_mode = (keyer_key_out_mode_t)n; }
+        if (equal_ci(key, "key_out")) { if (!mode(value, out_labels, 5, &n)) return false; s->keyer.key_out_mode = n < KEYER_KEY_OUT_SK ? KEYER_KEY_OUT_SK : (keyer_key_out_mode_t)n; }
         else if (equal_ci(key, "paddle")) { if (!mode(value, paddle_labels, 3, &n)) return false; s->keyer.paddle_mode = (keyer_paddle_mode_t)n; }
         else if (equal_ci(key, "mycall")) return text_value(s->keyer.mycall, value, KEYER_MYCALL_MAX_LEN, true);
     }
@@ -127,7 +135,7 @@ bool storage_parse(const char *text, storage_snapshot_t *out)
 }
 bool storage_serialize(const storage_snapshot_t *s, char *out, size_t size)
 {
-    if ((unsigned)s->key_in >= 4 || (unsigned)s->keyer.key_out_mode >= 5 || (unsigned)s->keyer.paddle_mode >= 3) return false;
+    if ((unsigned)s->key_in >= 5 || (unsigned)s->keyer.key_out_mode >= 5 || (unsigned)s->keyer.paddle_mode >= 3) return false;
     int n = snprintf(out, size,
         "# Mini-CW Keyer settings\n\n[system]\nvolume=%u\ntone_hz=%u\nkey_in=%s\nkey_in_wpm=%u\n\n"
         "[keyer]\nkey_out=%s\npaddle=%s\nsk_wpm=%u\ntx_delay_s=%u\ntune_timeout_s=%u\nrepeat_interval_s=%u\n"

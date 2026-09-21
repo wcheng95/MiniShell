@@ -65,7 +65,7 @@ static mini_result_t input(mini_key_event_t *key, uint32_t timeout)
     assert(timeout == MINI_WAIT_NONE && reads < 200);
     unsigned step = reads++;
     if (step == 0) {
-        assert(strcmp(frame[0], "Keyer   Pdl    SK 19") == 0);
+        assert(strcmp(frame[0], "--:-- PDN SKN 19 V80") == 0);
         assert(frame[1][0] == ' ' && frame[6][0] == ' ');
         assert(!keyer_service_get_mute() && !keyer_service_get_tune_active());
     }
@@ -117,7 +117,7 @@ static mini_result_t input(mini_key_event_t *key, uint32_t timeout)
         return ch(key, '`');
     case 34:
         assert(!keyer_service_tx_has_text());
-        return special(key, MINI_KEY_CTRL);
+        return special(key, MINI_KEY_OPT);
     case 35:
         assert(strncmp(frame[3], "3 Wpm:19", 8) == 0);
         return ch(key, '3');
@@ -135,14 +135,15 @@ static mini_result_t input(mini_key_event_t *key, uint32_t timeout)
     case 43: return special(key, MINI_KEY_ENTER);
     case 44:
         assert(strcmp(keyer_service_get_message(1), "HI") == 0);
-        return special(key, MINI_KEY_CTRL);
+        return special(key, MINI_KEY_OPT);
     case 45: return ch(key, '\\');
     case 46:
         assert(keyer_service_get_mute());
         assert(strncmp(frame[6], "Mute:ON", 7) == 0);
         return special(key, MINI_KEY_TAB);
     case 47:
-        assert(strncmp(frame[0], "Tune ", 5) == 0);
+        assert(strcmp(frame[0], "--:-- PDN SKN 25 V80") == 0);
+        assert(strncmp(frame[6], "Tune", 4) == 0);
         return ch(key, 'T');
     case 48:
         assert(keyer_service_get_tune_latched());

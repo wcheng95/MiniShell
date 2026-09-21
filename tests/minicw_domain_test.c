@@ -117,9 +117,7 @@ static void outputs(void)
             assert(out_tip == 1 && out_ring == (mode == KEYER_KEY_OUT_SK_M ? 0U : 1U));
             if (dah) ring = 0; else tip = 0;
             tick(1000); event(dah ? KEYER_EVENT_DAH : KEYER_EVENT_DIT);
-            if (mode == KEYER_KEY_OUT_PADDLE) assert(out_tip == (unsigned)dah && out_ring == (unsigned)!dah);
-            else if (mode == KEYER_KEY_OUT_PADDLE_R) assert(out_tip == (unsigned)!dah && out_ring == (unsigned)dah);
-            else if (mode == KEYER_KEY_OUT_OFF) assert(out_tip == 1 && out_ring == 1);
+            if (mode == KEYER_KEY_OUT_OFF) assert(out_tip == 1 && out_ring == 1);
             else assert(out_tip == 0 && out_ring == 0);
             tip = ring = 1; tick(dah ? 1180 : 1060);
             assert(out_tip == 1 && out_ring == (mode == KEYER_KEY_OUT_SK_M ? 0U : 1U));
@@ -178,10 +176,60 @@ static void bounds_and_wrap(void)
     tick(start + 60); assert(out_tip == 1);
     tick(start + 240); assert(event(KEYER_EVENT_CHAR_COMPLETE).decoded_char == 'E');
 }
+static void sk_both(void)
+{
+    for (unsigned contacts=1;contacts<=3;++contacts) {
+        init(); keyer_service_set_key_in_mode(KEYER_KEY_IN_SK_B);
+        tip=contacts&1 ? 0 : 1; ring=contacts&2 ? 0 : 1; tick(1000);
+        assert(mock_hold && hold_calls==1);
+        tip=ring=1; tick(1060); assert(!mock_hold && hold_calls==2);
+        assert(event(KEYER_EVENT_DIT).duration_ms==60);
+    }
+    for (unsigned contacts = 1; contacts <= 3; ++contacts) {
+        init(); keyer_service_set_key_in_mode(KEYER_KEY_IN_SK_B);
+        tip = contacts & 1 ? 0 : 1; ring = contacts & 2 ? 0 : 1;
+        tick(1000); assert(mock_hold && hold_calls == 1 && out_tip == 0 && out_ring == 0);
+        tick(1030); tip = ring = 0; tick(1040); assert(hold_calls == 1);
+        tip = 1; tick(1060); assert(mock_hold && out_tip == 0);
+        ring = 1; tick(1090); assert(!mock_hold && out_tip == 1 && hold_calls == 2);
+        assert(event(KEYER_EVENT_DIT).duration_ms == 90);
+        tick(1400); assert(event(KEYER_EVENT_CHAR_COMPLETE).decoded_char == 'E');
+        unsigned adaptive = keyer_service_get_sk_wpm();
+        init(); keyer_service_set_key_in_mode(KEYER_KEY_IN_SK_T);
+        tip=0; tick(1000); tip=1; tick(1090);
+        assert(event(KEYER_EVENT_DIT).duration_ms == 90 && keyer_service_get_sk_wpm() == adaptive);
+    }
+    init(); keyer_service_set_key_in_mode(KEYER_KEY_IN_SK_B);
+    assert(keyer_service_tx_append_text("EE", false)); keyer_service_tx_start(); tick(1000);
+    tip=ring=0; tick(1010); event(KEYER_EVENT_TX_CANCELLED);
+    assert(!mock_hold && !keyer_service_tx_has_text());
+    tip=1; tick(1050); assert(!mock_hold && out_tip==1);
+    tick(1100); assert(!mock_hold && event(KEYER_EVENT_NONE).type==KEYER_EVENT_NONE);
+    ring=1; tick(1110); ring=0; tick(1120); assert(mock_hold);
+    ring=1; tick(1180); assert(event(KEYER_EVENT_DIT).duration_ms==60);
+    init();
+    for (unsigned i=0;i<10;++i) {
+        assert(keyer_service_get_key_in_mode()==(keyer_key_in_mode_t)(i%5));
+        keyer_service_cycle_key_in_mode(1);
+    }
+    for (unsigned i=0;i<9;++i) {
+        assert(keyer_service_get_key_out_mode()==(keyer_key_out_mode_t)(KEYER_KEY_OUT_SK+i%3));
+        keyer_service_cycle_key_out_mode(1);
+    }
+    keyer_service_cycle_key_out_mode(-1); assert(keyer_service_get_key_out_mode()==KEYER_KEY_OUT_OFF);
+    for (unsigned i=0;i<2;++i) {
+        keyer_config_t config; keyer_service_get_config_copy(&config);
+        config.key_out_mode=(keyer_key_out_mode_t)i; keyer_service_set_config(&config);
+        assert(keyer_service_get_key_out_mode()==KEYER_KEY_OUT_SK);
+        keyer_service_set_key_out_mode((keyer_key_out_mode_t)i);
+        assert(keyer_service_get_key_out_mode()==KEYER_KEY_OUT_SK);
+    }
+}
 int main(void)
 {
     decoder_vectors(); iambic(); bug_and_straight(); outputs(); preemption(); automatic_and_tune(); bounds_and_wrap();
     use_tone = true;
+    sk_both();
     iambic(); bug_and_straight(); outputs(); preemption(); automatic_and_tune();
     init(); tip = 0; tick(1000);
     assert(finite_calls == 1 && last_duration == 63);

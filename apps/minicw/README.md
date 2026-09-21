@@ -1,4 +1,4 @@
-# Mini-CW Keyer (T042 foundation, T043 audio, T044A persistence)
+# Mini-CW Keyer (T042 foundation, T043 audio, T044A persistence, T045 UI/I/O)
 
 Source: `wcheng95/Mini-CW` at
 `3bfbf169b7c2d49a1be3e9a4c80f945edb32033e` (MiniCW V1.2).
@@ -46,7 +46,7 @@ extra element to its **Iambic A** selection, not B; this is preserved.
   text immediately; Backspace removes unsent tail text; backtick/Escape cancels.
 - Alt toggles the M1–M5 overlay; plain 1–5 selects while it is visible. The overlay
   remains open, as in the pinned UI. M1 repeats at the configured interval.
-- Ctrl alone toggles the Keyer settings menu. Digits select entries; Up/Down
+- Opt toggles the Keyer Operation/settings menu; Ctrl alone does nothing. Digits select entries; Up/Down
   (or `;` / `.` without Fn) change menu pages. Numeric editors accept digits,
   Enter and left/right stepping. Text editors accept Enter, Backspace and
   Fn+Left/Right cursor movement. The pinned edit/cancel behavior is retained.
@@ -59,11 +59,12 @@ extra element to its **Iambic A** selection, not B; this is preserved.
 MiniShell delivers logical key events, not raw held/released keyboard state.
 Its repeat events can repeat cursor movements; raw-key hold timing and the
 upstream one-second Backspace-hold clear gesture cannot be inferred reliably
-and are not synthesized. Opt's other-mode selector is inactive. These are the
+and are not synthesized. Opt opens Operation instead of the upstream mode selector. These are the
 Input/scope differences from the source; no public API is added.
 
-KeyIn uses G13/G15 pull-ups; KeyOut uses G3/G6 open drain, active low. All five
-pinned KeyOut modes are retained: Pdl, Pdl-R, SK, SK-M, OFF. Even SK-M's normally
+KeyIn uses G13/G15 pull-ups; KeyOut uses G3/G6 open drain, active low. KeyIn options are PDN/PDR/SKT/SKR/SKB. SKB treats tip OR ring as one straight
+key; both must release to end it. Only SKN, SKM and OFF are selectable KeyOut
+modes; legacy Paddle outputs canonicalize to SKN. Even SKM's normally
 asserted ring is released on exit. The physical press that cancels automatic TX
 is consumed until release, not also decoded/sent as a new element.
 
@@ -89,8 +90,9 @@ packed-section alignment and relocation destinations as well as imports.
 T043 adds the optional Audio tone capability and its resident ADV worker;
 ordinary PCM APIs, Keyer timing/UI, existing `keyer` and FT8 remain unchanged.
 T042 and T043 hardware acceptance is complete at the golden recovery point
-`48a40d79c13ed60ef9f8444a060164852d226fcd`. T044A leaves that audio path frozen;
-persistence hardware acceptance remains pending supervisor review.
+`48a40d79c13ed60ef9f8444a060164852d226fcd`. T044A persistence is hardware accepted at
+`da934b03bce4cc8f908fbc1a40afed501a37196d`. T045 UI/I/O acceptance remains pending;
+the resident audio path stays frozen.
 
 ## Keyer settings persistence
 
@@ -116,3 +118,18 @@ write, sync, close and commit rename. A failure preserves the old destination
 and displays `Save failed`; retry waits for another settings change or clean
 exit. Clean exit captures settings before output shutdown and makes one dirty
 save attempt after Tone has closed, while Filesystem remains available.
+
+
+T045 uses the exact 20-column header `HH:MM KIN KOUT WW Vnn` on normal, Tune
+and Operation screens. UTC comes only from optional MiniShell Time/Location;
+missing/failed UTC displays `--:--`. The header updates on UTC minute changes
+while idle. PDN/PDR show KeyIn WPM; SKT/SKR/SKB show adaptive SK WPM. Tune and
+transient status stay in the lower status line, and OP-name lookup cannot replace
+the header. Operation uses long mode names with shortened `In:`/`Out:` prefixes.
+
+Canonical settings labels are `Paddle-Normal`, `Paddle-Reverse`, `SK-Tip`,
+`SK-Ring`, `SK-Both` for KeyIn and `SK-Normal`, `SK-Mono`, `OFF` for KeyOut.
+T044A/standalone labels and numeric aliases still load, including
+`Paddle_Reverse`; old Paddle/PaddleR outputs load as SKN. Existing files need no
+manual migration. The next ordinary settings save uses canonical labels;
+transaction and quiet-save mechanics are unchanged.
