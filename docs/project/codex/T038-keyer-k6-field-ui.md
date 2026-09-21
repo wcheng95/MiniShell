@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: TESTING
+Status: IMPLEMENTING
 
 ## Architect intent
 
@@ -2240,6 +2240,54 @@ architecture solely for UI refresh continuity.
 Future optimization may revisit live display updates during automatic TX only if
 there is a demonstrated usability need and an independently buffered audio path.
 It is not required for K6 correctness.
+
+
+## R5 — finalize confirmed display-deferral behavior
+
+R4 hardware testing confirmed the root cause and the fix:
+
+- the audible automatic-TX pop disappeared when Display render/present was
+  deferred through active automatic-TX element/gap phases;
+- the same message sent manually with the paddle does not pop;
+- R3 envelope changes alone did not fix the pop;
+- therefore the problem was foreground Display work starving the ADV speaker/I2S
+  feed during automatic TX.
+
+R5 is a finalization/cleanup pass, not a new behavior experiment.
+
+Permanent K6 rule:
+
+```text
+TX_ELEMENT / TX_ELEMENT_GAP / TX_CHAR_GAP / TX_WORD_GAP
+    -> defer Display render/present
+
+TX_IDLE
+    -> render normally and catch up immediately if a refresh was deferred
+
+manual paddle
+    -> normal Display behavior
+
+TxDelay / idle M1 repeat wait
+    -> normal Display behavior
+```
+
+R5 scope:
+
+- keep the existing proven suppression logic unchanged in behavior;
+- remove/replace source and documentation wording that calls it temporary,
+  diagnostic-only, or unconfirmed;
+- describe it as the accepted K6 display/audio scheduling policy;
+- preserve the exact R4 controller regression that proves no render/present during
+  active automatic TX and catch-up on the first idle tick;
+- keep `PdL` and all accepted R1-R4 behavior;
+- do not introduce new PCM buffering, tasks, DMA changes, public API changes,
+  resident MiniShell changes, or FT8 changes;
+- do not change TX timing, KeyOut, sidetone, Alt overlay, settings, or persistence;
+- rerun the full T038 software/build gates and record final ELF/import/SRAM evidence;
+- set T038 to REVIEW and return the final SHA for supervisor closeout.
+
+After supervisor review, no additional targeted hardware test is required unless
+the finalization changes production behavior unexpectedly.
 
 
 ## Architect test result
