@@ -1,6 +1,6 @@
 # T051 — ADV resident console scrollback
 
-Status: TESTING
+Status: COMPLETE
 
 ## Baseline
 
@@ -446,3 +446,26 @@ small fixed bookkeeping. No heap, task, public API, Linux, application or
 System-diagnostic routing changes were introduced.
 
 T051 is ready for Cardputer ADV hardware acceptance.
+
+
+## Final hardware acceptance — 2026-09-21
+
+Cardputer ADV validation passed.
+
+Accepted behavior:
+
+- resident M$> console retains 50 physical 20-column rows;
+- Fn+Up moves five rows older;
+- Fn+Down moves five rows newer;
+- viewport clamps at both ends;
+- command editing remains intact while reviewing history;
+- new shell output returns to the live tail;
+- shell history survives full-screen application Display ownership.
+
+Implementation:
+
+```text
+ec14ff28be933cbeb920b0b36f1195b6f73fd5c4
+```
+
+T051 is COMPLETE and this hardware-accepted state is the new MiniShell baseline.
