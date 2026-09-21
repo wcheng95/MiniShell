@@ -1,6 +1,6 @@
 # T042 — Mini-CW Keyer-mode MiniShell foundation
 
-Status: REVIEW
+Status: TESTING
 
 ## Objective
 
@@ -426,3 +426,145 @@ claim here substitutes for ADV hardware acceptance. Actual dynamic heap/stack
 high-water measurements remain unmeasured. Audio quality is deliberately outside
 T042. The logical-input and monochrome-rendering differences are documented
 above; there are no other intended scope or ownership deviations.
+
+
+## Supervisor review
+
+Reviewed implementation commit:
+
+```text
+592addd4c97fe560bedc0adca0a89499e2118aa6
+```
+
+Result: **PASS — ready for silent ADV hardware validation.**
+
+### Architecture/scope review
+
+T042 is a genuine Mini-CW Keyer-mode port, not a reimplementation using
+`apps/keyer`.
+
+The production additions are isolated under:
+
+```text
+apps/minicw/
+platform/adv/elf_apps/minicw/
+```
+
+plus build/tests. Existing Keyer, MiniFT8, resident ADV providers and public
+MiniShell API are unchanged.
+
+Although this branch predates the later roadmap edit that explicitly removes
+trainer/power/USB scope, the implementation already satisfies that revised
+Keyer-only direction: no trainer, GPS, storage, battery/sleep, USB-MSC or power
+implementation is imported.
+
+### MiniShell boundary review
+
+All hardware ownership is concentrated in the private Mini-CW port:
+
+- Time/Location -> monotonic time + 10 ms sleep;
+- Digital I/O -> G13/G15 inputs and G3/G6 open-drain outputs;
+- Input -> logical MiniShell key events;
+- Display -> 20x7 MiniShell text Display.
+
+The external application has no ESP-IDF, FreeRTOS, M5*, raw GPIO/UART, FATFS,
+TinyUSB or board dependencies.
+
+The external ELF's sole resident import is `mini_api_get`.
+
+### Timing/domain review
+
+The pinned Mini-CW decoder is preserved byte-for-byte.
+
+The Keyer timing port deliberately preserves the pinned 100 Hz FreeRTOS timing
+model rather than silently increasing resolution:
+
+```text
+Mini-CW tick = floor(monotonic_us / 10,000)
+poll sleep   = 10 ms
+```
+
+This keeps the reference's integer truncation, minimum-one-tick delays and
+32-bit wrap behavior.
+
+The silent Audio seam is also correctly stateful. Finite dit/dah requests retain
+a deadline and `audio_service_is_busy()` remains true until that deadline;
+hold/release is tracked separately. Thus T042 does not make automatic/keyer
+state advance instantaneously merely because speaker output is disabled.
+
+### Resource/error lifecycle review
+
+The port owns four Digital-I/O handles only.
+
+On normal exit or error:
+
+- both KeyOut wires are explicitly driven released;
+- all acquired handles are closed;
+- partial acquisition unwinds only acquired handles;
+- repeated launches reset application state.
+
+No application heap, task or queue is introduced.
+
+### UI/Input deviations
+
+The documented rendering/input differences are consequences of the current
+MiniShell abstraction rather than product redesign:
+
+- 20x7 monochrome text instead of Mini-CW color/pixel separator;
+- logical key events instead of raw press/release state;
+- no synthesized one-second Backspace-hold gesture;
+- Opt's multi-mode selector is inactive because T042 starts directly in Keyer
+  mode.
+
+Keyer settings/menu, M1-M5 overlay, Tune, decoded history and automatic-TX state
+remain present for the T042 Keyer-mode foundation.
+
+### Software/build evidence
+
+Reported final gates:
+
+```text
+Linux CTest              78/78
+portable units           20/20
+focused minicw            4/4
+architecture/boundary    PASS
+real ADV firmware build  PASS
+clean minicw ELF build   PASS
+ELF inspection           PASS
+git diff --check         PASS
+```
+
+External ELF:
+
+```text
+file size                34,724 bytes
+.text                    23,432
+.rodata                   1,272
+.data                     1,176
+.bss                      2,732
+mapped runtime sections  28,612 bytes
+resident import           mini_api_get only
+```
+
+Resident firmware BIN and static SRAM are byte-for-byte/size identical to the
+baseline.
+
+### Hardware gate
+
+T042 is intentionally silent. Validate only the platform/domain foundation:
+
+1. MiniShell launches `minicw`.
+2. Mini-CW Keyer screen appears.
+3. paddle/straight-key input responds with reference timing;
+4. decoded text updates;
+5. KeyOut modes/physical behavior are correct;
+6. M1/M2 automatic scheduling/UI works silently;
+7. Ctrl+C releases both KeyOut lines;
+8. repeated launch/exit is clean.
+
+Audio quality is not part of T042. T043 will migrate the actual known-good
+Mini-CW continuous-audio architecture and will require clean paddle + M1 as its
+hardware acceptance gate.
+
+Do not merge T042 to `main` until ADV hardware acceptance.
+
