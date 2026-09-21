@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: READY
+Status: REVIEW
 
 
 ## Hardware correction addendum — 2026-09-21
@@ -1237,3 +1237,98 @@ After implementation, return T046 to REVIEW with the exact SHA and normal
 software/audio/resident guards. Hardware validation only needs to confirm the
 new row text plus one clear path; the already accepted full-table lookup and
 audio behavior remain the baseline.
+
+
+## Callsign/operator UI refinement — implementation handoff
+
+Baseline: `28673fdf1d2c4fff60c7aa36d54e56a5b15cd223`.
+Branch: `codex/T046-minicw-callsign-lookup`. Status: **REVIEW**.
+
+### Implementation summary / files changed
+
+- `apps/minicw/src/keyer_service/keyer_service.{c,h}` retains the successful
+  lookup's base call alongside the name and exposes `keyer_service_get_op_call()`
+  through the private domain interface. Existing clear paths and initialization
+  clear both fields together. Recognition and unknown-candidate behavior are
+  unchanged: an unknown candidate cannot replace the call of the last match.
+- `apps/minicw/src/ui_service/ui_service.c` changes only the row-6 fallback
+  formatter to `<call>: <name>`. `apps/minicw/README.md` documents that text.
+- `tests/minicw_lookup_test.c` adds matched-base-call display, maximum-width,
+  paired clearing/reset and unknown-candidate regressions, and updates prior
+  operator display assertions. This task file records the handoff evidence.
+
+### Preserved behavior / tests
+
+Priority remains Tune > transient status > TX tail > matched call/name > blank.
+The fixed header function is untouched. Full-table loading, ownership, settings,
+Tone/audio, timing, KeyOut and resident/public APIs have no changes.
+
+Regressions prove `K7SHR: PAUL`, both `K6ABC/P` and `F/K6ABC` displaying
+`K6ABC: Alice`, paired 72/73/Tune/init/detach clearing, unknown candidates with
+and without a prior match, and the complete 19-character `7N1FRE: ABCDEFGHIJK`
+plus one padding cell. Existing row-6 priority and exact header tests pass.
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+# PASS: 85/85
+cmake -S tests/unit -B /tmp/T046U-unit
+cmake --build /tmp/T046U-unit -j8
+ctest --test-dir /tmp/T046U-unit --output-on-failure
+# PASS: 27/27
+ctest --test-dir build-linux -R 'minicw|tone|architecture|boundary' --output-on-failure
+# PASS: 20/20
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: before/after
+idf.py -C platform/adv/elf_apps/minicw fullclean
+idf.py -C platform/adv/elf_apps/minicw elf
+# PASS: clean 1074-step build
+python3 tests/minicw_elf_inspect.py platform/adv/elf_apps/minicw/build/minicw.app.elf
+# PASS: sole resident import mini_api_get, 644 mapped relocations
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+cmp /tmp/T046U-before.bin platform/adv/build/minishell_adv.bin
+cmp /tmp/T046U-before-size.txt /tmp/T046U-after-size.txt
+# PASS: resident BIN and all section sizes identical
+git diff --check
+# PASS
+```
+
+### Audio / resident / ELF guards
+
+**Protected audio diff = NONE**: all eight frozen paths match audited recovery
+`00d540baef94c2f5b36511818c9d3f728a909846`. No diff from this refinement baseline
+in resident/core/public APIs, existing Keyer/FT8, Mini-CW Audio, port, storage or
+app controller. No persistence, allocation or full-table behavior change.
+
+**Resident BIN identical**: 1,381,280 bytes before/after, SHA-256:
+
+```text
+b918d9bce467ac78def75aaafa7ce1f5bb6e13b8d17d3f51f58a0d312849eb92
+```
+
+Resident `.iram0.text` 63,959, `.dram0.data` 27,016 and `.dram0.bss` 40,336 bytes
+are unchanged. **Resident SRAM delta = 0**; all other resident sections also
+match. ESP-IDF v5.5.4 / Xtensa GCC 14.2.0 external build evidence:
+
+| External measure | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| ELF file bytes | 44,832 | 44,912 | +80 |
+| `.text` | 31,112 | 31,168 | +56 |
+| `.rodata` | 2,012 | 2,012 | 0 |
+| `.data` | 1,284 | 1,284 | 0 |
+| `.bss` | 3,284 | 3,292 | +8 |
+| Section-loader text + data | 37,692 | 37,756 | +64 |
+
+`mini_api_get` remains the sole resident import. The new base-call buffer needs
+7 bytes; alignment accounts for the 8-byte BSS increase. Dynamic table memory
+is unchanged (19,456 bytes for the 813-row fixture at capacity 1024).
+
+### Remaining validation / risks / commit reference
+
+No deviations or new known limitations. No PR and no hardware testing by Codex.
+After supervisor review, hardware validation is limited to the new row text and
+one clear path; prior full-table/audio acceptance remains the baseline.
+Commit reference: the single implementation commit containing this handoff;
+exact SHA returned after push.

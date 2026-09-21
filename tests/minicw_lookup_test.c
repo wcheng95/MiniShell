@@ -105,33 +105,47 @@ static void stream_cases(void)
     assert(!fs_writes && !fs_attempts); storage_op_free(entries); entries=NULL; unbind();
 }
 static const keyer_op_entry_t domain_table[]={
-    {"K6ABC","Alice"},{"K6ABC","Second"},{"W1XYZ","Bob"},{"AG6AQ","Own"},{"HELLO","NoDigit"}};
+    {"K6ABC","Alice"},{"K6ABC","Second"},{"W1XYZ","Bob"},{"AG6AQ","Own"},{"HELLO","NoDigit"},{"K7SHR","PAUL"},{"7N1FRE","ABCDEFGHIJK"}};
 static void lookup(const char *text,const char *name)
 {
     keyer_service_clear_op_name(); keyer_service_op_feed_text(text);
     assert(!strcmp(keyer_service_get_op_name(),name));
+    if (!*name) assert(!*keyer_service_get_op_call());
 }
 static void domain_and_ui(void)
 {
-    bind(); app_core_init(); keyer_service_set_op_table(domain_table,5);
-    lookup("K6ABC ","Alice"); lookup("K6ABC/P ","Alice"); lookup("F/K6ABC ","Alice");
+    bind(); app_core_init(); keyer_service_set_op_table(domain_table,7);
+    const char *variants[]={"K6ABC ","K6ABC/P ","F/K6ABC "};
+    for (unsigned i=0;i<3;++i) {
+        lookup(variants[i],"Alice"); assert(!strcmp(keyer_service_get_op_call(),"K6ABC"));
+        ui_service_refresh(); assert(!strncmp(frame[6],"K6ABC: Alice",12));
+    }
+    /* Unknown candidates retain the last matched pair, never a new call/old name. */
+    keyer_service_op_feed_text("W9ZZZ ");
+    assert(!strcmp(keyer_service_get_op_call(),"K6ABC") && !strcmp(keyer_service_get_op_name(),"Alice"));
+    lookup("K7SHR ","PAUL"); ui_service_refresh(); assert(!strncmp(frame[6],"K7SHR: PAUL",11));
+    lookup("7N1FRE ","ABCDEFGHIJK"); ui_service_refresh();
+    assert(!strcmp(frame[6],"7N1FRE: ABCDEFGHIJK "));
     lookup("AG6AQ ",""); lookup("AG6AQ/P ",""); lookup("HELLO ",""); lookup("W9ZZZ ","");
-    lookup("W1XYZ ","Bob"); keyer_service_op_feed_text("72 "); assert(!*keyer_service_get_op_name());
-    lookup("K6ABC ","Alice"); keyer_service_op_feed_text("73 "); assert(!*keyer_service_get_op_name());
+    lookup("W1XYZ ","Bob"); keyer_service_op_feed_text("72 "); assert(!*keyer_service_get_op_name() && !*keyer_service_get_op_call());
+    lookup("K6ABC ","Alice"); keyer_service_op_feed_text("73 "); assert(!*keyer_service_get_op_name() && !*keyer_service_get_op_call());
     lookup("K6ABC ","Alice"); ui_service_refresh();
-    assert(!strcmp(frame[0],"--:-- PDN SKN 19 V80") && !strncmp(frame[6],"OP:Alice",8));
+    assert(!strcmp(frame[0],"--:-- PDN SKN 19 V80") && !strncmp(frame[6],"K6ABC: Alice",12));
     ui_service_keyer_set_tx_text("CQ K6ABC"); ui_service_refresh(); assert(!strncmp(frame[6],"CQ K6ABC",8));
     ui_service_keyer_set_status("Status"); ui_service_refresh(); assert(!strncmp(frame[6],"Status",6));
-    app_core_keyer_set_tune_active(true); assert(!strncmp(frame[6],"Tune",4) && !*keyer_service_get_op_name());
+    app_core_keyer_set_tune_active(true); assert(!strncmp(frame[6],"Tune",4) && !*keyer_service_get_op_name() && !*keyer_service_get_op_call());
     assert(!strcmp(frame[0],"--:-- PDN SKN 19 V80"));
     app_core_keyer_set_tune_active(false); lookup("K6ABC ","Alice");
     ui_service_keyer_set_tx_text(""); ui_service_refresh(); assert(!strncmp(frame[6],"Status",6));
     now_us+=1300000;
     /* Real idle poll must reveal OP when transient status expires. */
-    reads=10; app_core_step(); assert(!strncmp(frame[6],"OP:Alice",8));
+    reads=10; app_core_step(); assert(!strncmp(frame[6],"K6ABC: Alice",12));
     keyer_service_clear_op_name(); ui_service_refresh(); assert(frame[6][0]==' ');
     assert(!strcmp(frame[0],"--:-- PDN SKN 19 V80"));
-    keyer_service_set_op_table(NULL,500); lookup("K6ABC ","");
+    lookup("K6ABC ","Alice"); keyer_service_set_op_table(NULL,500);
+    assert(!*keyer_service_get_op_call() && !*keyer_service_get_op_name()); lookup("K6ABC ","");
+    keyer_service_set_op_table(domain_table,7); lookup("K6ABC ","Alice");
+    keyer_service_init(); assert(!*keyer_service_get_op_call() && !*keyer_service_get_op_name());
     app_core_shutdown(); unbind();
 }
 static unsigned tone_opened, csv_finished_reads;
@@ -154,7 +168,7 @@ static mini_result_t input_exit(mini_key_event_t *key,uint32_t timeout)
         lookup("K7SO ","SAT"); lookup("K0811 ","Person");
     }
     lookup("K6ABC ","Alice");
-    now_us+=1300000; ui_service_refresh(); assert(!strncmp(frame[6],"OP:Alice",8));
+    now_us+=1300000; ui_service_refresh(); assert(!strncmp(frame[6],"K6ABC: Alice",12));
     return ch(key,3);
 }
 static void detached_before_free(void)

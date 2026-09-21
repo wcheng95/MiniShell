@@ -1026,7 +1026,7 @@ static void ui_service_render_keyer_normal(mini_cw_screen_t *screen)
     }
 
     if (!s_ui.keyer_tune_active && !*line6 && *keyer_service_get_op_name()) {
-        snprintf(tune_line, sizeof(tune_line), "OP:%s", keyer_service_get_op_name());
+        snprintf(tune_line, sizeof(tune_line), "%s: %s", keyer_service_get_op_call(), keyer_service_get_op_name());
         line6 = tune_line;
     }
 

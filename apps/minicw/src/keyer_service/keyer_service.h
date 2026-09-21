@@ -120,6 +120,7 @@ void keyer_service_op_feed_char(char ch);
 void keyer_service_op_feed_text(const char *text);
 /* Borrowed immutable table; caller guarantees lifetime for the whole session. */
 void keyer_service_set_op_table(const keyer_op_entry_t *entries, size_t count);
+const char *keyer_service_get_op_call(void);
 const char *keyer_service_get_op_name(void);
 void keyer_service_clear_op_name(void);
 void keyer_service_set_tune_active(bool active);

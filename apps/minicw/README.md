@@ -156,7 +156,7 @@ skipped through the next newline, including when split across reads. LF, CRLF
 and a final line without a newline are supported. Duplicate calls retain the first loaded match.
 
 The existing recognizer, slash/base-call rules, own-call exclusion and 72/73
-clearing are unchanged. Its last matched name appears as `OP:<name>` on row 6
+clearing are unchanged. Its last matched base call and name appear as `<call>: <name>` on row 6
 only when Tune, transient status and TX-tail text are absent. The fixed UTC
 header never changes. Table edits take effect on the next launch; there is no
 runtime reload. T046 hardware/audio acceptance remains pending review.

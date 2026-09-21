@@ -125,6 +125,7 @@ static uint32_t s_tx_due_tick;
 static uint32_t s_tx_revision;
 static const keyer_op_entry_t *s_op_entries;
 static size_t s_op_entry_count;
+static char s_op_call[KEYER_OP_CALL_MAX_LEN + 1U];
 static char s_op_name[KEYER_OP_NAME_MAX_LEN + 1U];
 static char s_op_candidate[KEYER_OP_CANDIDATE_MAX_LEN + 1U];
 static uint8_t s_op_candidate_len;
@@ -425,6 +426,7 @@ static void keyer_op_try_candidate(void)
     }
 
     if (keyer_op_lookup_name(base_call, name, sizeof(name))) {
+        snprintf(s_op_call, sizeof(s_op_call), "%s", base_call);
         snprintf(s_op_name, sizeof(s_op_name), "%s", name);
     }
 }
@@ -452,8 +454,7 @@ static void keyer_op_feed_candidate_char(char ch)
 
 static void keyer_op_clear_display(void)
 {
-    if (s_op_name[0] != '\0') {
-    }
+    s_op_call[0] = '\0';
     s_op_name[0] = '\0';
 }
 
@@ -1555,6 +1556,7 @@ void keyer_service_init(void)
     s_tx_revision = 0;
     s_op_entries = 0;
     s_op_entry_count = 0;
+    memset(s_op_call, 0, sizeof(s_op_call));
     memset(s_op_name, 0, sizeof(s_op_name));
     memset(s_op_candidate, 0, sizeof(s_op_candidate));
     s_op_candidate_len = 0;
@@ -1985,6 +1987,11 @@ void keyer_service_set_op_table(const keyer_op_entry_t *entries, size_t count)
     s_op_entries = entries;
     s_op_entry_count = entries ? count : 0;
     keyer_service_clear_op_name();
+}
+
+const char *keyer_service_get_op_call(void)
+{
+    return s_op_call;
 }
 
 const char *keyer_service_get_op_name(void)
