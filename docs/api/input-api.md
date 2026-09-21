@@ -1,6 +1,6 @@
 # MiniShell Input API
 
-Status: **implemented and exercised on the Linux reference backend; ADV hardware mapping is being added in A2.**
+Status: **implemented and hardware-validated on Linux and Cardputer ADV.**
 
 ## Purpose
 
@@ -148,7 +148,7 @@ Linux tests cover:
 - queue ordering/foreground handoff through a real PTY;
 - nano interaction through the public Input API.
 
-ADV A2 adds hardware verification for the TCA8418 mapping and shell/app handoff.
+ADV hardware validation covers the TCA8418 mapping, modifier/special-key delivery, shell/app foreground handoff, MiniFT8/Mini-CW interaction, and resident-shell Fn+Up/Fn+Down scrollback handling.
 
 ## Deferred input families
 
