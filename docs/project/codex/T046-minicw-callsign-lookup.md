@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: REVIEW
+Status: COMPLETE
 
 
 ## Hardware correction addendum — 2026-09-21
@@ -832,3 +832,56 @@ Tune/exit remain clean. CSV scanning is synchronous at startup and intentionally
 has no total-size limit; very large files can extend launch time. Read failure
 or NUL invalidates the table for that launch without preventing local Keyer use.
 No audio tuning or unrelated host-test cleanup was included.
+
+
+## Hardware acceptance — 2026-09-21
+
+Accepted on Cardputer ADV using correction implementation:
+
+```text
+a4f3db979cb074401cfa4386eefc6da7f7448388
+```
+
+The full pinned V1.2 callsign database was installed at:
+
+```text
+/flash/minicw/qsocalls.csv
+10,788 bytes
+814 lines
+```
+
+Hardware results:
+
+```text
+startup status          Lookup truncated      PASS
+paddle audio            clean / no pop        PASS
+automatic M1 audio      clean / no pop        PASS
+7N1FRE                   OP:KAZ                PASS
+72/73 clear             operator name clears PASS
+K7SFA                    OP:MARK               PASS
+K7SHR                    OP:PAUL               PASS
+K7SO                     no OP name            PASS
+fixed T045 header        unchanged             PASS
+Ctrl+C exit              silent                PASS
+```
+
+The retained-table boundary was verified against the actual parser rules, not raw
+CSV line number. Line 96 is malformed and skipped:
+
+```text
+DL2COM,
+```
+
+Therefore:
+
+```text
+192nd valid row: K7SHR,PAUL
+193rd valid row: K7SO,SAT
+```
+
+The observed `K7SHR -> OP:PAUL` and `K7SO -> no OP name` behavior exactly
+matches the 192-valid-entry policy.
+
+This closes the hardware issue that originally exposed the whole-file 4 KiB
+loader limit. T046 is COMPLETE. The protected audio path remains accepted and
+no audio tuning is required.
