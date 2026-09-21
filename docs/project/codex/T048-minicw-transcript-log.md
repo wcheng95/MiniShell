@@ -45,14 +45,12 @@ Reference transcript behavior is in `components/app_core/app_core.c` and
    - either quote key pressed again appends closing `**`, then safely stops/
      discards remaining annotation playback and restores the saved KeyOut/Mute.
    The purpose is to add extra transcript information such as band without keying RF.
-6. Per-minute transcript payload capacity is **256 bytes** (ASCII text payload,
+6. Per-minute transcript payload capacity is **1024 bytes** (ASCII text payload,
    plus one implementation NUL byte as needed).
 
 No PR and no hardware testing by Codex.
 
 ## Architect revision — 2026-09-21
-
-The 1024-byte size supersedes any earlier 256-byte draft wording.
 
 - Persisted line format is compact `HHMM <transcript>`.
 - Keep the V1.2 **1024-byte per-minute buffer**.
@@ -86,7 +84,7 @@ The transcript payload limit is **1024 bytes per UTC minute**. This retains the 
 combined chronological transcript. The payload limit excludes the `HHMM `
 prefix and excludes the optional truncation suffix.
 
-If the 256-byte payload is exceeded, stop accepting additional payload bytes for
+If the 1024-byte payload is exceeded, stop accepting additional payload bytes for
 that minute and append exactly one:
 
 ```text
@@ -124,7 +122,7 @@ never appended to TX text or the transcript. On successful note-mode entry appen
 ```
 
 The delimiters are ordinary transcript payload bytes and count toward the
-256-byte minute payload limit.
+1024-byte minute payload limit.
 
 ## Minute grouping and timestamps
 
@@ -132,7 +130,7 @@ Preserve the minute bucket model, but only `HHMM` is written into the line:
 
 - the first accepted transcript byte starts a minute buffer and captures the UTC
   date plus hour/minute;
-- characters in the same UTC minute append to that 256-byte payload buffer;
+- characters in the same UTC minute append to that 1024-byte payload buffer;
 - when UTC minute changes, finalize the previous minute record and begin a new
   record on the next accepted transcript byte;
 - each finalized line starts with the captured `HHMM`;
@@ -352,7 +350,7 @@ Prove:
 - **1024 payload bytes** fit without truncation;
 - byte 1025 and later payload are dropped and finalized output gets exactly one
   ` [TRUNC]` suffix;
-- note delimiters count toward the 256-byte payload;
+- note delimiters count toward the 1024-byte payload;
 - no `G [` record is emitted anywhere.
 
 ### Daily files
