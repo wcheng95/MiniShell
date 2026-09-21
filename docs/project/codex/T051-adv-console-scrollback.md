@@ -1,6 +1,6 @@
 # T051 — ADV resident console scrollback
 
-Status: REVIEW
+Status: TESTING
 
 ## Baseline
 
@@ -413,3 +413,36 @@ bounded, volatile history.
 
 Evidence is included in the single implementation commit on
 `codex/T051-adv-console-scrollback`; the exact SHA is returned after push.
+
+
+## Supervisor review
+
+Reviewed implementation commit:
+
+```text
+ec14ff28be933cbeb920b0b36f1195b6f73fd5c4
+```
+
+No software blocker found.
+
+The ADV renderer now keeps console history in a separate fixed 50x20 character
+ring. The live framebuffer remains independent, so full-screen Display use cannot
+overwrite retained shell rows. The next resident-console write resets scroll
+offset to zero, reconstructs the newest viewport from history, and then renders
+with default console attributes/separator state.
+
+Ring behavior is correct at capacity: row 51 advances only the oldest index and
+reuses that slot as the new tail. The current partial row is retained. Existing
+20-column immediate wrap, CR/newline and in-row Backspace semantics are preserved.
+
+Fn+Up/Down is consumed only by the resident ADV shell line reader when the
+normalized special event also carries MINI_MOD_FN. Each press changes the viewport
+by five physical rows, clamps at both boundaries, emits no echo/USB replay, and
+does not modify the command edit buffer. Any ordinary shell echo/output returns
+to the live tail.
+
+The measured +1,008-byte static-SRAM delta matches the 1,000-byte history plus
+small fixed bookkeeping. No heap, task, public API, Linux, application or
+System-diagnostic routing changes were introduced.
+
+T051 is ready for Cardputer ADV hardware acceptance.
