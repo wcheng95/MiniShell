@@ -297,4 +297,4 @@ T047 Mini-CW color UI            COMPLETE — V1.2 white/green/cyan text and 2-p
 T048 Mini-CW transcript log      COMPLETE — compact daily transcript, whitespace-aware truncation, dual-quote **note** mode and clean audio all accepted on ADV
 T049 MiniFT8 color status         COMPLETE — ADV red/white TX separator and green CQ rows hardware validated; reply-to-me red software-proven and pending only opportunistic on-air observation
 T050 MiniFT8 RX/TX page keys     COMPLETE — ADV bare ; previous-page and . next-page shortcuts accepted on RX/TX
-T051 ADV console scrollback       READY — 50-row resident M$> history; Fn+Up/Down move 5 rows older/newer without changing command input
+T051 ADV console scrollback       TESTING — software review passed; ADV TFT/keyboard/USB acceptance pending
