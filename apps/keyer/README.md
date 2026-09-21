@@ -60,8 +60,11 @@ and shows `Save failed`; it never reports `Saved`. Missing settings use defaults
 invalid/unreadable settings fail startup. Legacy `SK`/`SK-M` load as SKS/SKM;
 legacy Paddle/PaddleR KeyOut values are rejected.
 
-R4 is a temporary display-starvation diagnostic: rendering/presentation pauses
-through automatic TX elements and gaps, then catches up on the first idle tick.
-TxDelay, idle repeat waits and manual paddle display behavior remain enabled.
-This is an isolation experiment, not a permanent UI contract. The KeyIn labels
-are `PdL`, `PdR`, `SkT` and `SkR`.
+The accepted K6 display/audio scheduling policy defers Display render/present
+through `TX_ELEMENT`, `TX_ELEMENT_GAP`, `TX_CHAR_GAP` and `TX_WORD_GAP`.
+The first `TX_IDLE` tick catches up immediately. TxDelay, idle M1 repeat waits
+and manual paddle operation retain normal rendering. ADV hardware testing
+confirmed that synchronous Display work during automatic TX starved the speaker
+feed and caused the pop; deferring that work removed it. This application-local
+policy requires no extra buffering, tasks or resident changes.
+The KeyIn labels are `PdL`, `PdR`, `SkT` and `SkR`.

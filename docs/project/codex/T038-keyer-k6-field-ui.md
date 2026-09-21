@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: IMPLEMENTING
+Status: REVIEW
 
 ## Architect intent
 
@@ -722,7 +722,7 @@ Do not copy Mini-CW's monolithic UI/service architecture into MiniShell.
 
 ## Main-loop responsiveness
 
-The dedicated screen must remain responsive while:
+The foreground input/keying loop must remain responsive while:
 
 - idle;
 - paddle keying;
@@ -731,7 +731,13 @@ The dedicated screen must remain responsive while:
 - Tune;
 - editing Operation settings.
 
-No new background task is required. Prefer one deterministic foreground controller
+The accepted K6 scheduling policy defers Display render/present during
+`TX_ELEMENT`, `TX_ELEMENT_GAP`, `TX_CHAR_GAP` and `TX_WORD_GAP`, avoiding the
+hardware-confirmed speaker-feed starvation. The first `TX_IDLE` tick catches up
+immediately. Display rendering remains normal during TxDelay, idle M1 repeat
+waits and manual paddle operation; input and keying continue during deferral.
+
+No new background task is required. Keep one deterministic foreground controller
 loop driven by monotonic time and nonblocking input polling.
 
 K5 sidetone writes are finite and already transport-tested; do not redesign Audio
@@ -1910,7 +1916,7 @@ No architecture blocker found. Audible pop reduction and Alt-overlay usability
 must now be confirmed on the Cardputer ADV with this exact reviewed ELF.
 
 
-## Hardware finding — R4 diagnostic
+## Hardware finding — R4 display starvation (confirmed)
 
 R3 hardware retest result:
 
@@ -1922,7 +1928,7 @@ The ADV speaker stream itself stays open and unmuted for the life of Keyer.
 Character/element gaps are represented by zero PCM; there is no codec mute/unmute
 or I2S stop/start between Morse characters.
 
-A stronger remaining hypothesis is foreground-loop starvation: Keyer feeds 48
+The subsequently confirmed cause was foreground-loop starvation: Keyer feeds 48
 audio frames (1 ms at 48 kHz) and also performs Display rendering/presentation in
 the same foreground loop. The ADV speaker DMA is only 4 x 120 frames = 480 frames
 (10 ms). A blocking display update at a character/FIFO transition could therefore
@@ -1949,16 +1955,13 @@ key is already up and human spacing normally provides more slack before the next
 element. This explains why manual keying can refresh the screen without the same
 audible artifact.
 
-This makes R4-A a high-confidence isolation test: if suppressing display work
-during active automatic-TX phases removes the pop, the permanent fix should
-prevent synchronous display work from running in the audio-critical automatic-TX
-window rather than further changing the tone envelope.
+R4 hardware testing confirmed that deferring Display work during active automatic
+TX removes the pop. The accepted K6 policy prevents synchronous Display work from
+running during those phases without further changes to the tone envelope.
 
-### R4-A — temporary display-suppression diagnostic
+### R4-A — accepted display/audio scheduling policy
 
-This is an isolation experiment, not the final architecture.
-
-Temporarily suppress Keyer display rendering while automatic Morse playback is in
+Defer Keyer Display render/present while automatic Morse playback is in
 one of these TX phases:
 
 ```text
@@ -1977,21 +1980,14 @@ Important boundaries:
   APIs, or resident code;
 - once automatic playback returns to `TX_IDLE`, force/immediately allow the next
   normal render so the screen catches up;
-- the purpose is only to determine whether display work causes the audible pop.
+- this accepted policy prevents the hardware-confirmed Display starvation pop.
 
-Expected hardware interpretation:
-
-```text
-pop disappears -> foreground Display work is starving speaker/I2S;
-                  permanent fix should address scheduling/buffering/ownership.
-
-pop remains    -> Display refresh is not the root cause; revert the diagnostic
-                  suppression and continue audio-path investigation.
-```
+Hardware result: the pop disappeared. Keep the proven display-deferral rule as
+the permanent K6 policy; no additional buffering or ownership architecture is needed.
 
 Add a controller regression proving rendering/present is suppressed across active
-automatic TX phases and resumes after TX becomes idle. Do not make this temporary
-diagnostic behavior a new public/UI contract.
+automatic TX phases and resumes after TX becomes idle. Preserve this regression
+as coverage of the accepted application-local scheduling policy.
 
 ### R4-B — KeyIn label typo
 
@@ -2027,11 +2023,11 @@ Do not alter:
 - FT8.
 
 Run focused controller/UI regressions plus the full T038 software/build gates.
-Record the exact ELF used for the isolation test. No PR and no hardware testing by
+Record the exact ELF used for validation. No PR and no hardware testing by
 Codex.
 
 
-## Codex R4 diagnostic implementation / validation
+## Codex R4 implementation / validation
 
 Implemented R4-A and R4-B only, from
 `852e50a98fe472789798451bd8a9416e558efb97` on
@@ -2039,12 +2035,12 @@ Implemented R4-A and R4-B only, from
 
 ### Implementation summary / files changed
 
-- `apps/keyer/src/app_controller/app_controller.c`: temporarily bypass the entire
+- `apps/keyer/src/app_controller/app_controller.c`: bypass the entire
   `render()` call while the automatic scheduler is not `TX_IDLE` (its four active
   element/gap phases). Clear the render deadline during suppression so the first
   idle tick catches up immediately. TxDelay, idle repeat wait and manual keying
-  remain on the normal rendering path. This is explicitly an R4 isolation
-  diagnostic, not a permanent UI contract.
+  remain on the normal rendering path. This rule was subsequently hardware-validated
+  and accepted as the permanent K6 scheduling policy.
 - `apps/keyer/src/ui_shell/ui_shell.c`: change only the Paddle display label from
   `Pdl` to `PdL`; the shared label updates both normal and Operation screens.
 - `tests/keyer_k4_controller_test.c`: deterministic M1="I E" timeline covers
@@ -2057,21 +2053,19 @@ Implemented R4-A and R4-B only, from
   masking display work. Existing K4/controller regressions remain.
 - `tests/keyer_k6_ui_test.c`: update exact headers for `PdL` and add an exact
   Operation row assertion; all other labels remain tested unchanged.
-- `apps/keyer/README.md` and this packet: diagnostic caveat, corrected examples,
+- `apps/keyer/README.md` and this packet: scheduling policy, corrected examples,
   test results and exact ELF evidence.
 
 ### Invariants / risks / hardware still required
 
 TX scheduler/timing, K3, KeyOut, sidetone, Audio buffering, Display APIs, settings,
 resident sources and FT8 are unchanged. R3's raised-cosine envelope and Alt overlay
-state/input/rendering semantics are unchanged; the diagnostic temporarily freezes
-all display work during automatic playback. No new task, allocation or public API.
+state/input/rendering semantics are unchanged; the accepted policy defers
+all display work during active automatic playback. No new task, allocation or public API.
 
-The experiment has not established whether Display work causes the audible pop.
-After supervisor review, the architect must use the exact ELF below to compare
-sound. Follow the R4 interpretation above: address scheduling/buffering/ownership
-only if hardware supports that diagnosis; otherwise revert this suppression and
-continue investigation. No permanent architecture change is part of this commit.
+Subsequent architect hardware testing with the exact ELF below confirmed Display
+starvation as the cause and removed the pop. R5 retains this implementation as
+the accepted policy without additional scheduling/buffering/ownership changes.
 
 An unrelated existing Linux PTY timeout test remains intermittent: three full
 runs failed only `linux_serial_unit` at `tests/linux_serial_test.c:67` (expecting
@@ -2141,10 +2135,10 @@ comparison is with the reviewed R3 evidence above:
 
 ### Commit reference
 
-One R4 diagnostic amendment on `codex/T038-keyer-k6-field-ui`; exact SHA is
+One R4 scheduling amendment on `codex/T038-keyer-k6-field-ui`; exact SHA is
 returned in the engineer handoff. T038 is REVIEW. No PR or hardware testing.
 
-## Supervisor review — R4 diagnostic
+## Supervisor review — R4 scheduling change
 
 Reviewed R4 implementation commit:
 
@@ -2152,9 +2146,9 @@ Reviewed R4 implementation commit:
 feda66ad22c7c9b6ba92f45fd05a2c3273460d52
 ```
 
-Result: **PASS — ready for the ADV isolation test.**
+Original software review: **PASS**. Subsequent ADV hardware acceptance is recorded below.
 
-The production delta matches the diagnostic exactly:
+The production delta implements the accepted policy:
 
 - render/present is skipped only while automatic TX phase is non-idle
   (`TX_ELEMENT`, `TX_ELEMENT_GAP`, `TX_CHAR_GAP`, `TX_WORD_GAP`);
@@ -2167,18 +2161,18 @@ The production delta matches the diagnostic exactly:
   envelope/overlay behavior, persistence and resident MiniShell code are unchanged;
 - `Pdl` is corrected to `PdL` only in the shared KeyIn display label.
 
-The controller diagnostic uses a deterministic M1 timeline and rejects any
+The controller regression uses a deterministic M1 timeline and rejects any
 render/display/present call throughout the active automatic-TX interval while
 requiring rendering during TxDelay, the idle repeat wait and manual key-down.
 It also requires catch-up at the first idle tick. This is sufficient software
-evidence for the isolation experiment.
+coverage for the accepted scheduling policy.
 
 The reported intermittent `linux_serial_unit` failures are outside the changed
 paths; the test passes standalone and the final full Linux run passed 74/74.
 Portable units, focused Keyer/Audio tests, architecture checks, ADV firmware/ELF
 builds and `git diff --check` pass.
 
-Exact diagnostic ELF:
+Exact hardware-validated R4 ELF:
 
 ```text
 size:    23,396 bytes
@@ -2187,14 +2181,8 @@ import:  mini_api_get only
 resident firmware/SRAM delta: 0
 ```
 
-Hardware interpretation remains binary:
-
-```text
-pop disappears -> display starvation is confirmed; replace this diagnostic
-                  suppression with a permanent audio/display decoupling fix.
-
-pop remains    -> revert the diagnostic suppression and continue investigation.
-```
+The architect subsequently confirmed Display starvation and accepted this exact
+scheduling rule permanently. No replacement audio/display architecture is needed.
 
 
 ## Architect hardware result — R4
@@ -2288,6 +2276,97 @@ R5 scope:
 
 After supervisor review, no additional targeted hardware test is required unless
 the finalization changes production behavior unexpectedly.
+
+
+## Codex R5 finalization / validation
+
+Implemented from `d59bb66a3268a48ab6327f1d505d904b9c49cf52` on
+`codex/T038-keyer-k6-field-ui`.
+
+### Implementation summary / files changed
+
+- `apps/keyer/src/app_controller/app_controller.c`: replace the diagnostic comment
+  with the accepted display/audio scheduling rationale; executable logic is unchanged.
+- `apps/keyer/README.md`: document the four deferred automatic-TX phases, immediate
+  idle catch-up, and normal rendering during TxDelay, idle repeat and manual keying.
+- This task packet: reconcile the earlier diagnostic guidance with the architect's
+  confirmed R4 result and record final validation evidence.
+
+### Behavior / invariants preserved
+
+The exact R4 controller regression and all other tests are unchanged. Display
+render/present remains deferred during the four active automatic-TX phases and
+catches up on the first idle tick. `PdL` and all accepted R1–R4 behavior remain.
+No TX timing, K3 engine, KeyOut, sidetone, Alt overlay, settings, persistence,
+resident, FT8, public API, task, DMA or buffering changes. No task-scope deviations.
+
+### Tests run / results
+
+All commands passed:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+cmake -S tests/unit -B /tmp/T038-R5-unit
+cmake --build /tmp/T038-R5-unit -j"$(nproc)"
+ctest --test-dir /tmp/T038-R5-unit --output-on-failure
+ctest --test-dir /tmp/T038-R5-unit -R 'keyer|api_audio' --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R 'audio|Audio' --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . keyer
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . keyer
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+idf.py -C platform/adv/elf_apps/keyer fullclean
+idf.py -C platform/adv/elf_apps/keyer elf
+git diff --exit-code -- tests
+git diff --check
+```
+
+Full Linux CTest: **74/74**, first run. Portable units: **18/18**.
+Focused Keyer/Audio units: **8/8**; Linux Audio regressions: **5/5**.
+Architecture and application boundaries pass. Real ADV firmware and clean external
+Keyer ELF builds pass. The unchanged tests retain the R4 display-suppression and
+first-idle-tick catch-up coverage.
+
+### Final ELF / import / resident memory evidence
+
+Measured with `xtensa-esp32s3-elf-size -A`, `wc -c`, and
+`xtensa-esp32s3-elf-readelf -rW`. The sole `R_XTENSA_JMP_SLOT` resident import is
+`mini_api_get`. The loader-stripped ELF produces the same expected readelf
+`.dynamic` warning as earlier builds.
+
+| Metric | Before R5 | After R5 | Delta |
+| --- | ---: | ---: | ---: |
+| Keyer ELF bytes | 23,396 | 23,396 | 0 |
+| Keyer `.text` | 15,634 | 15,634 | 0 |
+| Keyer `.rodata` | 1,573 | 1,573 | 0 |
+| Keyer `.data.rel.ro` | 676 | 676 | 0 |
+| Keyer `.bss` | 3,628 | 3,628 | 0 |
+| Resident firmware BIN bytes | 1,375,776 | 1,375,776 | 0 |
+| Resident `.iram0.text` | 63,959 | 63,959 | 0 |
+| Resident `.dram0.data` | 27,000 | 27,000 | 0 |
+| Resident `.dram0.bss` | 38,864 | 38,864 | 0 |
+| Static internal SRAM (three resident sections above) | 129,823 | 129,823 | 0 |
+
+`cmp` confirms the rebuilt Keyer ELF is byte-for-byte identical to the pre-R5
+hardware-validated R4 artifact. Both SHA-256 hashes are:
+
+```text
+c306a8378229afe7007aef0002544e7385b842c5b1ce870086240b21b9bfd343
+```
+
+### Hardware / limitations / commit reference
+
+The architect's recorded R4 hardware acceptance applies to this identical ELF.
+No additional hardware testing was performed; none is required for this unchanged
+behavior under R5. Display intentionally pauses during active automatic TX; there
+are no new implementation risks or limitations from this comments/docs cleanup.
+Supervisor closeout remains pending. T038 is **REVIEW**.
+
+One R5 finalization commit on `codex/T038-keyer-k6-field-ui`; the exact commit SHA
+is returned in the engineer handoff. No PR.
 
 
 ## Architect test result

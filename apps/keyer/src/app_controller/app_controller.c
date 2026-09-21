@@ -230,8 +230,8 @@ int app_controller_run(void)
             (void)keyout_release(&s_keyout); return 5;
         }
         emit_decoded_events();
-        /* R4 diagnostic only: isolate foreground Display work from automatic
-         * elements and gaps. Pending TxDelay/repeat and manual keying stay live. */
+        /* Synchronous Display work can starve the speaker feed during automatic
+         * elements/gaps. Defer it until idle; TxDelay/repeat and manual stay live. */
         if (s_tx.phase != TX_IDLE) {
             next_render = 0; /* Catch up on the first idle tick. */
         } else if (now >= next_render) {
