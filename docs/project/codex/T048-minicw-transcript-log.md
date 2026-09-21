@@ -1,6 +1,6 @@
 # T048 — Mini-CW transcript logging + safe annotation shortcut
 
-Status: REVIEW
+Status: TESTING
 
 ## Baseline
 
@@ -857,3 +857,32 @@ hardware validation of the new formatting. Existing allocation/append-failure
 record-loss limitations remain unchanged; no new known limitation.
 Commit reference: the single correction commit containing this evidence; exact
 SHA returned after pushing. Task remains REVIEW.
+
+
+## Supervisor re-review — correction accepted
+
+Reviewed correction commit:
+
+```text
+34255268a7d50e12d87e15e2dff1f6fc40aa4259
+```
+
+No software blocker remains.
+
+The prior one-byte truncated-record overflow is fixed by deriving the line bound
+from the actual prefix/capacity/suffix sizes and enforcing it with a static
+assertion. The maximum 1039-byte line fits while
+`sizeof(transcript_record_t)` remains 1048 bytes on Xtensa.
+
+Overflowed minutes now prefer the last useful ASCII-space boundary and trim only
+that finalized overflowed copy; non-overflowed transcript whitespace and
+pre-finalization Backspace behavior remain unchanged.
+
+Note boundary formatting is accepted: a completed note is separated as
+`... **20M** ...`, a note at the start of a minute does not add a redundant
+payload-leading space, following note-boundary spaces collapse to one, and
+ordinary repeated whitespace outside note boundaries is preserved. Generated
+`**` remains transcript-only and never reaches TX/audio.
+
+T048 is ready for the brief remaining ADV formatting confirmation. The already
+reported hardware success for logging/note safety remains valid.
