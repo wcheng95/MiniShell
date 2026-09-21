@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: COMPLETE
+Status: READY
 
 
 ## Hardware correction addendum — 2026-09-21
@@ -885,3 +885,141 @@ matches the 192-valid-entry policy.
 This closes the hardware issue that originally exposed the whole-file 4 KiB
 loader limit. T046 is COMPLETE. The protected audio path remains accepted and
 no audio tuning is required.
+
+
+## Full-table correction — architect decision — 2026-09-21
+
+The previously accepted 192-entry truncation policy is **withdrawn**. Hardware
+proved the streaming loader works, but truncating the operator database is not an
+acceptable product behavior.
+
+Pinned standalone Mini-CW V1.2 behavior is authoritative here. Its
+`storage_qsocalls_load()` grows the parsed table dynamically:
+
+```text
+64 -> 128 -> 256 -> 512 -> 1024 -> ...
+```
+
+using `realloc()`, and publishes the complete set of loaded rows. For the
+current pinned V1.2 database:
+
+```text
+file bytes:      10,788
+physical lines:  814
+valid rows:      813
+entry size:      19 bytes
+1024 capacity:   19,456 bytes
+813 exact rows:  15,447 bytes
+```
+
+The ~16 KiB saved by the 192-entry cap is not worth losing most of the lookup
+database.
+
+### Required behavior
+
+T046 must load **all valid rows** from `/flash/minicw/qsocalls.csv`.
+
+There is no row-count truncation policy and no `Lookup truncated` success mode.
+
+Keep the current streaming CSV parser so file size is not coupled to a whole-file
+buffer. Replace only the fixed 192-entry storage policy with dynamically growing
+application memory.
+
+### Memory ownership
+
+Do **not** use libc/native `malloc/calloc/realloc/free` anywhere in Mini-CW.
+
+All dynamic table memory must be obtained through MiniShell's Memory service,
+accessed only through private wrappers in `apps/minicw/src/port/minicw_port.c`.
+
+Recommended policy mirrors standalone V1.2:
+
+```text
+initial capacity = 64 entries
+grow by x2 when full
+```
+
+Requirements:
+
+- `mini_api_get` remains the sole resident ELF import;
+- MiniShell remains the owner/provider of memory resources;
+- domain/storage modules never include or call MiniShell API directly;
+- no native/libc heap calls are introduced;
+- allocation/reallocation overflow must be guarded;
+- if allocation fails at any point, free/discard the table and report
+  `Lookup unavailable`; do not silently publish a partial table;
+- open/read/NUL/close failures likewise discard the whole table;
+- missing file remains normal/silent;
+- all CSV filesystem I/O still completes before Tone opens;
+- the completed table remains valid for the whole Keyer session;
+- detach the borrowed table from `keyer_service` before freeing it at shutdown;
+- explicitly free on normal shutdown; MiniShell app-end resource reclamation remains
+  the abnormal-return safety net;
+- no runtime reload.
+
+The existing architecture checker may continue to prohibit native heap calls.
+Adjust only what is necessary to permit MiniShell Memory API use through the
+private port; do not weaken platform/API boundary checks.
+
+### API / storage shape
+
+The fixed caller-owned array API is no longer appropriate. Use an ownership shape
+equivalent to:
+
+```c
+storage_op_result_t storage_op_load(keyer_op_entry_t **entries, size_t *count);
+void storage_op_free(keyer_op_entry_t *entries);
+```
+
+Exact naming is implementation-owned, but ownership must be explicit:
+
+- storage/app owns the allocated table;
+- keyer_service only borrows it;
+- freeing occurs only after keyer_service is detached.
+
+### UI
+
+Remove `Lookup truncated` as an expected successful startup state.
+
+For the complete pinned V1.2 file, normal startup should have no lookup warning.
+Existing OP-name row behavior remains unchanged.
+
+### Regression requirements
+
+Use the actual-scale deterministic fixture:
+
+```text
+10,788 bytes
+814 lines
+813 valid rows
+```
+
+Prove:
+
+- all 813 valid rows are loaded;
+- the first and last valid calls both resolve;
+- a formerly omitted row such as `K7SO,SAT` now resolves;
+- streaming still works across 1/2/7/127/128/256-byte read boundaries;
+- allocation grows beyond 192 entries;
+- allocation/reallocation failure discards the whole table and leaks nothing;
+- late NUL/read/close failure discards the whole table and leaks nothing;
+- normal shutdown detaches and frees the table;
+- repeated launch/exit has no memory leak;
+- CSV close/read completion remains before Tone open.
+
+### Freeze
+
+All prior T046 audio/header/resident freezes remain in force. This is still T046,
+not a new task.
+
+Expected resource direction:
+
+- external static BSS should drop because the 3,648-byte fixed table is removed;
+- runtime app memory for the current database is expected to be about 19.5 KiB
+  with standalone-style 1024-entry capacity (or less if safely shrunk);
+- resident BIN/SRAM must remain unchanged;
+- protected audio diff remains NONE.
+
+T046 returns to REVIEW only after the full-table correction commit is pushed and
+software/build/resource evidence is updated. Hardware acceptance must then use the
+full database and verify a call beyond the old 192-entry boundary.
