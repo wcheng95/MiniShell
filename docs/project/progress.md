@@ -27,7 +27,7 @@
 - T034 is COMPLETE: safe WebFS mutations are hardware validated — streamed upload/replace with temp-file commit, mkdir, same-directory regular-file rename, file delete, empty-directory delete, interrupted replacement safety, `/sd` operation, and same-boot FT8/QMX all pass.
 - T035 is COMPLETE: WebFS uses stable SoftAP credentials from `/flash/minishell/setting.txt`; iPhone reconnects without re-entering a generated password, invalid/missing settings fall back safely, T034 file operations remain intact, and same-boot FT8/QMX still works.
 - T036 is BREAK / NOT ACCEPTED: the one-shot ADV MiniFT8 web mirror passed software/build review but prevented FT8 RX startup on hardware under concurrent Wi-Fi/HTTP + QMX preflight. The experimental mirror code was removed from main; T033-T035 remain the accepted WebFS/Wi-Fi baseline.
-- T037 is READY: restore UI-first ADV FT8 startup. MiniFT8 must render and remain fully usable with QMX absent, retain one background QMX discovery session, and transition through existing CAT sync to RX when QMX is attached later.
+- T037 is TESTING: UI-first ADV FT8 startup passed software/build review. MiniFT8 now renders and remains usable with QMX absent, retains one background QMX discovery session, and transitions through existing CAT sync to RX when QMX is attached later. Hardware validation is pending.
 - ADV remains a validated embedded RX deployment target. Physical FT8 TX is currently accepted on Linux/QMX; carrying the proven TX boundary to ADV is future work rather than an active task.
 
 ## Current MiniFT8 baseline
@@ -123,7 +123,7 @@ T033         COMPLETE — WebFS read-only SoftAP/browser, hardware validated
 T034         COMPLETE — safe WebFS mutations, hardware validated
 T035         COMPLETE — persistent WebFS SoftAP credentials, hardware validated
 T036         BREAK — mirrored web front panel not accepted; code reverted from main
-T037         READY — restore UI-first FT8 startup with late QMX attach
+T037         TESTING — UI-first FT8 startup with late QMX attach, hardware pending
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 rpi3-2       RX/TX PASS — native AArch64 build; QMX ALSA decode + CDC CAT + physical TX validated
