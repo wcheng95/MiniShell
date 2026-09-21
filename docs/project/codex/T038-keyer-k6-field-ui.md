@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1141,6 +1141,60 @@ lifecycle remain hardware checks.
 One implementation commit on `codex/T038-keyer-k6-field-ui`, based on
 `b93463a077f7b9fb7e844cd6280e1321e4d86749`. The exact SHA is supplied in the
 engineer handoff; no PR. T038 remains REVIEW pending supervisor review.
+
+## Supervisor review — implementation
+
+Reviewed implementation commit:
+
+```text
+009049221b27e830df73cf8a080aea09ae0f3cad
+```
+
+Result: **PASS — ready for ADV hardware validation.**
+
+Reviewed the production diff, not only the handoff. The implementation matches the
+K6 architecture and preserves the accepted K3/K4/K5 boundaries:
+
+- `keyer_engine/**` remains unchanged and owns physical paddle/straight-key timing and decode;
+- new `tx_engine` is a separate pure monotonic automatic-TX state machine;
+- physical KeyIn is sampled every foreground loop and cancels automatic TX/Tune/repeat before output arbitration;
+- keyboard TX uses tested 1/3/1/3/7 timing, bounded 511-character storage, TxDelay, Enter bypass, unsent-tail Backspace, M1-M5 and M1 repeat;
+- Ctrl+C is distinguished from ordinary C, while Q/O/digits remain text;
+- Opt and Fn+Up/Down implement the three Operation pages;
+- the normal top row is exactly 20 characters with UTC/KeyIn/KeyOut/WPM/volume;
+- decoded history and TX/status rows are bounded and Display-owned;
+- KeyOut is reduced to SKS/SKM/OFF; SKM holds ring low only while the app is active and cleanup attempts release of both lines;
+- legacy `SK`/`SK-M` settings map to SKS/SKM; legacy Paddle/PaddleR KeyOut is rejected;
+- volume/mute are portable PCM scaling and do not alter the public Audio API or logical KeyOut;
+- canonical settings include all K6 fields plus GPIO IDs;
+- persistence uses temp write -> sync -> close -> rename replacement; failure removes only the temp file and preserves the previous committed file;
+- runtime setting retention on save failure is explicit and visible as `Save failed`;
+- no resident MiniShell production code, public API, FT8, USB, WebFS or Wi-Fi behavior changed;
+- external ELF relocation evidence shows only `mini_api_get` as a resident import.
+
+Software evidence is sufficient for hardware testing:
+
+- Linux CTest 74/74;
+- portable units 18/18;
+- focused Keyer/Audio regressions pass;
+- architecture/dependency/platform checks pass;
+- real ADV resident firmware build passes;
+- clean external Keyer ELF build passes;
+- `git diff --check` passes.
+
+Resource impact is appropriate for an external application:
+
+- resident firmware delta: 0;
+- resident static SRAM delta: 0;
+- external `keyer.app.elf`: 22,800 bytes;
+- external BSS: 3,628 bytes;
+- no new task or resident stack.
+
+One minor behavioral note for hardware use: normal-screen TX shortcuts are not
+processed while inside Operation/editing; Ctrl+C and physical KeyIn preemption
+remain available. This is not a blocker for K6 acceptance.
+
+Proceed with H1-H7 using the exact reviewed ELF.
 
 ## Supervisor review
 
