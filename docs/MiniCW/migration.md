@@ -107,10 +107,17 @@ generic MiniShell Tone capability. Cardputer ADV hardware validation passed:
 manual paddle and automatic M1 are both clean and pop-free with live UI, matching
 the standalone Mini-CW reference.
 
-### T044 — persistence + system time
+### T044A — persistence — READY
 
-Move Mini-CW Keyer/profile storage policy onto MiniShell Filesystem.
-Map RTC/UTC needs to MiniShell Time/Location.
+Add only Mini-CW Keyer-mode persistence through MiniShell Filesystem. The
+hardware-validated T043 audio path is frozen; resident firmware is expected to
+remain byte-for-byte unchanged. Saves are deferred until CW/Tune/audio are idle.
+
+### T044B — UTC/time — DEFERRED
+
+Only after T044A hardware acceptance, decide whether Mini-CW still needs any UTC
+display/use. If needed, read MiniShell Time/Location only; Mini-CW will not own
+RTC/system-clock setting.
 
 Battery and sleep are not Mini-CW application responsibilities after migration.
 Use MiniShell's resident/internal `batt` and `sleep` facilities instead.
