@@ -1,6 +1,6 @@
 # T045 — Mini-CW Keyer UI / I/O mode cleanup, audio-frozen
 
-Status: REVIEW
+Status: TESTING
 
 ## Golden baseline / recovery
 
@@ -636,3 +636,151 @@ and silent Ctrl+C exit. Software tests and unchanged audio files do not replace
 that hardware acceptance. Any audible regression requires stopping/reverting to
 `golden/minicw-persistence-clean-audio` at
 `da934b03bce4cc8f908fbc1a40afed501a37196d`; no audio tuning belongs in T045.
+
+
+## Supervisor review
+
+Reviewed implementation:
+
+```text
+a699602f5ad789b3d89fc4059430e41ee80a020f
+```
+
+Result: **PASS — ready for ADV hardware validation.**
+
+### Scope / audio freeze
+
+The implementation is confined to `apps/minicw/**`, tests and documentation.
+No protected audio file, resident MiniShell service, public API, FT8 or existing
+`apps/keyer` code changed.
+
+Resident firmware remains byte-for-byte identical to the post-T044A golden
+baseline. Static resident SRAM delta is zero. Hardware validation therefore
+requires installing only the new external `minicw.elf`.
+
+### KeyIn review
+
+PDN/PDR/SKT/SKR retain their existing behavior.
+
+SKB is appended as the fifth KeyIn mode, preserving existing numeric values.
+It feeds:
+
+```text
+tip_pressed || ring_pressed
+```
+
+into the existing straight-key timing/decoder/audio/KeyOut path.
+
+When SKB cancels automatic TX, one TX-cancel event is produced and every
+currently asserted contact is independently marked consume-until-release. Thus
+a second held contact cannot immediately re-key after the cancel.
+
+Adaptive SK timing remains the same straight-key implementation used by SKT/SKR.
+
+### KeyOut review
+
+The existing electrical implementations are preserved.
+
+The user-visible cycle is restricted to:
+
+```text
+SKN -> SKM -> OFF -> SKN
+```
+
+Legacy Paddle/PaddleR enum/config values are canonicalized to existing
+`KEYER_KEY_OUT_SK` / SKN. SKM remains the existing SK-M electrical behavior.
+Shutdown release behavior is unchanged.
+
+### Persistence compatibility review
+
+Canonical labels are now:
+
+```text
+KeyIn:  Paddle-Normal / Paddle-Reverse / SK-Tip / SK-Ring / SK-Both
+KeyOut: SK-Normal / SK-Mono / OFF
+```
+
+The parser accepts existing T044A / standalone aliases, including legacy
+Paddle/PaddleR output modes and numeric mode values. Legacy output modes are
+mapped to SKN rather than remaining selectable.
+
+The T044A transactional writer and quiet-save state machine are unchanged.
+
+### UI/Input review
+
+Opt now toggles Operation. Ctrl alone is ignored at the Keyer UI level.
+Ctrl+C still exits in the private Mini-CW Input port before UI dispatch.
+
+Alt remains the M1-M5 overlay.
+
+The fixed header is exactly 20 columns:
+
+```text
+HH:MM KIN KOUT WW Vnn
+```
+
+and is used on both normal and Operation screens. OP-name state no longer
+replaces the header.
+
+SKT/SKR/SKB display adaptive SK WPM; paddle modes display KeyIn WPM.
+
+### UTC boundary review
+
+The new application helper calls MiniShell Time/Location `utc_get()`.
+
+On ADV, public `utc_get()` does **not** perform an RTC/I2C read per call.
+The RTC is read when the resident Time/Location service establishes its UTC
+anchor; subsequent `utc_get()` calls derive UTC from resident monotonic time
+under the service's in-memory state lock.
+
+Therefore the UI's minute-change polling does not introduce repeated RTC/I2C
+traffic into the clean-audio path.
+
+If UTC is unavailable, the header shows `--:--` without making UTC a required
+application capability.
+
+### Software / binary evidence
+
+```text
+Linux CTest              84/84
+portable units           26/26
+focused minicw            6/6
+architecture/boundary    PASS
+ADV firmware build       PASS
+clean external ELF       PASS
+ELF inspection           PASS
+git diff --check         PASS
+
+protected audio diff     NONE
+resident BIN             IDENTICAL
+resident SRAM delta      0
+minicw.app.elf           43,024 bytes
+resident import          mini_api_get only
+```
+
+### Hardware gate
+
+Install only the T045 external `minicw.elf` over the already accepted resident
+MiniShell firmware.
+
+Validate in this order:
+
+1. paddle and M1 remain clean/no-pop;
+2. top line is `HH:MM KIN KOUT WW Vnn`;
+3. Opt opens/closes Operation; Ctrl alone does nothing;
+4. PDN/PDR/SKT/SKR/SKB cycle and behave correctly;
+5. SKB tip-only, ring-only and either-contact behavior are correct;
+6. KeyOut cycles only SKN/SKM/OFF;
+7. existing T044A settings load and persist with new canonical labels;
+8. Tune/straight-key remain clean;
+9. Ctrl+C returns silent;
+10. repeated launch/exit remains clean.
+
+Any audible regression is an immediate failure. Do not alter audio in T045.
+
+Recovery:
+
+```text
+golden/minicw-persistence-clean-audio
+da934b03bce4cc8f908fbc1a40afed501a37196d
+```
