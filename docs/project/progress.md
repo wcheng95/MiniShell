@@ -269,11 +269,15 @@ platform/adv/elf_apps/keyer/README.md
 ## Field-use milestone — 2026-09-21
 
 MiniShell + MiniFT8 + Mini-CW is considered operational for this development
-round. Current production `main` is the field/learning baseline:
+round. The hardware-accepted code baseline entering the documentation-coherence
+pass is:
 
 ```text
 48909320646f3a989c812a88052b0b7420a32dc7
 ```
+
+Later commits in this milestone pass are documentation-only and do not change the
+accepted runtime behavior.
 
 Accepted ADV behavior includes MiniFT8 RX/TX, Mini-CW, WebFS, filesystem tools,
 50-row resident console scrollback, color/separator Display support, and normal
