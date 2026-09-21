@@ -1,6 +1,6 @@
 # T047 — Mini-CW V1.2 color UI
 
-Status: TESTING
+Status: COMPLETE
 
 ## Baseline
 
@@ -368,3 +368,29 @@ architecture-hygiene pass without changing T047 behavior.
 Hardware acceptance remains: physical white header, green separator and rows
 1-5, cyan bottom row, unchanged callsign text, clean paddle/M1 audio, normal
 exit.
+
+
+## Final hardware acceptance — 2026-09-21
+
+Implementation:
+
+```text
+afc4f548647d3b47b563172ba912079c36c228ab
+```
+
+ADV hardware validation passed.
+
+Accepted physical presentation:
+
+```text
+top/header     WHITE
+separator      GREEN, 2 pixels high directly below header
+rows 1..5      GREEN
+row 6          CYAN
+background     BLACK
+```
+
+The colored layout is visually accepted. Existing callsign text, full-table
+lookup, persistence, paddle/M1 audio and Ctrl+C behavior remain correct.
+
+T047 is COMPLETE.
