@@ -6,7 +6,7 @@
 #define UI_HISTORY 1280u
 
 typedef enum { UI_NONE, UI_CHAR, UI_OPT, UI_UP, UI_DOWN, UI_LEFT, UI_RIGHT,
-               UI_ENTER, UI_BACKSPACE, UI_ESCAPE, UI_TAB } ui_key_t;
+               UI_ENTER, UI_BACKSPACE, UI_ESCAPE, UI_TAB, UI_ALT_KEY } ui_key_t;
 #define UI_SHIFT 1u
 #define UI_CTRL 2u
 #define UI_ALT 4u
@@ -18,7 +18,7 @@ typedef enum { UI_ACT_NONE, UI_ACT_QUIT, UI_ACT_SAVE, UI_ACT_TEXT,
                UI_ACT_BACKSPACE } ui_action_t;
 typedef struct { ui_action_t action; char ch; unsigned memory; } ui_result_t;
 typedef struct {
-    bool operation, editing;
+    bool operation, editing, memory_overlay;
     unsigned page, selected;
     char edit[96];
     bool edit_fresh;

@@ -26,6 +26,8 @@ static mini_result_t s_result;
 static bool s_zero;
 static uint32_t s_accepted;
 static int16_t s_peak;
+static int16_t captured[4096];
+static unsigned captured_count;
 
 static mini_result_t fake_open(const char *endpoint, const mini_audio_format_t *format,
                                mini_audio_stream_t *out_stream)
@@ -64,6 +66,8 @@ static mini_result_t fake_write(mini_audio_stream_t stream, const void *frames,
     uint32_t accepted = frame_count > 17u ? 17u : frame_count;
     const int16_t *samples = (const int16_t *)frames;
     for (uint32_t i = 0u; i < accepted; ++i) {
+        CHECK(captured_count < sizeof(captured) / sizeof(captured[0]));
+        captured[captured_count++] = samples[i];
         if (samples[i] != 0) ++s_nonzero_this_apply;
         int amplitude = samples[i] < 0 ? -(int)samples[i] : samples[i];
         CHECK(amplitude <= 12000);
@@ -113,6 +117,7 @@ static const mini_audio_api_t AUDIO = {
 
 static void reset_fake(void)
 {
+    captured_count = 0;
     s_open_calls = 0u;
     s_start_calls = 0u;
     s_write_calls = 0u;
@@ -125,6 +130,64 @@ static void reset_fake(void)
     s_format.sample_rate_hz = 0u;
     s_format.sample_format = 0u;
     s_format.channels = 0u;
+}
+
+static void raised_cosine_edges(void)
+{
+    sidetone_t tone;
+    reset_fake();
+    CHECK(sidetone_open(&tone, &AUDIO, true, 700) == MINI_OK);
+    /* Hold the carrier at its positive peak to measure the envelope through
+     * actual PCM writes, independently of the sine's changing sign. */
+    tone.phase_q16 = 8u << 11; tone.phase_step_q16 = 0;
+    for (unsigned i = 0; i < 5; ++i) CHECK(sidetone_apply(&tone, true) == MINI_OK);
+    CHECK(captured_count == 240 && tone.envelope_pos == 240);
+    CHECK(captured[0] <= 4 && captured[239] == 12000);
+    CHECK(captured[59] >= 1750 && captured[59] <= 1765);
+    CHECK(captured[119] == 6000);
+    CHECK(captured[179] >= 10235 && captured[179] <= 10250);
+    for (unsigned i = 1; i < 240; ++i) CHECK(captured[i] >= captured[i - 1]);
+    CHECK(captured[239] - captured[238] <= 4);
+    for (unsigned i = 0; i < 5; ++i) CHECK(sidetone_apply(&tone, false) == MINI_OK);
+    CHECK(captured_count == 480 && tone.envelope_pos == 0);
+    CHECK(captured[240] >= 11995 && captured[479] == 0);
+    CHECK(captured[240] <= captured[239]);
+    for (unsigned i = 241; i < 480; ++i) CHECK(captured[i] <= captured[i - 1]);
+    CHECK(captured[478] <= 4);
+    CHECK(sidetone_apply(&tone, false) == MINI_OK);
+    for (unsigned i = 480; i < captured_count; ++i) CHECK(captured[i] == 0);
+    sidetone_close(&tone);
+
+    /* Cancellation during attack reverses from the current gain without a
+     * reset or a full-scale discontinuity, then finishes at exact zero. */
+    reset_fake(); CHECK(sidetone_open(&tone, &AUDIO, true, 700) == MINI_OK);
+    tone.phase_q16 = 8u << 11; tone.phase_step_q16 = 0;
+    CHECK(sidetone_apply(&tone, true) == MINI_OK);
+    CHECK(sidetone_apply(&tone, false) == MINI_OK);
+    CHECK(captured[48] <= captured[47] && captured[95] == 0);
+    for (unsigned i = 49; i < 96; ++i) CHECK(captured[i] <= captured[i - 1]);
+    /* A re-key during release likewise continues from its present gain. */
+    for (unsigned i = 0; i < 5; ++i) CHECK(sidetone_apply(&tone, true) == MINI_OK);
+    CHECK(sidetone_apply(&tone, false) == MINI_OK);
+    int previous = captured[captured_count - 1];
+    unsigned start = captured_count;
+    CHECK(sidetone_apply(&tone, true) == MINI_OK);
+    CHECK(captured[start] >= previous && captured[start] - previous < 80);
+    start = captured_count;
+    sidetone_close(&tone);
+    CHECK(captured_count - start == 240 && captured[captured_count - 1] == 0);
+    CHECK(s_stop_calls == 1 && s_close_calls == 1 && !s_abort_calls);
+
+    reset_fake(); CHECK(sidetone_open(&tone, &AUDIO, true, 700) == MINI_OK);
+    uint32_t phase = tone.phase_q16, increment = tone.phase_step_q16;
+    for (unsigned i = 0; i < 12; ++i) {
+        CHECK(sidetone_apply(&tone, i < 5) == MINI_OK);
+        phase = (phase + increment * 48u) & 0xffffu;
+        CHECK(tone.phase_q16 == phase);
+    }
+    for (unsigned i = 480; i < captured_count; ++i) CHECK(captured[i] == 0);
+    CHECK(s_open_calls == 1 && s_start_calls == 1);
+    sidetone_close(&tone);
 }
 
 int main(void)
@@ -161,9 +224,9 @@ int main(void)
     for (uint32_t i = 0u; i < 6u; ++i) {
         CHECK(sidetone_apply(&sidetone, false) == MINI_OK);
     }
-    CHECK(sidetone.gain_q8 == 0u);
+    CHECK(sidetone.envelope_pos == 0u);
 
-    /* Gain reaches zero during the sixth release block; the following block
+    /* Gain reaches zero during the fifth release block; the following block
      * must therefore be pure silence. */
     s_nonzero_this_apply = 0u;
     CHECK(sidetone_apply(&sidetone, false) == MINI_OK);
@@ -191,18 +254,19 @@ int main(void)
         CHECK(sidetone_open(&sidetone, &AUDIO, true, 700u) == MINI_OK);
         sidetone_settings(&sidetone, 700u, volumes[v], false);
         for (unsigned i = 0; i < 8; ++i) CHECK(sidetone_apply(&sidetone, true) == MINI_OK);
-        CHECK(sidetone.gain_q8 == 256);
+        CHECK(sidetone.envelope_pos == 240);
         CHECK(s_peak == 12000 * volumes[v] / 99);
         CHECK(s_open_calls == 1 && s_start_calls == 1);
         sidetone_settings(&sidetone, 999u, volumes[v], true);
         s_nonzero_this_apply = 0;
         CHECK(sidetone_apply(&sidetone, true) == MINI_OK);
-        CHECK(!s_nonzero_this_apply && sidetone.gain_q8 == 256);
+        CHECK(!s_nonzero_this_apply && sidetone.envelope_pos == 240);
         sidetone_settings(&sidetone, 300u, volumes[v], false);
         for (unsigned i = 0; i < 6; ++i) CHECK(sidetone_apply(&sidetone, false) == MINI_OK);
-        CHECK(sidetone.gain_q8 == 0);
+        CHECK(sidetone.envelope_pos == 0);
         sidetone_close(&sidetone);
     }
+    raised_cosine_edges();
     puts("keyer_k5_sidetone_test: PASS");
     return 0;
 }

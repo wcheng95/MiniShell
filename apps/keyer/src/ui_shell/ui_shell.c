@@ -47,7 +47,7 @@ static bool message(unsigned i) { return i >= 6 && i <= 10; }
 static bool choice(unsigned i) { return i == 0 || i == 1 || i == 5 || i == 14; }
 void ui_shell_init(ui_shell_t *u)
 {
-    u->operation = u->editing = false; u->page = u->selected = 0;
+    u->operation = u->editing = u->memory_overlay = false; u->page = u->selected = 0;
     u->history_len = 0; u->status[0] = 0; u->status_until = 0;
     u->edit[0] = 0; u->edit_fresh = true;
 }
@@ -86,6 +86,7 @@ ui_result_t ui_shell_input(ui_shell_t *u, keyer_config_t *c, ui_input_t e)
         r.action = UI_ACT_QUIT; return r;
     }
     if (e.key == UI_OPT) {
+        u->memory_overlay = false;
         u->editing = false; u->operation = !u->operation; return r;
     }
     if (u->operation) {
@@ -144,12 +145,16 @@ ui_result_t ui_shell_input(ui_shell_t *u, keyer_config_t *c, ui_input_t e)
         }
         return r;
     }
-    if (e.mods == UI_ALT && e.key == UI_CHAR && e.ch >= '1' && e.ch <= '5') {
+    if (e.key == UI_ALT_KEY && (e.mods == 0 || e.mods == UI_ALT)) {
+        u->memory_overlay = !u->memory_overlay; return r;
+    }
+    if ((e.mods == UI_ALT || (u->memory_overlay && e.mods == 0)) &&
+        e.key == UI_CHAR && e.ch >= '1' && e.ch <= '5') {
         r.action = UI_ACT_MEMORY; r.memory = e.ch - '1'; return r;
     }
     if (e.mods & (UI_CTRL | UI_ALT | UI_FN | UI_OPT_MOD)) return r;
     switch (e.key) {
-    case UI_TAB: r.action = UI_ACT_TUNE; break;
+    case UI_TAB: u->memory_overlay = false; r.action = UI_ACT_TUNE; break;
     case UI_ENTER: r.action = UI_ACT_START; break;
     case UI_BACKSPACE: r.action = UI_ACT_BACKSPACE; break;
     case UI_CHAR:
@@ -185,7 +190,15 @@ void ui_shell_render(const ui_shell_t *u, const keyer_config_t *c, int minutes,
         two(h + 14, c->wpm); h[17] = 'V'; two(h + 18, c->volume);
         unsigned lines = (u->history_len + 19) / 20;
         unsigned start = lines > 5 ? (lines - 5) * 20 : 0;
-        for (unsigned i = start; i < u->history_len; ++i) f->rows[1 + (i - start) / 20][(i - start) % 20] = u->history[i];
+        if (u->memory_overlay) {
+            for (unsigned i = 0; i < 5; ++i) {
+                char label[4] = {'M', (char)('1' + i), ':', 0};
+                put(f->rows[i + 1], 0, label);
+                put(f->rows[i + 1], 3, c->messages[i]);
+            }
+        } else {
+            for (unsigned i = start; i < u->history_len; ++i) f->rows[1 + (i - start) / 20][(i - start) % 20] = u->history[i];
+        }
         if (u->status[0] && now < u->status_until) put(f->rows[6], 0, u->status);
         else if (tune) put(f->rows[6], 0, "Tune:Hold");
         else { size_t n = keyer_text_len(tail); put(f->rows[6], 0, tail + (n > 20 ? n - 20 : 0)); }

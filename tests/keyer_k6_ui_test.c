@@ -149,4 +149,45 @@ static void operation_backtick_r2(void)
     reset(); input(UI_OPT, 0, 0); input(UI_CHAR, '6', 0);
     input(UI_CHAR, '`', UI_CTRL); assert(u.editing);
 }
-int main(void) { render_tests(); inputs(); editors(); adv_r1(); operation_backtick_r2(); puts("keyer K6 UI: PASS"); }
+static void memory_overlay_r3(void)
+{
+    reset(); ui_frame_t history, overlay, restored;
+    for (const char *text = "DECODED HISTORY"; *text; ++text) ui_shell_history(&u, *text);
+    for (unsigned i = 0; i < 5; ++i) {
+        memset(c.messages[i], 'A' + i, 95); c.messages[i][95] = 0;
+    }
+    ui_shell_render(&u, &c, 1173, "PENDING", false, 0, &history);
+    assert(input(UI_ALT_KEY, 0, UI_ALT).action == UI_ACT_NONE && u.memory_overlay);
+    ui_shell_render(&u, &c, 1173, "PENDING", false, 0, &overlay);
+    assert(!strcmp(history.rows[0], overlay.rows[0]) && !strcmp(history.rows[6], overlay.rows[6]));
+    for (unsigned i = 0; i < 5; ++i) {
+        assert(strlen(overlay.rows[i + 1]) == 20);
+        assert(overlay.rows[i + 1][0] == 'M' && overlay.rows[i + 1][1] == (char)('1' + i) && overlay.rows[i + 1][2] == ':');
+        for (unsigned j = 3; j < 20; ++j) assert(overlay.rows[i + 1][j] == (char)('A' + i));
+        ui_result_t r = input(UI_CHAR, '1' + i, 0);
+        assert(r.action == UI_ACT_MEMORY && r.memory == i);
+        r = input(UI_CHAR, '1' + i, UI_ALT);
+        assert(r.action == UI_ACT_MEMORY && r.memory == i);
+    }
+    c.messages[1][0] = 0;
+    ui_shell_status(&u, "Mute:ON", 0);
+    ui_shell_render(&u, &c, 1173, "PENDING", false, 0, &overlay);
+    assert(!strcmp(overlay.rows[2], "M2:                 "));
+    assert(!strncmp(overlay.rows[6], "Mute:ON", 7));
+    input(UI_ALT_KEY, 0, UI_ALT); assert(!u.memory_overlay);
+    ui_shell_render(&u, &c, 1173, "PENDING", false, 1200000, &restored);
+    for (unsigned r = 0; r < 7; ++r) assert(!strcmp(history.rows[r], restored.rows[r]));
+    assert(input(UI_CHAR, '1', 0).action == UI_ACT_TEXT);
+    input(UI_ALT_KEY, 0, 0); ui_shell_history(&u, '!');
+    input(UI_ALT_KEY, 0, 0);
+    assert(u.history[u.history_len - 1] == '!');
+    input(UI_ALT_KEY, 0, UI_ALT);
+    assert(input(UI_TAB, 0, 0).action == UI_ACT_TUNE && !u.memory_overlay);
+    input(UI_ALT_KEY, 0, UI_ALT); input(UI_OPT, 0, 0);
+    assert(u.operation && !u.memory_overlay);
+    input(UI_ALT_KEY, 0, UI_ALT); assert(!u.memory_overlay);
+    input(UI_OPT, 0, 0); input(UI_ALT_KEY, 0, UI_ALT);
+    assert(input(UI_CHAR, 'c', UI_CTRL).action == UI_ACT_QUIT);
+    input(UI_ALT_KEY, 0, UI_CTRL | UI_ALT); assert(u.memory_overlay);
+}
+int main(void) { render_tests(); inputs(); editors(); adv_r1(); operation_backtick_r2(); memory_overlay_r3(); puts("keyer K6 UI: PASS"); }

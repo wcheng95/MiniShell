@@ -3,7 +3,6 @@
 #include <stddef.h>
 
 #define SIDETONE_AMPLITUDE 12000
-#define SIDETONE_GAIN_MAX  256u
 #define SIDETONE_WRITE_TIMEOUT_MS 20u
 
 /* 32-sample sine table at full sidetone amplitude. Integer DDS keeps the
@@ -15,6 +14,30 @@ static const int16_t SINE_32[32] = {
     -12000, -11769, -11087, -9978, -8485, -6667, -4592, -2341,
 };
 
+/* Mini-CW's 5 ms raised-cosine law, in Q15 with unity = 32768.
+ * Entries are round(32768 * (1 - cos(pi * i / 60)) / 2).
+ * Interpolation every four samples spans 240 samples without runtime libm.
+ * Keeping a position rather than resetting gain preserves continuity if a
+ * short press/cancellation reverses an unfinished edge. */
+static const uint16_t RAISED_COSINE[61] = {
+    0, 22, 90, 202, 358, 558, 802, 1088, 1416, 1786,
+    2195, 2643, 3129, 3651, 4208, 4799, 5421, 6073, 6754, 7461,
+    8192, 8946, 9720, 10512, 11321, 12144, 12978, 13821, 14671, 15527,
+    16384, 17241, 18097, 18947, 19790, 20624, 21447, 22256, 23048, 23822,
+    24576, 25307, 26014, 26695, 27347, 27969, 28560, 29117, 29639, 30125,
+    30573, 30982, 31352, 31680, 31966, 32210, 32410, 32566, 32678, 32746,
+    32768,
+};
+
+static uint32_t envelope_gain(uint16_t position)
+{
+    unsigned index = position / 4u;
+    unsigned fraction = position % 4u;
+    if (index == 60u) return RAISED_COSINE[60];
+    return RAISED_COSINE[index] +
+           ((RAISED_COSINE[index + 1u] - RAISED_COSINE[index]) * fraction + 2u) / 4u;
+}
+
 static void clear_sidetone(sidetone_t *sidetone)
 {
     if (sidetone == NULL) return;
@@ -22,7 +45,7 @@ static void clear_sidetone(sidetone_t *sidetone)
     sidetone->stream = MINI_AUDIO_STREAM_INVALID;
     sidetone->phase_q16 = 0u;
     sidetone->phase_step_q16 = 0u;
-    sidetone->gain_q8 = 0u;
+    sidetone->envelope_pos = 0u;
     sidetone->streaming = false;
     sidetone->volume = 99u;
     sidetone->mute = false;
@@ -42,14 +65,14 @@ static mini_result_t write_block(sidetone_t *sidetone, bool key_down)
 
     for (uint32_t i = 0u; i < KEYER_SIDETONE_BLOCK_FRAMES; ++i) {
         if (key_down) {
-            if (sidetone->gain_q8 < SIDETONE_GAIN_MAX) ++sidetone->gain_q8;
-        } else if (sidetone->gain_q8 > 0u) {
-            --sidetone->gain_q8;
+            if (sidetone->envelope_pos < KEYER_SIDETONE_EDGE_SAMPLES) ++sidetone->envelope_pos;
+        } else if (sidetone->envelope_pos > 0u) {
+            --sidetone->envelope_pos;
         }
 
         uint32_t index = (sidetone->phase_q16 >> 11) & 31u;
-        int32_t sample = (int32_t)SINE_32[index] * (int32_t)sidetone->gain_q8;
-        sample = (sample >> 8) * sidetone->volume / 99;
+        int32_t sample = (int32_t)SINE_32[index] * (int32_t)envelope_gain(sidetone->envelope_pos);
+        sample = (sample >> 15) * sidetone->volume / 99;
         frames[i] = sidetone->mute ? 0 : (int16_t)sample;
         sidetone->phase_q16 = (sidetone->phase_q16 + sidetone->phase_step_q16) & 0xffffu;
     }
@@ -137,8 +160,8 @@ void sidetone_close(sidetone_t *sidetone)
     }
 
     /* Give an active tone a short click-reducing release before stopping the
-     * stream. Six 1 ms blocks are enough for the 256-sample (~5.3 ms) ramp. */
-    for (uint32_t i = 0u; i < 6u && sidetone->gain_q8 > 0u; ++i) {
+     * stream. Five 1 ms blocks complete even a full 240-sample raised-cosine edge. */
+    for (uint32_t i = 0u; i < 5u && sidetone->envelope_pos > 0u; ++i) {
         if (write_block(sidetone, false) != MINI_OK) {
             if (sidetone->tx->abort != NULL) (void)sidetone->tx->abort(sidetone->stream);
             (void)sidetone->tx->close(sidetone->stream);

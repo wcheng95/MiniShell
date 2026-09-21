@@ -27,6 +27,7 @@ static unsigned write_position;
 static bool fail_save;
 static unsigned save_count;
 static bool mute_on_seen, mute_off_seen, unsupported_seen;
+static bool overlay_seen;
 static bool s_saw_key_down;
 static char s_console[1024];
 static size_t s_console_len;
@@ -86,10 +87,10 @@ static mini_result_t fake_key_read(mini_key_event_t *out_event, uint32_t timeout
     (void)timeout_ms;
     if (out_event == NULL) return MINI_ERR_INVALID;
     if (scenario >= 8) {
-        if (input_index < r2_count && s_now_us >= (uint64_t)input_index * 10000u) {
+        if (input_index < r2_count && s_now_us >= (uint64_t)input_index * (scenario >= 10 ? 100000u : 10000u)) {
             *out_event = r2_events[input_index++]; return MINI_OK;
         }
-        if (s_now_us < 300000) return MINI_ERR_NOT_READY;
+        if (s_now_us < (scenario == 11 ? 450000u : 300000u)) return MINI_ERR_NOT_READY;
         out_event->type = MINI_KEY_EVENT_CHAR; out_event->codepoint = 'c';
         out_event->modifiers = MINI_MOD_CTRL; return MINI_OK;
     }
@@ -163,7 +164,8 @@ static mini_result_t fake_dio_read(mini_digital_io_t line, uint32_t *out_level)
     if (id >= 64u || !s_opened[id]) return MINI_ERR_BAD_HANDLE;
 
     if (id == 13u) {
-        if (scenario == 3 || scenario == 9) *out_level = 1;
+        if (scenario == 11) *out_level = s_now_us >= 150000 && s_now_us < 160000 ? 0u : 1u;
+        else if (scenario == 3 || scenario == 9) *out_level = 1;
         else if (scenario == 4) *out_level = s_now_us >= 10000 && s_now_us < 20000 ? 0u : 1u;
         else *out_level = scenario == 1 ? (s_now_us >= 100000 && s_now_us < 110000 ? 0u : 1u) : (s_now_us < 10000u ? 0u : 1u);
     } else if (id == 15u) {
@@ -263,6 +265,7 @@ static mini_result_t display_write(uint32_t r, uint32_t c, const char *s, uint32
     (void)attr; CHECK(r < 7 && c == 0 && n == 20);
     memcpy(screen[r], s, n); screen[r][20] = 0;
     if (strstr(screen[r], "Save failed")) save_failed_seen = true;
+    if (r == 1 && !strncmp(screen[r], "M1:", 3)) overlay_seen = true;
     if (strstr(screen[r], "Saved")) saved_seen = true;
     if (strstr(screen[r], "Mute:ON")) mute_on_seen = true;
     if (strstr(screen[r], "Mute:OFF")) mute_off_seen = true;
@@ -288,7 +291,7 @@ static const mini_api_t API = {
 static void run_scenario(unsigned which)
 {
     scenario = which; input_index = 0; final_release = 0; decoded_seen = false;
-    save_failed_seen = saved_seen = false;
+    save_failed_seen = saved_seen = overlay_seen = false;
     save_count = 0; mute_on_seen = mute_off_seen = unsupported_seen = false;
     memset(s_opened, 0, sizeof(s_opened));
     memset(s_mode, 0, sizeof(s_mode));
@@ -308,7 +311,7 @@ static void run_scenario(unsigned which)
     CHECK(app_controller_run() == 0);
     CHECK(s_saw_key_down);
     CHECK(s_level[3] == (scenario == 3 ? 0u : 1u) && s_level[6] == s_level[3]);
-    CHECK(decoded_seen == (scenario != 3 && scenario != 9));
+    CHECK(decoded_seen == (scenario != 3 && scenario != 9 && scenario != 12));
     if (scenario == 4) CHECK(final_release == 70000);
     CHECK(strcmp(screen[0], scenario == 2 ? "--:-- Pdl SKS 21 V80" : "--:-- Pdl SKS 20 V80") == 0);
     if (scenario == 1) {
@@ -340,6 +343,17 @@ static void run_scenario(unsigned which)
             CHECK(final_release == 20000); /* Active dah cancelled at backtick. */
             CHECK(!strcmp(screen[6], "                    "));
         }
+    }
+    if (scenario >= 10) {
+        CHECK(overlay_seen);
+        CHECK(!unsupported_seen);
+        if (scenario == 10) CHECK(!strncmp(screen[6], "CQ POTA", 7));
+        if (scenario == 11) {
+            CHECK(final_release == 210000);
+            CHECK(!strcmp(screen[6], "                    "));
+        }
+        if (scenario == 12) CHECK(!strncmp(screen[1], "M1:CQ POTA", 10));
+        else CHECK(screen[1][0] == 'E');
     }
     CHECK(strstr(s_console, "<BS>") == NULL);
 
@@ -377,11 +391,28 @@ static void operation_backtick_r2(void)
     r2_count = 3;
     run_scenario(9); CHECK(!strcmp(old, saved));
 }
+static void memory_overlay_r3(void)
+{
+    mini_key_event_t events[] = {
+        {.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_ALT, .modifiers = MINI_MOD_ALT},
+        {.type = MINI_KEY_EVENT_CHAR, .codepoint = '1'},
+        {.type = MINI_KEY_EVENT_SPECIAL, .key = MINI_KEY_ALT, .modifiers = MINI_MOD_ALT},
+    };
+    r2_events = events; r2_count = 3;
+    run_scenario(10); /* Alt overlay + plain 1, then restore accumulated decode. */
+    events[1].modifiers = MINI_MOD_ALT;
+    run_scenario(10); /* Direct Alt+1 remains the same memory action. */
+    events[1].modifiers = 0;
+    run_scenario(11); /* Late physical press cancels pending memory, still decodes. */
+    r2_count = 1;
+    run_scenario(12); /* Ctrl+C while overlay visible still releases resources. */
+}
 int main(void)
 {
     run_scenario(0); run_scenario(1); run_scenario(2); run_scenario(3); run_scenario(4);
     run_scenario(5); run_scenario(6); run_scenario(7);
     operation_backtick_r2();
+    memory_overlay_r3();
     char old[1024]; strcpy(old, saved); fail_save = true; run_scenario(2);
     run_scenario(5);
     CHECK(!strcmp(old, saved));

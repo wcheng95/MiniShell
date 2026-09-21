@@ -27,6 +27,7 @@ bool ui_adapter_read(ui_adapter_t *a, ui_input_t *out)
     if (e.type == MINI_KEY_EVENT_CHAR) { out->key = UI_CHAR; out->ch = e.codepoint; }
     else if (e.type == MINI_KEY_EVENT_SPECIAL) {
         switch (e.key) {
+        case MINI_KEY_ALT: out->key = UI_ALT_KEY; break;
         case MINI_KEY_OPT: out->key = UI_OPT; break;
         case MINI_KEY_UP: out->key = UI_UP; break;
         case MINI_KEY_DOWN: out->key = UI_DOWN; break;

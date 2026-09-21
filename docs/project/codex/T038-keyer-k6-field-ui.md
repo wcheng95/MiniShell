@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: IMPLEMENTING
+Status: REVIEW
 
 ## Architect intent
 
@@ -1714,6 +1714,120 @@ Hardware retest after supervisor review should specifically compare:
 3. Alt overlay display and plain 1..5 selection;
 4. previously accepted K6 shortcuts as a quick regression.
 
+
+## Codex R3 implementation / validation
+
+Implemented R3-A and R3-B only, from
+`c18c6069b79b9d3ea330fbf0eb7a86c539285201` on
+`codex/T038-keyer-k6-field-ui`. Ready for supervisor review.
+
+### Implementation summary / files changed
+
+- `apps/keyer/src/sidetone/sidetone.c` and `.h`: replace linear Q8 gain with a
+  240-sample envelope position and a 61-entry integer Q15 raised-cosine table,
+  interpolated every four samples. Nominal full attack/release is five 48-frame
+  blocks (5 ms). Reversal during an unfinished edge continues from its current
+  position instead of resetting gain. Release reaches exact zero within 240
+  samples, including shutdown; PCM then remains zero while oscillator phase keeps
+  advancing. Existing carrier table, free-running DDS, volume/mute scaling,
+  48 kHz stream, 48-frame writes and finite transport timeout are retained.
+- Reference read: Mini-CW `3bfbf169b7c2d49a1be3e9a4c80f945edb32033e`,
+  `components/audio_service/audio_service.c` raised-cosine renderer/release tail
+  and `components/ui_service/ui_service.c` Alt shortcut/preview behavior. The
+  integer table approximates its `(1-cos(pi*t))/2` law; no floating-point/libm,
+  service, segment FIFO, task, thread or HAL code was imported.
+- `apps/keyer/src/ui_shell/ui_shell.c` and `.h`: transient memory-overlay state,
+  Alt toggle, plain 1–5 selection while visible, exact 20-column `M#:...` rows
+  with up to 17 preview characters, and dismissal on Tune/Operation entry.
+  The top/bottom rows use their unchanged render paths. History continues to
+  accumulate underneath and is restored when Alt closes the overlay.
+- `apps/keyer/src/ui_adapter/ui_adapter.c`: map `MINI_KEY_ALT` to the new private
+  UI special-key value. Actual ADV Alt presses carrying `MINI_MOD_ALT` work;
+  direct Alt+1–5 remains supported independently of overlay visibility.
+- `tests/keyer_k5_sidetone_test.c`: inspect emitted PCM with an isolated carrier
+  to verify monotonic edges, raised-cosine quarter/half points, near-zero attack,
+  smooth transitions, exact-zero release, 240-sample length, partial-edge reversal
+  and bounded shutdown. Existing volume 0/1/50/99, mute, partial writes and error
+  checks remain; additional tests verify free-running phase through silent blocks.
+- `tests/keyer_k6_ui_test.c`: toggle, exact previews, empty/long memories, unchanged
+  header/status tail, preserved/updated history, all five plain/direct-Alt memory
+  actions, Tune/Operation interactions, Ctrl+C and modifier discrimination.
+- `tests/keyer_k4_controller_test.c`: actual Alt special events through adapter
+  and controller, plain/direct-Alt M1 queueing, history restoration, late physical
+  input cancelling the queued memory while decoding normally, Ctrl+C and cleanup.
+- `apps/keyer/README.md` and this packet: behavior and validation evidence.
+
+### Invariants / remaining risks
+
+No controller, K3 engine, TX scheduler, KeyOut, settings format/writer, public API,
+ADV speaker provider, resident source or FT8 changes. All logical output timing
+and physical-input arbitration still use their existing paths. The common
+sidetone renderer handles manual, automatic and Tune key state without new tasks
+or allocations. Overlay state is not persisted.
+
+The envelope remains driven by the existing logical key state: release tails
+follow key-up in the current foreground Audio stream, without predicting or
+changing KeyOut timing. A short edge reversal may finish in less than 5 ms; it
+never jumps to full gain or resets phase. Actual audible pop reduction, manual
+paddle sound and Alt usability still require architect testing after supervisor
+review. No hardware testing was performed and no audible-success claim is made.
+No scope deviations or new architecture were introduced.
+
+### Tests / builds
+
+All final gates passed:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 74/74 PASS
+cmake -S tests/unit -B /tmp/T038-R3-unit
+cmake --build /tmp/T038-R3-unit -j"$(nproc)"
+ctest --test-dir /tmp/T038-R3-unit --output-on-failure
+# 18/18 PASS
+ctest --test-dir /tmp/T038-R3-unit -R 'keyer|api_audio' --output-on-failure
+# 8/8 PASS, including K3/K4/K5 and K6/R1/R2/R3
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R 'audio|Audio' --output-on-failure
+# 5/5 PASS
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . keyer
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . keyer
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+idf.py -C platform/adv/elf_apps/keyer fullclean
+idf.py -C platform/adv/elf_apps/keyer elf
+xtensa-esp32s3-elf-readelf -rW platform/adv/elf_apps/keyer/build/keyer.app.elf
+# Asserted exactly one R_XTENSA_JMP_SLOT: mini_api_get
+# Expected loader-stripped .dynamic warning, unchanged from prior builds.
+git diff --check
+```
+
+### ELF / SRAM impact
+
+Measured with `wc -c` and `xtensa-esp32s3-elf-size -A` against pre-R3 artifacts:
+
+| Artifact / section | Before bytes | R3 bytes | Delta |
+| --- | ---: | ---: | ---: |
+| Resident firmware BIN | 1,375,776 | 1,375,776 | 0 |
+| Resident `.iram0.text` | 63,959 | 63,959 | 0 |
+| Resident `.dram0.data` | 27,000 | 27,000 | 0 |
+| Resident `.dram0.bss` | 38,864 | 38,864 | 0 |
+| Static internal SRAM, sum above | 129,823 | 129,823 | 0 |
+| External `keyer.app.elf` | 22,972 | 23,380 | +408 |
+| External `.text` | 15,366 | 15,618 | +252 |
+| External `.rodata` | 1,449 | 1,573 | +124 |
+| External `.data.rel.ro` | 676 | 676 | 0 |
+| External `.bss` | 3,628 | 3,628 | 0 |
+
+Only `mini_api_get` is imported from the resident image; no libm/native helper
+imports. No new task/stack or heap allocation. These are build-time measurements,
+not hardware heap evidence.
+
+### Commit reference
+
+One R3 amendment on `codex/T038-keyer-k6-field-ui`; exact SHA is returned in the
+engineer handoff. T038 is REVIEW. No PR or hardware testing.
 
 ## Architect test result
 

@@ -11,13 +11,14 @@ extern "C" {
 
 #define KEYER_SIDETONE_SAMPLE_RATE_HZ 48000u
 #define KEYER_SIDETONE_BLOCK_FRAMES   48u
+#define KEYER_SIDETONE_EDGE_SAMPLES   240u
 
 typedef struct {
     const mini_audio_tx_api_t *tx;
     mini_audio_stream_t stream;
     uint32_t phase_q16;
     uint32_t phase_step_q16;
-    uint16_t gain_q8;
+    uint16_t envelope_pos;
     bool streaming;
     uint8_t volume;
     bool mute;

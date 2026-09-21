@@ -25,7 +25,8 @@ Ordinary letters (including Q/O), digits and supported punctuation enter CW text
 | `[`, `]` | Speed −/+1, clamped 5–60 |
 | `{`, `}` | Volume −/+5, clamped 0–99 |
 | `\` | Toggle mute and save immediately |
-| Alt+1–5 | Queue M1–M5 atomically |
+| Alt | Toggle M1–M5 previews over decoded history |
+| 1–5 with previews visible, or Alt+1–5 | Queue M1–M5 atomically |
 | Tab | Toggle latched Tune |
 | Backtick | Cancel automatic TX, Tune and M1 repeat |
 | Backspace | Remove an editable unsent character |
@@ -41,6 +42,11 @@ Only `app_controller` coordinates modules. `ui_shell` and `tx_engine` are pure,
 bounded state machines; `ui_adapter` translates Display/Input. Physical
 `keyer_engine` is unchanged. All file operations use MiniShell Filesystem.
 The single foreground loop retains K5's 48-frame, 48 kHz finite Audio TX writes.
+Sidetone uses a 240-sample (5 ms) integer raised-cosine attack/release, with
+continuous oscillator phase and zero PCM after the release tail. Short key
+reversals continue from the current envelope position. Tune and Operation close
+the memory overlay; closing it restores decoded history, including input received
+while previews were visible.
 Volume/mute scale PCM without changing Digital I/O or reopening Audio TX.
 
 KeyOut is SKS (tip/ring key together), SKM (tip keys; ring remains low while
