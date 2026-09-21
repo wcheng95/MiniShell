@@ -15,7 +15,7 @@ wcheng95/Mini-FT8
 production TX baseline   Linux/pc-1 + QMX accepted
 portable Linux host      WinBook/TW700 + QMX RX/CAT/TX validated
 portable AArch64 host    rpi3-2 + QMX RX/CAT/TX validated
-embedded deployment      ADV live RX validated; physical TX remains future
+embedded deployment      ADV QMX RX/TX operational and hardware accepted
 ```
 
 The ADV RAM/USB-host feasibility risk is retired by T017. Linux/pc-1 + QMX now
@@ -49,7 +49,7 @@ AutoSeq AS-0..AS-8                 COMPLETE
 simulation/test TX lifecycle        COMPLETE
 ADIF persistent logging            COMPLETE
 Field Day Cabrillo logging         COMPLETE
-physical QMX TX                    COMPLETE — pc-1/QMX hardware validated
+physical QMX TX                    COMPLETE — pc-1/QMX and ADV/QMX hardware validated
 CQ/POTA beacon controls             COMPLETE — T023 hardware validated
 Random/Fixed/RX TX offset           COMPLETE — T024 hardware validated
 WinBook/TW700 live RX               PASS — pc-1 binaries + QMX ALSA decode
@@ -62,6 +62,8 @@ T028 RX display/selection ordering     COMPLETE — live validated
 T029 RX display lifetime                COMPLETE — live validated
 T031 live QMX band CAT sync             COMPLETE — 1 s debounce, hardware validated
 T032 V -> 3 current-day QSO view        COMPLETE — compact ADIF pages, hardware validated
+T049 color status                        COMPLETE — ADV TX bar + RX row colors
+T050 RX/TX bare page shortcuts           COMPLETE — `;` previous / `.` next
 ```
 
 Working live Linux/QMX command:
@@ -457,8 +459,8 @@ regular       strongest -> weakest
 Equal-SNR entries retain original decode order. UiModel uses the controller's
 display-index map, and manual selection maps back to the original factual
 RxMessage. Automatic addressed-message processing and RT logging continue in
-raw batch order. Live Linux/QMX validation passed. Color coding remains
-deferred.
+raw batch order. Live validation passed. T049 adds presentation-only row coloring from the same
+factual categories: reply-to-me red, CQ green, regular white.
 
 T029 defines display lifetime independently from RX transport resets: the most
 recent decoded/sorted RX rows remain visible and selectable through a following TX
@@ -553,10 +555,13 @@ Linux QMX discovery
     enumeration details. A future MiniShell Linux provider should offer stable
     QMX-oriented endpoints rather than making MiniFT8 discover /dev or ALSA.
 
-ADV physical TX
-    Reuse the proven Linux semantic/CAT boundary when embedded TX becomes an
-    active goal; do not redesign AutoSeq or TX encoding for ADV.
+ADV QMX USB-host reuse
+    Physical TX is now operational on ADV. The remaining portability issue is
+    USB session lifetime: exiting the final QMX user tears down the host and
+    class drivers, and a second fresh QMX enumeration can fail until QMX is
+    power-cycled. A future resident/reusable QMX session should preserve the
+    existing AutoSeq/TX encoding boundary.
 ```
 
 Until one of these is promoted to a bounded task, the accepted production
-baseline is Linux/QMX physical RX/TX plus ADV/QMX live RX.
+baseline is Linux/QMX physical RX/TX plus ADV/QMX operational RX/TX.
