@@ -37,7 +37,6 @@ changes them:
 
 - `app_core`
 - `keyer_service` / decoder
-- `cw_trainer_service` and lesson/word/callsign/plaintext modes
 - `ui_service` / `ui_screen`
 - GPS parsing/policy
 - storage policy and file formats
@@ -71,8 +70,6 @@ Target MiniShell mapping:
 | UTC/RTC/location | Time/Location |
 | application allocations | Memory |
 | speaker transport | Audio |
-| battery/deep sleep | Power capability to be added |
-| USB MSC enable/disable | storage/system capability to be added if still required |
 
 ## Audio rule
 
@@ -111,26 +108,40 @@ segment, codec, I2S and DMA behavior against the pinned reference.
 
 Acceptance requires clean paddle and automatic M1 with live UI.
 
-### T044 — persistence + system time/power
+### T044 — persistence + system time
 
-Move Mini-CW profile/keyer/trainer storage policy onto MiniShell Filesystem.
-Map RTC/UTC to Time/Location. Add the minimal generic Power API needed for battery
-percentage and deep sleep.
+Move Mini-CW Keyer/profile storage policy onto MiniShell Filesystem.
+Map RTC/UTC needs to MiniShell Time/Location.
+
+Battery and sleep are not Mini-CW application responsibilities after migration.
+Use MiniShell's resident/internal `batt` and `sleep` facilities instead.
 
 ### T045 — GPS
 
 Run Mini-CW GPS parser/policy over MiniShell Serial. Preserve baud detection,
 fix/grid behavior and storage updates.
 
-### T046 — trainer modes
+### T046 — Keyer application parity / cleanup
 
-Enable Lessons, Words, Callsigns and Plaintext with preserved Mini-CW behavior,
-random generation semantics and storage.
+Complete Mini-CW Keyer-mode parity under MiniShell:
 
-### T047 — USB storage / full parity
+- Keyer UI and controls;
+- M1-M5 and repeat;
+- clean paddle and automatic CW audio;
+- persistence;
+- optional GPS-derived behavior from T045 where applicable;
+- repeated launch/exit and resource cleanup.
 
-Add only the minimal MiniShell capability required for Mini-CW USB-drive mode,
-then perform full Mini-CW V1.2 behavior parity validation.
+Trainer modes are intentionally not migrated:
+
+- `cw_trainer_service`
+- `cw_lesson_mode`
+- `cw_word_mode`
+- `cw_callsign_mode`
+- `cw_plaintext_mode`
+
+USB MSC is also not a Mini-CW application responsibility after migration.
+MiniShell owns removable-storage/export workflows separately.
 
 ## Packaging target
 
@@ -160,5 +171,25 @@ During migration:
 - Mini-CW standalone firmware remains the golden reference;
 - `minicw` is a separate application name.
 
-Retiring or replacing the existing Keyer is a later product decision after full
-Mini-CW parity and hardware acceptance.
+Retiring or replacing the existing Keyer is a later product decision after
+Mini-CW **Keyer-mode** parity and hardware acceptance. Full standalone Mini-CW
+feature parity is not a migration goal.
+
+
+## Explicitly out of scope after migration
+
+The following standalone-firmware responsibilities do not move into `minicw`:
+
+```text
+battery display/control
+deep sleep
+USB MSC mode
+CW trainer modes
+lesson mode
+word mode
+callsign mode
+plaintext mode
+```
+
+MiniShell owns system-level utilities such as battery/sleep. Trainer features are
+not required for the MiniShell CW application.
