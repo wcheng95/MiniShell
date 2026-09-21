@@ -132,14 +132,16 @@ docs/MiniCW/baseline-audit.md
 The intended Keyer-only migration is complete. GPS and generic "final parity"
 work are removed from the roadmap.
 
-Future work is optional feature work from the audited baseline:
+Feature follow-ons from the audited baseline are also complete:
 
-- callsign -> operator-name lookup;
-- Keyer logging.
+- T046 full callsign -> operator-name lookup;
+- T047 color UI and 2-pixel separator;
+- T048 compact daily transcript logging and safe note mode.
 
-Trainer modes remain intentionally out of scope. USB MSC remains a MiniShell
-system responsibility. Full standalone Mini-CW feature parity is not a migration
-goal.
+The Mini-CW Keyer-mode application is therefore in operational field shape for
+this milestone. Trainer modes remain intentionally out of scope. USB MSC remains
+a MiniShell system responsibility. Full standalone Mini-CW feature parity is not
+a migration goal.
 
 
 ## Explicitly out of scope after migration
