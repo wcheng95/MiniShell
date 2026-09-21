@@ -7,14 +7,15 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active task
 
 ```text
-T039-adv-display-dirty-present.md  READY
+T040-keyer-unified-transcript.md  READY
 ```
 
-T038 K6 is COMPLETE and hardware validated. T039 is READY: optimize the shared ADV Display provider so present redraws only dirty rows/runs, then restore normal live Keyer display refresh during automatic TX while retaining the hardware-proven pop-free speaker behavior.
+T038 K6 is COMPLETE. T039 is BREAK after multiple hardware attempts failed to eliminate the remaining Keyer speaker pop. T040 is READY: simplify the normal Keyer screen to a unified six-line transmitted/decoded text transcript and make the M1-M5 overlay close immediately after selection.
 
-Recently completed:
+Recently completed / closed:
 
 ```text
+T039-adv-display-dirty-present.md   BREAK — pop remained through dirty-row and continuous-tone experiments
 T038-keyer-k6-field-ui.md         COMPLETE — K6 field UI/settings + hardware acceptance
 T027-nonstandard-tx.md           COMPLETE — V2-compatible hash/type-4 TX
 T028-rx-message-order.md         COMPLETE — controller-owned RX priority/SNR order
