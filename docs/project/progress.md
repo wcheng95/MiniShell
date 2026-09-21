@@ -292,4 +292,4 @@ ported the pinned Mini-CW continuous-audio architecture below a generic MiniShel
 capability; hardware validation passed with both paddle and automatic M1 clean and pop-free,
 matching standalone Mini-CW. T044A is persistence only with an explicit audio freeze. T044B UTC/time is deferred until T044A hardware acceptance. T045 GPS is optional where useful, followed by T046 final Keyer-mode parity.
 
-T046 Mini-CW callsign lookup     READY — streaming is hardware-proven, but 192-row truncation is rejected; full-table MiniShell-Memory correction required
+T046 Mini-CW callsign lookup     COMPLETE — full V1.2 callsign table loads through MiniShell Memory with no truncation; ADV hardware lookup/audio/header/clearing/exit accepted
