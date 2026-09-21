@@ -50,6 +50,13 @@ Reference transcript behavior is in `components/app_core/app_core.c` and
 
 No PR and no hardware testing by Codex.
 
+## Architect revision — 2026-09-21
+
+- Persisted line format is compact `HHMM <transcript>`.
+- Keep the V1.2 1024-byte per-minute buffer.
+- Both ASCII apostrophe (`'`) and double quote (`"`) toggle note mode.
+- Successful note entry/exit inserts literal `**` delimiters around the note text.
+
 ## Transcript format
 
 Each finalized minute record is compact:
@@ -213,15 +220,16 @@ On successful entry:
 
 1. save the current runtime `keyer_key_out_mode_t`;
 2. save current runtime Mute;
-3. mark annotation mode active;
+3. mark note mode active;
 4. set runtime KeyOut to `KEYER_KEY_OUT_OFF`;
 5. set runtime Mute to `false` / `OFF`;
 6. append opening `**` to the ordinary transcript stream.
 
 The existing header naturally shows `OFF` for KeyOut.
 
-While active, ordinary supported keyboard characters/macros continue through the
-normal Mini-CW TX/text path. Therefore:
+Immediately after successful entry, append literal `**` to the transcript
+buffer. While active, ordinary supported keyboard characters/macros continue
+through the normal Mini-CW TX/text path. Therefore:
 
 - they are added to the transcript exactly like ordinary TX text;
 - local CW sidetone remains audible because Mute is OFF;
@@ -234,12 +242,12 @@ No other special annotation record or metadata is added.
 The temporary `KeyOut=OFF` must **never** become the persisted KeyOut setting.
 
 The persistence snapshot must continue to represent the saved logical KeyOut
-while annotation mode is active, or persistence must otherwise explicitly ignore
+while note mode is active, or persistence must otherwise explicitly ignore
 this temporary overlay.
 
 Mute is currently runtime-only but must still be restored exactly.
 
-Any normal KeyOut/Mute UI change while annotation mode is active must not defeat
+Any normal KeyOut/Mute UI change while note mode is active must not defeat
 the OFF/OFF safety overlay. It is acceptable to reject/ignore those two changes
 while the overlay is active.
 
@@ -254,7 +262,7 @@ KeyOut:
 1. cancel M1 repeat state;
 2. cancel pending TX;
 3. clear the TX FIFO;
-4. stop any active annotation Tone/playback through the existing clean cancel/stop
+4. stop any active note Tone/playback through the existing clean cancel/stop
    path;
 5. ensure KeyOut is released while it is still OFF.
 
@@ -285,7 +293,7 @@ Mini-CW app/domain
   owns:
   - transcript semantics
   - minute grouping
-  - annotation-mode state and save/restore policy
+  - note-mode state, `**` delimiters and save/restore policy
   - when a finalized record is safe to persist
 
 Mini-CW storage service
@@ -319,7 +327,7 @@ Do not implement:
 - QSO list/view UI;
 - CAT/frequency discovery;
 - automatic band inference;
-- separate annotation records;
+- separate note records;
 - logging for trainer modes;
 - runtime log viewer/editor;
 - log deletion/rotation policy.
@@ -370,7 +378,7 @@ Prove:
 - app-end cleanup has no live queued allocations;
 - no filesystem append occurs inside Tone enqueue/hold/timing callbacks.
 
-### Annotation shortcut
+### Note shortcut
 
 Prove at minimum:
 
