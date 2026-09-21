@@ -7,7 +7,7 @@
 - ADV application resolution is `compiled-in > /flash/apps/<app>.elf > /sd/apps/<app>.elf`.
 - Public MiniShell API generation is v3 and exposes App, System, Console, Memory, Filesystem, Time/Location, Display, Input, Audio, and Digital I/O.
 - Architecture cleanup C0-C4 is complete.
-- K1 runtime ELF, K2 Digital I/O, K3 Keyer engine, and K4 GPIO KeyIn/KeyOut are complete.
+- K1 runtime ELF, K2 Digital I/O, K3 Keyer engine, and K4 GPIO KeyIn/KeyOut are complete. K5 sidetone is implemented/transport-validated; T038/K6 field UI, keyboard TX, memories and persistent settings is READY.
 - MiniFT8 AutoSeq AS-0..AS-8 is complete.
 - MiniFT8 live Linux/QMX RX is working continuously across consecutive FT8 slots. T018 makes bare Linux `ft8` the validated operator command: ADV presentation plus live `alsa:hw:2,0` QMX RX by default.
 - MiniFT8 live Cardputer ADV/QMX USB-host RX is fully hardware-validated at 240 MHz with the V2-compatible `time_osr=2, freq_osr=1` engine profile: live decode, consecutive slots, initial late attach, repeated FT8 lifecycle, provider continuity, and post-FT8 `usbmsc` all pass.
@@ -167,6 +167,7 @@ K2 MiniShell Digital I/O      COMPLETE
 K3 portable Keyer engine      COMPLETE
 K4 GPIO KeyIn/KeyOut          COMPLETE
 K5 sidetone                   IMPLEMENTED / TRANSPORT HARDWARE-VALIDATED
+T038 / K6 field UI/settings    READY
 ```
 
 The controller keeps orchestration in `app_controller`:
@@ -181,7 +182,7 @@ app_controller ---+--> keyout ------> MiniShell Digital I/O
                   `--> sidetone ----> MiniShell Audio TX
 ```
 
-K5 software is implemented; T009/T010 provide ADV Audio TX transport hardware evidence. K6 UI/settings and K7 audible/operator field acceptance remain future work.
+K5 software is implemented; T009/T010 provide ADV Audio TX transport hardware evidence. T038 is the active K6 task: dedicated 20x7 UI, keyboard/message TX, M1-M5, corrected SKS/SKM/OFF KeyOut modes, shortcuts and immediate persistence. K7 audible/operator field acceptance follows after K6 acceptance.
 
 Default ADV deployment remains:
 
