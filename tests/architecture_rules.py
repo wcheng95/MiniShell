@@ -81,6 +81,9 @@ APP_RULES = {
             "keyin": ("src/keyin",),
             "keyout": ("src/keyout",),
             "sidetone": ("src/sidetone",),
+            "ui_shell": ("src/ui_shell",),
+            "ui_adapter": ("src/ui_adapter",),
+            "tx_engine": ("src/tx_engine",),
         },
         "private_headers": {},
         "forbidden_source_patterns": {},
@@ -92,13 +95,16 @@ APP_RULES = {
             "shared": {"shared", "keyer_engine"},
             "app_controller": {
                 "app_controller", "shared", "config_service",
-                "keyer_engine", "keyin", "keyout", "sidetone",
+                "keyer_engine", "keyin", "keyout", "sidetone", "ui_shell", "ui_adapter", "tx_engine",
             },
             "config_service": {"config_service", "shared"},
             "keyer_engine": {"keyer_engine"},
             "keyin": {"keyin", "shared"},
             "keyout": {"keyout", "shared"},
             "sidetone": {"sidetone"},
+            "ui_shell": {"ui_shell", "shared"},
+            "ui_adapter": {"ui_adapter", "ui_shell"},
+            "tx_engine": {"tx_engine", "shared"},
         },
     },
 }
@@ -110,8 +116,9 @@ APP_RULES["ft8"]["api_modules"] = {
     "main", "app_controller", "storage_service", "log_service", "rx_audio_adapter", "radio_control",
 }
 APP_RULES["keyer"]["api_modules"] = {
-    "main", "app_controller", "config_service", "keyin", "keyout", "sidetone",
+    "main", "app_controller", "config_service", "keyin", "keyout", "sidetone", "ui_adapter",
 }
+APP_RULES["keyer"]["no_heap_modules"] = {"keyer_engine", "ui_shell", "tx_engine"}
 # The standalone host decoder reads a host WAV; it is not a runtime app.
 # Only its fopen call is exempt, not the tools directory or other platform rules.
 APP_RULES["ft8"]["native_exceptions"] = {"tools/ft8_decode.c": {"fopen"}}

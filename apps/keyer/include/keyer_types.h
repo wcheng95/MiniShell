@@ -21,15 +21,19 @@ typedef enum {
 } keyer_key_in_mode_t;
 
 typedef enum {
-    KEYER_KEY_OUT_PADDLE = 0,
-    KEYER_KEY_OUT_PADDLE_R,
-    KEYER_KEY_OUT_SK,
-    KEYER_KEY_OUT_SK_M,
+    KEYER_KEY_OUT_SKS = 0,
+    KEYER_KEY_OUT_SKM,
     KEYER_KEY_OUT_OFF,
 } keyer_key_out_mode_t;
 
 typedef struct {
     uint8_t wpm;
+    uint8_t volume;
+    uint8_t repeat_s;
+    uint8_t tx_delay_s;
+    uint8_t tune_timeout_s;
+    bool mute;
+    char messages[5][96];
     bool sidetone_enabled;
     uint16_t sidetone_hz;
     keyer_engine_paddle_mode_t paddle_mode;

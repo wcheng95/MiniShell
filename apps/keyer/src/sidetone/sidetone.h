@@ -19,12 +19,15 @@ typedef struct {
     uint32_t phase_step_q16;
     uint16_t gain_q8;
     bool streaming;
+    uint8_t volume;
+    bool mute;
 } sidetone_t;
 
 mini_result_t sidetone_open(sidetone_t *sidetone,
                             const mini_audio_api_t *audio,
                             bool enabled,
                             uint32_t pitch_hz);
+void sidetone_settings(sidetone_t *sidetone, uint32_t hz, uint8_t volume, bool mute);
 mini_result_t sidetone_apply(sidetone_t *sidetone, bool key_down);
 bool sidetone_streaming(const sidetone_t *sidetone);
 void sidetone_close(sidetone_t *sidetone);

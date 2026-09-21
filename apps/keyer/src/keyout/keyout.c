@@ -47,7 +47,7 @@ static mini_result_t apply_levels(keyout_t *keyout,
 
 static mini_result_t apply_idle(keyout_t *keyout)
 {
-    if (keyout->mode == KEYER_KEY_OUT_SK_M) {
+    if (keyout->mode == KEYER_KEY_OUT_SKM) {
         return apply_levels(keyout, KEYOUT_RELEASE_LEVEL, KEYOUT_ACTIVE_LEVEL);
     }
     return apply_levels(keyout, KEYOUT_RELEASE_LEVEL, KEYOUT_RELEASE_LEVEL);
@@ -65,6 +65,7 @@ mini_result_t keyout_open(keyout_t *keyout,
         return MINI_ERR_INVALID;
     }
 
+    if ((unsigned)config->key_out_mode > KEYER_KEY_OUT_OFF) return MINI_ERR_INVALID;
     clear_keyout(keyout);
     keyout->digital_io = digital_io;
     keyout->mode = config->key_out_mode;
@@ -106,60 +107,27 @@ mini_result_t keyout_apply(keyout_t *keyout,
                            keyer_engine_element_t element,
                            keyer_engine_input_mode_t input_mode)
 {
-    bool tip_active = false;
-    bool ring_active = false;
-
+    (void)element;
+    (void)input_mode;
     if (keyout == NULL) return MINI_ERR_INVALID;
     if (keyout->mode == KEYER_KEY_OUT_OFF) return MINI_OK;
     if (keyout->digital_io == NULL || keyout->tip == MINI_DIGITAL_IO_INVALID ||
         keyout->ring == MINI_DIGITAL_IO_INVALID) return MINI_ERR_NOT_READY;
-
-    if (!key_down) return apply_idle(keyout);
-
-    if (input_mode == KEYER_ENGINE_INPUT_STRAIGHT) {
-        switch (keyout->mode) {
-        case KEYER_KEY_OUT_PADDLE:
-        case KEYER_KEY_OUT_PADDLE_R:
-        case KEYER_KEY_OUT_SK:
-        case KEYER_KEY_OUT_SK_M:
-            tip_active = true;
-            ring_active = true;
-            break;
-        case KEYER_KEY_OUT_OFF:
-        default:
-            break;
-        }
-    } else {
-        switch (keyout->mode) {
-        case KEYER_KEY_OUT_PADDLE:
-            tip_active = element == KEYER_ENGINE_ELEMENT_DIT;
-            ring_active = element == KEYER_ENGINE_ELEMENT_DAH;
-            break;
-        case KEYER_KEY_OUT_PADDLE_R:
-            tip_active = element == KEYER_ENGINE_ELEMENT_DAH;
-            ring_active = element == KEYER_ENGINE_ELEMENT_DIT;
-            break;
-        case KEYER_KEY_OUT_SK:
-        case KEYER_KEY_OUT_SK_M:
-            tip_active = true;
-            ring_active = true;
-            break;
-        case KEYER_KEY_OUT_OFF:
-        default:
-            break;
-        }
-    }
-
-    return apply_levels(keyout,
-                        tip_active ? KEYOUT_ACTIVE_LEVEL : KEYOUT_RELEASE_LEVEL,
-                        ring_active ? KEYOUT_ACTIVE_LEVEL : KEYOUT_RELEASE_LEVEL);
+    return apply_levels(keyout, key_down ? 0u : 1u,
+                        key_down || keyout->mode == KEYER_KEY_OUT_SKM ? 0u : 1u);
 }
 
 mini_result_t keyout_release(keyout_t *keyout)
 {
     if (keyout == NULL) return MINI_ERR_INVALID;
     if (keyout->mode == KEYER_KEY_OUT_OFF || keyout->digital_io == NULL) return MINI_OK;
-    return apply_levels(keyout, KEYOUT_RELEASE_LEVEL, KEYOUT_RELEASE_LEVEL);
+    /* Attempt both releases even if one line reports an error. A failed write
+     * need not establish a trustworthy cached hardware level. */
+    mini_result_t tip = keyout->digital_io->write(keyout->tip, KEYOUT_RELEASE_LEVEL);
+    mini_result_t ring = keyout->digital_io->write(keyout->ring, KEYOUT_RELEASE_LEVEL);
+    if (tip == MINI_OK) keyout->tip_level = KEYOUT_RELEASE_LEVEL;
+    if (ring == MINI_OK) keyout->ring_level = KEYOUT_RELEASE_LEVEL;
+    return tip != MINI_OK ? tip : ring;
 }
 
 void keyout_close(keyout_t *keyout)

@@ -25,6 +25,7 @@ static mini_audio_format_t s_format;
 static mini_result_t s_result;
 static bool s_zero;
 static uint32_t s_accepted;
+static int16_t s_peak;
 
 static mini_result_t fake_open(const char *endpoint, const mini_audio_format_t *format,
                                mini_audio_stream_t *out_stream)
@@ -64,6 +65,9 @@ static mini_result_t fake_write(mini_audio_stream_t stream, const void *frames,
     const int16_t *samples = (const int16_t *)frames;
     for (uint32_t i = 0u; i < accepted; ++i) {
         if (samples[i] != 0) ++s_nonzero_this_apply;
+        int amplitude = samples[i] < 0 ? -(int)samples[i] : samples[i];
+        CHECK(amplitude <= 12000);
+        if (amplitude > s_peak) s_peak = (int16_t)amplitude;
     }
     s_accepted += accepted;
     *out_frames = accepted;
@@ -181,6 +185,24 @@ int main(void)
     CHECK(s_abort_calls == 0u);
     CHECK(s_close_calls == 1u);
 
+    const uint8_t volumes[] = {0, 1, 50, 99};
+    for (unsigned v = 0; v < 4; ++v) {
+        reset_fake(); s_peak = 0;
+        CHECK(sidetone_open(&sidetone, &AUDIO, true, 700u) == MINI_OK);
+        sidetone_settings(&sidetone, 700u, volumes[v], false);
+        for (unsigned i = 0; i < 8; ++i) CHECK(sidetone_apply(&sidetone, true) == MINI_OK);
+        CHECK(sidetone.gain_q8 == 256);
+        CHECK(s_peak == 12000 * volumes[v] / 99);
+        CHECK(s_open_calls == 1 && s_start_calls == 1);
+        sidetone_settings(&sidetone, 999u, volumes[v], true);
+        s_nonzero_this_apply = 0;
+        CHECK(sidetone_apply(&sidetone, true) == MINI_OK);
+        CHECK(!s_nonzero_this_apply && sidetone.gain_q8 == 256);
+        sidetone_settings(&sidetone, 300u, volumes[v], false);
+        for (unsigned i = 0; i < 6; ++i) CHECK(sidetone_apply(&sidetone, false) == MINI_OK);
+        CHECK(sidetone.gain_q8 == 0);
+        sidetone_close(&sidetone);
+    }
     puts("keyer_k5_sidetone_test: PASS");
     return 0;
 }

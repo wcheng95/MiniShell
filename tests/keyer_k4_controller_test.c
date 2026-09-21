@@ -18,6 +18,11 @@ static uint32_t s_mode[64];
 static uint32_t s_level[64];
 static uint64_t s_now_us;
 static bool s_q_sent;
+static unsigned scenario, input_index;
+static uint64_t final_release;
+static char saved[1024], temporary[1024];
+static unsigned write_position;
+static bool fail_save;
 static bool s_saw_key_down;
 static char s_console[1024];
 static size_t s_console_len;
@@ -37,9 +42,11 @@ static void fake_console_write(const char *text)
 
 static mini_result_t fake_fs_open(const char *path, uint32_t flags, mini_file_t *out_file)
 {
-    (void)path;
-    (void)flags;
     if (out_file != NULL) *out_file = MINI_FILE_INVALID;
+    if (flags & MINI_FS_WRITE) {
+        CHECK(!strcmp(path, "/flash/keyer/setting.tmp"));
+        *out_file = 1; write_position = 0; temporary[0] = 0; return MINI_OK;
+    }
     return MINI_ERR_NOT_FOUND;
 }
 
@@ -74,12 +81,27 @@ static mini_result_t fake_key_read(mini_key_event_t *out_event, uint32_t timeout
 {
     (void)timeout_ms;
     if (out_event == NULL) return MINI_ERR_INVALID;
-    if (!s_q_sent && s_now_us >= 300000u) {
+    if (scenario && input_index == 0) {
+        ++input_index;
+        out_event->type = (scenario == 1 || scenario == 3) ? MINI_KEY_EVENT_SPECIAL : MINI_KEY_EVENT_CHAR;
+        out_event->key = MINI_KEY_TAB; out_event->codepoint = scenario == 4 ? 'T' : ']'; out_event->modifiers = 0;
+        return MINI_OK;
+    }
+    if (scenario == 4 && input_index == 1 && s_now_us >= 1000) {
+        ++input_index; out_event->type = MINI_KEY_EVENT_SPECIAL;
+        out_event->key = MINI_KEY_ENTER; out_event->modifiers = 0; return MINI_OK;
+    }
+    if (scenario && input_index == (scenario == 4 ? 2u : 1u) && s_now_us >= 180000) {
+        ++input_index;
+        out_event->type = MINI_KEY_EVENT_CHAR; out_event->codepoint = 'q'; out_event->modifiers = 0;
+        return MINI_OK;
+    }
+    if (!s_q_sent && s_now_us >= (scenario == 1 ? 400000u : 300000u)) {
         out_event->struct_size = sizeof(*out_event);
         out_event->type = MINI_KEY_EVENT_CHAR;
-        out_event->codepoint = (uint32_t)'q';
+        out_event->codepoint = (uint32_t)'c';
         out_event->key = 0u;
-        out_event->modifiers = 0u;
+        out_event->modifiers = MINI_MOD_CTRL;
         s_q_sent = true;
         return MINI_OK;
     }
@@ -108,7 +130,9 @@ static mini_result_t fake_dio_read(mini_digital_io_t line, uint32_t *out_level)
     if (id >= 64u || !s_opened[id]) return MINI_ERR_BAD_HANDLE;
 
     if (id == 13u) {
-        *out_level = s_now_us < 10000u ? 0u : 1u;
+        if (scenario == 3) *out_level = 1;
+        else if (scenario == 4) *out_level = s_now_us >= 10000 && s_now_us < 20000 ? 0u : 1u;
+        else *out_level = scenario == 1 ? (s_now_us >= 100000 && s_now_us < 110000 ? 0u : 1u) : (s_now_us < 10000u ? 0u : 1u);
     } else if (id == 15u) {
         *out_level = 1u;
     } else {
@@ -123,6 +147,7 @@ static mini_result_t fake_dio_write(mini_digital_io_t line, uint32_t level)
     if (line == MINI_DIGITAL_IO_INVALID || level > 1u) return MINI_ERR_INVALID;
     id = line - 1u;
     if (id >= 64u || !s_opened[id]) return MINI_ERR_BAD_HANDLE;
+    if (id == 3 && s_level[id] == 0 && level == 1) final_release = s_now_us;
     s_level[id] = level;
     if ((id == 3u || id == 6u) && level == 0u) s_saw_key_down = true;
     return MINI_OK;
@@ -143,11 +168,29 @@ static const mini_console_api_t CONSOLE = {
     .write = fake_console_write,
 };
 
+static mini_result_t fake_fs_write(mini_file_t f, const void *b, uint32_t n, uint32_t *w)
+{
+    CHECK(f == 1 && write_position + n < sizeof(temporary));
+    memcpy(temporary + write_position, b, n); write_position += n;
+    temporary[write_position] = 0; *w = n; return MINI_OK;
+}
+static mini_result_t fake_fs_sync(mini_file_t f) { CHECK(f == 1); return MINI_OK; }
+static mini_result_t fake_fs_mkdir(const char *p) { (void)p; return MINI_ERR_EXISTS; }
+static mini_result_t fake_fs_remove(const char *p) { (void)p; return MINI_OK; }
+static mini_result_t fake_fs_rename(const char *a, const char *b)
+{
+    (void)a; CHECK(!strcmp(b, "/flash/keyer/setting.txt"));
+    if (fail_save) return MINI_ERR_IO;
+    strcpy(saved, temporary); return MINI_OK;
+}
+
 static const mini_fs_api_t FS = {
     .struct_size = sizeof(mini_fs_api_t),
     .open = fake_fs_open,
     .close = fake_fs_close,
     .read = fake_fs_read,
+    .write = fake_fs_write, .sync = fake_fs_sync, .mkdir = fake_fs_mkdir,
+    .rename = fake_fs_rename, .remove_file = fake_fs_remove,
 };
 
 static const mini_time_location_api_t TIME_LOCATION = {
@@ -177,18 +220,39 @@ static const mini_digital_io_api_t DIGITAL_IO = {
     .close = fake_dio_close,
 };
 
+static char screen[7][21];
+static bool decoded_seen, save_failed_seen, saved_seen;
+static mini_result_t display_info(mini_text_display_info_t *i)
+{ i->columns = 20; i->rows = 7; return MINI_OK; }
+static mini_result_t display_clear(void) { return MINI_OK; }
+static mini_result_t display_write(uint32_t r, uint32_t c, const char *s, uint32_t n, uint32_t attr)
+{
+    (void)attr; CHECK(r < 7 && c == 0 && n == 20);
+    memcpy(screen[r], s, n); screen[r][20] = 0;
+    if (strstr(screen[r], "Save failed")) save_failed_seen = true;
+    if (strstr(screen[r], "Saved")) saved_seen = true;
+    if (r > 0 && r < 6 && strchr(screen[r], 'E')) decoded_seen = true;
+    return MINI_OK;
+}
+static const mini_text_display_api_t TEXT = {
+    .get_info = display_info, .clear = display_clear, .write_at_attr = display_write,
+};
+static const mini_display_api_t DISPLAY = {.text = &TEXT, .present = display_clear};
 static const mini_api_t API = {
     .api_version = MINISHELL_API_VERSION,
     .struct_size = sizeof(mini_api_t),
     .console = &CONSOLE,
+    .display = &DISPLAY,
     .fs = &FS,
     .time_location = &TIME_LOCATION,
     .input = &INPUT,
     .digital_io = &DIGITAL_IO,
 };
 
-int main(void)
+static void run_scenario(unsigned which)
 {
+    scenario = which; input_index = 0; final_release = 0; decoded_seen = false;
+    save_failed_seen = saved_seen = false;
     memset(s_opened, 0, sizeof(s_opened));
     memset(s_mode, 0, sizeof(s_mode));
     for (size_t i = 0u; i < 64u; ++i) s_level[i] = 1u;
@@ -206,14 +270,32 @@ int main(void)
 
     CHECK(app_controller_run() == 0);
     CHECK(s_saw_key_down);
-    CHECK(s_level[3] == 1u && s_level[6] == 1u);
-    CHECK(strstr(s_console, "E") != NULL);
+    CHECK(s_level[3] == (scenario == 3 ? 0u : 1u) && s_level[6] == s_level[3]);
+    CHECK(decoded_seen == (scenario != 3));
+    if (scenario == 4) CHECK(final_release == 70000);
+    CHECK(strcmp(screen[0], scenario == 2 ? "--:-- Pdl SKS 21 V80" : "--:-- Pdl SKS 20 V80") == 0);
+    if (scenario == 1) {
+        CHECK(final_release == 160000); /* Tune preempted by physical dit. */
+        CHECK(s_now_us == 400000); /* Bare q did not exit. */
+        CHECK(screen[6][0] == 'Q');
+    }
+    if (scenario == 2) {
+        CHECK(save_failed_seen == fail_save && saved_seen != fail_save);
+        if (!fail_save) CHECK(strstr(saved, "wpm=21\n") != NULL);
+    }
+    CHECK(strstr(s_console, "<BS>") == NULL);
 
     app_controller_shutdown();
     CHECK(!s_opened[13] && !s_opened[15]);
     CHECK(!s_opened[3] && !s_opened[6]);
     CHECK(s_level[3] == 1u && s_level[6] == 1u);
 
+}
+int main(void)
+{
+    run_scenario(0); run_scenario(1); run_scenario(2); run_scenario(3); run_scenario(4);
+    char old[1024]; strcpy(old, saved); fail_save = true; run_scenario(2);
+    CHECK(!strcmp(old, saved));
     puts("keyer_k4_controller_test: PASS");
     return 0;
 }

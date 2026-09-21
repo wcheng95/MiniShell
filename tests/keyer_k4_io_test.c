@@ -22,6 +22,8 @@ typedef struct {
 } fake_line_t;
 
 static fake_line_t s_lines[64];
+static uint32_t fail_write_line;
+static unsigned releases[64];
 
 static mini_result_t fake_open(const mini_digital_io_config_t *config,
                                mini_digital_io_t *out_line)
@@ -53,6 +55,8 @@ static mini_result_t fake_write(mini_digital_io_t line, uint32_t level)
     if (line == MINI_DIGITAL_IO_INVALID || level > 1u) return MINI_ERR_INVALID;
     id = line - 1u;
     if (id >= 64u || !s_lines[id].opened) return MINI_ERR_BAD_HANDLE;
+    if (level == 1) ++releases[id];
+    if (id == fail_write_line) { fail_write_line = 0; return MINI_ERR_IO; }
     s_lines[id].level = level;
     return MINI_OK;
 }
@@ -82,6 +86,8 @@ static const mini_digital_io_api_t DIGITAL_IO = {
 static void reset_fake(void)
 {
     memset(s_lines, 0, sizeof(s_lines));
+    memset(releases, 0, sizeof(releases));
+    fail_write_line = 0;
     for (size_t i = 0u; i < 64u; ++i) s_lines[i].level = 1u;
 }
 
@@ -98,7 +104,7 @@ static void test_defaults(void)
     CHECK(config.wpm == 20u);
     CHECK(config.key_in_mode == KEYER_KEY_IN_PADDLE);
     CHECK(config.paddle_mode == KEYER_ENGINE_PADDLE_IAMBIC_A);
-    CHECK(config.key_out_mode == KEYER_KEY_OUT_SK);
+    CHECK(config.key_out_mode == KEYER_KEY_OUT_SKS);
     CHECK(config.key_in_tip_line == 13u);
     CHECK(config.key_in_ring_line == 15u);
     CHECK(config.key_out_tip_line == 3u);
@@ -171,30 +177,16 @@ static void test_keyout_sk_and_release(void)
     CHECK(s_lines[3].level == 1u && s_lines[6].level == 1u);
 }
 
-static void test_keyout_paddle_and_reverse(void)
+static void test_keyout_off(void)
 {
     keyout_t keyout;
     keyer_config_t config = default_config();
-
     reset_fake();
-    config.key_out_mode = KEYER_KEY_OUT_PADDLE;
+    config.key_out_mode = KEYER_KEY_OUT_OFF;
     CHECK(keyout_open(&keyout, &DIGITAL_IO, &config) == MINI_OK);
-    CHECK(keyout_apply(&keyout, true, KEYER_ENGINE_ELEMENT_DIT,
-                       KEYER_ENGINE_INPUT_PADDLE) == MINI_OK);
-    CHECK(s_lines[3].level == 0u && s_lines[6].level == 1u);
-    CHECK(keyout_apply(&keyout, false, KEYER_ENGINE_ELEMENT_DIT,
-                       KEYER_ENGINE_INPUT_PADDLE) == MINI_OK);
-    CHECK(keyout_apply(&keyout, true, KEYER_ENGINE_ELEMENT_DAH,
-                       KEYER_ENGINE_INPUT_PADDLE) == MINI_OK);
-    CHECK(s_lines[3].level == 1u && s_lines[6].level == 0u);
-    keyout_close(&keyout);
-
-    reset_fake();
-    config.key_out_mode = KEYER_KEY_OUT_PADDLE_R;
-    CHECK(keyout_open(&keyout, &DIGITAL_IO, &config) == MINI_OK);
-    CHECK(keyout_apply(&keyout, true, KEYER_ENGINE_ELEMENT_DIT,
-                       KEYER_ENGINE_INPUT_PADDLE) == MINI_OK);
-    CHECK(s_lines[3].level == 1u && s_lines[6].level == 0u);
+    CHECK(!s_lines[3].opened && !s_lines[6].opened);
+    CHECK(keyout_apply(&keyout, true, KEYER_ENGINE_ELEMENT_DAH, KEYER_ENGINE_INPUT_PADDLE) == MINI_OK);
+    CHECK(s_lines[3].level == 1 && s_lines[6].level == 1);
     keyout_close(&keyout);
 }
 
@@ -204,7 +196,7 @@ static void test_keyout_straight_and_sk_m(void)
     keyer_config_t config = default_config();
 
     reset_fake();
-    config.key_out_mode = KEYER_KEY_OUT_PADDLE;
+    config.key_out_mode = KEYER_KEY_OUT_SKS;
     CHECK(keyout_open(&keyout, &DIGITAL_IO, &config) == MINI_OK);
     CHECK(keyout_apply(&keyout, true, KEYER_ENGINE_ELEMENT_NONE,
                        KEYER_ENGINE_INPUT_STRAIGHT) == MINI_OK);
@@ -212,7 +204,8 @@ static void test_keyout_straight_and_sk_m(void)
     keyout_close(&keyout);
 
     reset_fake();
-    config.key_out_mode = KEYER_KEY_OUT_SK_M;
+    config.key_out_mode = KEYER_KEY_OUT_SKM;
+    config.mute = true; config.volume = 0; /* Audio policy never suppresses KeyOut. */
     CHECK(keyout_open(&keyout, &DIGITAL_IO, &config) == MINI_OK);
     CHECK(s_lines[3].level == 1u && s_lines[6].level == 0u);
     CHECK(keyout_apply(&keyout, true, KEYER_ENGINE_ELEMENT_DIT,
@@ -222,12 +215,32 @@ static void test_keyout_straight_and_sk_m(void)
     CHECK(s_lines[3].level == 1u && s_lines[6].level == 1u);
 }
 
+static void test_errors(void)
+{
+    reset_fake(); keyer_config_t config = default_config(); keyout_t out;
+    config.key_out_mode = KEYER_KEY_OUT_SKM;
+    config.mute = true; config.volume = 0; /* Audio policy never suppresses KeyOut. */
+    CHECK(keyout_open(&out, &DIGITAL_IO, &config) == MINI_OK);
+    CHECK(keyout_apply(&out, true, KEYER_ENGINE_ELEMENT_DIT, KEYER_ENGINE_INPUT_PADDLE) == MINI_OK);
+    fail_write_line = 3;
+    CHECK(keyout_release(&out) == MINI_ERR_IO);
+    CHECK(releases[3] && releases[6] && s_lines[6].level == 1);
+    keyout_close(&out);
+    CHECK(s_lines[3].level == 1 && s_lines[6].level == 1);
+    CHECK(!s_lines[3].opened && !s_lines[6].opened);
+    reset_fake(); fail_write_line = 6;
+    CHECK(keyout_open(&out, &DIGITAL_IO, &config) == MINI_ERR_IO);
+    CHECK(!s_lines[3].opened && !s_lines[6].opened);
+    CHECK(s_lines[3].level == 1 && s_lines[6].level == 1);
+}
+
 int main(void)
 {
+    test_errors();
     test_defaults();
     test_keyin_modes();
     test_keyout_sk_and_release();
-    test_keyout_paddle_and_reverse();
+    test_keyout_off();
     test_keyout_straight_and_sk_m();
     puts("keyer_k4_io_test: PASS");
     return 0;

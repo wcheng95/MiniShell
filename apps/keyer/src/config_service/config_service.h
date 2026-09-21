@@ -11,6 +11,7 @@ extern "C" {
 
 #define KEYER_SETTING_PATH "/flash/keyer/setting.txt"
 
+mini_result_t config_service_save(const mini_api_t *api, const keyer_config_t *config);
 void config_service_defaults(keyer_config_t *config);
 mini_result_t config_service_load(const mini_api_t *api,
                                   keyer_config_t *config,

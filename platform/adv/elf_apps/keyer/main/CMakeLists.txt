@@ -2,6 +2,7 @@ get_filename_component(MINISHELL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../.."
 
 idf_component_register(
     SRCS
+        "${MINISHELL_ROOT}/apps/keyer/main/keyer_util.c"
         "${MINISHELL_ROOT}/apps/keyer/main/keyer_main.c"
         "${MINISHELL_ROOT}/apps/keyer/src/app_controller/app_controller.c"
         "${MINISHELL_ROOT}/apps/keyer/src/config_service/config_service.c"
@@ -10,6 +11,9 @@ idf_component_register(
         "${MINISHELL_ROOT}/apps/keyer/src/keyin/keyin.c"
         "${MINISHELL_ROOT}/apps/keyer/src/keyout/keyout.c"
         "${MINISHELL_ROOT}/apps/keyer/src/sidetone/sidetone.c"
+        "${MINISHELL_ROOT}/apps/keyer/src/ui_shell/ui_shell.c"
+        "${MINISHELL_ROOT}/apps/keyer/src/ui_adapter/ui_adapter.c"
+        "${MINISHELL_ROOT}/apps/keyer/src/tx_engine/tx_engine.c"
     INCLUDE_DIRS
         "${MINISHELL_ROOT}/include"
         "${MINISHELL_ROOT}/apps/keyer/include"
@@ -19,6 +23,9 @@ idf_component_register(
         "${MINISHELL_ROOT}/apps/keyer/src/keyin"
         "${MINISHELL_ROOT}/apps/keyer/src/keyout"
         "${MINISHELL_ROOT}/apps/keyer/src/sidetone"
+        "${MINISHELL_ROOT}/apps/keyer/src/ui_shell"
+        "${MINISHELL_ROOT}/apps/keyer/src/ui_adapter"
+        "${MINISHELL_ROOT}/apps/keyer/src/tx_engine"
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Werror -Wpedantic)

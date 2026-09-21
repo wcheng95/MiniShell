@@ -24,6 +24,8 @@ static void clear_sidetone(sidetone_t *sidetone)
     sidetone->phase_step_q16 = 0u;
     sidetone->gain_q8 = 0u;
     sidetone->streaming = false;
+    sidetone->volume = 99u;
+    sidetone->mute = false;
 }
 
 static uint32_t phase_step_for_hz(uint32_t pitch_hz)
@@ -47,7 +49,8 @@ static mini_result_t write_block(sidetone_t *sidetone, bool key_down)
 
         uint32_t index = (sidetone->phase_q16 >> 11) & 31u;
         int32_t sample = (int32_t)SINE_32[index] * (int32_t)sidetone->gain_q8;
-        frames[i] = (int16_t)(sample >> 8);
+        sample = (sample >> 8) * sidetone->volume / 99;
+        frames[i] = sidetone->mute ? 0 : (int16_t)sample;
         sidetone->phase_q16 = (sidetone->phase_q16 + sidetone->phase_step_q16) & 0xffffu;
     }
 
@@ -147,4 +150,11 @@ void sidetone_close(sidetone_t *sidetone)
     (void)sidetone->tx->stop(sidetone->stream);
     (void)sidetone->tx->close(sidetone->stream);
     clear_sidetone(sidetone);
+}
+
+void sidetone_settings(sidetone_t *sidetone, uint32_t hz, uint8_t volume, bool mute)
+{
+    sidetone->phase_step_q16 = phase_step_for_hz(hz);
+    sidetone->volume = volume > 99u ? 99u : volume;
+    sidetone->mute = mute;
 }

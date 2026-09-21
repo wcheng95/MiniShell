@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -759,39 +759,39 @@ Do not change FT8 behavior.
 
 ## Acceptance criteria
 
-- [ ] dedicated 20x7 Keyer screen owns Display during app execution;
-- [ ] top row is exactly `HH:MM KIN KOUT WW Vnn` using UTC;
-- [ ] KeyIn labels are Pdl/PdR/SkT/SkR;
-- [ ] KeyOut is only SKS/SKM/OFF;
-- [ ] SKS/SKM electrical behavior matches this task;
-- [ ] shutdown always releases both KeyOut lines;
-- [ ] rows 1-5 show bounded decoded history and follow tail;
-- [ ] row 6 shows unsent TX tail or temporary status;
-- [ ] ordinary printable keys are available for CW TX;
-- [ ] Ctrl+C exits safely;
-- [ ] Opt toggles Operation;
-- [ ] Fn+Up/Down wraps O1/O2/O3;
-- [ ] [ and ] adjust WPM and persist;
-- [ ] { and } adjust volume and persist;
-- [ ] Alt+1..5 selects M1-M5;
-- [ ] Tab Tune works with timeout;
-- [ ] backtick cancels keyboard/message TX;
-- [ ] Enter bypasses TxDelay;
-- [ ] Backspace edits only unsent TX tail;
-- [ ] physical KeyIn cancels queued/active automatic TX and wins immediately;
-- [ ] keyboard/message Morse timing is nonblocking and 1/3/1/3/7 correct;
-- [ ] M1 repeat behavior works and cancellation rules are tested;
-- [ ] O1/O2/O3 editing works at 20 columns;
-- [ ] all exposed settings persist immediately;
-- [ ] persistence includes GPIO line IDs and does not destroy wiring settings;
-- [ ] safe save failure cannot corrupt prior valid settings;
-- [ ] legacy key_out=SK and SK-M load as SKS/SKM;
-- [ ] volume is portable PCM scaling, no public Audio API change;
-- [ ] K3 engine timing/decoder regressions remain unchanged;
-- [ ] K4/K5 GPIO/sidetone tests remain passing;
-- [ ] external ADV ELF retains only `mini_api_get` resident import;
-- [ ] no MiniShell resident Keyer semantics added;
-- [ ] real ADV `keyer.elf` builds.
+- [x] dedicated 20x7 Keyer screen owns Display during app execution;
+- [x] top row is exactly `HH:MM KIN KOUT WW Vnn` using UTC;
+- [x] KeyIn labels are Pdl/PdR/SkT/SkR;
+- [x] KeyOut is only SKS/SKM/OFF;
+- [x] SKS/SKM electrical behavior matches this task;
+- [x] shutdown always releases both KeyOut lines;
+- [x] rows 1-5 show bounded decoded history and follow tail;
+- [x] row 6 shows unsent TX tail or temporary status;
+- [x] ordinary printable keys are available for CW TX;
+- [x] Ctrl+C exits safely;
+- [x] Opt toggles Operation;
+- [x] Fn+Up/Down wraps O1/O2/O3;
+- [x] [ and ] adjust WPM and persist;
+- [x] { and } adjust volume and persist;
+- [x] Alt+1..5 selects M1-M5;
+- [x] Tab Tune works with timeout;
+- [x] backtick cancels keyboard/message TX;
+- [x] Enter bypasses TxDelay;
+- [x] Backspace edits only unsent TX tail;
+- [x] physical KeyIn cancels queued/active automatic TX and wins immediately;
+- [x] keyboard/message Morse timing is nonblocking and 1/3/1/3/7 correct;
+- [x] M1 repeat behavior works and cancellation rules are tested;
+- [x] O1/O2/O3 editing works at 20 columns;
+- [x] all exposed settings persist immediately;
+- [x] persistence includes GPIO line IDs and does not destroy wiring settings;
+- [x] safe save failure cannot corrupt prior valid settings;
+- [x] legacy key_out=SK and SK-M load as SKS/SKM;
+- [x] volume is portable PCM scaling, no public Audio API change;
+- [x] K3 engine timing/decoder regressions remain unchanged;
+- [x] K4/K5 GPIO/sidetone tests remain passing;
+- [x] external ADV ELF retains only `mini_api_get` resident import;
+- [x] no MiniShell resident Keyer semantics added;
+- [x] real ADV `keyer.elf` builds.
 
 ## Automated tests
 
@@ -979,23 +979,168 @@ No stuck GPIO, speaker ownership, display ownership, or observable leak.
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
+Implemented against architect baseline `b93463a077f7b9fb7e844cd6280e1321e4d86749`
+on `codex/T038-keyer-k6-field-ui`. Local software validation completed 2026-09-20.
+No hardware testing was performed.
 
 ### Implementation summary
 
+- Added a bounded, pure 20x7 UI with UTC/placeholder header, 64-row decoded
+  history, FIFO/status tail, Opt Operation pages, numeric/choice/message editors,
+  modifier-aware shortcuts, and Ctrl+C exit. The Display/Input adapter translates
+  public events and updates only changed display rows; the controller owns all
+  orchestration. Ordinary Q/O/digits remain TX input.
+- Added an independent monotonic automatic TX scheduler: 511 editable queued
+  characters, uppercase normalization, Morse 1/3/1/3/7 timing, inactivity TxDelay,
+  Enter bypass, atomic M1–M5 append, M1 repeat, and latched Tune/timeout. A started
+  character leaves the editable FIFO; Backspace cannot alter it. Physical input
+  cancels automatic TX/repeat/Tune before manual output arbitration.
+- Only SKS/SKM/OFF output policies remain. SK/SK-M configuration aliases migrate
+  in memory; old Paddle/PaddleR KeyOut settings fail validation. Shutdown attempts
+  both line releases even when one reports an error.
+- Added volume/mute PCM scaling without Audio TX reopen or hardware-volume changes.
+- Added full canonical settings serialization through MiniShell Filesystem:
+  `setting.tmp` write -> sync -> close -> rename to `setting.txt`. Every committed
+  menu/shortcut setting calls the writer, preserving GPIO IDs and all other fields.
+  Memory values preserve printable text, including leading/trailing spaces and `=`.
+- Mini-CW reference inspected at `3bfbf169b7c2d49a1be3e9a4c80f945edb32033e`:
+  README Keyer manual, UI history/settings, keyer-service interface and TX scheduler.
+  T038 overrides its monolithic/platform-dependent design and old output/UI policies.
+
 ### Files changed
+
+- `apps/keyer/include/keyer_types.h`, `keyer_text.h`: K6 fields and bounded text helpers.
+- `apps/keyer/src/ui_shell/*`, `ui_adapter/*`, `tx_engine/*`: new portable UI,
+  Display/Input adapter and independent automatic scheduler.
+- `apps/keyer/src/app_controller/app_controller.c`: foreground coordination,
+  arbitration, UTC/display, settings commits and cleanup.
+- `apps/keyer/src/config_service/*`, `keyout/keyout.c`, `sidetone/*`: persistence,
+  output correction and application PCM scaling.
+- `apps/keyer/main/keyer_util.c`: self-contained compiler copy/zero helpers for ELF.
+- `platform/adv/elf_apps/keyer/main/CMakeLists.txt`: external application sources only.
+- `tests/keyer_k6_{tx,ui,config}_test.c`, existing K4/K5 tests,
+  `tests/unit/CMakeLists.txt`, `tests/architecture_rules.py`: focused regressions and
+  explicit module ownership/purity enforcement.
+- `apps/keyer/README.md` and this packet: usage and handoff evidence.
 
 ### Invariants preserved
 
+- No public API/version change; no resident Keyer concepts or resident production
+  source changes. FT8, USB ownership/LEVEL1/FIFO, UAC buffers, WebFS and Wi-Fi untouched.
+- `keyer_engine/*`, K3 tests and `keyin/*` unchanged. K3 remains the physical timing
+  and gesture decoder. Automatic TX does not feed or mutate it.
+- Existing 48-frame/48 kHz sidetone transport, 20 ms write timeout, sine DDS and
+  short envelope remain. Volume/mute never gate logical KeyOut.
+- One existing foreground task; no platform calls or heap allocation added to Keyer.
+  Existing 16 KiB ADV application stack unchanged.
+- Only `mini_api_get` remains a resident ELF import. No new export table entries.
+- K4 tests were narrowly migrated from removed Paddle KeyOut/Q-exit/Console decode
+  expectations to the architect's SKS/SKM/OFF/Ctrl+C/Display contract. Physical
+  input mapping, output release and K5 transport checks remain covered.
+
 ### Memory / size evidence
+
+Real ESP-IDF ADV builds, same SDK/toolchain/configuration before and after.
+Baseline ELF confirmed to contain the original K5 controller, before edits.
+Measurements: `wc -c`, `xtensa-esp32s3-elf-size -A`, and
+`xtensa-esp32s3-elf-readelf -rW`.
+
+| Artifact / section | Baseline bytes | K6 bytes | Delta |
+| --- | ---: | ---: | ---: |
+| Resident `minishell_adv.bin` | 1,375,776 | 1,375,776 | 0 |
+| Resident `.iram0.text` | 63,959 | 63,959 | 0 |
+| Resident `.dram0.data` | 27,000 | 27,000 | 0 |
+| Resident `.dram0.bss` | 38,864 | 38,864 | 0 |
+| Sum of those static internal-SRAM sections | 129,823 | 129,823 | 0 |
+| External `keyer.app.elf` file | 11,940 | 22,800 | +10,860 |
+| External `.text` | 7,233 | 15,238 | +8,005 |
+| External `.rodata` | 1,028 | 1,429 | +401 |
+| External `.data.rel.ro` | 328 | 676 | +348 |
+| External `.bss` | 444 | 3,628 | +3,184 |
+
+Resident heap-start address is unchanged at `1070219088`; all resident allocated
+section sizes are unchanged. External application sections are loaded only for its
+lifetime; these are static ELF measurements, not hardware heap measurements.
+Final relocation table contains exactly one `R_XTENSA_JMP_SLOT`, `mini_api_get`.
+The expected readelf warning about the loader-stripped `.dynamic` section does
+not affect the relocation-table check.
 
 ### Local tests run
 
+All final gates passed:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 74/74 PASS
+
+cmake -S tests/unit -B /tmp/T038-build-unit
+cmake --build /tmp/T038-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T038-build-unit --output-on-failure
+# 18/18 PASS
+
+ctest --test-dir /tmp/T038-build-unit -R 'keyer|api_audio' --output-on-failure
+# 8/8 PASS: K3, K4 I/O/controller, K5, three K6 suites, Audio API
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R 'audio|Audio' --output-on-failure
+# 5/5 PASS: Linux audio, ADV TX timeout, Linux discontinuity, RX6 adapter, UAC buffer
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . keyer
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . keyer
+# all PASS
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+idf.py -C platform/adv/elf_apps/keyer fullclean
+idf.py -C platform/adv/elf_apps/keyer elf
+# resident build and clean external ELF build PASS
+
+xtensa-esp32s3-elf-readelf -rW platform/adv/elf_apps/keyer/build/keyer.app.elf
+# asserted exactly one JMP_SLOT, mini_api_get
+
+git diff --check
+# PASS
+```
+
+Focused tests cover exact headers/all mode labels, history wrap/gestures, status
+expiry, modifiers/page navigation/edit commit/cancel, FIFO capacity and unsupported
+atomic rejection, Morse durations/gaps/WPM, TxDelay reset/bypass, memory repeat and
+all cancellation sources, Tune/timeout, safe persistence failures at open/write/
+zero-progress/sync/close/rename, full round-trip/max messages/wiring, legacy aliases,
+and volume 0/1/50/99/mute/envelope bounds. Controller scenarios verify physical
+preemption of active keyboard TX and Tune, Ctrl+C during Tune, ordinary Q text,
+actual shortcut persistence, visible failed-save status, and repeated cleanup.
+
 ### Manual/hardware validation still required
+
+Supervisor review first, then all H1–H7 in this packet using the exact reviewed
+ELF. No installation, radio keying, electrical measurement, or hardware acceptance
+was attempted. Display/settings I/O responsiveness, CW timing under UI activity,
+audible envelope/volume, power-cycle persistence, and flash/SD repeated ELF
+lifecycle remain hardware checks.
 
 ### Known limitations / risks
 
+- Save failure intentionally retains the runtime setting, reports `Save failed`
+  plus a diagnostic, and keeps the prior file. It does not claim persistence or
+  retry in the background; a later commit retries the full current configuration.
+- Unsupported Morse characters reject the whole append. Memory editing permits
+  printable ASCII, so a stored unsupported character produces `Unsupported char`
+  when that memory is selected rather than silently changing its text.
+- Tune is the task-permitted latched implementation. M1's repeat interval starts
+  when its last element completes; repeats bypass a second TxDelay. Initial memory
+  selection uses the same inactivity delay as ordinary typing.
+- Filesystem sync/rename and Display presentation use existing synchronous public
+  APIs in the foreground loop. Hardware responsiveness/timing and power-loss
+  behavior remain unmeasured; software failure tests do not establish crash atomicity.
+- No architectural deviations or K7 features added.
+
 ### Commit
+
+One implementation commit on `codex/T038-keyer-k6-field-ui`, based on
+`b93463a077f7b9fb7e844cd6280e1321e4d86749`. The exact SHA is supplied in the
+engineer handoff; no PR. T038 remains REVIEW pending supervisor review.
 
 ## Supervisor review
 

@@ -85,6 +85,9 @@ add_executable(keyer_k4_controller_unit
     ../../apps/keyer/src/keyin/keyin.c
     ../../apps/keyer/src/keyout/keyout.c
     ../../apps/keyer/src/sidetone/sidetone.c
+    ../../apps/keyer/src/ui_shell/ui_shell.c
+    ../../apps/keyer/src/ui_adapter/ui_adapter.c
+    ../../apps/keyer/src/tx_engine/tx_engine.c
 )
 target_include_directories(keyer_k4_controller_unit PRIVATE
     ../../include
@@ -95,6 +98,9 @@ target_include_directories(keyer_k4_controller_unit PRIVATE
     ../../apps/keyer/src/keyin
     ../../apps/keyer/src/keyout
     ../../apps/keyer/src/sidetone
+    ../../apps/keyer/src/ui_shell
+    ../../apps/keyer/src/ui_adapter
+    ../../apps/keyer/src/tx_engine
 )
 target_compile_options(keyer_k4_controller_unit PRIVATE
     -Wall -Wextra -Werror -Wpedantic
@@ -122,3 +128,18 @@ add_test(NAME keyer_engine_k3_unit COMMAND keyer_engine_k3_unit)
 add_test(NAME keyer_k4_io_unit COMMAND keyer_k4_io_unit)
 add_test(NAME keyer_k4_controller_unit COMMAND keyer_k4_controller_unit)
 add_test(NAME keyer_k5_sidetone_unit COMMAND keyer_k5_sidetone_unit)
+
+foreach(k6_test tx ui config)
+    add_executable(keyer_k6_${k6_test}_unit
+        ../keyer_k6_${k6_test}_test.c
+        ../../apps/keyer/src/config_service/config_service.c
+        ../../apps/keyer/src/tx_engine/tx_engine.c
+        ../../apps/keyer/src/ui_shell/ui_shell.c
+    )
+    target_include_directories(keyer_k6_${k6_test}_unit PRIVATE
+        ../../include ../../apps/keyer/include
+        ../../apps/keyer/src/config_service ../../apps/keyer/src/keyer_engine
+        ../../apps/keyer/src/tx_engine ../../apps/keyer/src/ui_shell)
+    target_compile_options(keyer_k6_${k6_test}_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+    add_test(NAME keyer_k6_${k6_test}_unit COMMAND keyer_k6_${k6_test}_unit)
+endforeach()
