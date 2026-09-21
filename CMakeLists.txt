@@ -677,7 +677,7 @@ add_test(
             $<TARGET_FILE_DIR:ft8>
 )
 
-foreach(app ft8 keyer)
+foreach(app ft8 keyer minicw)
     add_test(
         NAME architecture_app_${app}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/app_dependency_boundary.py
@@ -843,3 +843,9 @@ target_include_directories(ft8_pending_start_unit PRIVATE include apps/ft8/inclu
 target_compile_options(ft8_pending_start_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 target_link_libraries(ft8_pending_start_unit PRIVATE m)
 add_test(NAME ft8_pending_start_unit COMMAND ft8_pending_start_unit)
+
+include(apps/minicw/sources.cmake)
+add_minishell_app(minicw apps/minicw/main/minicw_main.c ${MINICW_SOURCES})
+target_include_directories(minicw PRIVATE ${MINICW_INCLUDES})
+target_compile_options(minicw PRIVATE -Wall -Wextra -Werror -Wpedantic -fno-builtin)
+include(tests/minicw_tests.cmake)

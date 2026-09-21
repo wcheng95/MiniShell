@@ -1,6 +1,6 @@
 # T042 — Mini-CW Keyer-mode MiniShell foundation
 
-Status: READY
+Status: REVIEW
 
 ## Objective
 
@@ -249,3 +249,180 @@ No PR and no hardware testing by Codex.
 
 Set T042 to REVIEW, push, and return the exact SHA with implementation summary,
 tests, resource evidence and deviations from the pinned Mini-CW source.
+
+## Implementation handoff
+
+Implemented on `codex/T042-minicw-foundation` from
+`1448d6d7cc4ceec18ee3072df979c4255ea864e1`. Commit reference: the single
+implementation commit containing this handoff (exact SHA returned with push).
+
+### Implementation summary and files changed
+
+- Added `apps/minicw/`: pinned Mini-CW `keyer_service` and unchanged
+  `keyer_decoder`, Keyer-only `app_core`/`ui_service`, text `ui_screen`, private
+  MiniShell port, silent audio seam, local allocation-free runtime helpers and
+  source/build documentation. Source provenance and controls are in
+  `apps/minicw/README.md`.
+- Added `platform/adv/elf_apps/minicw/`: external ELF build, pinned elf_loader
+  1.3.3 dependency, local libgcc division helper linkage and data-section padding
+  for the existing section loader. No resident loader changes.
+- Added `tests/minicw_domain_test.c`, `tests/minicw_runtime_test.c`, shared
+  `tests/minicw_tests.cmake`, and `tests/minicw_elf_inspect.py`. Registered the
+  application and tests in root CMake, portable units and architecture rules.
+- Updated this task packet only for the implementation handoff/status.
+
+### Behavior and invariants preserved
+
+The Keyer decoder source/header match the pinned Mini-CW source byte-for-byte:
+
+```text
+keyer_decoder.c SHA256 00bfe7991c43a1aea4a8bbb6b8fdd48f31da19807ab72ad585f237914e986ac3
+keyer_decoder.h SHA256 fbfafcfb545a87a7d1ab86ac4c5cc4722301e74bfd25467848aa1a4562e91441
+```
+
+Preserved Mini-CW's four KeyIn modes, five KeyOut modes (including paddle outputs
+and SK-M), adaptive straight-key timing, Iambic/Bug state machines, consumed
+physical cancel press, bounded automatic FIFO, TxDelay, M1 repeat, Tune timeout,
+settings editors, five-line decoded history, memory overlay and visible TX tail.
+In particular, the pinned source intentionally applies squeeze-release's extra
+element to its **Iambic A** selection rather than B; the port preserves this.
+No behavior was taken from `apps/keyer`.
+
+The pinned, tracked Mini-CW `sdkconfig` specifies `CONFIG_FREERTOS_HZ=100`.
+Private ticks therefore retain 10 ms quantization, integer truncation/minimum
+one-tick delay and 32-bit wrap arithmetic. Time comes exclusively from MiniShell
+`monotonic_us()`; the pinned 5 ms polling request rounds to one 10 ms tick and
+is represented by `sleep_ms(10)`. WPM/gap constants are unchanged.
+
+G13/G15 input pull-ups and G3/G6 active-low open-drain outputs use Digital I/O
+handles only. Ctrl+C exits every view, including active Tune and delayed TX.
+Normal and error cleanup explicitly release both output wires, including SK-M's
+ring, before closing handles. Partial acquisition unwinds previously opened
+handles. Repeated launches reset all application state to reference defaults.
+
+Public API v3, resident code, existing `apps/keyer/**`, `apps/ft8/**`, USB,
+WebFS, Audio providers and firmware configuration are unchanged. There are no
+application tasks/threads, direct platform calls, application heap allocations,
+file access or speaker/Audio acquisition.
+
+### Deliberate T042 differences from the pinned source
+
+- Keyer mode only; compiled defaults and in-session edits. No persistence/logs,
+  OP-table loading, trainer, GPS, clock editing, USB drive or power modes. Opt's
+  mode selector is inactive. Storage/config formats are not introduced.
+- Audio is silent. The private seam preserves finite-tone/hold/busy bookkeeping
+  and the pinned Morse table; it does not synthesize PCM or call MiniShell Audio.
+- Text is mapped to 20x7 normal attributes. The source's white/green/cyan colors
+  and pixel separator have no public text-Display equivalent and are omitted.
+  Unchanged rows need not be written/presented again.
+- Input consumes logical MiniShell events. Raw keyboard release/held state is
+  unavailable: cursor repeats use delivered events, and the source's one-second
+  Backspace-hold clear gesture is not synthesized. Backspace editing, Ctrl menu,
+  Alt overlay, logical arrows/Fn arrows, Enter, Escape/backtick, Tune and mute
+  controls remain. Ctrl+C is the MiniShell application-exit addition.
+- Application startup explicitly resets globals for repeatable launches, and
+  failure cleanup is added around MiniShell resources. The tiny local C runtime
+  avoids resident libc imports; compiler division support is linked locally.
+
+### Tests run and results
+
+All gates passed locally; no hardware testing was performed.
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+# PASS: 78/78
+
+cmake -S tests/unit -B /tmp/T042-unit
+cmake --build /tmp/T042-unit -j8
+ctest --test-dir /tmp/T042-unit --output-on-failure
+# PASS: 20/20
+
+ctest --test-dir build-linux -R minicw --output-on-failure
+# PASS: 4/4 (domain, runtime, dependency, platform)
+ctest --test-dir build-linux -R 'architecture|boundary' --output-on-failure
+# PASS: 11/11
+python3 tests/app_dependency_boundary.py . minicw
+python3 tests/app_platform_boundary.py . minicw
+# PASS; all Mini-CW modules also have no-heap rules
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real ESP32-S3 ADV firmware
+idf.py -C platform/adv/elf_apps/minicw fullclean
+idf.py -C platform/adv/elf_apps/minicw elf
+# PASS: clean external ELF, 1073 build steps
+xtensa-esp32s3-elf-readelf -rW platform/adv/elf_apps/minicw/build/minicw.app.elf
+python3 tests/minicw_elf_inspect.py platform/adv/elf_apps/minicw/build/minicw.app.elf
+# PASS: mini_api_get is the sole resident import; 507 mapped relocations;
+# packed sections retain alignment and entry is in .text
+xtensa-esp32s3-elf-size -A platform/adv/elf_apps/minicw/build/minicw.app.elf
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+
+git diff --check
+# PASS
+```
+
+The upstream ELF packaging strips `.dynamic`; `readelf` emits its corresponding
+missing-section diagnostic while still printing relocations. The independent
+ELF32 inspector reads section/symbol/relocation tables directly and passes.
+The component registry required network access for the first external-target
+configure; the pinned dependency resolved successfully.
+
+Focused coverage includes all reference Morse characters and special gestures;
+Iambic A/B squeeze release; Bug hold; straight tip/ring; swapped paddle inputs;
+all KeyOut modes; final release; physical cancel consumed until release; active
+character protection against Backspace; FIFO bounds; wraparound timing; Tune
+latch/preemption; exact header, physical decoded-history display and preservation
+under Alt; M1 selection/repeat/cancel; WPM and message editing; mute/Tune UI;
+MiniShell monotonic/sleep use; Ctrl+C during Tune and TxDelay; repeated launches;
+partial Digital I/O acquisition and read/write/Display/sleep error cleanup.
+
+### Resource evidence
+
+Toolchain: ESP-IDF v5.5.4 environment, Xtensa GCC 14.2.0.
+Artifact: `platform/adv/elf_apps/minicw/build/minicw.app.elf`, deployed later as
+`minicw.elf` by the architect after review.
+
+| External ELF measurement | Bytes |
+| --- | ---: |
+| File size | 34,724 |
+| `.text` | 23,432 |
+| `.rodata` | 1,272 |
+| `.data` (includes relocated constant pointer tables and padding) | 1,176 |
+| `.bss` | 2,732 |
+| `.eh_frame` | 44 |
+| `.got` | 4 |
+| `.hash` / `.dynsym` / `.dynstr` | 40 / 80 / 38 |
+| `.rela.dyn` / `.rela.plt` | 6,084 / 12 |
+| Sum reported by `size -A` | 34,914 |
+
+The existing section loader requests 23,432 executable bytes plus 5,180 data
+bytes, **28,612 bytes total**, excluding allocator/loader bookkeeping, temporary
+ELF file storage and the existing foreground stack. This is code/section-derived
+accounting, not an on-device heap measurement. The app creates no task or queue,
+uses no application heap allocation and owns four Digital I/O handles while
+running. The existing ADV 16 KiB foreground stack is unchanged.
+
+Both baseline and final real firmware builds produced identical section sizes
+and the identical BIN SHA256
+`acc30c2169628de0ee3a53f501302db1d3d7d7e3a49533a2d6dcafcdfb996b5e`:
+
+| Resident measurement | Baseline | Final | Delta |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,000 | 27,000 | 0 |
+| `.dram0.bss` | 38,864 | 38,864 | 0 |
+| Static internal SRAM change | — | — | **0** |
+| Firmware BIN | 1,375,776 | 1,375,776 | **0** |
+
+### Hardware/manual validation still required and known risks
+
+All eight hardware acceptance steps above remain for the architect after
+supervisor review, including silent physical timing/KeyOut, M1/M2 selection,
+Ctrl+C release and repeated-launch resource observations. No launch or timing
+claim here substitutes for ADV hardware acceptance. Actual dynamic heap/stack
+high-water measurements remain unmeasured. Audio quality is deliberately outside
+T042. The logical-input and monochrome-rendering differences are documented
+above; there are no other intended scope or ownership deviations.

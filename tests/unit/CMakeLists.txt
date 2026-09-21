@@ -143,3 +143,5 @@ foreach(k6_test tx ui config)
     target_compile_options(keyer_k6_${k6_test}_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
     add_test(NAME keyer_k6_${k6_test}_unit COMMAND keyer_k6_${k6_test}_unit)
 endforeach()
+
+include(../minicw_tests.cmake)
