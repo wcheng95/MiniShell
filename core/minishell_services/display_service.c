@@ -74,7 +74,8 @@ static mini_result_t display_write_at_attr(uint32_t row, uint32_t column,
     const minishell_services_port_t *port = minishell_services_port();
     const uint32_t known_attributes = MINI_TEXT_ATTR_INVERSE | MINI_TEXT_ATTR_FG_MASK;
     if ((s_display_api.capabilities & MINI_DISPLAY_CAP_TEXT) == 0u) return MINI_ERR_UNSUPPORTED;
-    if ((attributes & ~known_attributes) != 0u) return MINI_ERR_INVALID;
+    if ((attributes & ~known_attributes) != 0u ||
+        (attributes & MINI_TEXT_ATTR_FG_MASK) > MINI_TEXT_ATTR_FG_RED) return MINI_ERR_INVALID;
     if ((attributes & MINI_TEXT_ATTR_FG_MASK) &&
         !(s_display_api.capabilities & MINI_DISPLAY_CAP_TEXT_COLOR)) return MINI_ERR_UNSUPPORTED;
     if (attributes == MINI_TEXT_ATTR_NONE) {
@@ -99,7 +100,7 @@ static mini_result_t display_set_row_separator(uint32_t row, uint32_t foreground
 {
     const minishell_services_port_t *port = minishell_services_port();
     if (!(s_display_api.capabilities & MINI_DISPLAY_CAP_ROW_SEPARATOR)) return MINI_ERR_UNSUPPORTED;
-    if (foreground & ~MINI_TEXT_ATTR_FG_MASK) return MINI_ERR_INVALID;
+    if ((foreground & ~MINI_TEXT_ATTR_FG_MASK) || foreground > MINI_TEXT_ATTR_FG_RED) return MINI_ERR_INVALID;
     uint32_t columns, rows;
     mini_result_t result = query_geometry(&columns, &rows);
     if (result != MINI_OK) return result;

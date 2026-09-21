@@ -48,6 +48,16 @@ bool ft8_ui_adapter_init(ft8_ui_adapter_t *adapter, const mini_api_t *api,
     return true;
 }
 
+static uint32_t foreground(UiColor color)
+{
+    switch (color) {
+        case UI_COLOR_RED: return MINI_TEXT_ATTR_FG_RED;
+        case UI_COLOR_GREEN: return MINI_TEXT_ATTR_FG_GREEN;
+        case UI_COLOR_DEFAULT: return MINI_TEXT_ATTR_FG_DEFAULT;
+        default: return MINI_TEXT_ATTR_FG_WHITE;
+    }
+}
+
 bool ft8_ui_adapter_render(const ft8_ui_adapter_t *adapter, const UiFrame *frame)
 {
     if (adapter == NULL || frame == NULL || adapter->text == NULL || adapter->display == NULL) {
@@ -61,11 +71,25 @@ bool ft8_ui_adapter_render(const ft8_ui_adapter_t *adapter, const UiFrame *frame
         return false;
     }
 
-    if (adapter->text->clear() != MINI_OK) return false;
+    const mini_text_display_api_t *text = adapter->text;
+    const uint64_t caps = adapter->display->capabilities;
+    const bool color = (caps & MINI_DISPLAY_CAP_TEXT_COLOR) &&
+        text->struct_size >= FIELD_END(mini_text_display_api_t, write_at_attr) && text->write_at_attr;
+    const bool separator = (caps & MINI_DISPLAY_CAP_ROW_SEPARATOR) &&
+        text->struct_size >= FIELD_END(mini_text_display_api_t, set_row_separator) && text->set_row_separator;
+    if (text->clear() != MINI_OK) return false;
     for (uint32_t row = 0u; row < frame->row_count; ++row) {
-        if (adapter->text->write_at(row, 0u, frame->rows[row], frame->column_count) != MINI_OK) {
-            return false;
-        }
+        mini_result_t result = MINI_ERR_UNSUPPORTED;
+        if (color) result = text->write_at_attr(row, 0u, frame->rows[row], frame->column_count,
+                                               foreground(frame->row_color[row]));
+        if (result == MINI_ERR_UNSUPPORTED)
+            result = text->write_at(row, 0u, frame->rows[row], frame->column_count);
+        if (result != MINI_OK) return false;
+    }
+    /* clear() resets decorations, so restore the frame's separator every time. */
+    if (separator && frame->separator_after_top) {
+        mini_result_t result = text->set_row_separator(0u, foreground(frame->separator_color));
+        if (result != MINI_OK && result != MINI_ERR_UNSUPPORTED) return false;
     }
     return adapter->display->present() == MINI_OK;
 }

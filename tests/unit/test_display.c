@@ -12,6 +12,11 @@ static mini_result_t separator(void *ctx, uint32_t row, uint32_t color)
 }
 bool test_display(void)
 {
+    TEST_EQ(MINI_TEXT_ATTR_FG_DEFAULT, 0u);
+    TEST_EQ(MINI_TEXT_ATTR_FG_WHITE, 2u);
+    TEST_EQ(MINI_TEXT_ATTR_FG_GREEN, 4u);
+    TEST_EQ(MINI_TEXT_ATTR_FG_CYAN, 6u);
+    TEST_EQ(MINI_TEXT_ATTR_FG_RED, 8u);
     fake_reset();
     minishell_services_port_t p = fake_full_port();
     minishell_services_configure(&p);
@@ -57,15 +62,17 @@ bool test_display(void)
     minishell_services_configure(&p);
     TEST_CHECK(display->capabilities & MINI_DISPLAY_CAP_TEXT_COLOR);
     TEST_CHECK(display->capabilities & MINI_DISPLAY_CAP_ROW_SEPARATOR);
-    const uint32_t colors[] = {MINI_TEXT_ATTR_FG_WHITE, MINI_TEXT_ATTR_FG_GREEN, MINI_TEXT_ATTR_FG_CYAN};
-    for (unsigned i=0;i<3;++i) {
+    const uint32_t colors[] = {MINI_TEXT_ATTR_FG_WHITE, MINI_TEXT_ATTR_FG_GREEN, MINI_TEXT_ATTR_FG_CYAN, MINI_TEXT_ATTR_FG_RED};
+    for (unsigned i=0;i<4;++i) {
         uint32_t attr = colors[i] | MINI_TEXT_ATTR_INVERSE;
         TEST_EQ(display->text->write_at_attr(0,0,"A",1,attr), MINI_OK);
         TEST_EQ(captured_attr, attr);
         TEST_EQ(display->text->set_row_separator(0,colors[i]), MINI_OK);
         TEST_EQ(captured_separator, colors[i]);
     }
-    TEST_EQ(display->text->write_at_attr(0,0,"A",1,8), MINI_ERR_INVALID);
+    TEST_EQ(display->text->write_at_attr(0,0,"A",1,16), MINI_ERR_INVALID);
+    TEST_EQ(display->text->write_at_attr(0,0,"A",1,5u<<1), MINI_ERR_INVALID);
+    TEST_EQ(display->text->set_row_separator(0,5u<<1), MINI_ERR_INVALID);
     TEST_EQ(display->text->set_row_separator(0,MINI_TEXT_ATTR_INVERSE), MINI_ERR_INVALID);
     TEST_EQ(display->text->set_row_separator(4,0), MINI_ERR_INVALID);
     TEST_EQ(display->text->set_row_separator(1,0), MINI_ERR_UNSUPPORTED);

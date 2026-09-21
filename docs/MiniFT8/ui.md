@@ -296,3 +296,23 @@ MiniShell input event
 ```
 
 The application UI/controller should remain independently unit-testable without requiring a physical display or keyboard.
+
+
+## Optional color status (T049)
+
+MiniFT8 requests a white separator after the top row on every screen. It turns
+red only while physical transmission is active (`app_controller_tx_active()`),
+not for a queued intent or pending slot, and returns white when TX ends/fails.
+The header text stays white. ADV supplies the existing y=19, height=2 region;
+MiniFT8 expresses only a generic row boundary.
+
+On RX, each complete displayed row, including its numeric selection prefix,
+is red for factual `is_to_me`, otherwise green for factual `is_cq`, otherwise
+white. To-me takes precedence if both flags are set. Categories follow the same
+ordered message projection as text, including pagination. Retained rows keep
+their colors during TX. All other screens use white text. No text, ordering,
+selection, classification or RX display lifetime changes.
+
+Color and separators are optional generic Display capabilities. Linux and other
+plain providers retain the existing monochrome text; unsupported optional styling
+falls back without failing MiniFT8 startup or rendering.

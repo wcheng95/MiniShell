@@ -190,7 +190,9 @@ static void success(unsigned poll_ms, unsigned late_ms, unsigned write_us)
     AutoSeqTxIntent intent; assert(auto_seq_prepare_tx_intent(&app.auto_seq,&intent));
     Ft8TxPlan plan; assert(ft8_tx_encode(&intent,&plan)==FT8_TX_ENCODE_OK);
     assert(strcmp(plan.canonical_text,"CQ AG6AQ CM97")==0);
+    UiModel model; app_controller_build_model(&app,&model); assert(!model.tx_active);
     bool changed; assert(app_controller_step_tx(&app,&changed));
+    app_controller_build_model(&app,&model); assert(model.tx_active);
     assert(app.tx.active && !changed && !app_controller_rx_active(&app));
     assert(strcmp(events,"sLBt")==0);
     assert(app.tx.schedule.slot_start_us==anchor && !app.tx.physical_tx_count);
@@ -209,6 +211,7 @@ static void success(unsigned poll_ms, unsigned late_ms, unsigned write_us)
         }
     }
     assert(!app.tx.active && changed && app.tx.physical_tx_count==1 && !app.tx.failed_tx_count);
+    app_controller_build_model(&app,&model); assert(!model.tx_active);
     assert(auto_seq_active_count(&app.auto_seq)==0 && app_controller_rx_active(&app));
     assert(strstr(events,"Ea") && starts==2 && stops==1);
     assert(app.rx->timing_pending);
@@ -268,6 +271,7 @@ static void freshness_and_stalls(void)
 {
     AppController app; setup(&app,true); app.rx->have_applied_batch=false;
     bool changed; assert(app_controller_step_tx(&app,&changed) && !app.tx.active && app.tx.pending && !cat[0]);
+    UiModel projection; app_controller_build_model(&app,&projection); assert(!projection.tx_active);
     now_us=anchor+499000;
     assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
     app.rx->have_applied_batch=true;
@@ -276,6 +280,7 @@ static void freshness_and_stalls(void)
     assert(app_controller_step_tx(&app,&changed) && tone_count<=before+1 && app.tx.schedule.next_tone==19);
     assert(app_controller_step_tx(&app,&changed) && tone_count<=before+1);
     now_us=anchor+2900000; assert(app_controller_step_tx(&app,&changed) && !app.tx.active && app.tx.failed_tx_count==1);
+    app_controller_build_model(&app,&projection); assert(!projection.tx_active);
     assert(auto_seq_active_count(&app.auto_seq)==1); cleanup(&app);
     setup(&app,true); app.rx->have_applied_batch=false;
     assert(app_controller_step_tx(&app,&changed)); now_us=anchor+1000000;
@@ -769,7 +774,14 @@ static void rx_display_order(void)
     for (size_t i=0;i<6;++i) {
         assert(app.rx->display_order[i]==expected[i]);
         assert(strcmp(model.rx_lines[i],original[expected[i]].canonical_text)==0);
+        const RxMessage *message=&original[expected[i]];
+        assert(model.rx_kind[i]==(message->is_to_me?UI_RX_TO_ME:message->is_cq?UI_RX_CQ:UI_RX_NORMAL));
     }
+    /* Projection preserves to-me precedence without changing classification. */
+    bool cq=app.rx->batch.messages[expected[0]].is_cq;
+    app.rx->batch.messages[expected[0]].is_cq=true;
+    app_controller_build_model(&app,&model); assert(model.rx_kind[0]==UI_RX_TO_ME);
+    app.rx->batch.messages[expected[0]].is_cq=cq;
     AutoSeq raw_seq=app.auto_seq;
     for (size_t i=0;i<6;++i) {
         AutoSeqRxEvent event_rx;
@@ -824,6 +836,7 @@ static void rx_display_order(void)
     for (size_t i=0;i<50;++i) {
         char text[32]; snprintf(text,sizeof(text),"row %zu",49-i);
         assert(strcmp(model.rx_lines[i],text)==0);
+        assert(model.rx_kind[i]==UI_RX_CQ);
     }
     select.value.index=49; assert(app_controller_apply_action(&app,&select));
     assert(app.rx->selected_rx_index==0);
@@ -834,6 +847,7 @@ static void rx_display_order(void)
     app_controller_build_model(&app,&model);
     assert(model.rx_count==50 && app.rx->selected_rx_valid);
     assert(memcmp(model.rx_lines,preserved.rx_lines,sizeof(model.rx_lines))==0);
+    assert(memcmp(model.rx_kind,preserved.rx_kind,sizeof(model.rx_kind))==0);
     assert(app_controller_apply_action(&app,&select) && app.rx->selected_rx_index==0);
     assert(app.rx->batch_generation==generation && app.rx->display_generation==generation);
     /* A real replacement changes both order and selection lifetime exactly once. */

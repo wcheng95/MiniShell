@@ -2,7 +2,7 @@
 import pathlib, subprocess, tempfile
 root = pathlib.Path(__file__).resolve().parents[1]
 source = (root/'platform/adv/adv_display.cpp').read_text()
-assert all(word not in source.lower() for word in ('minicw','history','operator'))
+assert all(word not in source.lower() for word in ('minicw','history','operator','ft8','reply'))
 source = source.replace('#include "adv_internal.h"', '#include "minishell/api.h"')
 with tempfile.TemporaryDirectory() as tmp:
     d = pathlib.Path(tmp)
@@ -21,12 +21,18 @@ struct Board { struct Display Display; } M5;
 #include <cassert>
 int main(){
  assert(adv_display_prepare()==0);
- const unsigned attrs[]={MINI_TEXT_ATTR_FG_WHITE,MINI_TEXT_ATTR_FG_GREEN,MINI_TEXT_ATTR_FG_CYAN};
- const unsigned rgb[]={0xffffff,0x00ff00,0x00ffff};
- for(unsigned i=0;i<3;++i){
+ const unsigned attrs[]={MINI_TEXT_ATTR_FG_WHITE,MINI_TEXT_ATTR_FG_GREEN,MINI_TEXT_ATTR_FG_CYAN,MINI_TEXT_ATTR_FG_RED};
+ const unsigned rgb[]={0xffffff,0x00ff00,0x00ffff,0xff0000};
+ for(unsigned i=0;i<4;++i){
   adv_display_text_write_at_attr(nullptr,0,0,"A",1,attrs[i]);
   M5.Display.rects.clear(); M5.Display.colors.clear(); adv_display_present(nullptr);
   assert(M5.Display.colors[0]==rgb[i]);
+  assert(adv_display_set_row_separator(nullptr,0,attrs[i])==MINI_OK);
+  M5.Display.rects.clear(); adv_display_present(nullptr);
+  auto gap=M5.Display.rects[0]; assert(gap.y==19 && gap.h==2 && gap.color==rgb[i]);
+  adv_display_text_write_at_attr(nullptr,0,0,"A",1,attrs[i]|MINI_TEXT_ATTR_INVERSE);
+  M5.Display.rects.clear(); M5.Display.colors.clear(); adv_display_present(nullptr);
+  assert(M5.Display.colors[0]==0 && M5.Display.rects[1].color==rgb[i]);
  }
  assert(adv_display_set_row_separator(nullptr,0,MINI_TEXT_ATTR_FG_GREEN)==MINI_OK);
  M5.Display.rects.clear(); adv_display_present(nullptr);

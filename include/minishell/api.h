@@ -200,11 +200,12 @@ typedef struct {
 
 #define MINI_TEXT_ATTR_NONE     0u
 #define MINI_TEXT_ATTR_INVERSE  (1u << 0)
-#define MINI_TEXT_ATTR_FG_MASK  (3u << 1)
+#define MINI_TEXT_ATTR_FG_MASK  (7u << 1)
 #define MINI_TEXT_ATTR_FG_DEFAULT (0u << 1)
 #define MINI_TEXT_ATTR_FG_WHITE (1u << 1)
 #define MINI_TEXT_ATTR_FG_GREEN (2u << 1)
 #define MINI_TEXT_ATTR_FG_CYAN  (3u << 1)
+#define MINI_TEXT_ATTR_FG_RED   (4u << 1)
 
 typedef struct {
     uint32_t struct_size;

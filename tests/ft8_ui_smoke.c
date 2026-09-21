@@ -345,8 +345,40 @@ static void test_qso_view(void)
     assert(ui.screen == SCREEN_RX && ui.submenu == UI_SUBMENU_NONE);
 }
 
+static void color_status(void)
+{
+    UiShell ui; UiModel model; UiFrame frame, before;
+    set_default_model(&model); ui_shell_init(&ui,FT8_PRESENTATION_ADV);
+    model.rx_count=8;
+    for (unsigned i=0;i<8;++i) {
+        snprintf(model.rx_lines[i],UI_TEXT_CAP,"message %u",i);
+        model.rx_kind[i]=i%3==0?UI_RX_TO_ME:i%3==1?UI_RX_CQ:UI_RX_NORMAL;
+    }
+    ui_shell_render(&ui,&model,&before);
+    assert(before.separator_after_top && before.separator_color==UI_COLOR_WHITE);
+    for(unsigned page=0;page<2;++page) {
+        ui.page_index=page; ui_shell_render(&ui,&model,&frame);
+        for(unsigned row=1;row<7;++row) {
+            unsigned index=page*6+row-1;
+            UiColor expected=index>=8?UI_COLOR_WHITE:index%3==0?UI_COLOR_RED:index%3==1?UI_COLOR_GREEN:UI_COLOR_WHITE;
+            assert(frame.row_color[row]==expected);
+            if(index<8){char expected_text[32];snprintf(expected_text,sizeof(expected_text),"%u message %u",row,index);
+                assert(!strncmp(frame.rows[row],expected_text,strlen(expected_text)));}
+        }
+    }
+    ui.page_index=0; model.tx_active=true; ui_shell_render(&ui,&model,&frame);
+    assert(frame.separator_color==UI_COLOR_RED && frame.row_color[0]==UI_COLOR_WHITE);
+    assert(!memcmp(before.rows,frame.rows,sizeof(frame.rows)) && !memcmp(before.row_color,frame.row_color,sizeof(frame.row_color)));
+    for(Screen screen=SCREEN_TX;screen<=SCREEN_V;screen++) {
+        ui.screen=screen; ui_shell_render(&ui,&model,&frame);
+        assert(frame.separator_after_top && frame.separator_color==UI_COLOR_RED);
+        for(unsigned r=0;r<UI_MAX_ROWS;++r) assert(frame.row_color[r]==UI_COLOR_WHITE);
+    }
+}
+
 int main(void)
 {
+    color_status();
     test_qso_view();
     test_cq_beacon_controls();
     test_profile_contract();

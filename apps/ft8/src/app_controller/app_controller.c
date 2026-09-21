@@ -1385,6 +1385,7 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
     model->skip_tx1 = auto_seq_get_skip_tx1(&app->auto_seq);
     model->max_retry = auto_seq_get_max_retry(&app->auto_seq);
     model->rx_active = app_controller_rx_active(app);
+    model->tx_active = app_controller_tx_active(app);
     build_utc_model(app, model);
 
     if (app->rx != NULL && app->rx->have_batch &&
@@ -1393,7 +1394,10 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
         if (count > APP_MAX_RX_LINES) count = APP_MAX_RX_LINES;
         model->rx_count = count;
         for (i = 0u; i < count; ++i) {
-            copy_ui_text(model->rx_lines[i], app->rx->batch.messages[app->rx->display_order[i]].canonical_text);
+            const RxMessage *message = &app->rx->batch.messages[app->rx->display_order[i]];
+            copy_ui_text(model->rx_lines[i], message->canonical_text);
+            model->rx_kind[i] = message->is_to_me ? UI_RX_TO_ME :
+                                message->is_cq ? UI_RX_CQ : UI_RX_NORMAL;
         }
     }
 
@@ -1423,6 +1427,7 @@ void app_controller_build_memory_model(const AppController *app, UiModel *model)
     model->memory_largest_valid = false;
     model->memory_largest_free_block = 0u;
     model->rx_active = app_controller_rx_active(app);
+    model->tx_active = app_controller_tx_active(app);
 
     if (app == NULL || app->api == NULL || app->api->memory == NULL ||
         app->api->memory->get_info == NULL ||

@@ -190,6 +190,8 @@ static void render_rx(const UiShell *ui, const UiModel *model, UiFrame *frame)
         size_t index = start + (size_t)i;
         if (index < model->rx_count) {
             frame_set(frame, i + 1, "%d %s", i + 1, model->rx_lines[index]);
+            frame->row_color[i + 1] = model->rx_kind[index] == UI_RX_TO_ME ? UI_COLOR_RED :
+                                      model->rx_kind[index] == UI_RX_CQ ? UI_COLOR_GREEN : UI_COLOR_WHITE;
         }
     }
     frame_footer(frame, "R T O S V  1-6 select q quit");
@@ -482,6 +484,9 @@ void ui_shell_render(const UiShell *ui, const UiModel *model, UiFrame *frame)
     frame->column_count = spec.columns;
     frame->row_count = spec.rows;
     frame->has_footer = spec.has_footer;
+    frame->separator_after_top = true;
+    frame->separator_color = model->tx_active ? UI_COLOR_RED : UI_COLOR_WHITE;
+    for (uint32_t r = 0u; r < UI_MAX_ROWS; ++r) frame->row_color[r] = UI_COLOR_WHITE;
     for (uint32_t r = 0u; r < frame->row_count; ++r) frame_set(frame, (int)r, "");
 
     render_top(ui, model, frame);

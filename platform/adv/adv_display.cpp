@@ -33,6 +33,7 @@ uint32_t foreground(uint32_t attr)
     switch (attr & MINI_TEXT_ATTR_FG_MASK) {
     case MINI_TEXT_ATTR_FG_GREEN: return 0x00FF00u;
     case MINI_TEXT_ATTR_FG_CYAN: return 0x00FFFFu;
+    case MINI_TEXT_ATTR_FG_RED: return 0xFF0000u;
     default: return kWhite;
     }
 }
@@ -222,7 +223,7 @@ extern "C" mini_result_t adv_display_set_row_separator(void *ctx, uint32_t row, 
 {
     (void)ctx;
     if (!s_ready) return MINI_ERR_NOT_READY;
-    if (color & ~MINI_TEXT_ATTR_FG_MASK) return MINI_ERR_INVALID;
+    if ((color & ~MINI_TEXT_ATTR_FG_MASK) || color > MINI_TEXT_ATTR_FG_RED) return MINI_ERR_INVALID;
     if (row != 0u) return MINI_ERR_UNSUPPORTED;
     s_separator = color;
     s_console_mode = false;

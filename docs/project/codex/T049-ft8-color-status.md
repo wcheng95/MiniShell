@@ -1,6 +1,6 @@
 # T049 — MiniFT8 TX separator + RX message colors
 
-Status: READY
+Status: REVIEW
 
 ## Baseline
 
@@ -346,3 +346,139 @@ On ADV:
 7. confirm selection, decode, QMX TX/RX, logging and Ctrl+C remain normal.
 
 Return exact implementation SHA and evidence.
+
+## Implementation handoff
+
+Task branch baseline: `d836a57b269aab7fad0f18d047ccb9d7c8859081`, containing
+production baseline `c7ccd911ef79bc5c0f05b7cccba30fe128dc0def`.
+Branch: `codex/T049-ft8-color-status`. Status: **REVIEW**.
+
+### Architect clarification: ELF gate
+
+The architect explicitly directed: **“Use resident ADV build; ELF gate N/A.”**
+MiniFT8 is deliberately resident in this baseline and has no external ELF target,
+as documented in `platform/adv/README.md`. No external FT8 port was added.
+The real ADV firmware build is the FT8 target gate; separate MiniFT8 ELF size and
+import inspection are **not applicable**. This is the only task-gate adjustment.
+
+### Implementation summary / files changed
+
+- `include/minishell/api.h` adds generic RED=8 and widens the foreground mask to
+  14, preserving DEFAULT/WHITE/GREEN/CYAN and INVERSE values. No API version or
+  table/function change. `core/minishell_services/display_service.c` accepts
+  RED plus INVERSE and rejects reserved foreground selectors and unknown bits.
+- `platform/adv/adv_display.cpp` maps RED to `0xFF0000` and validates separator
+  colors. Existing RGB mappings, inverse, black background and geometry remain.
+- `apps/ft8/include/ft8/app_types.h` adds bounded factual RX categories and
+  physical `tx_active` to UiModel, plus row/separator semantic colors to UiFrame.
+- `apps/ft8/src/app_controller/app_controller.c` projects text and category from
+  the same ordered factual RxMessage, with to-me precedence over CQ. Physical
+  state comes directly from `app_controller_tx_active()`.
+- `apps/ft8/src/ui_shell/ui_shell.c` defaults all text to white, colors only RX
+  body rows by category, and requests the global white/red top separator. The
+  numeric row prefix receives its row's color. Text rendering is unchanged.
+- `apps/ft8/main/ft8_ui_adapter.c` discovers optional styling by capability,
+  struct size and callback, maps frame colors to generic attributes, and restores
+  the requested separator after each clear. Missing or UNSUPPORTED styling falls
+  back to plain text/no separator; ordinary errors retain existing failure policy.
+- `tests/unit/test_display.c`, `tests/adv_display_color_test.py`,
+  `tests/ft8_physical_tx_test.c`, `tests/ft8_ui_smoke.c`,
+  `tests/ft8_color_adapter_test.c` and `CMakeLists.txt` provide generic palette,
+  physical-state/projection, UI/paging and optional-provider regression coverage.
+- `docs/api/display-api.md`, `docs/MiniFT8/ui.md` and this task packet document
+  the generic extension, presentation policy and validation evidence.
+
+### Behavior / invariants preserved
+
+No decoder/DSP, factual RX classification, ordering/SNR, selection, retained-row
+lifetime, AutoSeq, CAT/radio timing, 79-tone scheduler, logging, band sync, QSO
+view, Audio or Mini-CW changes. No FT8 policy names are added to the provider.
+Linux still advertises neither optional styling capability and remains plain.
+The existing full-frame comparison detects color/separator transitions without
+changing FT8's event loop. Top-row text stays white on every screen.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+# PASS: 88/88
+cmake -S tests/unit -B /tmp/T049-unit
+cmake --build /tmp/T049-unit -j8
+ctest --test-dir /tmp/T049-unit --output-on-failure
+# PASS: 28/28
+ctest --test-dir build-linux -R 'ft8|display|architecture|boundary|minicw' --output-on-failure
+# PASS: 52/52
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: sequential baseline and implementation builds
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+git diff --check
+# PASS
+```
+
+The ordered-batch regression uses real RxResultBuilder output and verifies
+text/category alignment, to-me precedence when both flags are present, all
+50 projected CQ rows and retained categories across stream reset. Physical-TX
+regressions check queued/pending false, successful begin true, completion false
+and TX failure false in the model. UI tests cover row prefixes, paging, white
+header, global separator and unchanged RX colors across physical TX state.
+Non-RX rows remain white.
+
+Adapter tests cover full styling, color-only, separator-only, ordinary plain,
+UNSUPPORTED callbacks, and a legacy text-table prefix even with capability bits
+present. Each render reestablishes its separator after clear, and shutdown clears
+it. Generic and executable ADV tests preserve numeric palette values and inverse,
+verify RED/WHITE/GREEN/CYAN RGB, separator y=19/height=2 and console reset.
+Existing Mini-CW color/audio/transcript regressions pass unchanged.
+
+Additional differential validation compiled baseline `ui_shell.c` from
+`c7ccd911ef79bc5c0f05b7cccba30fe128dc0def` under renamed entry points alongside
+the current renderer using the same input structures. `/tmp/T049-text` compared
+**6,720 frames** across both presentations, all five screens, all 16 submenu
+values, three pages, seven selections and both physical-TX states. Every text
+byte, row/column count and footer flag matched. Existing exact-header tests pass.
+
+### Resource evidence
+
+ESP-IDF v5.5.4 / Xtensa GCC 14.2.0. Baseline and final firmware measurements were
+rerun sequentially under identical build metadata; an initial overlapping build
+was not used for the baseline resource comparison.
+
+| Resident measure | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Firmware BIN bytes | 1,381,568 | 1,382,016 | +448 |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,016 | 27,016 | 0 |
+| `.dram0.bss` | 40,336 | 40,336 | 0 |
+| Static internal SRAM | 131,311 | 131,311 | **0** |
+| `.flash.text` | 1,052,262 | 1,052,698 | +436 |
+| `.flash.rodata` | 236,788 | 236,788 | 0 |
+
+Xtensa compile-time size probes (`/tmp/T049-size-before.o` and
+`/tmp/T049-size-after.o`) report:
+
+| FT8 presentation object | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| UiModel | 2,848 | 3,048 | +200 |
+| UiFrame | 260 | 300 | +40 |
+
+The main function retains one model and two frames: **+280 bytes** of bounded
+object payload on its existing foreground stack. This is not an on-device stack
+high-water measurement. No stack configuration, DSP profile, dynamic allocation,
+Audio buffer, worker or USB ownership change. MiniFT8 external ELF delta/import
+inspection: **N/A by architect direction**; FT8 is included in the resident
+firmware figures above.
+
+### Remaining validation / risks / commit reference
+
+No PR and no hardware testing by Codex. Supervisor review precedes ADV/QMX
+acceptance: white idle separator, physical-TX-only red separator, correct RX
+row colors, retained rows, selection and normal RX/TX/logging/quit behavior.
+Host tests establish attributes/geometry and state projection, not physical TFT
+appearance or radio acceptance. No new known limitation beyond optional-provider
+monochrome fallback and the measured stack payload increase.
+
+Commit reference: the single implementation commit containing this evidence;
+exact SHA returned after push. Task status: **REVIEW**.

@@ -163,7 +163,7 @@ The text API should remain useful independently of any future graphics sub-API.
 
 `MINI_DISPLAY_CAP_TEXT_COLOR` advertises foreground color support in
 `write_at_attr()`. The `MINI_TEXT_ATTR_FG_MASK` field selects DEFAULT, WHITE,
-GREEN or CYAN using the corresponding `MINI_TEXT_ATTR_FG_*` constants. DEFAULT
+GREEN, CYAN or RED using the corresponding `MINI_TEXT_ATTR_FG_*` constants. DEFAULT
 preserves the provider's existing default text appearance. Colors may be combined
 with INVERSE, which exchanges foreground/background roles. Unknown attribute
 bits return INVALID; a non-default color without the capability returns
@@ -182,9 +182,16 @@ Out-of-grid rows return INVALID. A provider may support only some row boundaries
 unsupported boundaries return UNSUPPORTED. Thickness, placement and physical
 colors belong to the provider. This operation does not alter text or geometry.
 
-ADV advertises both capabilities, maps white/green/cyan to their full-intensity
+ADV advertises both capabilities, maps white/green/cyan/red to their full-intensity
 RGB equivalents on black, and supports only separator-after-row-0 in its existing
 y=19, height=2 gap. Returning to the shell console resets attributes/separator.
 Linux retains its default/inverse text behavior and advertises neither new
 capability. Applications needing optional styling must retain a plain-text path.
 The extension appends a text-table field without changing API version 3.
+
+
+T049 adds RED as `4u << 1` and widens `MINI_TEXT_ATTR_FG_MASK` to `7u << 1`.
+Existing DEFAULT/WHITE/GREEN/CYAN values remain 0/2/4/6; RED is 8. Reserved
+foreground selectors 5–7 and unknown bits return INVALID, including for row
+separators. RED may combine with INVERSE. ADV maps RED to `0xFF0000`; existing
+colors and geometry are unchanged. No API table or version change is introduced.

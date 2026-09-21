@@ -48,6 +48,9 @@ typedef struct {
     } value;
 } AppAction;
 
+typedef enum { UI_RX_NORMAL = 0, UI_RX_CQ, UI_RX_TO_ME } UiRxKind;
+typedef enum { UI_COLOR_DEFAULT = 0, UI_COLOR_WHITE, UI_COLOR_GREEN, UI_COLOR_RED } UiColor;
+
 /* Presentation values keep policy/configuration headers out of ui_shell. */
 typedef enum { UI_CQ, UI_CQ_POTA, UI_CQ_UNAVAILABLE } UiCqType;
 typedef enum { UI_BEACON_OFF, UI_BEACON_EVEN, UI_BEACON_ODD } UiBeaconMode;
@@ -79,10 +82,12 @@ typedef struct {
     bool memory_largest_valid;
     uint64_t memory_largest_free_block;
     bool rx_active;
+    bool tx_active;
 
     QsoPage qso;
 
     char rx_lines[APP_MAX_RX_LINES][UI_TEXT_CAP];
+    UiRxKind rx_kind[APP_MAX_RX_LINES];
     size_t rx_count;
     char tx_lines[APP_MAX_TX_LINES][UI_TEXT_CAP];
     size_t tx_count;
@@ -93,6 +98,9 @@ typedef struct {
     uint32_t row_count;
     bool has_footer;
     char rows[UI_MAX_ROWS][UI_TEXT_CAP];
+    UiColor row_color[UI_MAX_ROWS];
+    bool separator_after_top;
+    UiColor separator_color;
 } UiFrame;
 
 typedef enum {
