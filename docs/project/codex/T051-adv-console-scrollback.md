@@ -27,9 +27,9 @@ output that has already scrolled off the 20x7 display can be reviewed.
 Target behavior:
 
 ```text
-history depth     100 physical 20-column console rows
-Fn + Up           scroll one row older
-Fn + Down         scroll one row newer
+history depth     50 physical 20-column console rows
+Fn + Up           scroll five rows older
+Fn + Down         scroll five rows newer
 live position     newest seven rows
 ```
 
@@ -90,12 +90,12 @@ Use a fixed resident ring. No heap allocation.
 Required capacity:
 
 ```text
-100 rows x 20 characters = 2000 character bytes
+50 rows x 20 characters = 1000 character bytes
 ```
 
 Small fixed bookkeeping/alignment overhead is acceptable.
 
-The 100 rows are **physical console rows**, not logical newline records. Therefore
+The 50 rows are **physical console rows**, not logical newline records. Therefore
 a long line that wraps at column 20 consumes additional history rows exactly as
 the current display console does.
 
@@ -110,7 +110,7 @@ Preserve current console parsing semantics:
 - column 20 wraps to a new row;
 - no ANSI/terminal escape interpreter is introduced.
 
-When row 101 is created, discard only the oldest row.
+When row 51 is created, discard only the oldest row.
 
 ## Viewport semantics
 
@@ -123,8 +123,8 @@ At the live tail:
 
 Scrolling:
 
-- Fn+Up increases the scrollback offset by one row;
-- Fn+Down decreases it by one row;
+- Fn+Up increases the scrollback offset by 5 rows;
+- Fn+Down decreases it by 5 rows;
 - clamp at oldest/newest boundaries; no wraparound;
 - the command edit buffer is untouched;
 - history contents are untouched.
@@ -209,7 +209,7 @@ Console output and shell physical-key handling already execute in the foreground
 resident context. Preserve existing output locking/mirroring behavior; do not
 route scrollback through the public Display service.
 
-Report exact resident static-SRAM delta. Expected order of magnitude is ~2 KiB.
+Report exact resident static-SRAM delta. Expected order of magnitude is ~1 KiB.
 
 ## Tests
 
@@ -221,10 +221,10 @@ Prove:
 
 1. startup/live output up to seven rows matches pre-T051 display behavior;
 2. newline, CR, Backspace and 20-column wrapping match current semantics;
-3. exactly 100 physical rows are retained;
-4. creation of row 101 evicts the oldest only;
+3. exactly 50 physical rows are retained;
+4. creation of row 51 evicts the oldest only;
 5. live viewport shows newest seven rows;
-6. scroll older/newer moves exactly one row;
+6. scroll older/newer moves exactly five rows;
 7. oldest/newest boundaries clamp;
 8. no history mutation occurs while scrolling;
 9. new output from a scrolled position returns to live tail before append;
@@ -276,8 +276,8 @@ No Linux behavior change is expected.
 
 Update `docs/api/console-api.md`:
 
-- replace the old deferred “about 50 lines” note;
-- document implemented ADV 100-row resident scrollback;
+- replace the old deferred “50 lines” note;
+- document implemented ADV 50-row resident scrollback;
 - document Fn+Up/Fn+Down behavior;
 - state that history is private resident-console behavior and not part of the
   application Console API.
@@ -290,8 +290,8 @@ On Cardputer ADV:
 
 1. run `status`; verify newest seven rows display normally;
 2. generate >7 rows, preferably `apps` or another multi-line command;
-3. press Fn+Up repeatedly and inspect older lines;
-4. press Fn+Down and return toward the prompt;
+3. press Fn+Up repeatedly and inspect older lines in 5-row jumps;
+4. press Fn+Down and return toward the prompt in 5-row jumps;
 5. verify oldest/newest boundaries do not wrap;
 6. while scrolled back, type one normal character; display returns to the live
    prompt and the character appears there;
@@ -301,3 +301,16 @@ On Cardputer ADV:
 9. verify normal shell typing, Backspace, Enter and app launching remain normal.
 
 Return exact implementation SHA, changed-file list, tests and resource deltas.
+
+## Architect revision — 2026-09-21
+
+Supersedes the original 100-row / one-row-step draft:
+
+- retain **50 physical 20-column console rows**;
+- Fn+Up moves **5 rows older** per press;
+- Fn+Down moves **5 rows newer** per press;
+- clamp at oldest/newest boundaries;
+- live-tail behavior and all other T051 semantics remain unchanged.
+
+The physical ADV console viewport is seven rows, so a five-row step leaves two
+rows visible in common between adjacent views.
