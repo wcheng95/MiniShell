@@ -6,13 +6,15 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active task
 
-T030-adv-qmx-cat.md              TESTING
+```text
+T038-keyer-k6-field-ui.md      READY
+```
 
-T030 brings QMX CDC CAT to Cardputer ADV using the existing V2-proven composite
-USB-host path. Scope is deliberately narrow: no portable MiniFT8 changes, no
-public API changes, QMX UAC-IN + CDC only, and no USB Audio OUT/QDX work.
-Audio-RX stop/start becomes a logical pause/resume while CDC stays alive for CAT
-TX. Final hardware acceptance is the first real ADV/QMX QSO. R1 `51e45d63` passed supervisor re-review; hardware H1-H7 is now active. First real ADV/QMX MiniFT8-V3 QSO completed with VA7NRC on 20 m; final cleanup/lifecycle checks remain before COMPLETE. Supervisor review of implementation `1837f476` passed except R1 disconnected-start/late first-attach preservation, which must be fixed before hardware validation.
+T038 advances the external ADV Keyer from the working K5 engine/GPIO/sidetone
+baseline to the K6 field application: dedicated 20x7 UI, UTC status row,
+keyboard/message CW TX, M1-M5, corrected SKS/SKM/OFF KeyOut modes, Opt-based
+three-page Operation UI, shortcuts, Tune, volume/mute and immediate persistent
+settings. The proven K3/K4/K5 timing and service boundaries remain protected.
 
 Recently completed:
 
