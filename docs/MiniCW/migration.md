@@ -109,11 +109,10 @@ the standalone Mini-CW reference.
 
 Mini-CW Keyer-mode persistence now uses MiniShell Filesystem. Hardware validation passed with settings persistence working and paddle/M1 audio remaining clean. The resident T043 audio path remained unchanged.
 
-### T044B — UTC/time — DEFERRED
+### T044B — UTC/time — SUBSUMED BY T045
 
-Only after T044A hardware acceptance, decide whether Mini-CW still needs any UTC
-display/use. If needed, read MiniShell Time/Location only; Mini-CW will not own
-RTC/system-clock setting.
+The final Keyer header reads UTC through MiniShell Time/Location. Mini-CW does
+not own RTC/system-clock setting or time persistence.
 
 Battery and sleep are not Mini-CW application responsibilities after migration.
 Use MiniShell's resident/internal `batt` and `sleep` facilities instead.
@@ -156,6 +155,7 @@ lesson mode
 word mode
 callsign mode
 plaintext mode
+GPS
 ```
 
 MiniShell owns system-level utilities such as battery/sleep. Trainer features are
