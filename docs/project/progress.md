@@ -296,4 +296,4 @@ T046 Mini-CW callsign lookup     COMPLETE — full V1.2 table, <base-call>: <nam
 T047 Mini-CW color UI            COMPLETE — V1.2 white/green/cyan text and 2-pixel green separator accepted on ADV; audio and lookup remain clean
 T048 Mini-CW transcript log      COMPLETE — compact daily transcript, whitespace-aware truncation, dual-quote **note** mode and clean audio all accepted on ADV
 T049 MiniFT8 color status         COMPLETE — ADV red/white TX separator and green CQ rows hardware validated; reply-to-me red software-proven and pending only opportunistic on-air observation
-T050 MiniFT8 RX/TX page keys     TESTING — software review passed; brief ADV shortcut acceptance pending
+T050 MiniFT8 RX/TX page keys     COMPLETE — ADV bare ; previous-page and . next-page shortcuts accepted on RX/TX
