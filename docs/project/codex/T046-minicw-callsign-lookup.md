@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: REVIEW
+Status: TESTING
 
 
 ## Hardware correction addendum — 2026-09-21
@@ -1332,3 +1332,22 @@ After supervisor review, hardware validation is limited to the new row text and
 one clear path; prior full-table/audio acceptance remains the baseline.
 Commit reference: the single implementation commit containing this handoff;
 exact SHA returned after push.
+
+
+## Supervisor review — callsign/operator UI refinement
+
+Reviewed implementation commit:
+
+```text
+9cb5cc7ce89efad890305750b72111adfd91acca
+```
+
+No blocker found. Actual diff is limited to Mini-CW keyer/UI/tests/docs. The
+successful lookup now retains the matched base call alongside the operator name,
+all existing clear/reset paths clear the pair together, slash/portable candidates
+display the matched base call, and row-6 formatting is `<base-call>: <name>`.
+The 19-character maximum-width case is covered. Full-table loading, Memory
+ownership, audio/Tone, fixed header and resident code are unchanged.
+
+Hardware validation is limited to confirming the new row text and one existing
+clear path. Prior full-table and audio acceptance remain valid.
