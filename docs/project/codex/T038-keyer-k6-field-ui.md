@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1349,6 +1349,49 @@ artifacts (the reviewed K6 ELF was 22,800 bytes):
 
 One R1 amendment commit on `codex/T038-keyer-k6-field-ui`; its exact SHA is
 returned in the engineer handoff. No PR. T038 is REVIEW.
+
+## Supervisor review — R1
+
+Reviewed R1 commit:
+
+```text
+70595b011cb97f5fe9a025a4d07e9d96cca78605
+```
+
+Result: **PASS — return to ADV hardware TESTING.**
+
+The R1 production delta is narrow and matches the two hardware findings:
+
+- inside an active Operation editor, an arrow event carrying exactly `UI_FN`
+  is normalized to the existing editor direction path; top-level Fn+Up/Down page
+  navigation remains unchanged because that branch executes first;
+- extra modifier combinations such as Fn+Ctrl remain rejected;
+- bare normal-screen `\\` toggles `mute` and returns the existing SAVE action;
+- the controller applies sidetone settings immediately, persists through the
+  existing safe settings writer, and reports `Mute:ON` / `Mute:OFF` only after
+  a successful save;
+- save failure still reports `Save failed`, retains the runtime setting under
+  the established K6 policy, and preserves the previous file;
+- `\\` remains ordinary printable text inside a message-memory editor;
+- K3 engine, automatic TX scheduler, KeyOut, persistence implementation,
+  sidetone transport and public APIs are unchanged.
+
+Focused tests exercise the actual ADV-style `MINI_MOD_FN + arrow` event through
+both UiShell and controller/adapter paths, confirm Paddle persists as IambicB,
+verify both mute-toggle directions and statuses, confirm no `Unsupported char`,
+and cover save failure. Full Linux/unit/architecture/ADV firmware/ELF gates pass.
+
+Resource impact remains external-app only:
+
+```text
+keyer.app.elf  22,952 bytes  (+152 from initial K6)
+resident firmware/SRAM delta 0
+resident import             mini_api_get only
+```
+
+Hardware retest only needs to reconfirm these R1 fixes plus a quick regression
+of the already-good K6 controls before final T038 acceptance.
+
 
 ## Architect test result
 
