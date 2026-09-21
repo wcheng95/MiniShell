@@ -139,17 +139,20 @@ transaction and quiet-save mechanics are unchanged.
 ## Callsign lookup
 
 T046 reads `/flash/minicw/qsocalls.csv` once per launch, after settings reads and
-before Tone opens. No file is created or rewritten. The maximum file payload is
-4,095 bytes. The application retains the first 192 valid `call,name` rows in a
-static table (3,648 BSS bytes), with no heap allocation. Over-capacity input
-shows `Lookup truncated`; unreadable/oversized input leaves an empty table and
+before Tone opens. No file is created or rewritten. Callsign input is streamed with 128-byte read
+and line buffers, with no total file-size limit. The application retains the
+first 192 valid `call,name` rows in a
+static table (3,648 BSS bytes), with no heap allocation. Scanning continues after
+the table is full; a later valid row produces `Lookup truncated`. Open/read/close
+errors or any NUL leave an empty table and
 shows `Lookup unavailable`. Missing files are normal and silent.
 
 An optional `call,name` header, blank lines, and whole-line `#`/`;` comments are
 accepted. Surrounding spaces/tabs are trimmed. Calls have 1–6 alphanumeric ASCII
 characters and normalize to uppercase; names contain 1–11 printable ASCII
 characters and retain case. Extra commas, invalid fields and overlong rows are
-skipped. Duplicate calls retain the first loaded match.
+skipped through the next newline, including when split across reads. LF, CRLF
+and a final line without a newline are supported. Duplicate calls retain the first loaded match.
 
 The existing recognizer, slash/base-call rules, own-call exclusion and 72/73
 clearing are unchanged. Its last matched name appears as `OP:<name>` on row 6

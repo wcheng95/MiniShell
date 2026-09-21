@@ -31,13 +31,57 @@ static void csv_cases(void)
         assert(storage_op_load(entries,&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
     }
     fs_fail=NULL; memset(fs_csv,'X',5000); fs_csv[5000]=0;
-    assert(storage_op_load(entries,&count)==STORAGE_OP_FAILED && count==0);
+    assert(storage_op_load(entries,&count)==STORAGE_OP_OK && count==0);
     memset(fs_csv,'X',200); strcpy(fs_csv+200,"\nK6ABC,Alice\n");
     assert(storage_op_load(entries,&count)==STORAGE_OP_OK && count==1);
     fs_csv[0]=0;
     for (unsigned i=0;i<193;++i) { char line[32]; snprintf(line,sizeof(line),"K%u,N%u\n",i,i); strcat(fs_csv,line); }
     assert(storage_op_load(entries,&count)==STORAGE_OP_TRUNCATED && count==192);
     assert(!strcmp(entries[191].call,"K191") && !strcmp(entries[191].name,"N191"));
+    assert(!fs_writes && !fs_attempts); unbind();
+}
+static void full_database(void)
+{
+    strcpy(fs_csv,"call,name\nK6ABC,Alice\n");
+    for (unsigned i=0;i<812;++i) {
+        char row[32]; snprintf(row,sizeof(row),"K%04u,Person%s\n",i,i<210 ? "X" : "");
+        /* The app's minimal formatter space-pads numeric width: make the
+         * deterministic fixture's calls alphanumeric with explicit zero fill. */
+        for (unsigned j=1;j<5;++j) if (row[j]==' ') row[j]='0';
+        strcat(fs_csv,row);
+    }
+    unsigned lines=0; for (const char *p=fs_csv;*p;++p) if (*p=='\n') ++lines;
+    assert(strlen(fs_csv)==10788 && lines==814); fs_csv_exists=true;
+}
+static void stream_cases(void)
+{
+    bind(); full_database(); size_t count;
+    const unsigned chunks[]={1,2,7,127,128,256};
+    for (unsigned i=0;i<sizeof(chunks)/sizeof(chunks[0]);++i) {
+        fs_read_limit=chunks[i];
+        assert(storage_op_load(entries,&count)==STORAGE_OP_TRUNCATED && count==192);
+        assert(fs_position==10788 && !fs_live && !strcmp(entries[0].name,"Alice"));
+        assert(!strcmp(entries[191].call,"K0190"));
+    }
+    /* Errors/NUL after the stored table is full still invalidate the whole load. */
+    fs_csv_nul_at=6000; assert(storage_op_load(entries,&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
+    fs_csv_nul_at=0; fs_csv_fail_at=6000;
+    assert(storage_op_load(entries,&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
+    fs_csv_fail_at=0; fs_fail="close_read";
+    assert(storage_op_load(entries,&count)==STORAGE_OP_FAILED && count==0 && !fs_live);
+    fs_fail=NULL;
+    /* Split CRLF, malformed lines, overlong lines and final unterminated record. */
+    strcpy(fs_csv,"call,name\r\nK6ABC,Alice\r\nBad\r\n");
+    size_t len=strlen(fs_csv); memset(fs_csv+len,'X',5000);
+    strcpy(fs_csv+len+5000,"\r\nW1XYZ,Bob"); fs_read_limit=1;
+    assert(storage_op_load(entries,&count)==STORAGE_OP_OK && count==2 && !strcmp(entries[1].name,"Bob"));
+    /* Exactly 192 rows followed only by invalid rows is not truncation. */
+    fs_csv[0]=0;
+    for (unsigned i=0;i<192;++i) strcat(fs_csv,"K1A,Name\n");
+    strcat(fs_csv,"bad\nK/1A,Invalid\n");
+    assert(storage_op_load(entries,&count)==STORAGE_OP_OK && count==192);
+    strcat(fs_csv,"K2A,Last");
+    assert(storage_op_load(entries,&count)==STORAGE_OP_TRUNCATED && count==192);
     assert(!fs_writes && !fs_attempts); unbind();
 }
 static const keyer_op_entry_t domain_table[]={
@@ -75,6 +119,7 @@ static void before_csv(void) { assert(!tone_opened); }
 static mini_result_t tone_open_observer(const mini_audio_tone_config_t *c,mini_audio_tone_t *h)
 {
     (void)c; assert(!fs_live && fs_csv_opens==1 && fs_csv_reads && fs_closes==1);
+    assert(fs_position==strlen(fs_csv));
     csv_finished_reads=fs_csv_reads; ++tone_opened; *h=1; return MINI_OK;
 }
 static mini_result_t tone_config(mini_audio_tone_t h,const mini_audio_tone_config_t *c) { (void)c; assert(h==1); return MINI_OK; }
@@ -84,7 +129,12 @@ static mini_result_t tone_busy_observer(mini_audio_tone_t h,uint32_t *out) { *ou
 static mini_result_t input_exit(mini_key_event_t *key,uint32_t timeout)
 {
     (void)timeout; assert(tone_opened==1 && fs_csv_reads==csv_finished_reads && fs_csv_opens==1);
-    lookup("K6ABC ","Alice"); ui_service_refresh(); assert(!strncmp(frame[6],"OP:Alice",8));
+    if (strlen(fs_csv)==10788) {
+        assert(!strncmp(frame[6],"Lookup truncated",16));
+        lookup("K0191 ",""); /* first omitted record */
+    }
+    lookup("K6ABC ","Alice");
+    now_us+=1300000; ui_service_refresh(); assert(!strncmp(frame[6],"OP:Alice",8));
     return ch(key,3);
 }
 static void startup(void)
@@ -93,8 +143,8 @@ static void startup(void)
     mini_audio_api_t audio={.struct_size=sizeof(audio),.capabilities=MINI_AUDIO_CAP_TONE,.tone=&tone};
     mini_key_input_api_t keys={.struct_size=sizeof(keys),.read=input_exit};
     mini_input_api_t in=input_api; in.key=&keys;
-    for (unsigned i=0;i<2;++i) {
-        reset(); strcpy(fs_csv,"K6ABC,Alice\n"); fs_csv_exists=true; fs_before_csv=before_csv;
+    for (unsigned i=0;i<3;++i) {
+        reset(); if (i==2) full_database(); else { strcpy(fs_csv,"K6ABC,Alice\n"); fs_csv_exists=true; } fs_before_csv=before_csv;
         tone_opened=0; api.audio=&audio; api.input=&in;
         assert(minicw_run(&api)==0 && closes==4 && !fs_writes && fs_csv_opens==1 && fs_csv_reads==csv_finished_reads);
     }
@@ -105,4 +155,4 @@ static void startup(void)
     app_core_init(); assert(s_error==MINI_OK && !*keyer_service_get_op_name() && !fs_writes);
     app_core_shutdown(); unbind();
 }
-int main(void) { csv_cases(); domain_and_ui(); startup(); puts("Mini-CW lookup: PASS"); return 0; }
+int main(void) { csv_cases(); stream_cases(); domain_and_ui(); startup(); puts("Mini-CW lookup: PASS"); return 0; }

@@ -1,7 +1,8 @@
 /* In-memory MiniShell FS contract fake: no test bypasses the app's private port. */
-static char fs_destination[8192], fs_temporary[8192], fs_csv[8192];
+static char fs_destination[8192], fs_temporary[8192], fs_csv[16384];
 static bool fs_csv_exists, fs_csv_active;
 static unsigned fs_csv_opens, fs_csv_reads;
+static unsigned fs_csv_nul_at, fs_csv_fail_at;
 static void (*fs_before_csv)(void);
 static bool fs_exists, fs_temp_exists, fs_writing, fs_live;
 static unsigned fs_position, fs_writes, fs_reads, fs_commits, fs_attempts, fs_closes, fs_removes;
@@ -34,12 +35,17 @@ static mini_result_t fs_read(mini_file_t f, void *buf, uint32_t n, uint32_t *got
 {
     assert(f == 77 && fs_live && !fs_writing); ++fs_reads;
     if (fs_failure("read") || (fs_failure("read_late") && fs_reads > 1)) return MINI_ERR_IO;
-    if (fs_csv_active) ++fs_csv_reads;
+    if (fs_csv_active) {
+        ++fs_csv_reads;
+        if (fs_csv_fail_at && fs_position >= fs_csv_fail_at) return MINI_ERR_IO;
+    }
     const char *source = fs_csv_active ? fs_csv : fs_destination;
     size_t left = strlen(source) - fs_position;
     if (n > left) n = (uint32_t)left;
     if (n > fs_read_limit) n = fs_read_limit;
     memcpy(buf, source + fs_position, n);
+    if (fs_csv_active && fs_csv_nul_at && fs_csv_nul_at >= fs_position && fs_csv_nul_at < fs_position+n)
+        ((char *)buf)[fs_csv_nul_at-fs_position]=0;
     if (n && fs_failure("nul")) ((char *)buf)[0] = 0;
     fs_position += n; *got = n; return MINI_OK;
 }
@@ -84,6 +90,6 @@ static void fs_reset(void)
     assert(!fs_live);
     fs_exists = fs_temp_exists = false; fs_destination[0] = fs_temporary[0] = 0;
     fs_writes = fs_reads = fs_commits = fs_attempts = fs_closes = fs_removes = 0;
-    fs_csv_exists = fs_csv_active = false; fs_csv[0] = 0; fs_csv_opens = fs_csv_reads = 0; fs_before_csv = NULL;
+    fs_csv_exists = fs_csv_active = false; fs_csv[0] = 0; fs_csv_opens = fs_csv_reads = fs_csv_nul_at = fs_csv_fail_at = 0; fs_before_csv = NULL;
     fs_fail = NULL; fs_before_save = NULL; fs_read_limit = 7; fs_write_limit = 11;
 }

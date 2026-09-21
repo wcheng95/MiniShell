@@ -26,3 +26,9 @@ bool minicw_port_file_replace(const char *directory, const char *temporary, cons
 
 /* Optional UTC display only; errors never become application failures. */
 bool minicw_port_utc_hm(uint8_t *hour, uint8_t *minute);
+
+/* Opaque, single-owner read stream; the public Filesystem handle stays private. */
+typedef struct minicw_read_stream *minicw_read_stream_t;
+minicw_file_result_t minicw_port_read_open(const char *path, minicw_read_stream_t *out);
+bool minicw_port_read_next(minicw_read_stream_t stream, void *buffer, uint32_t size, uint32_t *read);
+bool minicw_port_read_close(minicw_read_stream_t stream);

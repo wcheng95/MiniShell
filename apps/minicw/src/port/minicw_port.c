@@ -63,6 +63,38 @@ static const mini_fs_api_t *filesystem(void)
         !fs->mkdir || !fs->remove_file || !fs->rename) return NULL;
     return fs;
 }
+struct minicw_read_stream { mini_file_t file; };
+static struct minicw_read_stream s_read_stream;
+minicw_file_result_t minicw_port_read_open(const char *path, minicw_read_stream_t *out)
+{
+    const mini_fs_api_t *fs = filesystem();
+    if (!out) return MINICW_FILE_ERROR;
+    *out = NULL;
+    if (!fs || s_read_stream.file != MINI_FILE_INVALID) return MINICW_FILE_ERROR;
+    mini_file_t file = MINI_FILE_INVALID;
+    mini_result_t result = fs->open(path, MINI_FS_READ, &file);
+    if (result == MINI_ERR_NOT_FOUND) return MINICW_FILE_MISSING;
+    if (result != MINI_OK) return MINICW_FILE_ERROR;
+    s_read_stream.file = file;
+    *out = &s_read_stream;
+    return MINICW_FILE_OK;
+}
+bool minicw_port_read_next(minicw_read_stream_t stream, void *buffer, uint32_t size, uint32_t *read)
+{
+    const mini_fs_api_t *fs = filesystem();
+    if (!read) return false;
+    *read = 0;
+    if (!fs || stream != &s_read_stream || stream->file == MINI_FILE_INVALID) return false;
+    return fs->read(stream->file, buffer, size, read) == MINI_OK && *read <= size;
+}
+bool minicw_port_read_close(minicw_read_stream_t stream)
+{
+    const mini_fs_api_t *fs = filesystem();
+    if (!fs || stream != &s_read_stream || stream->file == MINI_FILE_INVALID) return false;
+    mini_file_t file = stream->file;
+    stream->file = MINI_FILE_INVALID; /* MiniShell close consumes even on error. */
+    return fs->close(file) == MINI_OK;
+}
 minicw_file_result_t minicw_port_file_read(const char *path, char *out, uint32_t capacity)
 {
     const mini_fs_api_t *fs = filesystem();

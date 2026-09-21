@@ -1,6 +1,6 @@
 # T046 — Mini-CW callsign -> operator-name lookup
 
-Status: READY
+Status: REVIEW
 
 
 ## Hardware correction addendum — 2026-09-21
@@ -689,3 +689,146 @@ not establish acoustic acceptance. Any audible regression requires stopping and
 reverting to `golden/minicw-audited-baseline` at
 `00d540baef94c2f5b36511818c9d3f728a909846`; no audio tuning belongs in T046.
 The file and table limits are intentional; edits require a new app launch.
+
+
+## Streaming correction handoff — 2026-09-21
+
+Correction baseline: `974ad089699ca4f2f79667edec29e07c9d22b69b`.
+Branch: `codex/T046-minicw-callsign-lookup`. Commit reference: the single bounded
+correction commit containing this handoff; its exact SHA is returned after push.
+This section supersedes the original handoff's whole-file CSV limit and resource
+figures. The earlier implementation/build history remains above for review.
+
+### Implementation summary / files changed
+
+- `apps/minicw/src/port/minicw_port.{c,h}` adds an opaque, single-owner Mini-CW
+  read-stream pointer and private open/read/close operations. The actual
+  `mini_file_t` remains exclusively inside the port. No public API types or
+  filesystem implementation calls escape the existing boundary. Close consumes
+  the private handle even when MiniShell reports a close failure; every loader
+  exit after successful open closes it. Recoverable file errors are not latched
+  as fatal application errors. The settings whole-file read/replacement helpers
+  and all Tone wrappers are unchanged.
+- `apps/minicw/src/storage_service/storage_service.c` replaces only callsign
+  loading with a 128-byte read buffer and a 128-byte incremental line buffer.
+  Existing row validation is factored into shared line handling for both the
+  in-memory parser and streaming loader. LF/CRLF and records split across any
+  read boundary work, including a final unterminated line. Overlong rows are
+  discarded through the next newline, then parsing resumes. No total file-size
+  bound or byte/line counter limits scanning. The first 192 valid rows remain
+  stored in order; later valid rows set truncation while reading continues to
+  EOF. Any NUL/open/read/close failure returns a zero count, so no partially
+  trusted table is attached. The settings parser/load/save implementation above
+  the callsign code is unchanged.
+- `tests/minicw_fs_fake.h` expands only the host CSV fixture capacity and adds
+  late CSV NUL/I/O fault injection. `tests/minicw_lookup_test.c` adds an exact
+  **10,788-byte / 814-line** deterministic V1.2-schema fixture with runtime size/
+  line-count assertions, varied short-read boundaries, full consumption before
+  Tone, retained/omitted row lookup, and late failure invalidation. The old test
+  expecting a 5,000-byte overlong row to fail the whole load now correctly expects
+  an empty successful table; the row is skipped, not a whole-file size failure.
+  Other malformed-row, load fault, recognition, UI-priority and startup tests
+  remain. `apps/minicw/README.md` documents the corrected streaming policy.
+
+No changes to the 192-entry/3,648-byte table, `app_core`, Keyer recognizer,
+UI/header, persistence quiet-save mechanics, external packaging, resident
+production code, public API or protected audio files. No heap or runtime reload.
+All callsign-file I/O still finishes before the unchanged Tone open path.
+
+### Tests run and results
+
+```sh
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+# PASS: 85/85
+cmake -S tests/unit -B /tmp/T046R-unit
+cmake --build /tmp/T046R-unit -j8
+ctest --test-dir /tmp/T046R-unit --output-on-failure
+# PASS: 27/27
+ctest --test-dir build-linux -R minicw --output-on-failure
+# PASS: 7/7
+ctest --test-dir build-linux -R 'minicw|tone|architecture|boundary' --output-on-failure
+# PASS: 20/20, including dependency/platform/no-heap checks
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real ADV build before/after correction
+idf.py -C platform/adv/elf_apps/minicw fullclean
+idf.py -C platform/adv/elf_apps/minicw elf
+# PASS: clean 1074-step build; existing T046 packaging unchanged
+python3 tests/minicw_elf_inspect.py platform/adv/elf_apps/minicw/build/minicw.app.elf
+# PASS: sole import mini_api_get, 640 mapped relocations, packed alignment valid
+xtensa-esp32s3-elf-size -A platform/adv/build/minishell_adv.elf
+xtensa-esp32s3-elf-size -A platform/adv/elf_apps/minicw/build/minicw.app.elf
+cmp /tmp/T046R-before.bin platform/adv/build/minishell_adv.bin
+# PASS: byte-for-byte identical
+git diff --check
+# PASS
+```
+
+The full-scale fixture consists of one header plus 813 valid data rows. Reads
+capped at 1, 2, 7, 127, 128 and 256 bytes all consume its full 10,788 bytes and
+return `STORAGE_OP_TRUNCATED` with count 192. The production request size remains
+128 bytes. Startup observers verify EOF/read completion and close before Tone
+opens, retain `K6ABC -> Alice`, exclude the first omitted record, and see no
+runtime CSV reopen/read. Late NUL/read errors after byte 6,000 and final-close
+failure each discard the trusted count even after table capacity was reached.
+Exactly 192 valid rows followed by invalid rows returns OK; a subsequent valid
+row returns TRUNCATED. A 5,000-byte bad line followed by a valid unterminated row
+recovers, including one-byte reads and split CRLF. No settings-save assertions
+or audio/recognition expectations were weakened.
+
+### Explicit guards / resource evidence
+
+Compared byte-for-byte against the correction baseline above:
+
+```text
+protected audio diff: NONE (all eight frozen files)
+fixed header / UI:    unchanged (entire ui_service.c)
+app_core:            unchanged
+settings I/O:        unchanged
+resident BIN:        IDENTICAL
+resident SRAM delta: 0 bytes
+sole resident import: mini_api_get
+```
+
+Resident before/after BIN: **1,381,280 bytes**, SHA-256:
+
+```text
+0f2ee25a72e50adefe62c800399366cae0f07a12d7beea32e79e7112e3fb8eff
+```
+
+ESP-IDF v5.5.4 / Xtensa GCC 14.2.0:
+
+| Resident section | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `.iram0.text` | 63,959 | 63,959 | 0 |
+| `.dram0.data` | 27,016 | 27,016 | 0 |
+| `.dram0.bss` | 40,336 | 40,336 | 0 |
+
+| External `minicw.app.elf` | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| File bytes | 44,128 | 44,592 | +464 |
+| `.text` | 30,508 | 30,884 | +376 |
+| `.rodata` | 2,032 | 2,032 | 0 |
+| `.data` | 1,284 | 1,284 | 0 |
+| `.bss` | 6,924 | 6,928 | +4 |
+| Section-loader text + data allocation | 40,748 | 41,128 | +380 |
+
+The operator table remains exactly **3,648 bytes**. External BSS grows only by
+the private 4-byte Filesystem handle. Callsign loading no longer has a 4 KiB
+stack buffer: its bounded working buffers are 128 bytes for reads and 128 bytes
+for line assembly, plus small parser state. Settings retain their proven 4 KiB
+buffer unchanged. No heap, task, stack-size or resident allocation change.
+Other final ELF sections: `.hash` 40, `.dynsym` 80, `.dynstr` 38, `.rela.dyn`
+7,704, `.rela.plt` 12, `.eh_frame` 92, `.got` 4; `size -A` total 49,098.
+
+### Hardware/manual validation still required / risks
+
+No PR or hardware testing was performed. After supervisor review, hardware
+acceptance must repeat with the full 10,788-byte V1.2 file, confirming truncated
+lookup works with retained rows, the fixed header remains intact, and paddle/M1/
+Tune/exit remain clean. CSV scanning is synchronous at startup and intentionally
+has no total-size limit; very large files can extend launch time. Read failure
+or NUL invalidates the table for that launch without preventing local Keyer use.
+No audio tuning or unrelated host-test cleanup was included.

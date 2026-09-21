@@ -173,59 +173,90 @@ bool storage_save(const storage_snapshot_t *snapshot)
     return storage_serialize(snapshot, text, sizeof(text)) && minicw_port_file_replace("/flash/minicw", "/flash/minicw/setting.tmp", "/flash/minicw/setting.txt", text, strlen(text));
 }
 
+typedef struct {
+    char line[128];
+    size_t length, count;
+    bool overflow, truncated;
+} op_parser_t;
+
+static void op_line(op_parser_t *parser, keyer_op_entry_t *entries)
+{
+    size_t length = parser->length;
+    if (parser->overflow) return;
+    if (length && parser->line[length - 1] == '\r') --length;
+    parser->line[length] = 0;
+    char *call = trim(parser->line);
+    if (!*call || *call == '#' || *call == ';') return;
+    char *name = call;
+    while (*name && *name != ',') ++name;
+    if (!*name) return;
+    *name++ = 0;
+    call = trim(call); name = trim(name);
+    /* Keep the standalone optional header handling and duplicate order. */
+    if (equal_ci(call, "call") && equal_ci(name, "name")) return;
+    size_t call_len = strlen(call), name_len = strlen(name);
+    if (!call_len || call_len > KEYER_OP_CALL_MAX_LEN ||
+        !name_len || name_len > KEYER_OP_NAME_MAX_LEN) return;
+    bool valid = true;
+    for (size_t i = 0; i < call_len; ++i) {
+        unsigned char ch = (unsigned char)call[i];
+        if (!minicw_alnum(ch)) valid = false;
+        call[i] = (char)minicw_upper(ch);
+    }
+    for (size_t i = 0; i < name_len; ++i) {
+        unsigned char ch = (unsigned char)name[i];
+        if (ch < 32 || ch > 126 || ch == ',') valid = false;
+    }
+    if (!valid) return;
+    if (parser->count == MINICW_OP_ENTRY_CAP) { parser->truncated = true; return; }
+    memcpy(entries[parser->count].call, call, call_len + 1);
+    memcpy(entries[parser->count].name, name, name_len + 1);
+    ++parser->count;
+}
+static bool op_byte(op_parser_t *parser, keyer_op_entry_t *entries, char ch)
+{
+    if (!ch) return false;
+    if (ch == '\n') {
+        op_line(parser, entries);
+        parser->length = 0;
+        parser->overflow = false;
+    } else if (parser->length + 1 < sizeof(parser->line)) {
+        parser->line[parser->length++] = ch;
+    } else parser->overflow = true;
+    return true;
+}
+static storage_op_result_t op_finish(op_parser_t *parser, keyer_op_entry_t *entries, size_t *count)
+{
+    op_line(parser, entries); /* Also accept a final line without LF. */
+    *count = parser->count;
+    return parser->truncated ? STORAGE_OP_TRUNCATED : STORAGE_OP_OK;
+}
 storage_op_result_t storage_op_parse(const char *text, keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP], size_t *count)
 {
-    *count = 0;
-    storage_op_result_t result = STORAGE_OP_OK;
-    while (*text) {
-        char line[128]; size_t length = 0;
-        bool overflow = false;
-        while (*text && *text != '\n') {
-            if (length + 1 < sizeof(line)) line[length++] = *text;
-            else overflow = true;
-            ++text;
-        }
-        if (*text) ++text;
-        if (overflow) continue;
-        if (length && line[length - 1] == '\r') --length;
-        line[length] = 0;
-        char *call = trim(line);
-        if (!*call || *call == '#' || *call == ';') continue;
-        char *name = call;
-        while (*name && *name != ',') ++name;
-        if (!*name) continue;
-        *name++ = 0;
-        call = trim(call); name = trim(name);
-        /* Keep the standalone optional header handling and duplicate order. */
-        if (equal_ci(call, "call") && equal_ci(name, "name")) continue;
-        size_t call_len = strlen(call), name_len = strlen(name);
-        if (!call_len || call_len > KEYER_OP_CALL_MAX_LEN ||
-            !name_len || name_len > KEYER_OP_NAME_MAX_LEN) continue;
-        bool valid = true;
-        for (size_t i = 0; i < call_len; ++i) {
-            unsigned char ch = (unsigned char)call[i];
-            if (!minicw_alnum(ch)) valid = false;
-            call[i] = (char)minicw_upper(ch);
-        }
-        for (size_t i = 0; i < name_len; ++i) {
-            unsigned char ch = (unsigned char)name[i];
-            if (ch < 32 || ch > 126 || ch == ',') valid = false;
-        }
-        if (!valid) continue;
-        if (*count == MINICW_OP_ENTRY_CAP) { result = STORAGE_OP_TRUNCATED; continue; }
-        memcpy(entries[*count].call, call, call_len + 1);
-        memcpy(entries[*count].name, name, name_len + 1);
-        ++*count;
-    }
-    return result;
+    op_parser_t parser = {0};
+    while (*text) (void)op_byte(&parser, entries, *text++);
+    return op_finish(&parser, entries, count);
 }
 storage_op_result_t storage_op_load(keyer_op_entry_t entries[MINICW_OP_ENTRY_CAP], size_t *count)
 {
-    /* Sequential with the settings loader: never two 4 KiB buffers live together. */
-    char text[4096];
+    op_parser_t parser = {0};
+    char bytes[128];
+    minicw_read_stream_t stream = NULL;
     *count = 0;
-    minicw_file_result_t result = minicw_port_file_read("/flash/minicw/qsocalls.csv", text, sizeof(text));
-    if (result == MINICW_FILE_MISSING) return STORAGE_OP_MISSING;
-    if (result != MINICW_FILE_OK) return STORAGE_OP_FAILED;
-    return storage_op_parse(text, entries, count);
+    minicw_file_result_t opened = minicw_port_read_open("/flash/minicw/qsocalls.csv", &stream);
+    if (opened == MINICW_FILE_MISSING) return STORAGE_OP_MISSING;
+    if (opened != MINICW_FILE_OK) return STORAGE_OP_FAILED;
+    bool valid = true;
+    for (;;) {
+        uint32_t got = 0;
+        if (!minicw_port_read_next(stream, bytes, sizeof(bytes), &got)) { valid = false; break; }
+        if (!got) break;
+        for (uint32_t i = 0; i < got; ++i) {
+            if (!op_byte(&parser, entries, bytes[i])) { valid = false; break; }
+        }
+        if (!valid) break;
+    }
+    /* Never publish a partially trusted table, including close failures. */
+    if (!minicw_port_read_close(stream)) valid = false;
+    return valid ? op_finish(&parser, entries, count) : STORAGE_OP_FAILED;
 }
