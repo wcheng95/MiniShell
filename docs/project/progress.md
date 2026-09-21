@@ -173,7 +173,8 @@ T040 Keyer unified transcript    TESTING — Alt/1 chooser dismissal hardware-pa
 T042 Mini-CW foundation          COMPLETE — external Mini-CW Keyer-mode app hardware validated
 T043 Mini-CW continuous audio    COMPLETE — paddle and M1 both pop-free, matching standalone Mini-CW
 T044A Mini-CW persistence        COMPLETE — persistence works; clean paddle/M1 audio preserved
-T045 Mini-CW UI/I/O cleanup      READY — Opt Operation, 5 KeyIn/3 KeyOut modes, fixed 20-char header
+T045 Mini-CW UI/I/O cleanup      COMPLETE — hardware accepted; audio remains clean
+Mini-CW boundary audit           COMPLETE — ownership/lifecycle boundary frozen as baseline
 ```
 
 The controller keeps orchestration in `app_controller`:
