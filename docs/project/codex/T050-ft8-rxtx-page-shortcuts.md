@@ -1,6 +1,6 @@
 # T050 — MiniFT8 RX/TX plain page shortcuts
 
-Status: REVIEW
+Status: TESTING
 
 ## Baseline
 
@@ -220,3 +220,28 @@ pending. The pre-existing intermittent Linux Serial timeout test remains a
 validation limitation; it passed on retry. No known shortcut-specific issue.
 This handoff is included in the single implementation commit on
 `codex/T050-ft8-rxtx-page-shortcuts`; the exact SHA is returned after push.
+
+
+## Supervisor review
+
+Reviewed implementation commit:
+
+```text
+967a7259f57aed64ba43297f2386481eb1e7a183
+```
+
+No software blocker found.
+
+The implementation is intentionally narrow: only top-level RX/TX plain-character
+input recognizes `;` / `.`, and both delegate to the existing `move_page()`
+helper. Existing wraparound and selected-line behavior therefore stay identical
+to special Up/Down/PageUp/PageDown navigation.
+
+O/S/V, V->QSO and every submenu ignore the new plain characters; no Input API or
+adapter mapping changed. Existing R/T/O/S/V switching, 1..6 actions, T049
+color/separator metadata and FT8 radio/DSP/AutoSeq behavior are untouched.
+
+The reported intermittent `linux_serial_unit` failure is pre-existing and
+unrelated to this diff; isolated retry and the full rerun passed.
+
+T050 is ready for brief ADV hardware acceptance.
