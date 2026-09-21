@@ -1,6 +1,6 @@
 # T042 — Mini-CW Keyer-mode MiniShell foundation
 
-Status: TESTING
+Status: COMPLETE
 
 ## Objective
 
@@ -568,3 +568,25 @@ hardware acceptance gate.
 
 Do not merge T042 to `main` until ADV hardware acceptance.
 
+
+
+## Architect hardware acceptance
+
+Cardputer ADV hardware validation: **PASS**.
+
+The architect confirmed that `minicw.elf` runs successfully under MiniShell on
+real ADV hardware.
+
+This validates the T042 foundation:
+
+- external Mini-CW application loading under MiniShell;
+- Mini-CW Keyer-mode runtime/UI integration;
+- MiniShell Display/Input/Time/Digital-I/O adaptation;
+- clean external-ELF boundary;
+- no resident MiniShell modification required for T042.
+
+T042 is COMPLETE.
+
+Audio remains intentionally absent from T042. The next stage is T043, which ports
+the known-good Mini-CW V1.2 continuous-audio architecture and must preserve the
+standalone reference's clean paddle and M1 sound.
