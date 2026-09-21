@@ -1,6 +1,6 @@
 # T045 — Mini-CW Keyer UI / I/O mode cleanup, audio-frozen
 
-Status: TESTING
+Status: COMPLETE
 
 ## Golden baseline / recovery
 
@@ -784,3 +784,37 @@ Recovery:
 golden/minicw-persistence-clean-audio
 da934b03bce4cc8f908fbc1a40afed501a37196d
 ```
+
+
+## Architect hardware acceptance
+
+Cardputer ADV validation: **PASS**.
+
+Observed result:
+
+```text
+T045 UI/I/O       PASS
+persistence       PASS
+paddle audio      clean / no pop
+automatic M1      clean / no pop
+Opt Operation     PASS
+SKB               PASS
+SKN/SKM/OFF       PASS
+fixed UTC header  PASS
+```
+
+No acoustic regression was observed.
+
+The resident MiniShell/audio implementation remained unchanged; validation used
+the T045 external `minicw.elf` over the already accepted resident firmware.
+
+T045 is COMPLETE.
+
+The post-T045 MiniShell/Mini-CW ownership audit is recorded in:
+
+```text
+docs/MiniCW/baseline-audit.md
+```
+
+That audit passes and defines the migration baseline for future optional
+features.
