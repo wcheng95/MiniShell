@@ -1,4 +1,5 @@
-/* Silent T042 seam. Preserve finite/hold busy state; no audio resource is opened. */
+/* Mini-CW domain vocabulary over optional generic MiniShell tone ownership.
+ * Providers without tone retain the T042 silent timing fallback. */
 #include "audio_service.h"
 #include "minicw_port.h"
 #include "minicw_ascii.h"
@@ -52,24 +53,26 @@ static const morse_entry_t MORSE_TABLE[] = {
 static uint8_t volume;
 static uint16_t pitch;
 static uint32_t due;
-static bool finite, hold;
-void audio_service_init(void) { volume = 80; pitch = 700; finite = hold = false; due = 0; }
-void audio_service_set_volume(uint8_t v) { volume = v > 100 ? 100 : v; }
+static bool finite, hold, resident;
+void audio_service_init(void) { volume = 80; pitch = 700; finite = hold = false; due = 0; resident = minicw_port_tone_open(pitch, volume); }
+void audio_service_set_volume(uint8_t v) { volume = v > 99 ? 99 : v; if (resident) minicw_port_tone_configure(pitch, volume); }
 uint8_t audio_service_get_volume(void) { return volume; }
-void audio_service_set_tone_hz(uint16_t hz) { pitch = hz < 300 ? 300 : hz > 999 ? 999 : hz; }
+void audio_service_set_tone_hz(uint16_t hz) { pitch = hz < 300 ? 300 : hz > 999 ? 999 : hz; if (resident) minicw_port_tone_configure(pitch, volume); }
 uint16_t audio_service_get_tone_hz(void) { return pitch; }
-void audio_service_play_feedback_beep(void) { }
-void audio_service_tone_on(void) { hold = true; }
-void audio_service_tone_off(void) { hold = false; }
-void audio_service_stop_all(void) { hold = finite = false; }
+void audio_service_play_feedback_beep(void) { audio_service_stop_all(); audio_service_play_dit(50); }
+void audio_service_tone_on(void) { hold = true; if (resident) minicw_port_tone_hold(true); }
+void audio_service_tone_off(void) { hold = false; if (resident) minicw_port_tone_hold(false); }
+void audio_service_stop_all(void) { hold = finite = false; if (resident) minicw_port_tone_stop(); }
 bool audio_service_is_busy(void)
 {
+    if (resident) return minicw_port_tone_busy();
     if (finite && (int32_t)(minicw_port_now_ms() - due) >= 0) finite = false;
     return finite || hold;
 }
 void audio_service_play_dit(uint16_t ms)
 {
     if (!ms) return;
+    if (resident) { minicw_port_tone_enqueue(ms); return; }
     if (!audio_service_is_busy() || !finite) due = minicw_port_now_ms();
     due += ms;
     finite = true;

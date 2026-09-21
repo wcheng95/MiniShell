@@ -18,6 +18,22 @@ void minicw_port_write(uint32_t line, uint32_t level)
     assert(line == 3 || line == 6);
     if (line == 3) out_tip = level; else out_ring = level;
 }
+/* Repeat the domain traces through a command-observing resident-tone seam. */
+static bool use_tone, mock_hold;
+static uint64_t mock_due;
+static unsigned finite_calls, last_duration, stop_calls, hold_calls;
+bool minicw_port_tone_open(uint16_t hz, uint8_t volume)
+{
+    assert(hz == 700 && volume == 80);
+    mock_hold = false; mock_due = 0;
+    finite_calls = last_duration = stop_calls = hold_calls = 0;
+    return use_tone;
+}
+void minicw_port_tone_configure(uint16_t hz, uint8_t volume) { assert(hz >= 300 && hz <= 999 && volume <= 99); }
+void minicw_port_tone_enqueue(uint32_t ms) { ++finite_calls; last_duration = ms; mock_due = now_ms + ms; }
+void minicw_port_tone_hold(bool active) { ++hold_calls; mock_hold = active; }
+void minicw_port_tone_stop(void) { ++stop_calls; mock_hold = false; mock_due = 0; }
+bool minicw_port_tone_busy(void) { return mock_hold || now_ms < mock_due; }
 static void init(void)
 {
     now_ms = 1000; tip = ring = 1;
@@ -165,6 +181,16 @@ static void bounds_and_wrap(void)
 int main(void)
 {
     decoder_vectors(); iambic(); bug_and_straight(); outputs(); preemption(); automatic_and_tune(); bounds_and_wrap();
+    use_tone = true;
+    iambic(); bug_and_straight(); outputs(); preemption(); automatic_and_tune();
+    init(); tip = 0; tick(1000);
+    assert(finite_calls == 1 && last_duration == 63);
+    init(); ring = 0; tick(1000);
+    assert(finite_calls == 1 && last_duration == 189);
+    init(); keyer_service_set_key_in_mode(KEYER_KEY_IN_SK_T); tip = 0; tick(1000);
+    assert(hold_calls == 1 && mock_hold); tip = 1; tick(1060); assert(!mock_hold);
+    init(); assert(keyer_service_tx_append_text("CQ", false)); keyer_service_tx_start(); tick(1000);
+    tip = 0; tick(1010); assert(stop_calls && !mock_hold && mock_due == 0);
     puts("minicw domain: PASS (pinned decoder/timing/A-B/Bug/KeyOut/cancel/Tune)");
     return 0;
 }

@@ -18,6 +18,42 @@ static void record(mini_result_t result)
 {
     if (s_error == MINI_OK && result != MINI_OK) s_error = result;
 }
+/* Optional tail discovery must not read past a pre-T043 Audio object. */
+static const mini_audio_tone_api_t *s_tone_api;
+static mini_audio_tone_t s_tone;
+bool minicw_port_tone_open(uint16_t hz, uint8_t volume)
+{
+    s_tone_api = NULL; s_tone = MINI_AUDIO_TONE_INVALID;
+    const mini_audio_api_t *audio = s_api->audio;
+    if (!audio || audio->struct_size < offsetof(mini_audio_api_t, tone) + sizeof(audio->tone) ||
+        !(audio->capabilities & MINI_AUDIO_CAP_TONE)) return false;
+    const mini_audio_tone_api_t *tone = audio->tone;
+    if (!tone || tone->struct_size < sizeof(*tone) || !tone->open || !tone->configure ||
+        !tone->enqueue || !tone->hold || !tone->stop || !tone->busy || !tone->close) return false;
+    s_tone_api = tone;
+    mini_audio_tone_config_t config = {sizeof(config), hz, volume};
+    record(tone->open(&config, &s_tone));
+    return true;
+}
+void minicw_port_tone_configure(uint16_t hz, uint8_t volume)
+{
+    mini_audio_tone_config_t config = {sizeof(config), hz, volume};
+    if (s_tone) record(s_tone_api->configure(s_tone, &config));
+}
+void minicw_port_tone_enqueue(uint32_t ms) { if (s_tone) record(s_tone_api->enqueue(s_tone, ms)); }
+void minicw_port_tone_hold(bool active) { if (s_tone) record(s_tone_api->hold(s_tone, active)); }
+void minicw_port_tone_stop(void) { if (s_tone) record(s_tone_api->stop(s_tone)); }
+bool minicw_port_tone_busy(void)
+{
+    uint32_t busy = 0;
+    if (s_tone) record(s_tone_api->busy(s_tone, &busy));
+    return busy != 0;
+}
+static void minicw_port_tone_close(void)
+{
+    if (s_tone) record(s_tone_api->close(s_tone));
+    s_tone = MINI_AUDIO_TONE_INVALID; s_tone_api = NULL;
+}
 uint32_t minicw_port_now_ms(void)
 {
     return (uint32_t)(s_api->time_location->monotonic_us() / 1000U);
@@ -143,6 +179,7 @@ int minicw_run(const mini_api_t *api)
             if (!s_exit && s_error == MINI_OK) record(api->time_location->sleep_ms(10));
         }
         app_core_shutdown();
+        minicw_port_tone_close();
     }
     /* Release both wires, including SK-M's normally asserted ring, even on partial init/error. */
     for (unsigned i = 2; i < 4; ++i)

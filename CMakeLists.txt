@@ -41,6 +41,8 @@ set(MINISHELL_LINUX_SOURCES
     platform/linux/linux_loader.c
     platform/linux/linux_services.c
     platform/linux/linux_serial.c
+    platform/common/tone_stream.c
+    platform/common/tone_sim.c
     platform/linux/linux_audio_wav.c
     platform/linux/linux_digital_io.c
     platform/linux/platform_info.c
@@ -63,7 +65,7 @@ target_include_directories(minishell PRIVATE
     platform/linux
 )
 
-target_link_libraries(minishell PRIVATE ${CMAKE_DL_LIBS})
+target_link_libraries(minishell PRIVATE ${CMAKE_DL_LIBS} m)
 target_link_options(minishell PRIVATE "-Wl,--export-dynamic-symbol=mini_api_get")
 target_compile_options(minishell PRIVATE -Wall -Wextra -Wpedantic)
 

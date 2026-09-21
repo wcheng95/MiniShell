@@ -1,7 +1,9 @@
 #include "minicw_run.h"
 #include "keyer_service.h"
 #include "ui_service.h"
+#include "tone_sim.h"
 #include <assert.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -166,7 +168,7 @@ static const mini_display_api_t display_api = {
 };
 static const mini_key_input_api_t key_api = {.struct_size = sizeof(key_api), .read = input};
 static const mini_input_api_t input_api = {.struct_size = sizeof(input_api), .capabilities = MINI_INPUT_CAP_KEY, .key = &key_api};
-static const mini_api_t api = {
+static mini_api_t api = {
     .api_version = MINISHELL_API_VERSION, .struct_size = sizeof(api), .time_location = &time_api,
     .digital_io = &io_api, .display = &display_api, .input = &input_api
 };
@@ -176,6 +178,7 @@ static void reset(void)
     input_tip = input_ring = 1;
     for (unsigned i = 0; i < 4; ++i) assert(!live[i]);
 }
+static uint64_t sim_clock(void *ctx) { (void)ctx; return now_us; }
 int main(void)
 {
     assert(minicw_run(NULL) != 0);
@@ -183,6 +186,20 @@ int main(void)
         reset(); assert(minicw_run(&api) == 0);
         assert(opens == 4 && closes == 4 && presents > 0 && sleeps > 0);
     }
+    /* Repeat the accepted UI, paddle, Tune, delayed TX and M1 scenarios with
+     * the real generic tone wrapper and actual renderer's committed busy state. */
+    minishell_services_port_t port = {0}; port.monotonic_us = sim_clock;
+    tone_sim_configure(&port);
+    mini_audio_api_t audio = {.struct_size = sizeof(audio), .capabilities = MINI_AUDIO_CAP_TONE, .tone = port.audio_tone};
+    api.audio = &audio;
+    for (launch = 0; launch < 3; ++launch) {
+        reset(); assert(minicw_run(&api) == 0); assert(closes == 4);
+    }
+    /* A pre-extension object must not expose the tail, even if memory beyond it
+     * happens to contain a valid tone table. */
+    audio.struct_size = offsetof(mini_audio_api_t, tone);
+    launch = 1; reset(); assert(minicw_run(&api) == 0);
+    api.audio = NULL;
     for (fail_open = 1; fail_open <= 4; ++fail_open) {
         reset(); assert(minicw_run(&api) != 0); assert(closes == fail_open - 1);
     }

@@ -1,4 +1,5 @@
 #include <string.h>
+#include "../common/tone_sim.h"
 
 #include "linux_audio_wav.h"
 #include "linux_audio_buffered.h"
@@ -17,6 +18,7 @@ void minishell_platform_services_prepare(minishell_services_port_t *out_port)
     linux_audio_wav_configure(out_port);
     linux_audio_buffered_configure(out_port);
     linux_serial_configure(out_port);
+    tone_sim_configure(out_port);
 }
 
 void minishell_platform_services_started(void)

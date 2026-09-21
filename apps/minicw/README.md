@@ -1,9 +1,9 @@
-# Mini-CW Keyer foundation (T042)
+# Mini-CW Keyer (T042 foundation, T043 audio)
 
 Source: `wcheng95/Mini-CW` at
 `3bfbf169b7c2d49a1be3e9a4c80f945edb32033e` (MiniCW V1.2).
 This is a Keyer-mode extraction of that application, not a port of MiniShell's
-existing `keyer`. Audio is deliberately silent. Settings reset to the pinned
+existing `keyer`. ADV audio uses the optional generic MiniShell continuous-tone owner. Settings reset to the pinned
 compiled defaults each launch; no files are read or written.
 
 ## Ownership and provenance
@@ -19,9 +19,11 @@ compiled defaults each launch; no files are read or written.
   memory overlay, Tune and three-page settings menu, numeric/text editors.
   `ui_screen` maps frames to 20x7 MiniShell Display; foreground colors become
   ordinary text and the pixel separator is omitted.
-- `audio_service`: private silent finite/hold/busy state and pinned Morse table.
-  No Audio stream, PCM, task or speaker operation is created. This seam is the
-  migration point for T043, not an alternate sidetone implementation.
+- `audio_service`: pinned domain calls and Morse table over MiniShell tone
+  ownership. Each dit/dah enqueues one finite duration; straight/Tune uses hold
+  and release; cancellation flushes queued work. No application PCM loop or
+  RTOS object is created. Providers without the optional capability retain the
+  T042 silent timing fallback. Linux simulates the resident renderer silently.
 - `port`: the only MiniShell API adapter. Owns Digital I/O handles, logical Input,
   Display and Time/Location calls; releases both output lines before closing
   handles on normal exit and failure.
@@ -45,7 +47,7 @@ extra element to its **Iambic A** selection, not B; this is preserved.
   (or `;` / `.` without Fn) change menu pages. Numeric editors accept digits,
   Enter and left/right stepping. Text editors accept Enter, Backspace and
   Fn+Left/Right cursor movement. The pinned edit/cancel behavior is retained.
-- `[` / `]` change WPM. `\` toggles mute state (still silent in T042).
+- `[` / `]` change WPM. `\` toggles mute state.
 - Tab enters/leaves Tune; T toggles its latch. Physical input cancels a latched
   Tune and is consumed until release, as in Mini-CW.
 - Fn+Up/Down scroll decoded history on the normal screen.
@@ -81,5 +83,7 @@ Compiler division helpers are linked from the toolchain's libgcc. The linker
 fragment pads `.data` for the existing section loader; the inspector checks
 packed-section alignment and relocation destinations as well as imports.
 
-No resident firmware, public API, existing Keyer, FT8 or platform-provider changes
-are part of this foundation. Hardware acceptance remains pending.
+T043 adds the optional Audio tone capability and its resident ADV worker;
+ordinary PCM APIs, Keyer timing/UI, existing `keyer` and FT8 remain unchanged.
+T042 hardware acceptance is complete. T043 paddle/M1 audio parity, Tune,
+preemption and lifecycle acceptance remain pending supervisor review.

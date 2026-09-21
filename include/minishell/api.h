@@ -315,11 +315,32 @@ typedef struct {
     mini_result_t (*close)(mini_audio_stream_t stream);
 } mini_audio_tx_api_t;
 
+/* Optional continuous speaker-tone owner. Ordinary PCM RX/TX is unchanged. */
+#define MINI_AUDIO_CAP_TONE (1ull << 2)
+typedef uint32_t mini_audio_tone_t;
+#define MINI_AUDIO_TONE_INVALID ((mini_audio_tone_t)0u)
+typedef struct {
+    uint32_t struct_size;
+    uint32_t pitch_hz; /* 300..999 */
+    uint32_t volume;   /* 0..99, codec level; no per-element hardware mute */
+} mini_audio_tone_config_t;
+typedef struct {
+    uint32_t struct_size;
+    mini_result_t (*open)(const mini_audio_tone_config_t *config, mini_audio_tone_t *out_tone);
+    mini_result_t (*configure)(mini_audio_tone_t tone, const mini_audio_tone_config_t *config);
+    mini_result_t (*enqueue)(mini_audio_tone_t tone, uint32_t duration_ms); /* 1..60000 */
+    mini_result_t (*hold)(mini_audio_tone_t tone, uint32_t active); /* 0 release, 1 hold */
+    mini_result_t (*stop)(mini_audio_tone_t tone); /* flush queued work, release current tone */
+    mini_result_t (*busy)(mini_audio_tone_t tone, uint32_t *out_busy);
+    mini_result_t (*close)(mini_audio_tone_t tone); /* consumes handle, even on I/O failure */
+} mini_audio_tone_api_t;
+
 typedef struct {
     uint32_t struct_size;
     uint64_t capabilities;
     const mini_audio_rx_api_t *rx;
     const mini_audio_tx_api_t *tx;
+    const mini_audio_tone_api_t *tone; /* Check struct_size and MINI_AUDIO_CAP_TONE. */
 } mini_audio_api_t;
 
 #define MINI_DIGITAL_IO_CAP_INPUT              (1ull << 0)

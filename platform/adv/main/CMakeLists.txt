@@ -13,6 +13,7 @@ set(MINISHELL_SERVICE_SOURCES
     "${MINISHELL_ROOT}/core/minishell_services/display_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/input_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/audio_service.c"
+    "${MINISHELL_ROOT}/platform/common/tone_stream.c"
     "${MINISHELL_ROOT}/core/minishell_services/digital_io_service.c"
     "${MINISHELL_ROOT}/core/minishell_services/serial_service.c"
 )
