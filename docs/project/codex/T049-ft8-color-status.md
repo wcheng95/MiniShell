@@ -1,6 +1,6 @@
 # T049 — MiniFT8 TX separator + RX message colors
 
-Status: TESTING
+Status: COMPLETE
 
 ## Baseline
 
@@ -516,3 +516,29 @@ full regression gates, zero static-SRAM delta and unchanged Audio/DSP/Radio/Mini
 scope are consistent with the reviewed diff.
 
 T049 is ready for ADV/QMX hardware acceptance.
+
+
+## Final hardware acceptance — 2026-09-21
+
+ADV/QMX validation accepted.
+
+Observed on hardware:
+
+- the 2-pixel separator is WHITE while idle/receiving;
+- it turns RED during physical FT8 transmission and returns afterward;
+- CQ RX rows render GREEN;
+- ordinary operation remains normal.
+
+Reply-to-me RED was not separately captured in the final on-air check, but the
+same reviewed color path is covered by the factual `is_to_me` projection and
+hardware-proven RED rendering used by the TX separator. Keep this as
+software-proven / opportunistic-on-air confirmation rather than a remaining task
+blocker.
+
+Implementation:
+
+```text
+c908d8d08e8cb317b7fa3119e9af94abe80e07f2
+```
+
+T049 is COMPLETE.
