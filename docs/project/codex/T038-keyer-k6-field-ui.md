@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1828,6 +1828,87 @@ not hardware heap evidence.
 
 One R3 amendment on `codex/T038-keyer-k6-field-ui`; exact SHA is returned in the
 engineer handoff. T038 is REVIEW. No PR or hardware testing.
+
+## Supervisor review — R3
+
+Reviewed R3 commit:
+
+```text
+e1a8090ac893256ea8159582a2a883ee1c318a54
+```
+
+Result: **PASS — ready for ADV audible/UI hardware retest.**
+
+### R3-A sidetone review
+
+The production change preserves the existing K5/K6 Audio ownership and logical
+key timing. It replaces only the portable sidetone envelope:
+
+- 240 samples at 48 kHz = 5 ms nominal edge;
+- integer Q15 raised-cosine LUT/interpolation, no libm/floating-point dependency;
+- attack and release share one envelope position, so a short reversal continues
+  from the current gain instead of jumping/resetting;
+- oscillator phase advances on every emitted sample, including silent gaps;
+- after release reaches zero, continued key-up blocks emit zero PCM;
+- volume/mute remain post-envelope application-side scaling;
+- 48-frame writes, 20 ms finite timeout, endpoint and stream lifecycle remain
+  unchanged;
+- shutdown drains a bounded five-block release and still falls back to abort/close
+  if transport fails.
+
+Focused PCM tests verify the raised-cosine quarter/half/three-quarter points,
+monotonic 240-sample attack/release, near-zero start, exact-zero end, smooth
+partial-edge reversal, free-running phase through silence, volume 0/1/50/99,
+mute, partial writes and transport-error behavior.
+
+No Morse timing, TX scheduler, KeyOut or public Audio API change was introduced.
+
+### R3-B Alt overlay review
+
+The ADV adapter now exposes the existing `MINI_KEY_ALT` special event privately
+to UiShell. UiShell implements the Mini-CW-style transient overlay without
+changing persistent configuration or TX semantics:
+
+- Alt-alone toggles the overlay on the normal Keyer screen;
+- rows 1-5 render `M1:`..`M5:` and naturally truncate to the remaining
+  17 columns;
+- top row and bottom TX/status row use their unchanged render paths;
+- decoded history continues accumulating while hidden and is restored when the
+  overlay closes;
+- plain 1..5 while visible returns the existing memory action;
+- direct Alt+1..5 remains supported;
+- Tune and Operation clear the overlay;
+- Ctrl+C and physical KeyIn preemption remain unchanged.
+
+UiShell and controller tests exercise the actual ADV Alt special-event shape,
+plain/direct-Alt memory selection, overlay restoration, late physical preemption,
+Tune/Operation interaction and cleanup.
+
+### Software/build evidence
+
+All reported gates pass:
+
+- Linux CTest 74/74;
+- portable units 18/18;
+- focused Keyer/Audio regressions;
+- architecture/dependency/platform checks;
+- real ADV firmware build;
+- clean Keyer ELF build;
+- `git diff --check`.
+
+Resource impact:
+
+```text
+keyer.app.elf             23,380 bytes  (+408 from R2)
+resident firmware delta   0
+resident static SRAM      0
+resident import           mini_api_get only
+new task/stack/heap       none
+```
+
+No architecture blocker found. Audible pop reduction and Alt-overlay usability
+must now be confirmed on the Cardputer ADV with this exact reviewed ELF.
+
 
 ## Architect test result
 
