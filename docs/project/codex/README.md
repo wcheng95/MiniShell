@@ -4,13 +4,14 @@ This directory is the durable supervisor <-> Codex engineering handoff for MiniS
 
 Roles are defined in repository-root `AGENTS.md`.
 
-## Active task
+## Active / next tasks
 
 ```text
-T040-keyer-unified-transcript.md  READY
+T040-keyer-unified-transcript.md  TESTING — hardware acceptance in progress
+T042-minicw-foundation.md         READY   — first Mini-CW -> MiniShell migration stage
 ```
 
-T038 K6 is COMPLETE. T039 is BREAK after multiple hardware attempts failed to eliminate the remaining Keyer speaker pop. T040 is READY: simplify the normal Keyer screen to a unified six-line transmitted/decoded text transcript and make the M1-M5 overlay close immediately after selection.
+T038 K6 is COMPLETE. T039 is BREAK after multiple hardware attempts failed to eliminate the remaining Keyer speaker pop. T040 is in hardware testing. The next architecture track is the Mini-CW migration: T042 ports Mini-CW Keyer-mode structure onto MiniShell services, with the pinned Mini-CW V1.2-era source as the golden reference and audio deliberately deferred to T043.
 
 Recently completed / closed:
 
