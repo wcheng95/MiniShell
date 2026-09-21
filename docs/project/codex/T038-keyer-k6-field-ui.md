@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1929,6 +1929,31 @@ the same foreground loop. The ADV speaker DMA is only 4 x 120 frames = 480 frame
 starve I2S and create the observed pop. The user recalls a similar issue during
 Mini-CW development.
 
+Additional hardware evidence before R4 implementation:
+
+- sending the same text manually with the paddle has **no popping**;
+- manual paddle decode still causes normal decoded-history display refreshes;
+- therefore Display activity by itself is not sufficient to create the pop;
+- the stronger suspect is the **timing of automatic-TX display work** relative
+  to the exact Morse schedule.
+
+In the current foreground controller, automatic TX can pop the next FIFO
+character and assert `down=true`, write only one 48-frame / 1 ms sidetone
+block, then perform a display render/present in the same loop iteration. Because
+the TX-tail row changed at the character transition, that render can become a
+real display write while audio is already active. A sufficiently long display
+operation can consume the ADV speaker's ~10 ms DMA reserve and underrun I2S.
+
+Manual paddle history updates occur after decoder character completion, while the
+key is already up and human spacing normally provides more slack before the next
+element. This explains why manual keying can refresh the screen without the same
+audible artifact.
+
+This makes R4-A a high-confidence isolation test: if suppressing display work
+during active automatic-TX phases removes the pop, the permanent fix should
+prevent synchronous display work from running in the audio-critical automatic-TX
+window rather than further changing the tone envelope.
+
 ### R4-A — temporary display-suppression diagnostic
 
 This is an isolation experiment, not the final architecture.
@@ -2118,6 +2143,59 @@ comparison is with the reviewed R3 evidence above:
 
 One R4 diagnostic amendment on `codex/T038-keyer-k6-field-ui`; exact SHA is
 returned in the engineer handoff. T038 is REVIEW. No PR or hardware testing.
+
+## Supervisor review — R4 diagnostic
+
+Reviewed R4 implementation commit:
+
+```text
+feda66ad22c7c9b6ba92f45fd05a2c3273460d52
+```
+
+Result: **PASS — ready for the ADV isolation test.**
+
+The production delta matches the diagnostic exactly:
+
+- render/present is skipped only while automatic TX phase is non-idle
+  (`TX_ELEMENT`, `TX_ELEMENT_GAP`, `TX_CHAR_GAP`, `TX_WORD_GAP`);
+- TxDelay and idle M1 repeat waits remain renderable because the scheduler is
+  `TX_IDLE` there;
+- manual paddle operation remains on the normal rendering path;
+- `next_render = 0` during suppression guarantees catch-up on the first idle
+  controller tick;
+- TX timing, KeyOut, sidetone generation, Audio buffering, Display APIs, R3
+  envelope/overlay behavior, persistence and resident MiniShell code are unchanged;
+- `Pdl` is corrected to `PdL` only in the shared KeyIn display label.
+
+The controller diagnostic uses a deterministic M1 timeline and rejects any
+render/display/present call throughout the active automatic-TX interval while
+requiring rendering during TxDelay, the idle repeat wait and manual key-down.
+It also requires catch-up at the first idle tick. This is sufficient software
+evidence for the isolation experiment.
+
+The reported intermittent `linux_serial_unit` failures are outside the changed
+paths; the test passes standalone and the final full Linux run passed 74/74.
+Portable units, focused Keyer/Audio tests, architecture checks, ADV firmware/ELF
+builds and `git diff --check` pass.
+
+Exact diagnostic ELF:
+
+```text
+size:    23,396 bytes
+sha256:  c306a8378229afe7007aef0002544e7385b842c5b1ce870086240b21b9bfd343
+import:  mini_api_get only
+resident firmware/SRAM delta: 0
+```
+
+Hardware interpretation remains binary:
+
+```text
+pop disappears -> display starvation is confirmed; replace this diagnostic
+                  suppression with a permanent audio/display decoupling fix.
+
+pop remains    -> revert the diagnostic suppression and continue investigation.
+```
+
 
 ## Architect test result
 
