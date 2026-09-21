@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: TESTING
+Status: IMPLEMENTING
 
 ## Architect intent
 
@@ -1908,6 +1908,102 @@ new task/stack/heap       none
 
 No architecture blocker found. Audible pop reduction and Alt-overlay usability
 must now be confirmed on the Cardputer ADV with this exact reviewed ELF.
+
+
+## Hardware finding — R4 diagnostic
+
+R3 hardware retest result:
+
+- Alt M1-M5 overlay behavior is accepted;
+- raised-cosine sidetone envelope did **not** remove the audible pop between
+  automatic-TX characters.
+
+The ADV speaker stream itself stays open and unmuted for the life of Keyer.
+Character/element gaps are represented by zero PCM; there is no codec mute/unmute
+or I2S stop/start between Morse characters.
+
+A stronger remaining hypothesis is foreground-loop starvation: Keyer feeds 48
+audio frames (1 ms at 48 kHz) and also performs Display rendering/presentation in
+the same foreground loop. The ADV speaker DMA is only 4 x 120 frames = 480 frames
+(10 ms). A blocking display update at a character/FIFO transition could therefore
+starve I2S and create the observed pop. The user recalls a similar issue during
+Mini-CW development.
+
+### R4-A — temporary display-suppression diagnostic
+
+This is an isolation experiment, not the final architecture.
+
+Temporarily suppress Keyer display rendering while automatic Morse playback is in
+one of these TX phases:
+
+```text
+TX_ELEMENT
+TX_ELEMENT_GAP
+TX_CHAR_GAP
+TX_WORD_GAP
+```
+
+Important boundaries:
+
+- do not suppress rendering merely because characters are waiting during TxDelay;
+- do not suppress rendering during an idle M1 repeat wait;
+- do not suppress rendering for manual paddle operation;
+- do not change TX timing, KeyOut, sidetone generation, Audio buffering, Display
+  APIs, or resident code;
+- once automatic playback returns to `TX_IDLE`, force/immediately allow the next
+  normal render so the screen catches up;
+- the purpose is only to determine whether display work causes the audible pop.
+
+Expected hardware interpretation:
+
+```text
+pop disappears -> foreground Display work is starving speaker/I2S;
+                  permanent fix should address scheduling/buffering/ownership.
+
+pop remains    -> Display refresh is not the root cause; revert the diagnostic
+                  suppression and continue audio-path investigation.
+```
+
+Add a controller regression proving rendering/present is suppressed across active
+automatic TX phases and resumes after TX becomes idle. Do not make this temporary
+diagnostic behavior a new public/UI contract.
+
+### R4-B — KeyIn label typo
+
+Fix the inherited Mini-CW typo:
+
+```text
+Pdl -> PdL
+```
+
+Only the normal/Operation display label changes. Keep:
+
+```text
+PdR
+SkT
+SkR
+```
+
+unchanged. Update exact-header/UI tests and README/task examples as needed.
+
+### R4 non-goals
+
+Do not alter:
+
+- the R3 raised-cosine envelope;
+- K3 physical engine;
+- automatic TX scheduler semantics;
+- KeyOut;
+- settings/persistence;
+- Alt overlay semantics;
+- Audio or Display public APIs;
+- ADV audio backend or DMA configuration;
+- resident MiniShell code;
+- FT8.
+
+Run focused controller/UI regressions plus the full T038 software/build gates.
+Record the exact ELF used for the isolation test. No PR and no hardware testing by
+Codex.
 
 
 ## Architect test result
