@@ -120,12 +120,15 @@ RTC/system-clock setting.
 Battery and sleep are not Mini-CW application responsibilities after migration.
 Use MiniShell's resident/internal `batt` and `sleep` facilities instead.
 
-### T045 — GPS
+### T045 — Keyer UI / I/O cleanup — READY
 
-Run Mini-CW GPS parser/policy over MiniShell Serial. Preserve baud detection,
-fix/grid behavior and storage updates.
+Move Operation to Opt, simplify KeyIn/KeyOut modes, add SK-Both, and adopt the fixed `HH:MM KIN KOUT WW Vnn` top line while keeping the validated audio path frozen.
 
-### T046 — Keyer application parity / cleanup
+### T046 — GPS — DEFERRED
+
+If still useful, run Mini-CW GPS parser/policy over MiniShell Serial. Preserve baud detection, fix/grid behavior and storage updates.
+
+### T047 — Keyer application parity / cleanup
 
 Complete Mini-CW Keyer-mode parity under MiniShell:
 
