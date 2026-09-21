@@ -11,7 +11,7 @@ static void reset(void) { ui_shell_init(&u); config_service_defaults(&c); }
 static void render_tests(void)
 {
     reset(); ui_frame_t f;
-    const char *kin[] = {"Pdl", "PdR", "SkT", "SkR"};
+    const char *kin[] = {"PdL", "PdR", "SkT", "SkR"};
     const char *kout[] = {"SKS", "SKM", "OFF"};
     for (unsigned i = 0; i < 4; ++i) for (unsigned j = 0; j < 3; ++j) {
         c.key_in_mode = (keyer_key_in_mode_t)i; c.key_out_mode = (keyer_key_out_mode_t)j;
@@ -20,7 +20,7 @@ static void render_tests(void)
         assert(strlen(f.rows[0]) == 20 && !strcmp(f.rows[0], expected));
     }
     reset(); ui_shell_render(&u, &c, -1, "123456789012345678901", false, 0, &f);
-    assert(!strcmp(f.rows[0], "--:-- Pdl SKS 20 V80"));
+    assert(!strcmp(f.rows[0], "--:-- PdL SKS 20 V80"));
     assert(!strcmp(f.rows[6], "23456789012345678901"));
     ui_shell_status(&u, "Saved", 0); ui_shell_render(&u, &c, 0, "Q", false, 1199999, &f);
     assert(!strncmp(f.rows[6], "Saved", 5));
@@ -32,6 +32,13 @@ static void render_tests(void)
     ui_shell_history(&u, '\b'); assert(u.history_len == 1279);
     ui_shell_history(&u, '\n'); assert(u.history_len == 1280);
     ui_shell_history(&u, '~'); assert(u.history_len == 1261 && u.history[1260] == '~');
+}
+static void operation_labels(void)
+{
+    reset(); ui_frame_t frame;
+    input(UI_OPT, 0, 0);
+    ui_shell_render(&u, &c, 0, "", false, 0, &frame);
+    assert(!strcmp(frame.rows[1], "1 KeyIn: PdL        "));
 }
 static void inputs(void)
 {
@@ -190,4 +197,4 @@ static void memory_overlay_r3(void)
     assert(input(UI_CHAR, 'c', UI_CTRL).action == UI_ACT_QUIT);
     input(UI_ALT_KEY, 0, UI_CTRL | UI_ALT); assert(u.memory_overlay);
 }
-int main(void) { render_tests(); inputs(); editors(); adv_r1(); operation_backtick_r2(); memory_overlay_r3(); puts("keyer K6 UI: PASS"); }
+int main(void) { render_tests(); operation_labels(); inputs(); editors(); adv_r1(); operation_backtick_r2(); memory_overlay_r3(); puts("keyer K6 UI: PASS"); }

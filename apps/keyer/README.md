@@ -59,3 +59,9 @@ are serialized. Save failure retains the runtime edit, preserves the prior file,
 and shows `Save failed`; it never reports `Saved`. Missing settings use defaults;
 invalid/unreadable settings fail startup. Legacy `SK`/`SK-M` load as SKS/SKM;
 legacy Paddle/PaddleR KeyOut values are rejected.
+
+R4 is a temporary display-starvation diagnostic: rendering/presentation pauses
+through automatic TX elements and gaps, then catches up on the first idle tick.
+TxDelay, idle repeat waits and manual paddle display behavior remain enabled.
+This is an isolation experiment, not a permanent UI contract. The KeyIn labels
+are `PdL`, `PdR`, `SkT` and `SkR`.

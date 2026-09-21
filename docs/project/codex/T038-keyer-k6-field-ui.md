@@ -1,6 +1,6 @@
 # T038 — Keyer K6 field UI, keyboard TX, memories, and persistence
 
-Status: IMPLEMENTING
+Status: REVIEW
 
 ## Architect intent
 
@@ -187,7 +187,7 @@ UTC only.
 Examples:
 
 ```text
-19:33 Pdl SKS 20 V80
+19:33 PdL SKS 20 V80
 07:15 PdR SKM 25 V65
 12:04 SkT OFF 18 V40
 ```
@@ -210,7 +210,7 @@ total  20
 KeyIn labels:
 
 ```text
-Pdl   Paddle
+PdL   Paddle
 PdR   Paddle reverse
 SkT   straight key on tip
 SkR   straight key on ring
@@ -417,7 +417,7 @@ must remain readable at 20 columns.
 Required six items:
 
 ```text
-1 KeyIn:  Pdl
+1 KeyIn:  PdL
 2 KeyOut: SKS
 3 Speed:  20
 4 Volume: 80
@@ -761,7 +761,7 @@ Do not change FT8 behavior.
 
 - [x] dedicated 20x7 Keyer screen owns Display during app execution;
 - [x] top row is exactly `HH:MM KIN KOUT WW Vnn` using UTC;
-- [x] KeyIn labels are Pdl/PdR/SkT/SkR;
+- [x] KeyIn labels are PdL/PdR/SkT/SkR;
 - [x] KeyOut is only SKS/SKM/OFF;
 - [x] SKS/SKM electrical behavior matches this task;
 - [x] shutdown always releases both KeyOut lines;
@@ -2005,6 +2005,119 @@ Run focused controller/UI regressions plus the full T038 software/build gates.
 Record the exact ELF used for the isolation test. No PR and no hardware testing by
 Codex.
 
+
+## Codex R4 diagnostic implementation / validation
+
+Implemented R4-A and R4-B only, from
+`852e50a98fe472789798451bd8a9416e558efb97` on
+`codex/T038-keyer-k6-field-ui`. Ready for supervisor review. No hardware testing.
+
+### Implementation summary / files changed
+
+- `apps/keyer/src/app_controller/app_controller.c`: temporarily bypass the entire
+  `render()` call while the automatic scheduler is not `TX_IDLE` (its four active
+  element/gap phases). Clear the render deadline during suppression so the first
+  idle tick catches up immediately. TxDelay, idle repeat wait and manual keying
+  remain on the normal rendering path. This is explicitly an R4 isolation
+  diagnostic, not a permanent UI contract.
+- `apps/keyer/src/ui_shell/ui_shell.c`: change only the Paddle display label from
+  `Pdl` to `PdL`; the shared label updates both normal and Operation screens.
+- `tests/keyer_k4_controller_test.c`: deterministic M1="I E" timeline covers
+  TX_ELEMENT, TX_ELEMENT_GAP, TX_WORD_GAP and TX_CHAR_GAP. The UTC getter observes
+  entry into controller rendering, and separate Display write/present callbacks
+  reject any invocation during the entire active interval, 1002–1842 ms. Tests
+  require a render at exactly 1842 ms, rendering during TxDelay and idle M1 repeat
+  wait, and a display render while manual KeyOut is down. A changing test clock
+  forces every observed render to present, preventing the adapter cache from
+  masking display work. Existing K4/controller regressions remain.
+- `tests/keyer_k6_ui_test.c`: update exact headers for `PdL` and add an exact
+  Operation row assertion; all other labels remain tested unchanged.
+- `apps/keyer/README.md` and this packet: diagnostic caveat, corrected examples,
+  test results and exact ELF evidence.
+
+### Invariants / risks / hardware still required
+
+TX scheduler/timing, K3, KeyOut, sidetone, Audio buffering, Display APIs, settings,
+resident sources and FT8 are unchanged. R3's raised-cosine envelope and Alt overlay
+state/input/rendering semantics are unchanged; the diagnostic temporarily freezes
+all display work during automatic playback. No new task, allocation or public API.
+
+The experiment has not established whether Display work causes the audible pop.
+After supervisor review, the architect must use the exact ELF below to compare
+sound. Follow the R4 interpretation above: address scheduling/buffering/ownership
+only if hardware supports that diagnosis; otherwise revert this suppression and
+continue investigation. No permanent architecture change is part of this commit.
+
+An unrelated existing Linux PTY timeout test remains intermittent: three full
+runs failed only `linux_serial_unit` at `tests/linux_serial_test.c:67` (expecting
+zero bytes after filling the queue). It passed standalone; the final complete
+suite passed all 74 tests. No serial code or test was changed or skipped.
+
+### Validation gates
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Three runs: 73/74; only the existing serial timeout assertion failed.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R '^linux_serial_unit$' --output-on-failure
+# 1/1 PASS
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --repeat until-pass:3 --output-on-failure
+# Final full run: 74/74 PASS. Every test passed its first attempt in this run.
+
+cmake -S tests/unit -B /tmp/T038-R4-unit
+cmake --build /tmp/T038-R4-unit -j"$(nproc)"
+ctest --test-dir /tmp/T038-R4-unit --output-on-failure
+# 18/18 PASS
+ctest --test-dir /tmp/T038-R4-unit -R 'keyer|api_audio' --output-on-failure
+# 8/8 PASS
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R 'audio|Audio' --output-on-failure
+# 5/5 PASS
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . keyer
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . keyer
+# all PASS
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+idf.py -C platform/adv/elf_apps/keyer fullclean
+idf.py -C platform/adv/elf_apps/keyer elf
+# both real builds PASS
+xtensa-esp32s3-elf-readelf -rW platform/adv/elf_apps/keyer/build/keyer.app.elf
+# Asserted exactly one R_XTENSA_JMP_SLOT: mini_api_get
+# Expected loader-stripped .dynamic warning, unchanged from prior builds.
+git diff --check
+# PASS
+```
+
+### Exact ELF / memory evidence
+
+Built artifact: `platform/adv/elf_apps/keyer/build/keyer.app.elf`.
+Size: **23,396 bytes**. SHA-256:
+
+```text
+c306a8378229afe7007aef0002544e7385b842c5b1ce870086240b21b9bfd343
+```
+
+Measured using `wc -c`, `sha256sum`, and `xtensa-esp32s3-elf-size -A`;
+comparison is with the reviewed R3 evidence above:
+
+| Artifact / section | R3 bytes | R4 bytes | Delta |
+| --- | ---: | ---: | ---: |
+| Resident firmware BIN | 1,375,776 | 1,375,776 | 0 |
+| Resident `.iram0.text` | 63,959 | 63,959 | 0 |
+| Resident `.dram0.data` | 27,000 | 27,000 | 0 |
+| Resident `.dram0.bss` | 38,864 | 38,864 | 0 |
+| Static internal SRAM, sum above | 129,823 | 129,823 | 0 |
+| External ELF | 23,380 | 23,396 | +16 |
+| External `.text` | 15,618 | 15,634 | +16 |
+| External `.rodata` | 1,573 | 1,573 | 0 |
+| External `.data.rel.ro` | 676 | 676 | 0 |
+| External `.bss` | 3,628 | 3,628 | 0 |
+
+### Commit reference
+
+One R4 diagnostic amendment on `codex/T038-keyer-k6-field-ui`; exact SHA is
+returned in the engineer handoff. T038 is REVIEW. No PR or hardware testing.
 
 ## Architect test result
 
