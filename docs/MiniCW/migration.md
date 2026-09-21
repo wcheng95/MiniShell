@@ -38,7 +38,6 @@ changes them:
 - `app_core`
 - `keyer_service` / decoder
 - `ui_service` / `ui_screen`
-- GPS parsing/policy
 - storage policy and file formats
 - CW/audio scheduling semantics above the platform transport boundary
 
@@ -66,7 +65,6 @@ Target MiniShell mapping:
 | keyboard | Input |
 | paddle/KeyOut GPIO | Digital I/O |
 | files/profile/logs | Filesystem |
-| GPS UART | Serial |
 | UTC/RTC/location | Time/Location |
 | application allocations | Memory |
 | speaker transport | Audio |
@@ -120,67 +118,29 @@ RTC/system-clock setting.
 Battery and sleep are not Mini-CW application responsibilities after migration.
 Use MiniShell's resident/internal `batt` and `sleep` facilities instead.
 
-### T045 — Keyer UI / I/O cleanup — READY
+### T045 — Keyer UI / I/O cleanup — COMPLETE
 
-Move Operation to Opt, simplify KeyIn/KeyOut modes, add SK-Both, and adopt the fixed `HH:MM KIN KOUT WW Vnn` top line while keeping the validated audio path frozen.
+Operation moved to Opt, KeyIn/KeyOut modes were simplified, SK-Both was added, and the fixed `HH:MM KIN KOUT WW Vnn` top line is hardware-validated with clean paddle/M1 audio.
 
-### T046 — GPS — DEFERRED
+### Post-T045 ownership audit — COMPLETE
 
-If still useful, run Mini-CW GPS parser/policy over MiniShell Serial. Preserve baud detection, fix/grid behavior and storage updates.
-
-### T047 — Keyer application parity / cleanup
-
-Complete Mini-CW Keyer-mode parity under MiniShell:
-
-- Keyer UI and controls;
-- M1-M5 and repeat;
-- clean paddle and automatic CW audio;
-- persistence;
-- optional GPS-derived behavior from T045 where applicable;
-- repeated launch/exit and resource cleanup.
-
-Trainer modes are intentionally not migrated:
-
-- `cw_trainer_service`
-- `cw_lesson_mode`
-- `cw_word_mode`
-- `cw_callsign_mode`
-- `cw_plaintext_mode`
-
-USB MSC is also not a Mini-CW application responsibility after migration.
-MiniShell owns removable-storage/export workflows separately.
-
-## Packaging target
-
-Final Cardputer ADV application:
+The MiniShell / `minicw` boundary passed the final ownership audit. See:
 
 ```text
-/flash/apps/minicw.elf
-or
-/sd/apps/minicw.elf
+docs/MiniCW/baseline-audit.md
 ```
 
-Preferred resident import set:
+The intended Keyer-only migration is complete. GPS and generic "final parity"
+work are removed from the roadmap.
 
-```text
-mini_api_get
-```
+Future work is optional feature work from the audited baseline:
 
-No ESP-IDF, FreeRTOS, M5*, FATFS, UART, GPIO or board symbols may be imported by
-the external application.
+- callsign -> operator-name lookup;
+- Keyer logging.
 
-## Coexistence
-
-During migration:
-
-- existing `keyer.elf` remains available;
-- MiniFT8 is untouched;
-- Mini-CW standalone firmware remains the golden reference;
-- `minicw` is a separate application name.
-
-Retiring or replacing the existing Keyer is a later product decision after
-Mini-CW **Keyer-mode** parity and hardware acceptance. Full standalone Mini-CW
-feature parity is not a migration goal.
+Trainer modes remain intentionally out of scope. USB MSC remains a MiniShell
+system responsibility. Full standalone Mini-CW feature parity is not a migration
+goal.
 
 
 ## Explicitly out of scope after migration
