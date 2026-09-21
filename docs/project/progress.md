@@ -169,7 +169,8 @@ K4 GPIO KeyIn/KeyOut          COMPLETE
 K5 sidetone                   IMPLEMENTED / TRANSPORT HARDWARE-VALIDATED
 T038 / K6 field UI/settings    COMPLETE — hardware validated, including pop-free auto TX via Display deferral
 T039 ADV dirty Display present  BREAK — hardware pop remained through R1-R3 experiments
-T040 Keyer unified transcript    READY — six-line sent/decoded text; chooser closes on selection
+T040 Keyer unified transcript    TESTING — Alt/1 chooser dismissal hardware-pass; remaining acceptance pending
+T042 Mini-CW foundation          READY — port Mini-CW Keyer-mode structure onto MiniShell services
 ```
 
 The controller keeps orchestration in `app_controller`:
@@ -265,3 +266,20 @@ docs/keyer/README.md
 platform/adv/README.md
 platform/adv/elf_apps/keyer/README.md
 ```
+
+
+## Mini-CW migration track
+
+Pinned golden reference:
+
+```text
+wcheng95/Mini-CW
+3bfbf169b7c2d49a1be3e9a4c80f945edb32033e
+```
+
+Standalone Mini-CW V1.2 hardware comparison is clean for both paddle and automatic M1.
+The migration goal is to preserve Mini-CW application/domain behavior while replacing
+direct board/ESP-IDF ownership with MiniShell services. See `docs/MiniCW/migration.md`.
+
+T042 is the first silent Keyer-mode platform skeleton. T043 will own the known-good
+continuous-audio migration and must pass clean paddle + M1 hardware acceptance.
