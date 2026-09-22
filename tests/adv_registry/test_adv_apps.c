@@ -10,6 +10,8 @@ static int s_seen_probe;
 static int s_seen_a3probe;
 static int s_seen_date;
 static int s_seen_free;
+static int s_seen_batt;
+static int s_seen_sleep;
 static int s_seen_ls;
 static int s_seen_cat;
 static int s_seen_cp;
@@ -19,6 +21,7 @@ static int s_seen_mkdir;
 static int s_seen_rmdir;
 static int s_seen_nano;
 static int s_seen_ft8;
+static int s_seen_webfs;
 static int s_seen_usbmsc;
 static int s_seen_elfhello;
 static int s_seen_sdonly;
@@ -36,6 +39,8 @@ static void capture_app(const char *name, void *ctx)
     else if (strcmp(name, "a3probe") == 0) ++s_seen_a3probe;
     else if (strcmp(name, "date") == 0) ++s_seen_date;
     else if (strcmp(name, "free") == 0) ++s_seen_free;
+    else if (strcmp(name, "batt") == 0) ++s_seen_batt;
+    else if (strcmp(name, "sleep") == 0) ++s_seen_sleep;
     else if (strcmp(name, "ls") == 0) ++s_seen_ls;
     else if (strcmp(name, "cat") == 0) ++s_seen_cat;
     else if (strcmp(name, "cp") == 0) ++s_seen_cp;
@@ -45,6 +50,7 @@ static void capture_app(const char *name, void *ctx)
     else if (strcmp(name, "rmdir") == 0) ++s_seen_rmdir;
     else if (strcmp(name, "nano") == 0) ++s_seen_nano;
     else if (strcmp(name, "ft8") == 0) ++s_seen_ft8;
+    else if (strcmp(name, "webfs") == 0) ++s_seen_webfs;
     else if (strcmp(name, "usbmsc") == 0) ++s_seen_usbmsc;
     else if (strcmp(name, "elfhello") == 0) ++s_seen_elfhello;
     else if (strcmp(name, "sdonly") == 0) ++s_seen_sdonly;
@@ -139,6 +145,20 @@ int minishell_app_free_main(int argc, char **argv)
     return 29;
 }
 
+int minishell_app_batt_main(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    return 0;
+}
+
+int minishell_app_sleep_main(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    return 0;
+}
+
 int minishell_app_ls_main(int argc, char **argv)
 {
     (void)argc;
@@ -203,6 +223,13 @@ int minishell_app_ft8_main(int argc, char **argv)
     return 31;
 }
 
+int minishell_app_webfs_main(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    return 0;
+}
+
 int minishell_app_usbmsc_main(int argc, char **argv)
 {
     assert(argc == 1);
@@ -220,6 +247,8 @@ int main(void)
     s_seen_a3probe = 0;
     s_seen_date = 0;
     s_seen_free = 0;
+    s_seen_batt = 0;
+    s_seen_sleep = 0;
     s_seen_ls = 0;
     s_seen_cat = 0;
     s_seen_cp = 0;
@@ -229,6 +258,7 @@ int main(void)
     s_seen_rmdir = 0;
     s_seen_nano = 0;
     s_seen_ft8 = 0;
+    s_seen_webfs = 0;
     s_seen_usbmsc = 0;
     s_seen_elfhello = 0;
     s_seen_sdonly = 0;
@@ -238,6 +268,8 @@ int main(void)
     assert(s_seen_a3probe == 1);
     assert(s_seen_date == 1);
     assert(s_seen_free == 1);
+    assert(s_seen_batt == 1);
+    assert(s_seen_sleep == 1);
     assert(s_seen_ls == 1);
     assert(s_seen_cat == 1);
     assert(s_seen_cp == 1);
@@ -247,6 +279,7 @@ int main(void)
     assert(s_seen_rmdir == 1);
     assert(s_seen_nano == 1);
     assert(s_seen_ft8 == 1);
+    assert(s_seen_webfs == 1);
     assert(s_seen_usbmsc == 1);
     assert(s_seen_elfhello == 1); /* flash shadows the same SD app */
     assert(s_seen_sdonly == 1);
