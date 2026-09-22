@@ -199,14 +199,14 @@ Historical T038/T040 task packets remain under `docs/project/codex/`; the old `d
 ## Configuration ownership
 
 ```text
-/flash/minishell/setting.txt   MiniShell resident operator settings (WebFS)
-/flash/minishell/alias.txt     MiniShell resident command aliases
-/flash/minishell/location.txt  MiniShell persistent default location
-/flash/minishell/gps_baud.txt  MiniShell resident GPS state
-/flash/<app>/setting.txt       application-owned configuration/deployment settings
+/flash/minishell/setting.txt  MiniShell resident settings
+/flash/minishell/alias.txt    MiniShell resident command aliases
+/flash/<app>/setting.txt      application-owned configuration/deployment settings
 ```
 
-MiniShell-owned persistent state is namespaced under `/flash/minishell/`.
+WebFS currently uses the resident `setting.txt`. Future operator-facing
+MiniShell settings should share that file rather than grow separate documented
+configuration paths.
 
 MiniFT8 currently retains its established path:
 
