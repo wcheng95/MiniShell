@@ -1,6 +1,6 @@
 # JS8 / JS8Chat for MiniShell
 
-Status: **JS8Chat v0.1 architecture frozen; implementation not started.**
+Status: **JS8Chat v0.1 architecture frozen; implementation planning complete; implementation not started.**
 
 JS8Chat is a **compile-in MiniShell application**, following the same overall integration model as MiniFT8. It is not a separate product or repository boundary.
 
@@ -42,9 +42,29 @@ MiniShell
 
 JS8Chat does not own hardware drivers. Its DSP/protocol/application core should remain modular enough for Linux/host tests, but the deployed application is part of MiniShell.
 
+## Implementation direction
+
+The implementation architecture is **MiniFT8 / Ft8Engine**, not the desktop JS8Call DSP architecture.
+
+JS8Call-improved v3.0.3 remains the wire/protocol behavior reference.
+
+The first implementation milestone is a Linux host decoder:
+
+```text
+JS8 Normal WAV
+    -> MiniFT8-style streaming waterfall/candidate path
+    -> LDPC(174,87)
+    -> CRC-12
+    -> exact 75-bit JS8 frame
+    -> minimal frame text
+```
+
+The pinned upstream `media/tests/A_*.wav` files are the initial regression corpus. See `implementation-plan.md`.
+
 ## Canonical documents
 
 - `architecture.md` — frozen v0.1 architecture and MiniShell boundary.
+- `implementation-plan.md` — staged implementation roadmap; first milestone is Linux JS8 Normal WAV decode.
 - `js8-phy.md` — JS8 physical-layer/DSP reference notes.
 - `application-protocol.md` — frozen application protocol subset.
 - `jsc-dictionary.md` — JSC TX/RX dictionary and storage design.
