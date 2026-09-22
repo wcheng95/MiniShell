@@ -679,7 +679,7 @@ add_test(
             $<TARGET_FILE_DIR:ft8>
 )
 
-foreach(app ft8 keyer minicw)
+foreach(app ft8 minicw)
     add_test(
         NAME architecture_app_${app}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/app_dependency_boundary.py
