@@ -220,11 +220,19 @@ ADV also provides platform-specific utilities such as `usbmsc`.
 
 ## Configuration ownership
 
+Current persistent ownership follows the implemented filesystem layout:
+
 ```text
-/flash/config.txt            MiniShell-owned platform/resident configuration
-/flash/minishell/alias.txt   MiniShell resident command aliases
-/flash/<app>/setting.txt     application-owned settings
+/flash/minishell/setting.txt    MiniShell resident operator settings (WebFS)
+/flash/minishell/alias.txt      MiniShell resident command aliases
+/flash/minishell/location.txt   MiniShell persistent default location
+/flash/minishell/gps_baud.txt   MiniShell resident GPS state
+/flash/<app>/setting.txt        application-owned settings
 ```
+
+There is no current generic `/flash/config.txt` file. Resident MiniShell state
+lives under `/flash/minishell/`, with each file owned by the resident feature
+that defines its contents.
 
 MiniFT8 retains its established configuration path:
 
