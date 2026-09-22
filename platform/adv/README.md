@@ -23,7 +23,7 @@ The accepted field external CW application is `minicw.elf`, valid in either exte
 
 The same binary runs through the normal external application path. If both external copies exist, the established `/flash/apps` precedence applies.
 
-The ELF loader is a private MiniShell/ADV runtime mechanism. Portable Keyer code must use only the public MiniShell API; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or loader interfaces. Static applications remain available and retain first resolution priority.
+The ELF loader is a private MiniShell/ADV runtime mechanism. Portable external application code, including Mini-CW, must use only the public MiniShell API; it must not include ESP-IDF, FreeRTOS, M5/Cardputer, FATFS, or loader interfaces. Static applications remain available and retain first resolution priority.
 
 The current ADV storage baseline uses FATFS for both internal `/flash` and optional `/sd`. The `usbmsc` utility adds ADV-only USB Mass Storage handoff so either or both FAT media can be exposed temporarily to a host PC without violating filesystem ownership.
 
