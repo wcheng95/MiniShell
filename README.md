@@ -230,9 +230,8 @@ Current persistent ownership follows the implemented filesystem layout:
 /flash/<app>/setting.txt        application-owned settings
 ```
 
-There is no current generic `/flash/config.txt` file. Resident MiniShell state
-lives under `/flash/minishell/`, with each file owned by the resident feature
-that defines its contents.
+Resident MiniShell state lives under `/flash/minishell/`, with each file owned
+by the resident feature that defines its contents.
 
 MiniFT8 retains its established configuration path:
 
