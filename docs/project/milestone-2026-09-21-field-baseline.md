@@ -59,8 +59,7 @@ accepted runtime behavior.
 - compact daily transcript logging;
 - dual-quote safe note mode.
 
-The older `apps/keyer` K0-K6 track remains development history and is not the
-current field CW application.
+The superseded `apps/keyer` K0-K6 implementation/build/tests have been removed. Historical T038/T040 task records remain in Git/docs for reference; Mini-CW is the current field CW application.
 
 ## Known operational caveat
 
