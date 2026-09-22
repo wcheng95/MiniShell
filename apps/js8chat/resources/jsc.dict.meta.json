@@ -1,0 +1,31 @@
+{
+  "block_count": 1024,
+  "block_index_bytes": 4096,
+  "block_size": 256,
+  "encoding": "latin-1",
+  "entry_count": 262144,
+  "format": "JSC1",
+  "format_version": 1,
+  "header_bytes": 32,
+  "max_entry_bytes": 26,
+  "output_bytes": 1918009,
+  "sha256": "ced6b30303f004966b29f7e658e7e60c8933526716b1b85c03384d0e9a417149",
+  "source": "https://raw.githubusercontent.com/JS8Call-improved/JS8Call-improved/v3.0.3/JS8_JSC/JSC_map.cpp",
+  "source_length_mismatch_count": 2,
+  "source_length_mismatches": [
+    {
+      "actual_length": 8,
+      "declared_length": 7,
+      "index": 81
+    },
+    {
+      "actual_length": 6,
+      "declared_length": 1,
+      "index": 262143
+    }
+  ],
+  "string_bytes": 1651737,
+  "upstream_license": "GPL-3.0-or-later",
+  "upstream_ref": "v3.0.3",
+  "upstream_repository": "JS8Call-improved/JS8Call-improved"
+}

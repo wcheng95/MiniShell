@@ -290,7 +290,7 @@ These are implementation checks, not known blockers:
 
 - build application-layer golden vectors against JS8Call-improved v3.0.3;
 - verify exact HB/ACK/CQ/directed/FIRST/LAST bit packing;
-- verify the full JSC dictionary and TX lookup ordering against JS8Call-improved v3.0.3;
+- RX JSC dictionary equivalence is verified; verify the TX `prefix[]` / `list[]` lookup ordering against JS8Call-improved v3.0.3;
 - measure the final packed JSC TX+RX resource size;
 - benchmark JS8 decode/turnaround timing on the target MCU;
 - validate simultaneous/interleaved multi-frame receive-context handling;

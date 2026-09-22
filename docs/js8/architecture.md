@@ -257,7 +257,7 @@ The following are now implementation/validation tasks, not architecture blockers
 - exact bit-packing golden vectors;
 - CRC/LDPC vectors;
 - JSC TX packed size;
-- JSC dictionary equivalence checks;
+- JSC TX lookup/consume-length equivalence checks;
 - DSP sensitivity/performance;
 - receive-context collision tests;
 - ADV timing benchmarks;

@@ -58,16 +58,16 @@ ced6b30303f004966b29f7e658e7e60c8933526716b1b85c03384d0e9a417149
 
 ## Upstream source
 
-The current extractor is pinned to the original JS8Call dictionary source:
+The MiniShell extractor is pinned directly to the frozen JS8Call-improved v3.0.3 source:
 
 ```text
-repository: js8call/js8call
-file:       jsc_map.cpp
-commit:     a7ff1be0b389d287fdc56e2ea0d06962aa68127d
+repository: JS8Call-improved/JS8Call-improved
+release:    v3.0.3
+file:       JS8_JSC/JSC_map.cpp
 entries:    262144
 ```
 
-The frozen interoperability reference is JS8Call-improved `v3.0.3`. This dictionary and its TX lookup ordering must be verified against that exact release. Current master is only a secondary compatibility check. Full-table equivalence remains a validation requirement and should not be assumed.
+The complete v3.0.3 map was compared entry-by-entry with the historical map used during early JS8Chat research. All 262,144 strings and all declared `Tuple.size` values are identical, including the two known size quirks. Therefore the existing JSC1 binary remains valid for the frozen v3.0.3 target and retains SHA-256 `ced6b30303f004966b29f7e658e7e60c8933526716b1b85c03384d0e9a417149`.
 
 The generated dictionary remains derived from upstream GPL-licensed material. MiniShell/JS8Chat is open source, so the project model is compatible with preserving the upstream GPL requirements and attribution.
 
@@ -199,13 +199,20 @@ The normal ADV build is expected to include the JSC resource, so this is a fault
 
 ## Reproducibility
 
-The earlier JS8Chat research repo generated an RX dictionary from the pinned upstream `jsc_map.cpp` and measured the format described above.
+MiniShell now owns the generator and generated RX resource:
 
-Because JS8Chat is now a MiniShell built-in app, future generator code and generated JSC resources should live in the MiniShell repository when implementation starts, rather than in a separate JS8Chat repository.
+```text
+apps/js8chat/tools/extract_jsc_dict.py
+apps/js8chat/resources/jsc.dict
+apps/js8chat/resources/jsc.dict.meta.json
+```
 
-Planned implementation work:
+The generator is pinned to JS8Call-improved `v3.0.3`. The workflow:
 
-- preserve/generate the upstream TX lookup ordering and declared consume lengths;
-- verify the complete dictionary and TX lookup behavior against JS8Call-improved `v3.0.3`;
-- measure the final packed TX+RX size;
-- choose the final ADV internal-flash/compiled-in resource layout.
+```text
+.github/workflows/js8-jsc.yml
+```
+
+regenerates the resource and verifies that the checked-in binary/metadata exactly match the frozen upstream reference.
+
+The next JSC implementation step is TX support: preserve/generate the upstream `prefix[]` / `list[]` ordering and declared consume lengths in a compact resource while keeping behavior equivalent to the v3.0.3 `JSC::lookup()` / `JSC::compress()` implementation.

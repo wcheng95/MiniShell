@@ -50,3 +50,5 @@ JS8Chat does not own hardware drivers. Its DSP/protocol/application core should 
 - `jsc-dictionary.md` — JSC TX/RX dictionary and storage design.
 
 Implementation/validation items such as golden vectors, JSC TX packing, DSP benchmarking, receive-context collision tests, and on-air interoperability are intentionally not architecture blockers.
+
+Implementation-support assets already live under `apps/js8chat/`, including the pinned v3.0.3 JSC generator and checked-in RX dictionary resource.

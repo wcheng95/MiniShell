@@ -1,0 +1,34 @@
+name: JS8 JSC reference
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - apps/js8chat/tools/extract_jsc_dict.py
+      - apps/js8chat/resources/jsc.dict
+      - apps/js8chat/resources/jsc.dict.meta.json
+      - .github/workflows/js8-jsc.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Regenerate frozen JS8Call 3.0.3 JSC resource
+        run: |
+          python3 apps/js8chat/tools/extract_jsc_dict.py \
+            --output /tmp/jsc.dict \
+            --meta /tmp/jsc.dict.meta.json
+
+      - name: Verify checked-in resource
+        run: |
+          cmp /tmp/jsc.dict apps/js8chat/resources/jsc.dict
+          cmp /tmp/jsc.dict.meta.json apps/js8chat/resources/jsc.dict.meta.json
+          echo "JSC resource matches frozen JS8Call v3.0.3 source"
+          sha256sum apps/js8chat/resources/jsc.dict
