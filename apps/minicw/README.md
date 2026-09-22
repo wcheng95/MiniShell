@@ -2,8 +2,8 @@
 
 Source: `wcheng95/Mini-CW` at
 `3bfbf169b7c2d49a1be3e9a4c80f945edb32033e` (MiniCW V1.2).
-This is a Keyer-mode extraction of that application, not a port of MiniShell's
-existing `keyer`. ADV audio uses the optional generic MiniShell continuous-tone
+This is a Keyer-mode extraction of that application. The superseded MiniShell
+`apps/keyer` implementation has been removed. ADV audio uses the optional generic MiniShell continuous-tone
 owner. Keyer settings load from `/flash/minicw/setting.txt` through MiniShell
 Filesystem; missing or invalid files fall back to the pinned compiled defaults.
 
@@ -95,7 +95,7 @@ fragment pads `.data` and `.rodata` for the existing section loader; the inspect
 packed-section alignment and relocation destinations as well as imports.
 
 T043 adds the optional Audio tone capability and its resident ADV worker;
-ordinary PCM APIs, Keyer timing/UI, existing `keyer` and FT8 remain unchanged.
+ordinary PCM APIs, Mini-CW Keyer timing/UI and FT8 remain unchanged.
 T042 and T043 hardware acceptance is complete at the golden recovery point
 `48a40d79c13ed60ef9f8444a060164852d226fcd`. T044A persistence is hardware accepted at
 `da934b03bce4cc8f908fbc1a40afed501a37196d`. T045 UI/I/O is hardware accepted; the resident audio path remains frozen.
