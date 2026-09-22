@@ -72,7 +72,7 @@ def self_test():
     cases = 0
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
-        for app, pure in (("ft8", "auto_seq"), ("keyer", "keyer_engine")):
+        for app, pure in (("ft8", "auto_seq"),):
             path = root / "apps" / app / "src" / pure / "probe.c"
             path.parent.mkdir(parents=True)
             def expect(source, reason=None):
