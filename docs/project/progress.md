@@ -7,7 +7,7 @@
 - ADV application resolution is `compiled-in > /flash/apps/<app>.elf > /sd/apps/<app>.elf`.
 - Public MiniShell API generation is v3 and exposes App, System, Console, Memory, Filesystem, Time/Location, Display, Input, Audio, and Digital I/O.
 - Architecture cleanup C0-C4 is complete.
-- The older `apps/keyer` K1-K6 path is retained as development history, but it is no longer the field application baseline. Mini-CW (`minicw`) is the accepted CW application under MiniShell; T042-T048 and the ownership audit are hardware accepted.
+- The superseded `apps/keyer` implementation/build/tests have been removed. Mini-CW (`minicw`) is the accepted CW application under MiniShell; T042-T048 and the ownership audit are hardware accepted. Historical T038/T040 task records remain for reference.
 - MiniFT8 AutoSeq AS-0..AS-8 is complete.
 - MiniFT8 live Linux/QMX RX is working continuously across consecutive FT8 slots. T018 makes bare Linux `ft8` the validated operator command: ADV presentation plus live `alsa:hw:2,0` QMX RX by default.
 - MiniFT8 live Cardputer ADV/QMX USB-host RX is fully hardware-validated at 240 MHz with the V2-compatible `time_osr=2, freq_osr=1` engine profile: live decode, consecutive slots, initial late attach, repeated FT8 lifecycle, provider continuity, and post-FT8 `usbmsc` all pass.
@@ -163,9 +163,9 @@ V2-compatible `RTYYMMDD.txt` RxTxLog is implemented and hardware validated throu
 
 ## CW application baseline
 
-The original `apps/keyer` development track (K0-K6 / T038-T040) is historical.
+The original `apps/keyer` development track (K0-K6 / T038-T040) is retired.
 It proved runtime ELF, Digital I/O, GPIO KeyIn/KeyOut, sidetone transport and UI
-experiments, but it is not the current field CW application.
+experiments; its implementation/build/tests have now been removed.
 
 The accepted CW application is `minicw`, derived from the pinned standalone
 Mini-CW V1.2 behavior:
@@ -194,7 +194,7 @@ docs/MiniCW/baseline-audit.md
 apps/minicw/README.md
 ```
 
-The older `docs/keyer/README.md` remains an explicitly historical record.
+Historical T038/T040 task packets remain under `docs/project/codex/`; the old `docs/keyer/README.md` and `keyer.elf` project were removed with the retired implementation.
 
 ## Configuration ownership
 
@@ -233,7 +233,7 @@ The Linux and ADV QMX work reinforce this rule: ALSA and ESP-IDF USB-host/UAC me
 
 ## Testing
 
-Linux CTest covers shell/runtime behavior, service contracts, filesystem/resource policy, terminal input, audio transport, Digital I/O, Keyer, MiniFT8 UI/runtime behavior, AutoSeq, and focused FT8 DSP/protocol tests.
+Linux CTest covers shell/runtime behavior, service contracts, filesystem/resource policy, terminal input, audio transport, Digital I/O, Mini-CW, MiniFT8 UI/runtime behavior, AutoSeq, and focused FT8 DSP/protocol tests.
 
 Useful MiniFT8 live diagnostic:
 
@@ -260,9 +260,10 @@ docs/MiniFT8/development.md
 docs/MiniFT8/ui.md
 docs/MiniFT8/architecture.md
 
-docs/keyer/README.md
+docs/MiniCW/migration.md
+docs/MiniCW/baseline-audit.md
+apps/minicw/README.md
 platform/adv/README.md
-platform/adv/elf_apps/keyer/README.md
 ```
 
 
