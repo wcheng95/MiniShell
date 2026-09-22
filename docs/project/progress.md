@@ -206,8 +206,7 @@ Historical T038/T040 task packets remain under `docs/project/codex/`; the old `d
 /flash/<app>/setting.txt       application-owned configuration/deployment settings
 ```
 
-There is no implemented generic `/flash/config.txt`; MiniShell-owned persistent
-state is namespaced under `/flash/minishell/`.
+MiniShell-owned persistent state is namespaced under `/flash/minishell/`.
 
 MiniFT8 currently retains its established path:
 
