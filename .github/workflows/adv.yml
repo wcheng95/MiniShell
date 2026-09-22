@@ -68,7 +68,7 @@ jobs:
             set -e
             idf.py elf
             test -s build/minicw.app.elf
-            python3 ../../../tests/minicw_elf_inspect.py build/minicw.app.elf
+            python3 ../../../../tests/minicw_elf_inspect.py build/minicw.app.elf
             echo "=== Mini-CW relocations/imports ==="
             xtensa-esp32s3-elf-readelf -rW build/minicw.app.elf | tee /tmp/minicw-relocs.txt
             test "$(grep -c 'R_XTENSA_JMP_SLOT' /tmp/minicw-relocs.txt)" -eq 1
