@@ -11,32 +11,23 @@ layout must reflect the code that actually implements that ownership.
 
 ## 1. Current MiniShell-owned namespace
 
-Implemented resident MiniShell persistence is namespaced under:
-
-```text
-/flash/minishell/
-```
-
-Current files are:
+The documented resident configuration namespace is:
 
 ```text
 /flash/minishell/setting.txt
-    operator-facing resident settings
-    currently WebFS SoftAP credentials
+    resident MiniShell settings
 
 /flash/minishell/alias.txt
     resident shell command aliases
-
-/flash/minishell/location.txt
-    persistent default geographic location
-
-/flash/minishell/gps_baud.txt
-    resident GPS baud/autodetection state
 ```
 
-Temporary transactional files such as `location.tmp`, `gps_baud.tmp`, or
-feature-specific temporary files are implementation details and are not separate
-configuration contracts.
+`setting.txt` is the single operator-facing resident settings file. WebFS
+SoftAP credentials use it today. Future resident settings that become
+operator-configurable, including GPS baud policy if exposed, should be added to
+this file rather than creating additional public configuration files.
+
+Backend-private persistence or cache files are implementation details and are
+not part of the configuration contract.
 
 ### WebFS settings
 
@@ -153,11 +144,11 @@ requirement later justifies one.
 ## 7. Boundary summary
 
 ```text
-MiniShell resident settings/state
+MiniShell resident settings
     /flash/minishell/setting.txt
+
+MiniShell resident shell aliases
     /flash/minishell/alias.txt
-    /flash/minishell/location.txt
-    /flash/minishell/gps_baud.txt
 
 Application settings
     /flash/<app>/setting.txt
