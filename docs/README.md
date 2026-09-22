@@ -85,8 +85,7 @@ Configuration ownership:
 /flash/<app>/setting.txt       application-owned configuration/deployment settings
 ```
 
-MiniShell currently has no generic `/flash/config.txt`; resident persistent
-state is kept under `/flash/minishell/`.
+Resident MiniShell persistent state is kept under `/flash/minishell/`.
 
 Hardware-specific application settings are allowed. Application meaning remains outside MiniShell; applications request generic services such as Audio or Digital I/O.
 
