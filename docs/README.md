@@ -78,14 +78,14 @@ docs/architecture/configuration.md
 Configuration ownership:
 
 ```text
-/flash/minishell/setting.txt   MiniShell resident operator settings (WebFS)
-/flash/minishell/alias.txt     MiniShell resident command aliases
-/flash/minishell/location.txt  MiniShell persistent default location
-/flash/minishell/gps_baud.txt  MiniShell resident GPS state
-/flash/<app>/setting.txt       application-owned configuration/deployment settings
+/flash/minishell/setting.txt  MiniShell resident settings
+/flash/minishell/alias.txt    MiniShell resident command aliases
+/flash/<app>/setting.txt      application-owned configuration/deployment settings
 ```
 
-Resident MiniShell persistent state is kept under `/flash/minishell/`.
+`setting.txt` is the public resident-settings location. WebFS uses it today;
+future operator-facing resident settings should be added there rather than
+documented as separate configuration files.
 
 Hardware-specific application settings are allowed. Application meaning remains outside MiniShell; applications request generic services such as Audio or Digital I/O.
 
