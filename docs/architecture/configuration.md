@@ -11,8 +11,6 @@ layout must reflect the code that actually implements that ownership.
 
 ## 1. Current MiniShell-owned namespace
 
-MiniShell currently has **no generic** `/flash/config.txt`.
-
 Implemented resident MiniShell persistence is namespaced under:
 
 ```text
