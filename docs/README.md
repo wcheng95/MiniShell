@@ -119,9 +119,7 @@ The Mini-CW Keyer-mode migration and follow-on features T042-T048 are hardware
 accepted: clean paddle/M1 audio, settings persistence, UI/I/O cleanup, callsign
 lookup, color UI, and compact transcript/note logging.
 
-The older `apps/keyer` / `docs/keyer/README.md` path remains as development
-history for the runtime-ELF, Digital I/O, GPIO and early sidetone/UI experiments;
-it is not the current field CW application.
+The superseded `apps/keyer` implementation and its dedicated build/tests have been removed. Historical T038/T040 task records remain under `docs/project/codex/` for engineering archaeology; Mini-CW is the only current field CW application.
 
 ## Other application/research areas
 
