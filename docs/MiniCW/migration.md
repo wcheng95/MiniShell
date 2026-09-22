@@ -28,7 +28,7 @@ MiniShell application APIs
 Linux / Cardputer ADV providers
 ```
 
-Do not rewrite Mini-CW to resemble the existing MiniShell Keyer application.
+Do not rewrite Mini-CW to resemble the former MiniShell `apps/keyer` application; that superseded implementation has been removed.
 
 ## Keep as Mini-CW application/domain code
 
