@@ -54,24 +54,24 @@ jobs:
             echo "=== elfhello ELF header ==="
             xtensa-esp32s3-elf-readelf -h build/elfhello.app.elf
 
-  keyer-elf-build:
+  minicw-elf-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build K4 Keyer runtime application
+      - name: Build Mini-CW runtime application
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.1
           target: esp32s3
-          path: platform/adv/elf_apps/keyer
+          path: platform/adv/elf_apps/minicw
           command: |
             set -e
             idf.py elf
-            test -s build/keyer.app.elf
-            echo "=== keyer relocations/imports ==="
-            xtensa-esp32s3-elf-readelf -rW build/keyer.app.elf | tee /tmp/keyer-relocs.txt
-            grep -q 'mini_api_get' /tmp/keyer-relocs.txt
-            test "$(grep -c 'R_XTENSA_JMP_SLOT' /tmp/keyer-relocs.txt)" -eq 1
-            grep 'R_XTENSA_JMP_SLOT' /tmp/keyer-relocs.txt | grep -q 'mini_api_get'
-            echo "=== keyer ELF header ==="
-            xtensa-esp32s3-elf-readelf -h build/keyer.app.elf
+            test -s build/minicw.app.elf
+            python3 ../../../tests/minicw_elf_inspect.py build/minicw.app.elf
+            echo "=== Mini-CW relocations/imports ==="
+            xtensa-esp32s3-elf-readelf -rW build/minicw.app.elf | tee /tmp/minicw-relocs.txt
+            test "$(grep -c 'R_XTENSA_JMP_SLOT' /tmp/minicw-relocs.txt)" -eq 1
+            grep 'R_XTENSA_JMP_SLOT' /tmp/minicw-relocs.txt | grep -q 'mini_api_get'
+            echo "=== Mini-CW ELF header ==="
+            xtensa-esp32s3-elf-readelf -h build/minicw.app.elf
