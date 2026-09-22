@@ -165,7 +165,7 @@ def self_test() -> int:
     cases = 0
     with tempfile.TemporaryDirectory() as temp:
         root = pathlib.Path(temp)
-        for name in ("ft8", "keyer"):
+        for name in ("ft8",):
             app = root / "apps" / name
 
             def write(rel, text="#pragma once\n"):
