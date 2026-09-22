@@ -1,231 +1,177 @@
 # MiniShell Configuration Ownership and Namespace
 
 Status: **Canonical architecture rule**  
-Date: 2026-09-10
+Date: 2026-09-22
 
 ## Purpose
 
-Define who owns configuration meaning and where persistent configuration belongs without making MiniShell aware of application-domain concepts.
+Persistent configuration follows semantic ownership. MiniShell owns resident
+runtime/settings state; each application owns its own settings. The filesystem
+layout must reflect the code that actually implements that ownership.
 
-The core rule is:
+## 1. Current MiniShell-owned namespace
 
-```text
-/flash/config.txt
-    MiniShell-owned resident/platform configuration
+MiniShell currently has **no generic** `/flash/config.txt`.
 
-/flash/minishell/alias.txt
-    MiniShell resident shell command aliases
-
-/flash/<app>/setting.txt
-    application-owned configuration and deployment settings
-```
-
-Configuration ownership follows semantic ownership, not merely the hardware resource eventually used.
-
-## 1. MiniShell-owned configuration
-
-`/flash/config.txt` is reserved for configuration that MiniShell itself needs to operate or adapt the platform.
-
-Examples include:
+Implemented resident MiniShell persistence is namespaced under:
 
 ```text
-debug UART GPIO assignment
-RTC GPIO/I2C assignment
-GPS GPIO/UART assignment
-GPS baud or auto-detection policy
-resident resource sharing/detection/arbitration
-other platform/runtime settings owned by MiniShell
+/flash/minishell/
 ```
 
-If RTC and GPS share a physical connection, MiniShell owns the detection/arbitration because RTC/GPS are resident MiniShell resources.
-
-The exact syntax of `/flash/config.txt` is not frozen by this architecture rule.
-
-Resident shell aliases are separately MiniShell-owned at:
-
-```text
-/flash/minishell/alias.txt
-```
-
-Operator-facing settings for MiniShell-resident utilities may live at:
+Current files are:
 
 ```text
 /flash/minishell/setting.txt
+    operator-facing resident settings
+    currently WebFS SoftAP credentials
+
+/flash/minishell/alias.txt
+    resident shell command aliases
+
+/flash/minishell/location.txt
+    persistent default geographic location
+
+/flash/minishell/gps_baud.txt
+    resident GPS baud/autodetection state
 ```
 
-This keeps user-facing resident settings separate from low-level platform/runtime
-configuration in `/flash/config.txt`. WebFS SoftAP credentials are one such
-resident setting. Neither file is an application settings file. T025 defines its small text contract: one
-`name=replacement` definition per line, first `=` is the separator, built-ins
-retain precedence, expansion is one level only, and edits are observed on the
-next lookup without restarting MiniShell.
+Temporary transactional files such as `location.tmp`, `gps_baud.tmp`, or
+feature-specific temporary files are implementation details and are not separate
+configuration contracts.
 
-MiniShell configuration must not contain application-domain names or meaning such as:
+### WebFS settings
+
+The current `/flash/minishell/setting.txt` contract is:
 
 ```text
-keyer_dit
-keyer_dah
-paddle
-CW KeyOut
-FT8 station behavior
-application WPM
-application tone
+SSID=<stable SoftAP name>
+PW=<stable WPA2 passphrase>
 ```
 
-MiniShell may know a GPIO number, UART, I2C bus, audio endpoint, or other generic platform resource. It must not know why a domain application uses that resource.
+WebFS reads this file when launched. Missing or invalid settings fall back to
+generated credentials.
+
+The path is MiniShell-owned because WebFS is a resident ADV system utility, not
+a portable domain application.
+
+### Shell aliases
+
+`/flash/minishell/alias.txt` is independently owned by the resident shell.
+Each definition uses the first `=` as the separator:
+
+```text
+name=replacement
+```
+
+Built-ins retain precedence, expansion is one level, duplicate names use the
+last definition, and edits are observed on the next lookup.
 
 ## 2. Application-owned configuration
 
-The canonical persistent application-settings path is:
+The normal application settings namespace is:
 
 ```text
 /flash/<app>/setting.txt
-```
-
-Examples:
-
-```text
-/flash/keyer/setting.txt
-/flash/ft8/setting.txt
 ```
 
 The application owns:
 
 - parsing and validating its settings;
-- defaults and application-level migration;
-- interpreting the meaning of each setting;
+- defaults and migration;
+- interpreting application-domain meaning;
 - deciding when settings change;
-- passing resulting configuration to its own modules through its normal application architecture.
+- passing resulting state through its own architecture.
 
-MiniShell Filesystem still owns file handles, path semantics, storage lifecycle, and backend implementation. File ownership here means ownership of the **meaning and policy of the contents**, not ownership of the filesystem implementation.
+MiniShell Filesystem still owns file handles, path semantics, storage lifecycle,
+and backend implementation. File ownership here means ownership of the contents'
+meaning and policy.
 
-## 3. Hardware-specific application settings are allowed
-
-Application source/API portability does **not** require one universal settings file for every platform.
-
-A portable application binary may use deployment-specific settings. For example, Keyer may contain:
+Current example:
 
 ```text
-Dit GPIO       13
-Dah GPIO       15
-KeyOut GPIO    3
-KeyOut GPIO 2  6
+/flash/minicw/setting.txt
 ```
 
-Those values describe what this Keyer deployment requires. They remain Keyer-owned settings because Keyer understands their application meaning.
+Mini-CW owns CW-specific settings such as KeyIn/KeyOut mode, WPM, tone, volume,
+TX delay, and message memories. MiniShell sees only generic Filesystem, Audio,
+Input, Display, Time/Location, Memory, and Digital I/O operations.
 
-The flow is:
+## 3. MiniFT8 current exception
 
-```text
-/flash/keyer/setting.txt
-        |
-        v
-Keyer config_service
-        |
-        v
-Keyer app_controller
-        |
-        v
-KeyIn / KeyOut edge module
-        |
-        v
-MiniShell Digital I/O
-        |
-        v
-generic platform GPIO implementation
-```
-
-MiniShell receives only generic operations such as configuring, reading, or writing a digital line. It does not know that GPIO 13 is `dit`, GPIO 15 is `dah`, or GPIO 3 keys a transmitter.
-
-Therefore:
-
-> Application code can remain portable while application deployment settings are hardware-specific.
-
-## 4. No side talk still applies
-
-Application configuration does not become a shared service that every sibling module may query.
-
-For Keyer:
-
-```text
-config_service ----X----> keyout
-config_service ----X----> keyin
-
-config_service
-      |
-      v
-app_controller
-   /       \
-  v         v
-keyin     keyout
-```
-
-`app_controller` reads/co-ordinates application configuration and passes the required values/state to the owning modules.
-
-The same rule applies to other structured MiniShell applications.
-
-## 5. No generic public MiniShell Config service is implied
-
-This naming/ownership rule does not create a generic public Config API.
-
-MiniShell may read `/flash/config.txt` internally because MiniShell owns that file's semantics. Applications may read their own settings through the existing MiniShell Filesystem API and implement application-local configuration modules.
-
-Add a public Config service only if a separate, demonstrated cross-application requirement later justifies one.
-
-## 6. MiniFT8 transition
-
-MiniFT8 currently uses:
+MiniFT8 retains its established configuration path:
 
 ```text
 /flash/ft8/station.txt
 ```
 
-The canonical application-settings namespace is now:
+Its contents remain MiniFT8-owned. A future rename to
+`/flash/ft8/setting.txt` would be a separate migration and is not implied by
+this architecture rule.
+
+## 4. Hardware-specific application settings are allowed
+
+Application portability does not require one universal deployment file.
+
+For example, an application may persist deployment-specific GPIO choices or
+radio endpoint selections while remaining portable at the API boundary:
 
 ```text
-/flash/ft8/setting.txt
+application setting
+        |
+        v
+application controller/domain
+        |
+        v
+MiniShell generic service
+        |
+        v
+platform implementation
 ```
 
-C4 does **not** rename the existing MiniFT8 file or change FT8 behavior. Moving `station.txt` to `setting.txt` is a separate MiniFT8 migration task and should include any compatibility/migration behavior needed at that time.
+MiniShell may know a GPIO number, UART, I2C bus, Audio endpoint, or other generic
+resource. It must not acquire application-domain meaning such as dit/dah, FT8
+QSO policy, or Morse timing.
 
-Until that migration occurs, `station.txt` is a documented legacy/current implementation path, not a different ownership model: MiniFT8 still owns its contents.
+## 5. No side talk
 
-## 7. Keyer consequence
+Application settings do not become a shared global configuration service.
 
-Keyer will use:
+Structured applications keep configuration flow explicit through their owning
+controller/domain modules. Sibling modules do not independently reach into
+persistent settings merely because the Filesystem API is available.
+
+## 6. No generic public Config API
+
+This namespace does not imply a public MiniShell Config service.
+
+Resident MiniShell features may read their own files under
+`/flash/minishell/`. Applications read their own files through the existing
+Filesystem API.
+
+A generic Config service should be added only if a demonstrated cross-application
+requirement later justifies one.
+
+## 7. Boundary summary
 
 ```text
-/flash/keyer/setting.txt
-```
-
-from its first implementation rather than inheriting Mini-CW's old `/fatfs/setting.txt` path.
-
-The settings may include KeyIn/KeyOut GPIO assignments, KeyIn/KeyOut modes, WPM, tone, volume, iambic behavior, Audio endpoint selection, TX delay, and other Keyer-domain behavior.
-
-MiniShell must not add Keyer-specific entries to `/flash/config.txt` to support those settings.
-
-## 8. Boundary summary
-
-```text
-MiniShell config
-    /flash/config.txt
-    what MiniShell itself needs to operate/adapt the platform
-
-MiniShell resident shell
-    /flash/minishell/alias.txt
-    user-defined command aliases owned by the resident shell
-
-MiniShell resident settings
+MiniShell resident settings/state
     /flash/minishell/setting.txt
-    operator-facing settings for resident MiniShell utilities such as WebFS
+    /flash/minishell/alias.txt
+    /flash/minishell/location.txt
+    /flash/minishell/gps_baud.txt
 
 Application settings
     /flash/<app>/setting.txt
-    what the application wants and how that deployment is configured
+
+MiniFT8 current compatibility path
+    /flash/ft8/station.txt
 
 MiniShell services
     generic resource operations only
     no application-domain interpretation
 ```
 
-This rule is independent of application packaging. An external ADV application may run from `/flash/apps/<app>.elf` or `/sd/apps/<app>.elf` while its canonical persistent settings remain under `/flash/<app>/setting.txt`.
+This rule is independent of application packaging. An ADV application may run
+compiled-in or from `/flash/apps/<app>.elf` / `/sd/apps/<app>.elf` while its
+persistent settings remain in its own application namespace.
