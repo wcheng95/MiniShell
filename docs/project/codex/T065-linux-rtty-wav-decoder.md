@@ -1,6 +1,6 @@
 # T065 — Linux RTTY WAV decoder
 
-Status: DRAFT
+Status: READY
 
 ## Architect intent
 
@@ -38,21 +38,23 @@ Existing RTTY research is in private repository `wcheng95/rtty_decoder`:
 
 The current Python decoder is an offline SciPy proof of concept and is **not** source to port directly. It uses non-causal `decimate()` / `fftconvolve(..., same)` operations and QMX-specific complex-I/Q geometry.
 
-For this task, use **ordinary real PCM audio** as the decoder boundary. That makes one core usable by generated WAV files now and by WebSDR/QMX audio later.
+For this task, use **12 kHz ordinary real PCM audio** as the decoder boundary. The same fixed-rate core will be used by generated WAV files now and by MiniShell Audio/QMX later. No resampler belongs inside the RTTY core.
 
-The existing `rtty_encode.py` real-audio defaults are:
+The first receiver profile is:
 
 ```text
-sample rate: 48000 Hz
+sample rate: 12000 Hz
 baud:        45.45
-MARK:        2125 Hz
-LSB SPACE:   1955 Hz
 shift:       170 Hz
+audio window: 500..1500 Hz
+sense:       normal LSB; MARK is the upper tone, SPACE = MARK - 170 Hz
 ITA2:        5 data bits, LSB first
 idle:        MARK
 ```
 
-Its WAV output is 24-bit stereo with duplicate L/R channels. It currently emits at least 1.5 stop bits (in practice 2.0 bits); the decoder should tolerate this.
+The decoder must automatically acquire a valid tone pair anywhere in the 500..1500 Hz audio window rather than assuming a fixed 2125/1955-Hz pair.
+
+The existing `rtty_encode.py` remains a protocol/reference encoder, but T065 must generate or convert its canonical test vectors to 12 kHz. Its current framing emits at least 1.5 stop bits (in practice 2.0 bits); the decoder should tolerate this.
 
 ## Source of truth
 
@@ -92,15 +94,20 @@ The real-audio encoder in that repo is the canonical first WAV producer.
 - The receive algorithm must be **causal/streaming**: bounded state and bounded memory, with no whole-file buffer.
 - Prefer caller-owned fixed state. Do not require heap allocation in the pure decoder core.
 - Floating-point DSP is acceptable for the first implementation.
+- The decoder core boundary is fixed at 12 kHz S16 mono.
+- WAV adaptation converts supported file PCM into that exact stream; T065 WAV files must be 12 kHz and other sample rates are rejected.
 - Preserve non-integer 45.45-baud timing; do not round the protocol to 45 or 50 baud.
+- The RTTY shift is fixed at 170 Hz for T065.
+- The decoder must acquire a normal-LSB MARK/SPACE pair anywhere in 500..1500 Hz; both detected tones must remain inside the window.
 
 ## Decoder architecture for T065
 
 Keep this deliberately small:
 
 ```text
-real PCM samples
-    -> MARK / SPACE tone-energy detector
+12 kHz S16 mono PCM
+    -> 500..1500 Hz tone-pair acquisition
+    -> locked MARK / SPACE tone-energy detector
     -> hard/soft MARK-vs-SPACE decision
     -> start-edge synchronized fractional bit clock
     -> start + 5 data + stop validation
@@ -108,7 +115,14 @@ real PCM samples
     -> decoded characters
 ```
 
-A simple causal dual-tone quadrature detector or equivalent two-tone narrowband detector is preferred. An FFT, waterfall, HMM/Viterbi, Gardner loop, AFC, AGC, and auto-detect are unnecessary in this task.
+Use a small causal acquisition + tracking design:
+
+1. While unlocked, use a lightweight Goertzel/correlation scan over the 500..1500 Hz window to find a plausible 170-Hz-separated normal-LSB pair.
+2. Because idle is MARK, acquisition may use the strong upper MARK tone and infer SPACE = MARK - 170 Hz; a pair-energy score may also be used when both tones are present.
+3. Once locked, use only the two selected tone detectors for ordinary streaming demodulation.
+4. If the decoder remains unable to produce valid framing for a bounded interval, it may drop lock and reacquire.
+
+This must stay small enough for later ADV use. Do not add an FFT dependency merely for acquisition. A waterfall, HMM/Viterbi, Gardner loop, AFC, and AGC are unnecessary in T065.
 
 Timing requirements:
 
@@ -133,19 +147,21 @@ Initial invocation:
 rtty <path.wav>
 ```
 
-Defaults:
+Fixed T065 profile:
 
 ```text
-baud  = 45.45
-MARK  = 2125 Hz
-SPACE = 1955 Hz
+sample rate  = 12000 Hz
+baud         = 45.45
+shift        = 170 Hz
+search band  = 500..1500 Hz
+sense        = normal LSB (MARK upper, SPACE lower)
 ```
 
 Support uncompressed RIFF/WAVE PCM with:
 
 - mono or stereo,
 - 16-bit or 24-bit integer PCM,
-- sample rate obtained from the WAV header,
+- sample rate exactly 12000 Hz as declared by the WAV header,
 - ordinary real audio,
 - streaming reads through MiniShell Filesystem.
 
@@ -153,7 +169,7 @@ For stereo, downmix safely to one real sample (average L/R or use one channel; d
 
 Reject unsupported encodings/formats with a concise Console error and nonzero exit status.
 
-Do not add command-line tuning options yet. We want one known-good path before live-radio tuning work.
+Do not add command-line tuning options yet. Tone location is acquired automatically inside the fixed 500..1500 Hz window; baud/shift/sense remain fixed for this first profile.
 
 ## Implementation scope
 
@@ -193,9 +209,9 @@ Update `apps/README.md` to list `rtty` as a current application once implementat
 - ADV hardware execution.
 - Display UI.
 - Waterfall/scope/tuning indicator.
-- Automatic carrier detection/AFC.
-- Automatic MARK/SPACE sense detection.
-- Multiple baud rates or shifts.
+- Continuous AFC after tone acquisition.
+- Automatic MARK/SPACE sense reversal; T065 uses normal LSB sense.
+- Multiple baud rates, shifts, or sample rates.
 - USOS.
 - Squelch/AGC.
 - Weak-signal optimization.
@@ -207,12 +223,16 @@ Update `apps/README.md` to list `rtty` as a current application once implementat
 - [ ] `apps/rtty/` exists and uses only the public MiniShell API at the application boundary.
 - [ ] Pure RTTY core is platform-independent and causal/streaming.
 - [ ] Core uses bounded memory and does not buffer an entire WAV.
+- [ ] Core input contract is fixed 12 kHz S16 mono.
 - [ ] 45.45 baud is represented fractionally rather than rounded to an integer baud.
+- [ ] Receiver automatically acquires a 170-Hz tone pair whose tones lie within 500..1500 Hz.
 - [ ] Correct ITA2 LETTERS/FIGURES shift behavior is covered by tests.
 - [ ] Linux build produces `build-linux/runtime/apps/rtty.so`.
 - [ ] `rtty <path.wav>` accepts supported real-audio PCM WAV files via MiniShell Filesystem.
-- [ ] 48 kHz / 24-bit / stereo AFSK generated from the pinned `rtty_encode.py` path decodes a clean known message such as `THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG`.
-- [ ] At least one 16-bit WAV case is also tested.
+- [ ] 12 kHz / 24-bit / stereo AFSK decodes a clean known message such as `THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG`.
+- [ ] At least one 12 kHz / 16-bit WAV case is also tested.
+- [ ] Clean synthetic vectors decode with the tone pair at more than one location in the 500..1500 Hz window (for example MARK/SPACE 1000/830 Hz and 1400/1230 Hz).
+- [ ] A supported PCM WAV with a non-12-kHz sample rate is rejected clearly.
 - [ ] Unsupported WAV format returns a concise error and nonzero result.
 - [ ] Existing MiniShell tests remain green.
 - [ ] No code is added to `platform/adv/adv_apps.c`.
@@ -226,8 +246,10 @@ Codex must add focused unit/integration coverage for at least:
 - ITA2 LETTERS/FIGURES transitions.
 - clean synthetic RTTY samples -> expected text through the pure core.
 - fractional 45.45-baud timing.
-- WAV parser: PCM16 mono.
-- WAV parser: PCM24 stereo.
+- automatic acquisition of 170-Hz-spaced tones at multiple positions inside 500..1500 Hz.
+- WAV parser: 12 kHz PCM16 mono.
+- WAV parser: 12 kHz PCM24 stereo.
+- rejection of a non-12-kHz WAV.
 - malformed/unsupported WAV rejection.
 
 Run:
@@ -246,7 +268,7 @@ The test generator must make the test reproducible; do not depend on an internet
 
 Linux manual validation after supervisor review:
 
-1. Generate a clean real-audio RTTY WAV using the pinned `rtty_encode.py` or the task's deterministic generator.
+1. Generate a clean 12-kHz real-audio RTTY WAV using the task's deterministic generator (the pinned encoder remains a protocol reference).
 2. Place it in the Linux MiniShell-visible filesystem.
 3. Run `rtty <path.wav>`.
 4. Confirm the known message is printed correctly.
