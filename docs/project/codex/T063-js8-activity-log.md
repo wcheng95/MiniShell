@@ -1,6 +1,6 @@
 # T063 — JS8 RX activity events and append-only host logger
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -469,11 +469,40 @@ database, ADIF, live source, CAT, UI or TX is included.
 
 ### Commit
 
-One reviewable commit on `codex/T063-js8-activity-log`; exact SHA is returned in
-the Codex handoff (this packet is part of that commit).
+The reviewed implementation commit is:
+
+`28f741d0a5111af968301bfb30fc2b6073cae559`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 
+Reviewed commit `28f741d0a5111af968301bfb30fc2b6073cae559` against T063.
+
+Result: **PASS**.
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T063 baseline.
+- `js8_activity` is a pure bounded snapshot layer: no heap, file, clock, JSON, platform, monitor/DSP, or codec/resource ownership.
+- Event kinds cover HB, CQ, COMPOUND, DIRECTED, DATA and completed MESSAGE, with exact byte preservation for DATA/MESSAGE text.
+- Common audio frequency remains signed integer milli-Hz and elapsed time is exact `slot_index * 15` in 64-bit arithmetic.
+- Host dial metadata is parsed as checked integer Hz with headroom for signed 32-bit audio offsets; RF milli-Hz is formed without floating point.
+- UTC metadata uses strict `YYYYMMDDTHHMMSSZ`, validates Gregorian dates, requires 15-second alignment, and is advanced by exact integer slot elapsed time.
+- JSONL schema is versioned as `js8-activity-v1`; missing metadata is omitted rather than fabricated.
+- One JSON string writer handles quotes, backslashes, controls, DEL and all Latin-1 high bytes; bytes >=0x80 are emitted as `\u00XX`, keeping logs valid ASCII JSON.
+- Logger opens in append mode, writes one bounded line per event, flushes per slot, latches the first I/O error, and never truncates existing content.
+- Event ordering is causal: frame-level event first, then MESSAGE completion when T062 returns COMPLETE.
+- No logger-level dedupe is added; T061 per-slot payload dedupe remains authoritative and repeated events across slots are retained.
+- Host event construction reuses already-decoded T056-T062 semantics rather than duplicating protocol decoding.
+- Logger failure paths preserve already-produced decode stdout and return nonzero with a deterministic logger diagnostic.
+- No-log invocation and stdout/stderr remain byte-for-byte compatible with accepted T060-T062 behavior.
+- Synthetic coverage includes HB/CQ FIELD, compound/directeds, Huffman/JSC DATA, mixed MESSAGE, repeated slots, four streams, gaps/orphans, metadata omission/presence, UTC rollover, RF frequency, append preservation and injected I/O failures.
+- Existing JS8 PHY/content/reassembly, FT8, MiniShell API, JSC resource, and ADV production behavior are unchanged.
+- Reported gates are consistent with the diff: Linux 111/111, portable 25/25, sanitizer 21/21, real-WAV regression, boundary/no-heap checks, ADV build, and diff check all pass. The documented serial PTY intermittency is unrelated and no serial code/test changed.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
 ## Architect test result
 
-No required hardware/RF acceptance. Optional aligned WebSDR JSONL experiment after review.
+No required hardware/RF acceptance. Optional aligned WebSDR JSONL experiment remains available; task complete.
