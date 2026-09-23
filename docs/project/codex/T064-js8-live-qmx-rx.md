@@ -1,6 +1,6 @@
 # T064 — Live Linux QMX JS8 RX monitor
 
-Status: IMPLEMENTING
+Status: TESTING
 
 ## Architect intent
 
@@ -516,11 +516,11 @@ Do NOT implement TX, tune, JSC TX, heartbeat auto-ACK, station/reachability DB, 
 - [x] every successful live frontend chunk is UTC-referenced and backdated like MiniFT8
 - [x] slot scheduling uses fresh timed chunk positions, not a free-running startup anchor
 - [x] cross-slot cumulative sample-count drift is prevented by repeated UTC re-anchoring
-- [ ] MiniFT8-style 9600-sample pre-roll scheduling implemented
-- [ ] 240-sample initial timing tolerance implemented
-- [ ] normal chunk-boundary overshoot of capture start does not timing-drop
-- [ ] exact 90000-sample UTC slot cadence preserved
-- [ ] exactly 89280 samples / 93 blocks captured for each target slot
+- [x] MiniFT8-style 9600-sample pre-roll scheduling implemented
+- [x] 240-sample initial timing tolerance implemented
+- [x] normal chunk-boundary overshoot of capture start does not timing-drop
+- [x] exact 90000-sample UTC slot cadence preserved
+- [x] exactly 89280 samples / 93 blocks captured for each target slot
 - [x] discontinuity causes full timing/frontend/reassembly resync
 - [x] capture remains responsive while decode runs
 - [x] no multi-second raw-audio slot buffering
@@ -576,7 +576,7 @@ Codex:
 12. push one reviewable commit and return SHA;
 13. no PR and no Actions wait.
 
-## Codex implementation notes
+## Codex implementation notes — initial implementation (historical)
 
 ### Implementation summary
 
@@ -730,6 +730,85 @@ The reviewed implementation commit is:
 
 No PR or GitHub Actions wait.
 
+## Codex scheduler correction — a8d8a7d8 task amendment
+
+### Implementation summary / files changed
+
+Re-read task baseline `a8d8a7d8aedc27d87983d75c7e27b636f6a021f7` and
+MiniFT8 `rx_live_schedule_init()` / `rx_live_process_timed_samples()`.
+`js8_slot.c` now selects the initial target using `(first_pos+9600)/90000`
+(nonnegative live positions), advancing only when `first_pos > pre+240`.
+Each timed chunk consumes its prefix before the target's `pre = S*90000-9600`;
+when `pre <= pos`, capture starts at the first available sample. There is no
+exact-hit requirement or overshoot drop. Capture still emits exactly 89280
+samples and retains target slot S. A later pre-roll point uses fresh UTC input.
+
+Files changed: `js8_slot.c/.h`, `tests/js8_live_test.c`,
+`tests/js8_live_probe.c`, `tests/linux_js8_live.py`, app README,
+`docs/js8/activity-log.md`, and this packet. Initial timing notes above are
+historical and superseded by this correction and the amended geometry section.
+
+### Behavior / invariants preserved
+
+Per-read UTC query/backdating and full discontinuity reset are unchanged.
+No engine, FT8 production, host WAV slicing, worker, protocol/reassembly,
+CAT or JSON serializer changes. No new state allocation: workspace/resource
+sizes above remain unchanged. Initial tolerance is inclusive at +240 samples;
++241 selects the following slot. Scheduled chunk overshoot starts capture,
+without padding or reverting to a free-running sample clock. Incomplete captures
+interrupted by a later scheduled start can still report a drop.
+
+### Regression evidence
+
+- Initial offsets -241, -240, -1, 0, +1, +239, +240 and +241 samples exercise
+  target selection and inclusive 40 ms tolerance.
+- A chunk crossing pre starts at its exact in-chunk index.
+- Three successive target slots use 120-sample (20 ms) chunks that end 20 samples
+  before pre and resume 20 samples after it. All three finalize exactly 89280
+  samples with the correct slot identity and zero timing drops. This reproduces
+  the reported timing gap without simulating an Audio discontinuity.
+- Fresh UTC advancement starts the next capture at index 50 despite a count gap;
+  repeating old timing after 90000 consumed samples does not start a new capture.
+- Integration now supplies a real 1.6-second silent pre-roll and starts fake UTC
+  at that pre-roll. The same 500 ms-delayed Normal signals decode at their original
+  target slot identities, including mixed Huffman/JSC and four streams.
+
+Two stale test assumptions were updated explicitly: the delayed-worker test now
+holds work through read 2150 (the later pre-roll schedule shifts its first job),
+and equal-score candidate order is not compared between different capture
+origins. The JSON integration still compares exact object bytes and multiplicity,
+slot ordering, and DATA/MESSAGE adjacency. No semantic field is normalized away
+beyond the existing source-specific slot identity fields.
+
+### Tests run / measured results
+
+Reran the exact configure/build/test commands in the initial Test evidence block
+above on this fix, including the external WAV and full sanitizer selection:
+
+- Linux full CTest: 114/114 passed (36.10 s).
+- Portable CTest: 27/27 passed (1.15 s).
+- External A_2_1 reference: 1/1 passed; WAV not committed.
+- ASan/UBSan: 23/23 passed (63.79 s), including resource corruption and live integration.
+- ADV build: passed.
+- Boundary/no-heap gates are included in the full suites; `git diff --check` passed.
+
+Additional `ctest --test-dir build-linux -V -R '^linux_js8_live$'` passed.
+Its nine synthetic windows measured decode 19299–33178 us, maximum serviced-chunk
+gap 11870 us, 50 candidates per window, and zero drops/discontinuities. This is
+paced test-process evidence, not a replacement for the real pc-1/QMX test.
+
+### Hardware/manual validation and known risks
+
+The architect's failed run below remains the hardware evidence. The corrected
+build still requires the real 20-slot test, including on-air decode and JSONL
+inspection. Existing bounded-worker overload and capture-thread FS latency risks
+remain; no additional buffering or sensitivity tuning was introduced.
+
+### Commit reference
+
+One scheduler-fix commit on `codex/T064-js8-live-qmx-rx` after the amended task
+baseline; SHA returned in the handoff. No PR or Actions wait. No task deviation.
+
 ## Supervisor review
 
 Reviewed commit `3c9430f1b697fec308b0b1b9c4af81051744d3f3` against the amended T064 timing contract and the accepted MiniFT8 live timing model.
@@ -762,6 +841,28 @@ Main was fast-forwarded to the reviewed implementation commit.
 
 T064 now enters TESTING for real pc-1/QMX acceptance.
 
+## Supervisor review — scheduler correction
+
+Reviewed scheduler-fix commit `9f454b37f29dfc014f8317705a7d78f6e13acb00` against the real-QMX timing-drop failure and MiniFT8 live scheduling.
+
+Result: **PASS — corrected implementation accepted for another real pc-1/QMX run.**
+
+Findings:
+
+- Fix is bounded to live-slot scheduling/tests/docs; JS8 engine, FT8 production, host WAV slicing, worker, protocol/reassembly, CAT and JSON paths are unchanged.
+- Initial target selection matches MiniFT8: `(first_pos + 9600) / 90000`, with inclusive +240-sample / 40 ms lateness tolerance.
+- Each target capture starts at `pre = S*90000 - 9600`, retaining target UTC slot identity S.
+- Normal chunk overshoot of `pre` now starts from the first available sample instead of emitting a timing drop.
+- Fresh per-chunk UTC/backdated positions remain authoritative; no free-running `+90000` clock was reintroduced.
+- Capture still accumulates exactly 89280 samples / 93 blocks; incomplete captures can still be explicitly dropped if a later scheduled start overtakes them.
+- The regression reproduces the real ~20 ms chunk gap across `pre` for three consecutive target slots with zero timing drops.
+- Tolerance edge cases -241/-240/-1/0/+1/+239/+240/+241 are covered; +241 correctly schedules the following target.
+- Synthetic integration includes 1.6 s pre-roll and preserves message/multistream decoding and JSON semantics.
+- Reported gates are consistent with the diff: Linux 114/114, portable 27/27, sanitizer 23/23, external WAV regression, ADV build, boundary/no-heap checks and diff check all pass.
+
+Main contains the reviewed scheduler fix while preserving the later real-hardware evidence note.
+
+T064 returns to TESTING. Real QMX 20-slot acceptance remains required.
 ## Architect test result
 
 ### First real pc-1/QMX run — FAIL, scheduler defect identified
@@ -796,8 +897,10 @@ Interpretation:
 Required correction is the MiniFT8 pre-roll/tolerance scheduling defined above.
 Do not mark T064 COMPLETE until the corrected build passes the real 20-slot gate.
 
-Continued real-QMX observation produced one successful decode window amid otherwise
-continuous timing drops:
+### Continued first-build observation
+
+The original faulty build later produced one accidental complete decode window amid
+continued timing drops:
 
 ```text
 JS8 timing-drop slot=119343189 ... drops=7 discontinuities=0
@@ -807,6 +910,7 @@ JS8 timing-drop slot=119343191 ... drops=8 discontinuities=0
 JS8 timing-drop slot=119343200 ... drops=17 discontinuities=0
 ```
 
-This is consistent with occasional accidental chunk/boundary alignment. The decode
-worker itself completed normally in ~52.9 ms and found 50 candidates, while Audio
-remained continuous. The dominant defect remains live capture-start scheduling.
+This is consistent with occasional accidental chunk/capture-start alignment. The
+decode worker completed normally in about 52.9 ms and found 50 candidates while
+Audio remained continuous. It reinforces that the defect was scheduling, not
+QMX/ALSA continuity or decoder throughput.
