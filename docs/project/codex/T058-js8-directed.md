@@ -1,6 +1,6 @@
 # T058 — JS8 standard directed frame decoder
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -456,11 +456,38 @@ validated PHY payload; content parsing does not repeat CRC validation.
 
 ### Commit
 
-One reviewable commit on `codex/T058-js8-directed` containing these notes; its SHA
-is returned after push. No PR or GitHub Actions wait.
+The reviewed implementation commit is:
+
+`4f46440c8ccfc91f55fe9c9de10ecc8f5b654c08`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 
+Reviewed commit `4f46440c8ccfc91f55fe9c9de10ecc8f5b654c08` against T058 and the pinned JS8Call-improved v3.0.3 directed/callsign behavior.
+
+Result: **PASS**.
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T058 baseline.
+- `js8_callsign28_unpack()` covers the complete v3.0.3 special-basecall table and generic 28-bit mixed-radix path.
+- Special basecalls ignore portable rendering exactly as upstream; generic callsigns trim, apply 3D0/3DA0 and Q/3X compatibility transforms, and append /P when flagged.
+- Fixed output capacity is sufficient for all upstream special names and expanded generic portable calls.
+- All 32 directed command codes map to the canonical QMap::key strings, including aliases whose lexical ordering matters: code 0 -> ` SNR?`, code 12 -> ` QUERY MSGS`, code 31 -> one space.
+- ACK (14), 73 (28), free-text (31), and SNR commands (25/29) are explicitly classified without adding command policy.
+- Number6 semantics match RX behavior exactly: zero absent; otherwise value = raw - 31, including present zero and arbitrary +32.
+- SNR formatting matches upstream signed two-digit presentation and preserves the raw integer separately.
+- Transmission flags remain independent of directed content.
+- `<....>` is decoded but deliberately not associated with a prior compound frame.
+- The source-pinned oracle extracts the actual basecall/command tables and independently generates fixed directed payloads.
+- Tests cover all 32 commands x 64 number values x four portable combinations, all 54 special calls, generic boundary/transform cases, all eight tail flags, malformed bits, and eleven synthetic WAV integrations.
+- No compound-directed association, data codec, reassembly, conversations, command auto-policy, TX, UI, or platform work was introduced.
+- T056/T057, T054 DSP, T055 WAV/frontend, real A_2_1 output, and FT8 remain unchanged.
+- Reported gates are consistent with the diff: Linux 99/99, portable 21/21, sanitizer 9/9, external WAV, boundaries/no-heap, ADV build, oracle regeneration, and diff check all pass.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
 ## Architect test result
 
-No hardware/RF acceptance required.
+No hardware/RF acceptance required. Software review accepted; task complete.
