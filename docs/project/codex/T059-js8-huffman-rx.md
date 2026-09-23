@@ -258,6 +258,54 @@ Also prove:
 - padding sentinel/trailing ones are not returned as text;
 - all eight tail transmission flag values do not alter decoded text.
 
+## Longer host WAV input for WebSDR captures
+
+T059 also changes only the Linux host tool's input-window policy so the architect can test longer WebSDR recordings.
+
+Current T055 behavior rejects files containing more than 93 complete 6 kHz engine blocks. Replace that host-only rejection with deterministic truncation:
+
+    WAV may contain >= 1 complete engine block
+    process_blocks = min(total_complete_blocks, 93)
+    process exactly the first process_blocks
+    ignore every remaining engine sample after block 93
+
+For a longer WAV, decoding therefore uses only the **first 93 complete 960-sample engine blocks** from the beginning of the file.
+
+This is deliberately not a sliding-window or multi-slot decoder yet.
+
+Requirements:
+
+- preserve the existing 12 kHz mono S16 WAV contract;
+- preserve continuous phase-0 2:1 decimation from WAV sample zero;
+- never allocate the whole WAV;
+- stop feeding the monitor after block 93;
+- safely ignore/skip the remaining WAV data;
+- do not pad an incomplete block;
+- report the amount of input ignored clearly in host diagnostics;
+- the original pinned 15-second A_2_1 behavior/output must remain unchanged;
+- no change to Js8Monitor capacity or deployed js8_engine behavior.
+
+Suggested summary diagnostics may distinguish:
+
+    processed_blocks=93
+    ignored_engine_samples=<all samples after block 93>
+
+or retain the existing `blocks=` field and redefine/document `ignored_engine_samples` to include both the old partial-tail remainder and all complete samples beyond the 93-block host window.
+
+The exact field names may remain backward-compatible, but tests must make the semantics unambiguous.
+
+Add host tests for at least:
+
+1. exact 93-block input;
+2. 93 blocks + the existing 720-sample tail;
+3. 94 complete blocks;
+4. a substantially longer recording, e.g. 2-3 Normal periods;
+5. signal inside the first 93-block window still decodes normally;
+6. data after block 93 cannot affect the decode result;
+7. truncated/malformed trailing RIFF data is still rejected by the existing container validation rather than hidden by early DSP truncation.
+
+This feature is specifically for convenient WebSDR experimentation. Searching later windows of a long capture is a separate future task.
+
 ## Host diagnostics
 
 Extend js8_decode for DATA frames only.
@@ -345,6 +393,10 @@ Do NOT implement:
 - [ ] tail transmission flags remain independent
 - [ ] js8_decode prints exact Huffman fragment for DATA frames
 - [ ] synthetic WAV integrations pass
+- [ ] js8_decode accepts WAVs longer than 93 engine blocks
+- [ ] long WAVs are deterministically truncated to the first 93 complete blocks
+- [ ] samples after the first 93 blocks cannot affect decode output
+- [ ] long-WAV ignored-sample diagnostics are tested
 - [ ] real A_2_1 output remains unchanged
 - [ ] T056-T058 semantics unchanged
 - [ ] T054/T055 DSP/WAV unchanged
@@ -374,12 +426,13 @@ Codex:
 3. build independent source-pinned vectors;
 4. test all table entries and framing/padding behavior;
 5. extend js8_decode diagnostics for DATA only;
-6. do not implement JSC or reassembly;
-7. run the full existing JS8 gate set;
-8. set Status to REVIEW;
-9. fill notes/vector provenance;
-10. push one reviewable commit and return SHA;
-11. no PR and no Actions wait.
+6. change host WAV handling so recordings longer than one window are truncated to the first 93 complete engine blocks, with tested ignored-input diagnostics;
+7. do not implement sliding windows, multi-slot decode, JSC, or reassembly;
+8. run the full existing JS8 gate set;
+9. set Status to REVIEW;
+10. fill notes/vector provenance;
+11. push one reviewable commit and return SHA;
+12. no PR and no Actions wait.
 
 ## Codex implementation notes
 
