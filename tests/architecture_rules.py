@@ -3,6 +3,14 @@
 # Application-local dependency rules. Add another entry when a new application
 # needs the same architectural enforcement; keep the checker itself generic.
 APP_RULES = {
+    "js8chat": {
+        "enforced_roots": {"src"},
+        "module_paths": {"js8_engine": ("src/js8_engine",)},
+        "include_roots": ("src/js8_engine",),
+        "allowed": {"js8_engine": {"js8_engine"}},
+        "api_modules": set(),
+        "no_heap_modules": {"js8_engine"},
+    },
     "ft8": {
         "enforced_roots": {"main", "include", "src"},
         "module_paths": {

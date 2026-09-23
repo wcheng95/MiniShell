@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(minishell_unit_tests C)
 
+enable_testing()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
@@ -47,3 +49,6 @@ target_include_directories(minishell_unit_tests PRIVATE
 target_compile_options(minishell_unit_tests PRIVATE -Wall -Wextra -Werror)
 
 include(../minicw_tests.cmake)
+
+add_test(NAME minishell_unit_tests COMMAND minishell_unit_tests)
+include(../js8_tests.cmake)

@@ -862,3 +862,5 @@ target_include_directories(ft8_color_adapter_unit PRIVATE include apps/ft8/inclu
     apps/ft8/src/ui_shell apps/ft8/src/presentation_profile)
 target_compile_options(ft8_color_adapter_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
 add_test(NAME ft8_color_adapter_unit COMMAND ft8_color_adapter_unit)
+
+include(tests/js8_tests.cmake)

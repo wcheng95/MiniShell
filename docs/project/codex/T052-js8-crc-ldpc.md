@@ -1,6 +1,6 @@
 # T052 — JS8 Normal CRC-12 and LDPC(174,87) core
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -345,26 +345,26 @@ The architect's `~/projects/js8chat/A_2_1.wav` fixture is explicitly reserved fo
 
 Software gate:
 
-- [ ] pure JS8 CRC-12 implementation matches v3.0.3;
-- [ ] exact 75 -> 87 bit formation matches v3.0.3;
-- [ ] exact LDPC(174,87) encoder matches v3.0.3;
-- [ ] codeword ordering is parity[87] followed by information[87];
-- [ ] BP decoder matches v3.0.3 parity-check behavior;
-- [ ] noiseless golden codewords decode to exact information words;
-- [ ] recovered information words pass CRC;
-- [ ] corrupted CRC is rejected;
-- [ ] at least three fixed upstream-derived golden vectors are checked in;
-- [ ] no heap allocation;
-- [ ] no mutable global state;
-- [ ] no Qt/Boost/FFTW/platform dependency;
-- [ ] only JS8 Normal assumptions are represented;
-- [ ] no changes to FT8 behavior;
-- [ ] Linux full CTest passes;
-- [ ] portable unit tests pass where applicable;
-- [ ] architecture/platform boundary checks remain green;
-- [ ] real ADV build remains green;
-- [ ] `git diff --check` passes;
-- [ ] no unrelated cleanup.
+- [x] pure JS8 CRC-12 implementation matches v3.0.3;
+- [x] exact 75 -> 87 bit formation matches v3.0.3;
+- [x] exact LDPC(174,87) encoder matches v3.0.3;
+- [x] codeword ordering is parity[87] followed by information[87];
+- [x] BP decoder matches v3.0.3 parity-check behavior;
+- [x] noiseless golden codewords decode to exact information words;
+- [x] recovered information words pass CRC;
+- [x] corrupted CRC is rejected;
+- [x] at least three fixed upstream-derived golden vectors are checked in;
+- [x] no heap allocation;
+- [x] no mutable global state;
+- [x] no Qt/Boost/FFTW/platform dependency;
+- [x] only JS8 Normal assumptions are represented;
+- [x] no changes to FT8 behavior;
+- [x] Linux full CTest passes;
+- [x] portable unit tests pass where applicable;
+- [x] architecture/platform boundary checks remain green;
+- [x] real ADV build remains green;
+- [x] `git diff --check` passes;
+- [x] no unrelated cleanup.
 
 There is no RF/manual hardware validation for T052.
 
@@ -435,21 +435,119 @@ Codex:
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Implemented the pure Normal-mode CRC-12 and systematic LDPC(174,87) encoder
+and BP decoder. The CRC performs augmented polynomial division over the exact
+88-bit upstream buffer (75 payload bits plus 13 zeros), then XORs with 42.
+The decoder preserves upstream adjacency order, sign convention, 30-update
+limit, initial syndrome check and stalled-syndrome early exit. Check-message
+and tanh scratch are fused without changing message evaluation order.
+
+Three checked-in vectors were generated independently by compiling extracted
+v3.0.3 C++ parity/CRC/BP definitions with Boost, without linking MiniShell.
+The oracle also confirms exact recovery with three weak wrong-sign decisions.
+Source hash, regeneration command and table digest are in `tests/js8_vectors.md`.
 
 ### Files changed
 
+- `apps/js8chat/src/js8_engine/js8_crc.[ch]`: independent CRC append/check.
+- `apps/js8chat/src/js8_engine/js8_ldpc.[ch]`: encode/decode and explicit contracts.
+- `apps/js8chat/src/js8_engine/js8_ldpc_tables.h`: pinned generator and BP tables.
+- `tests/js8_phy_test.c`, `tests/js8_golden_vectors.h`: fixed vectors, noiseless
+  and three-error recovery, CRC rejection, invalid arguments, output canaries,
+  repeatability, nonconvergence and independent CRC/LDPC gates.
+- `tests/js8_ldpc_tables_test.py`: dimensions, upstream-derived SHA-256,
+  reciprocal 522-edge graph and all 87 generator columns against every check.
+- `tests/js8_reference_oracle.py`, `tests/js8_vectors.md`: offline reproducible
+  oracle and provenance; not used by the normal test suite.
+- `tests/js8_tests.cmake`, `CMakeLists.txt`, `tests/unit/CMakeLists.txt`:
+  pure library and shared tests. The standalone portable harness lacked
+  `enable_testing()` and registration of its existing service-test executable;
+  enabled both so the required portable CTest command actually runs tests.
+- `tests/architecture_rules.py`: js8_engine-only dependency/no-heap rule.
+- This task packet: gate evidence and REVIEW handoff.
+
 ### Invariants preserved
+
+MSB-first 0/1 arrays; 75 payload + 12 CRC bits; parity[87] before info[87];
+positive LLR means 1. CRC and LDPC validation remain independent. All pointers
+are required; invalid bits/nonfinite input LLRs return -1 without output writes.
+Nonconvergence returns 1, zero information, last codeword decisions and -1 hard
+errors. Success returns 0 with the upstream hard-error count.
+
+No heap, mutable global state, MiniShell/platform APIs, FT8 changes, application
+registration, audio, tones, message codec or other submodes. Fixed scratch is
+local to each decode call. No architectural or behavioral scope deviations.
 
 ### Local tests run
 
+All commands run from the MiniShell repository unless noted. Final results:
+
+```sh
+git status --short
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 91/91, including all existing architecture/platform checks.
+
+cmake -S tests/unit -B /tmp/T052-build-unit
+cmake --build /tmp/T052-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T052-build-unit --output-on-failure
+# PASS: 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+# Both PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: minishell_adv.bin 0x151790 bytes; app partition 78% free.
+
+python3 tests/js8_reference_oracle.py /tmp/T052-JS8.cpp > /tmp/T052-vectors.h
+cmp tests/js8_golden_vectors.h /tmp/T052-vectors.h
+# PASS: exact regeneration; upstream noiseless and three-error BP checks pass.
+
+cc -std=c11 -Wall -Wextra -Werror -Wpedantic \
+  -fsanitize=address,undefined -fno-omit-frame-pointer -g \
+  -Iapps/js8chat/src/js8_engine tests/js8_phy_test.c \
+  apps/js8chat/src/js8_engine/js8_crc.c \
+  apps/js8chat/src/js8_engine/js8_ldpc.c -lm -o /tmp/T052-js8-sanitize
+/tmp/T052-js8-sanitize
+# PASS outside sandbox; ASan/UBSan report no errors.
+
+git diff --check
+# PASS.
+```
+
+The initial table-integrity test failed because its new initializer parser
+omitted the closing brace of the one-dimensional length array. Fixed the
+parser; all table checks and both full CTest suites then passed. No product
+test was weakened. The first sanitizer invocation hit LeakSanitizer's ptrace
+restriction inside the sandbox; the approved outside-sandbox rerun passed.
+
 ### Manual/hardware validation still required
+
+None for T052. No flashing or RF tests performed. The WAV fixture was not used.
+The ADV build checks the existing firmware; JS8 is not registered or linked into
+that firmware at this stage, as specified.
 
 ### Known limitations / risks
 
+BP convergence/sensitivity beyond these deterministic vectors is not claimed.
+The upstream un-clipped tanh/atanh arithmetic is retained; extreme finite input
+LLRs can saturate internal messages, as documented in the vector README.
+All decoder work is bounded; there is no sensitivity/performance study.
+
+Pre-existing untracked `build-keyer.sh`, `rebuild-all.sh`,
+`platform/adv/elf_apps/keyer/` and Python cache directories were left untouched
+and excluded from the commit.
+
 ### Commit
+
+The single implementation commit containing these notes is on
+`codex/T052-js8-crc-ldpc`; its exact SHA is returned after push. No PR or
+GitHub Actions wait.
 
 ## Supervisor review
 
