@@ -1,6 +1,6 @@
 # T062 — Directed free-text RX reassembly
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -700,11 +700,41 @@ commands stay deferred. Unfinished messages at end of capture are not emitted.
 
 ### Commit
 
-One reviewable commit on `codex/T062-js8-rx-reassembly`; the exact SHA is returned
-in the Codex handoff (this task packet belongs to that commit).
+The reviewed implementation commit is:
+
+`e244b7bd6a0a8ffe2adf2bfddaad5d8392934f48`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 
+Reviewed commit `e244b7bd6a0a8ffe2adf2bfddaad5d8392934f48` against T062 and pinned JS8Call-improved v3.0.3 FIRST/LAST and receive-buffer behavior.
+
+Result: **PASS**.
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T062 baseline.
+- Pure reassembly state is fixed-size, caller-owned, no-heap, platform-free, and codec/DSP independent.
+- Standard DIRECTED command 31 + FIRST opens a stream; ACK/73/other commands and `<....>` placeholders remain excluded.
+- FIRST|LAST on a standard free-text header emits an empty complete message and clears state.
+- DATA from either Huffman or JSC appends identical decoded bytes; no whitespace is inserted or removed.
+- Stream matching uses inclusive +/-10 Hz in exact integer milli-Hz, chooses nearest context, and resolves exact ties to the lowest context index.
+- Matching updates the stored frequency, allowing bounded drift across slots.
+- Four concurrent contexts and deterministic oldest-context eviction are implemented exactly as specified.
+- DATA at/before last_slot is treated as duplicate/stale and is not appended.
+- Slot gaps permanently mark the stream incomplete; LAST on a gapped stream clears it without emitting a valid message.
+- Unfinished streams expire only after more than six slots (>90 seconds), with no synthetic LAST.
+- 1024-byte context buffers preserve 1023 data bytes plus NUL; overflow drops the stream rather than truncating.
+- Invalid arguments preserve state/message/drop outputs; canary tests cover surrounding memory.
+- Host candidate frequency is derived directly from integer bin/sub-bin geometry rather than rounded printed Hz.
+- Optional `--all-slots --messages` preserves ordinary raw frame lines and diagnostics; removing message/reassembly additions reproduces T061 output exactly.
+- Synthetic host tests cover Huffman/JSC mixed messages, four simultaneous streams, frequency drift, gaps, replacement, stale expiry, overflow, orphan DATA, ACK/73 exclusion, placeholder exclusion, and host escaping.
+- T061 multi-slot behavior, T060 JSC/Huffman semantics, T054/T055 DSP/frontend, and FT8 remain unchanged.
+- Reported gates are consistent with the diff: Linux 107/107, portable 24/24, sanitizer 17/17, real-WAV regression, boundaries/no-heap, ADV build, and diff check all pass.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
 ## Architect test result
 
-No required hardware/RF acceptance. Optional aligned WebSDR --messages experiment after review.
+No required hardware/RF acceptance. Optional aligned WebSDR --messages experiment remains available; task complete.
