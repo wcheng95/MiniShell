@@ -1,6 +1,6 @@
 # T057 — JS8 heartbeat/CQ and compound identity decoder
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -306,28 +306,28 @@ Do NOT implement:
 
 ## Acceptance criteria
 
-- [ ] shared compound fields decoded exactly
-- [ ] callsign50 mixed-radix unpack matches v3.0.3
-- [ ] 15-bit 4-character grid unpack matches v3.0.3
-- [ ] heartbeat vs CQ alt bit decoded correctly
-- [ ] all eight CQ subtype mappings exact
-- [ ] all HB subtype values normalize to HB
-- [ ] CQ FIELD decoded explicitly
-- [ ] plain compound callsign/grid decoded
-- [ ] COMPOUND_DIRECTED raw fields available without command interpretation
-- [ ] fixed upstream-derived vectors checked in
-- [ ] T056 envelope semantics unchanged
-- [ ] T054/T055 DSP/WAV behavior unchanged
-- [ ] js8_engine remains pure/no-heap
-- [ ] no FT8 changes
-- [ ] Linux full CTest passes
-- [ ] portable CTest passes
-- [ ] optional A_2_1 regression passes
-- [ ] boundary/no-heap tests pass
-- [ ] ASan/UBSan passes
-- [ ] ADV build remains green
-- [ ] git diff --check passes
-- [ ] no unrelated cleanup
+- [x] shared compound fields decoded exactly
+- [x] callsign50 mixed-radix unpack matches v3.0.3
+- [x] 15-bit 4-character grid unpack matches v3.0.3
+- [x] heartbeat vs CQ alt bit decoded correctly
+- [x] all eight CQ subtype mappings exact
+- [x] all HB subtype values normalize to HB
+- [x] CQ FIELD decoded explicitly
+- [x] plain compound callsign/grid decoded
+- [x] COMPOUND_DIRECTED raw fields available without command interpretation
+- [x] fixed upstream-derived vectors checked in
+- [x] T056 envelope semantics unchanged
+- [x] T054/T055 DSP/WAV behavior unchanged
+- [x] js8_engine remains pure/no-heap
+- [x] no FT8 changes
+- [x] Linux full CTest passes
+- [x] portable CTest passes
+- [x] optional A_2_1 regression passes
+- [x] boundary/no-heap tests pass
+- [x] ASan/UBSan passes
+- [x] ADV build remains green
+- [x] git diff --check passes
+- [x] no unrelated cleanup
 
 No hardware/RF validation is required.
 
@@ -356,19 +356,140 @@ Codex:
 
 ### Implementation summary
 
+Added pure `js8_compound` callsign50/grid primitives, shared compound extraction,
+heartbeat/CQ semantics, plain compound identity, and fixed subtype names.
+The shared decoder uses the T056 envelope to validate all bits and restrict classes.
+COMPOUND_DIRECTED exposes raw fields only. Host output appends known content after
+the existing diagnostics; unsupported content classes retain their original output.
+No task deviations.
+
 ### Files changed
+
+- `apps/js8chat/src/js8_engine/js8_compound.[ch]`: fixed-buffer pure RX decoders.
+- `apps/js8chat/tools/js8_decode.c`: heartbeat, compound, and raw compound-directed diagnostics.
+- `tests/js8_compound_test.c`: primitives, fixed frames, subtype/grid combinations,
+  all transmission values, class rejection, null pointers, every invalid bit byte
+  value at every payload position, and unchanged outputs on rejection.
+- `tests/js8_compound_oracle.py`, `tests/js8_compound_vectors.h`,
+  `tests/js8_compound_vectors.md`: source-pinned offline vectors and provenance.
+- `tests/js8_tests.cmake`: compile module into the no-heap checked library and run
+  the new unit test in Linux and portable builds.
+- `tests/js8_wav_test.py`: existing independent T053 tones now check all three
+  supported host dispatch classes, including raw-only compound-directed output.
+- `docs/js8/application-protocol.md`: shared bit layout, callsign ownership, grid
+  boundary, HB/CQ alternate bit and subtype mapping.
+- This task: status and review evidence.
 
 ### Invariants preserved
 
+Pure C, no heap, no mutable global state, fixed caller-owned buffers. Invalid
+input leaves outputs unchanged. No additional callsign validity filtering; spaces
+are stripped everywhere, and first-character radix 39 includes `@`. Values within
+50 bits use upstream modulo behavior even above the mixed-radix product.
+Grid 32400 decodes to RA90; only values greater than 32400 mean no grid.
+Transmission flags never affect content interpretation. All extras above 32400
+remain uninterpreted in plain compound identity, including the command range.
+
+T056 envelope source/tests, T054 DSP, T055 WAV/frontend, and FT8 are unchanged.
+No command, ACK/73, SNR, Huffman/JSC, reassembly, application state, TX, or UI work.
+Frozen product scope remains unchanged.
+
 ### Golden-vector provenance
+
+Read exact v3.0.3 `JS8_Main/Varicode.cpp/.h`, including alpha50 pack/unpack,
+grid conversion/pack/unpack, compound pack/unpack, heartbeat pack/unpack, and
+`cqs`/`hbs`. Source SHA-256 values and exact regeneration instructions are in
+`tests/js8_compound_vectors.md`.
+
+The generator verifies source hashes, transcribes upstream formulas, and never
+calls MiniShell code. Six checked-in frame vectors cover AG6AQ HB/CM97 and CQ
+FIELD/CM97, KN4CRD CQ/no-grid, KN4CRD/P compound/EM73, VE3/LB9YHX compound/no-grid,
+and KN4CRD/P compound-directed raw extra=32442/bits3=6. Separate primitive vectors
+cover slash positions, `@`, stripped spaces, empty output, 11 visible characters,
+50-bit edges, and grid boundaries. Regeneration is byte-for-byte reproducible;
+normal CTest requires no Qt or upstream checkout.
 
 ### Test evidence
 
+Final commands passed on 2026-09-22:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 97/97, without external WAV; includes boundary/no-heap and unchanged T056 tests.
+
+cmake -S tests/unit -B /tmp/T057-build-unit
+cmake --build /tmp/T057-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T057-build-unit --output-on-failure
+# 20/20.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+# Both PASS.
+
+cmake -S . -B /tmp/T057-build-ref -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T057-build-ref -j"$(nproc)"
+ctest --test-dir /tmp/T057-build-ref -R 'js8.*reference|js8.*A2.*1' --output-on-failure
+# 1/1.
+git hash-object ~/projects/js8chat/A_2_1.wav
+# d986a4e5a9cc654dffbfadae73ec35cc9cea1d83
+/tmp/T057-build-ref/js8_decode "$HOME/projects/js8chat/A_2_1.wav"
+
+cmake -S . -B /tmp/T057-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
+  -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T057-build-sanitize -j"$(nproc)" \
+  --target js8_rx_unit js8_phy_unit js8_frame_unit js8_protocol_frame_unit js8_compound_unit js8_decode
+ctest --test-dir /tmp/T057-build-sanitize \
+  -R '^js8_(phy_unit|rx_unit|frame_unit|protocol_frame_unit|compound_unit|wav_unit|A2_1_reference)$' \
+  --output-on-failure
+# 7/7; run outside sandbox for LeakSanitizer ptrace compatibility.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS; image 0x151790 bytes, 78% of app partition free.
+
+python3 tests/js8_compound_oracle.py /tmp/T056-Varicode.cpp /tmp/T056-Varicode.h > /tmp/T057-regenerated.h
+cmp tests/js8_compound_vectors.h /tmp/T057-regenerated.h
+# Identical.
+git diff --check
+# PASS.
+```
+
+An initial `-Werror=sign-compare` in the new test assertion was corrected by
+explicitly converting the boolean field for its unsigned expected value; the
+final full builds and tests above pass.
+
+Exact real-WAV stdout (also compared byte-for-byte with saved T056 output):
+
+```text
+payload=111001011101001010000111001011100000101011000001100010000111111111111111010 type=2 frame="vTA7BWh1Y7++" tx_raw=2 class=data_compressed tx=LAST score=26 time=5/0 freq=57/0 hz=556.250 hard_errors=15
+```
+
+Decode summary remains:
+
+```text
+blocks=93 ignored_engine_samples=720 candidates=50 ldpc_fail=49 crc_fail=0 valid=1 unique=1
+```
+
+The WAV remains external and is not committed.
+
 ### Manual validation still required
+
+None for T057; no hardware/RF acceptance required.
 
 ### Known limitations / risks
 
+These content decoders assume an already validated PHY payload; they do not perform
+CRC checking. Unconventional or empty callsigns are accepted as upstream specifies.
+COMPOUND_DIRECTED and plain compound command-range extras have no command semantics.
+No data-text decoder or frame reassembly is implemented.
+
 ### Commit
+
+One reviewable commit on `codex/T057-js8-beacon-compound` containing these notes;
+the SHA is returned after push. No PR or Actions wait.
 
 ## Supervisor review
 

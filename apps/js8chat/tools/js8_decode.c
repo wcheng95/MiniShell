@@ -1,6 +1,7 @@
 #include "js8_decoder.h"
 #include "js8_frame.h"
 #include "js8_protocol_frame.h"
+#include "js8_compound.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -170,12 +171,27 @@ int main(int argc, char **argv)
         double hz = req.min_bin * 6.25 + candidates[i].freq_offset * 6.25 +
                     candidates[i].freq_sub * (6.25 / cfg.freq_osr);
         /* type is retained as the legacy spelling of raw transmission flags. */
-        printf(" type=%u frame=\"%s\" tx_raw=%u class=%s tx=%s score=%d time=%d/%u freq=%d/%u hz=%.3f hard_errors=%d\n",
+        printf(" type=%u frame=\"%s\" tx_raw=%u class=%s tx=%s score=%d time=%d/%u freq=%d/%u hz=%.3f hard_errors=%d",
                frame.type, frame.text12, envelope.tx_flags,
                js8_app_frame_class_name(envelope.app_class), js8_tx_flags_name(envelope.tx_flags),
                candidates[i].score,
                candidates[i].time_offset, candidates[i].time_sub,
                candidates[i].freq_offset, candidates[i].freq_sub, hz, payload.ldpc_errors);
+        if (envelope.app_class == JS8_APP_FRAME_HEARTBEAT) {
+            Js8BeaconFrame beacon;
+            if (js8_beacon_decode(payload.payload_bits, &beacon)) goto cleanup;
+            printf(" call=%s beacon=\"%s\" grid=%s", beacon.callsign,
+                   js8_beacon_name(beacon.is_cq, beacon.subtype), beacon.grid);
+        } else if (envelope.app_class == JS8_APP_FRAME_COMPOUND) {
+            Js8CompoundIdentity identity;
+            if (js8_compound_identity_decode(payload.payload_bits, &identity)) goto cleanup;
+            printf(" call=%s grid=%s", identity.callsign, identity.grid);
+        } else if (envelope.app_class == JS8_APP_FRAME_COMPOUND_DIRECTED) {
+            Js8CompoundFields fields;
+            if (js8_compound_fields_decode(payload.payload_bits, &fields)) goto cleanup;
+            printf(" call=%s extra=%u bits3=%u", fields.callsign, fields.extra16, fields.bits3);
+        }
+        putchar('\n');
     }
     fprintf(stderr, "blocks=%u ignored_engine_samples=%u candidates=%zu "
             "ldpc_fail=%zu crc_fail=%zu valid=%zu unique=%zu\n", blocks,

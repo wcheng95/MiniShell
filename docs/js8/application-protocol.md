@@ -85,6 +85,44 @@ The T055 payload starts with `111` and ends with `010`: physical frame
 flag **LAST**. Envelope classification performs no content decoding or reassembly
 and does not replace LDPC/CRC validation.
 
+## Shared compound and beacon content (T057)
+
+Normal HEARTBEAT, COMPOUND, and COMPOUND_DIRECTED share these 72 application bits:
+
+| Bits | Field |
+| --- | --- |
+| 0..2 | Application class |
+| 3..52 | callsign50 |
+| 53..68 | extra16 |
+| 69..71 | bits3 |
+
+The JS8-owned pure compound decoder owns callsign50 unpacking. It follows the
+v3.0.3 mixed radices `[39][38][38][2][38][38][38][2][38][38][38]`, using alphabet
+`0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /@`; the radix-2 positions are space/slash
+separators. All spaces are removed without extra callsign validity filtering.
+The raw decoder returns callsign, extra16 and bits3 for all three classes.
+COMPOUND_DIRECTED stays raw, with no command interpretation.
+
+For HEARTBEAT, extra16 bit 15 selects HB (0) or CQ (1), and its low 15 bits carry
+the four-character grid. All eight HB subtypes name `HB`; CQ bits3 maps as follows:
+
+| bits3 | CQ name |
+| --- | --- |
+| 0 | CQ CQ CQ |
+| 1 | CQ DX |
+| 2 | CQ QRP |
+| 3 | CQ CONTEST |
+| 4 | CQ FIELD |
+| 5 | CQ FD |
+| 6 | CQ CQ |
+| 7 | CQ |
+
+Plain COMPOUND uses extra16 directly as a grid only when it is at most 32400;
+otherwise it preserves the raw value and reports no grid. Upstream `unpackGrid`
+includes 32400 (RA90); larger values, including 32767, produce an empty grid.
+No command-range extras are interpreted. Transmission flags remain independent
+of this content decoding. CQ FIELD is a calling variant, not group operation.
+
 ## Required application frame classes
 
 v0.1 requires the frame/application forms needed for:

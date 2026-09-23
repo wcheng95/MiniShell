@@ -15,16 +15,21 @@ vectors = (root / 'js8_golden_vectors.h').read_text()
 payload = re.findall(r'"([01]{75})"', vectors)[2]
 tones = [int(x) for x in re.findall(r'\d+', re.findall(r'\{([0-7, ]+)\}', vectors)[2])]
 assert len(tones) == 79
-pcm = bytearray()
-phase = 0.0
-for n in range(90000):
-    sample = 0
-    if 3000 <= n < 3000 + 79 * 960:
-        tone = tones[(n - 3000) // 960]
-        sample = round(0.5 * 32767 * math.sin(phase))
-        phase = (phase + 2 * math.pi * (1000 + 6.25 * tone) / 6000) % (2 * math.pi)
-    # Only even samples carry the signal: verifies phase-0 continuous decimation.
-    pcm += struct.pack('<hh', sample, -32768)
+def waveform(tones):
+    pcm = bytearray()
+    phase = 0.0
+    for n in range(90000):
+        sample = 0
+        if 3000 <= n < 3000 + 79 * 960:
+            tone = tones[(n - 3000) // 960]
+            sample = round(0.5 * 32767 * math.sin(phase))
+            phase = (phase + 2 * math.pi * (1000 + 6.25 * tone) / 6000) % (2 * math.pi)
+        # Only even samples carry the signal: verifies phase-0 continuous decimation.
+        pcm += struct.pack('<hh', sample, -32768)
+    return pcm
+
+
+pcm = waveform(tones)
 fmt = struct.pack('<HHIIHH', 1, 1, 12000, 24000, 2, 16)
 
 
@@ -48,9 +53,20 @@ with tempfile.TemporaryDirectory(prefix='js8-wav-test-') as temp:
             lines = result.stdout.splitlines()
             assert len(lines) == 1, result.stdout
             assert lines[0].startswith(f'payload={payload} type=3 frame="CVUJtH2w2sAS" tx_raw=3 class=compound tx=FIRST|LAST '), result.stdout
+            assert lines[0].endswith(' call=DA/IXRO81 grid=CB51'), result.stdout
             assert 'blocks=93 ignored_engine_samples=720 ' in result.stderr, result.stderr
             assert result.stderr.endswith('unique=1\n'), result.stderr
         return result
+
+    # Other pinned T053 tones exercise heartbeat and raw compound-directed
+    # host dispatch. Calls/grid are independently derived by the T057 oracle.
+    for index, suffix in (
+        (0, ' call=000000000 beacon="HB" grid=RA90'),
+        (1, ' call=462/MSW/VXG extra=43690 bits3=5'),
+    ):
+        other_tones = [int(x) for x in re.findall(r'\d+', re.findall(r'\{([0-7, ]+)\}', vectors)[index])]
+        result = run(riff(chunk(b'fmt ', fmt), chunk(b'data', waveform(other_tones))))
+        assert len(result.stdout.splitlines()) == 1 and result.stdout.rstrip('\n').endswith(suffix), result.stdout
 
     standard = riff(chunk(b'fmt ', fmt), chunk(b'data', pcm))
     run(standard, decoded=True)
