@@ -1,6 +1,6 @@
 # T054 — JS8 Normal monitor and payload decoder
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -666,12 +666,37 @@ were left outside the change.
 
 ### Commit
 
-The single implementation commit containing these notes is on
-`codex/T054-js8-monitor-decoder`, based on `e3f6d80` from `origin/main`.
-The exact implementation SHA is returned after push. No PR or Actions wait.
+The reviewed implementation commit is:
+
+`0486cb3c474505eeb3601247abc5176c6f522338`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 
+Reviewed commit `0486cb3c474505eeb3601247abc5176c6f522338` against T054.
+
+Result: **PASS**.
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T054 baseline.
+- FT8 production source is unchanged; JS8 owns its own monitor, decoder, and private FFT copy.
+- Synthetic RX starts from the checked-in upstream T053 tone vector, not from `js8_channel_encode()`, so it independently exercises PCM synthesis -> JS8 monitor -> candidate search -> likelihood extraction -> T052 LDPC/CRC -> exact 75-bit payload.
+- Normal Costas search is exactly `4 2 5 6 1 3 0` at 0/36/72.
+- Data LLR extraction is direct-binary, not FT8 Gray mapped, and preserves parity-first/information-second ordering.
+- Candidate storage is bounded to 50 and the search uses safe in-allocation logical indexing.
+- Decode returns payload only after successful LDPC and CRC; invalid/LDPC/CRC outcomes remain distinct.
+- Monitor state is caller-owned and queryable; no full-slot PCM buffer or mutable DSP singleton exists.
+- Compiled no-heap checks cover both the JS8 PHY and RX archives, including the private FFT.
+- Private KissFFT changes are confined to the JS8 copy, documented with source provenance, preserve the forward float FFT path used by 960/1920 geometry, and remove heap-only/unused paths rather than altering the accepted FT8 copy.
+- Reported host workspace is 211,312 bytes at the 2x2 baseline, exactly matching the current MiniFT8 monitor resource class. JS8 monitor instance is slightly smaller (200 vs 208 bytes).
+- Reported stack frames are bounded; the largest listed JS8 frame is T052 LDPC at 5,392 bytes. ADV high-water remains a later integration measurement.
+- Linux 93/93, portable 17/17, boundary checks, no-heap regression, ASan/UBSan, ADV build, and diff checks all pass.
+- Real WAV reception and sensitivity remain intentionally unproven and move to T055.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
 ## Architect test result
 
-No manual/hardware validation is required for T054.
+No manual/hardware validation is required for T054. Software review accepted; task complete.
