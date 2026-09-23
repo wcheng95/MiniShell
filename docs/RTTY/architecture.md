@@ -54,7 +54,7 @@ docs/project/codex/T065-linux-rtty-wav-decoder.md
 T065 establishes the portable decoder using deterministic WAV input on Linux.
 Live WebSDR and QMX receive are deliberately later stages.
 
-Initial protocol profile:
+Portable protocol profile:
 
 ```text
 sample rate     12000 Hz at the decoder-core boundary
