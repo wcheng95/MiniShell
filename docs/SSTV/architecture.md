@@ -118,24 +118,23 @@ core.
 
 Live QMX Audio RX/TX later uses the same 12 kHz S16-mono boundary.
 
-## Decision 3 — Robot 36 is the first operating mode
+## Decision 3 — Robot 36 is the only supported SSTV mode
 
-The first complete MiniShell SSTV mode is Robot 36, for both RX and TX.
+MiniShell SSTV supports Robot 36 for both RX and TX.
 
 Robot 36 is selected because:
 
 - it is widely supported by phone and desktop SSTV software;
-- its roughly 36-second transmission is practical for portable/POTA use;
+- its roughly 36-second transmission is practical for repeated portable/POTA CQ use;
 - it produces a useful 320x240 color image;
 - it is already implemented by PicoSSTV, our primary MCU reference;
-- implementing its Y/chroma reconstruction exercises the important embedded codec
-  path without requiring many modes.
+- its Y/chroma reconstruction is fully sufficient for the intended image-QSO workflow.
 
-Robot 36 is the only mode required for the first field-capable implementation.
+The mode scope is intentionally closed. Martin M1, Scottie, PD, and other SSTV
+modes are not future roadmap items. A roughly two-minute image such as Martin M1
+works against the project's simple/efficient QRP-portable goal.
 
-Martin M1 is a reasonable later addition, especially as a cross-check against a
-different RGB-family protocol. Scottie and PD modes remain optional. Mode count is not
-a goal by itself.
+There is no SSTV mode-selection UI. Robot 36 is the application identity.
 
 ## Decision 4 — SSTV is a POTA image-QSO application
 
@@ -245,28 +244,16 @@ application/UI
 The SSTV codec receives or emits scanlines/components. It does not know how the source
 photo was cropped or how the UI selected the file.
 
-This separation also allows later QSL templates or another SSTV mode without changing
-the core DSP.
+This separation also allows later QSL templates and image-workflow features without
+changing the Robot 36 codec.
 
-## Decision 9 — mode descriptions are data, not duplicated decoders
+## Decision 9 — no speculative multi-mode SSTV framework
 
-Use static mode descriptors/tables for protocol timing and image organization.
+Robot 36 is the only product mode, so the implementation does not need a generic
+mode selector, extensible mode table, or family hierarchy merely to preserve the
+possibility of future SSTV modes.
 
-Conceptually each mode supplies:
-
-~~~text
-VIS code
-width / height
-color model
-line organization
-sync location and duration
-porch/separator durations
-scan durations
-component order
-pixel/component counts
-~~~
-
-The generic receiver owns:
+The receiver still keeps sensible internal responsibilities:
 
 ~~~text
 VIS acquisition
@@ -275,14 +262,16 @@ frequency-offset correction
 sync detection
 fractional sample clock
 line clock/slant tracking
-pixel/component sampling
+Robot 36 Y/chroma reconstruction
 image-sink calls
 ~~~
 
-Mode-family code owns only reconstruction rules that genuinely differ, such as Robot
-Y/chroma handling versus Martin RGB/GBR handling.
+Protocol constants may be grouped as data when that makes the Robot 36 code
+clearer or easier to test. That is an implementation detail, not an invitation
+to generalize for Martin/Scottie/PD.
 
-Do not implement one unrelated decoder state machine per SSTV mode.
+VIS codes for other valid SSTV modes should be reported as unsupported and
+return cleanly to acquisition.
 
 ## Decision 10 — streaming frequency demodulation; no FFT dependency
 
@@ -381,7 +370,7 @@ prepared BMP
     -> 12 kHz S16 audio
 ~~~
 
-Future modes may require a small number of line buffers for chroma reconstruction, but
+Robot 36 chroma reconstruction may use a small number of line/component buffers, but
 still no whole-image ESP32 framebuffer.
 
 Linux should exercise the same bounded-memory model rather than taking advantage of a
@@ -555,7 +544,6 @@ apps/sstv/
         streaming demodulator
         VIS detector
         timing/sync tracker
-        mode table
         Robot 36 reconstruction
         Robot 36 encoder
         image-sink interface
@@ -595,7 +583,7 @@ Internet downloads must not be required by the automated test suite.
 
 ## Explicit non-goals for the first field-capable SSTV implementation
 
-- universal SSTV mode support;
+- any SSTV mode other than Robot 36 (including Martin, Scottie, and PD);
 - camera integration;
 - photo editing UI;
 - OCR/callsign recognition;
