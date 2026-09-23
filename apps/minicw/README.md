@@ -11,6 +11,21 @@ Filesystem; missing or invalid files fall back to the pinned compiled defaults.
 
 Cardputer ADV hardware acceptance is complete for the Mini-CW Keyer-mode application: clean paddle and M1 audio, settings persistence, fixed header/UI behavior, full callsign lookup, color/separator presentation, and compact daily transcript logging with safe note mode. The MiniShell/Mini-CW ownership boundary is frozen by `docs/MiniCW/baseline-audit.md`.
 
+## Product scope
+
+Mini-CW is the CW member of MiniShell's closed five-mode QRP-portable radio set.
+The application may continue to gain CW/operator features without adding new
+radio modes.
+
+In particular, ADV may grow into a richer QMX front end during CW operation:
+band/frequency/status and other useful station controls may eventually let the
+Cardputer replace more of the QMX native UI in the field. That is feature depth
+inside the CW workflow, not protocol-scope expansion.
+
+The omitted non-Keyer modes from the pinned standalone Mini-CW source remain
+outside this MiniShell application unless a concrete CW field requirement
+justifies a specific feature.
+
 ## Ownership and provenance
 
 - `app_core`: pinned Keyer FIFO scheduling, TxDelay, M1 repeat, Tune timeout,
