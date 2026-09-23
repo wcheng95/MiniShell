@@ -1,6 +1,6 @@
 # T064 — Live Linux QMX JS8 RX monitor
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -931,3 +931,37 @@ This proves live QMX Audio -> UTC slot scheduling -> JS8 decode -> protocol sema
 Follow-up `grep -n '"schema"'` on the actual file confirmed all three records use `js8-activity-v1`. The earlier `js9-activity-v1` spelling was only a transcription/paste typo; no logger/schema defect exists.
 
 Final 20-slot summary (`drops`, `discontinuities`, `error`) and repeated reopen are still required before COMPLETE.
+
+## Final architect acceptance — T064 COMPLETE
+
+Real pc-1/QMX live receive path accepted by the architect.
+
+Accepted real-hardware evidence:
+
+- QMX ALSA capture opened and remained continuous.
+- Receive-safe CAT synchronized the QMX to 7.078 MHz without RF transmit/keying.
+- Corrected MiniFT8-style live scheduler produced consecutive decoded windows with `drops=0` and `discontinuities=0` in observed successful runs.
+- Real on-air JS8 frames decoded, including an HB and directed `HEARTBEAT SNR` traffic.
+- Real semantic fields matched expected protocol interpretation, including callsigns, grids, command 29 and signed SNR values.
+- `js8-activity-v1` JSONL records were written with correct UTC, audio milli-Hz, dial frequency and RF milli-Hz.
+- Actual file inspection confirmed every stored schema field is `js8-activity-v1`; the earlier `js9` spelling was only a paste typo.
+- The architect considers the full live RX path operational. Low activity on the selected band is not an acceptance blocker.
+
+Accepted end-to-end path:
+
+```text
+QMX UAC
+  -> MiniShell Audio
+  -> 12 kHz S16 stereo
+  -> JS8 6 kHz frontend
+  -> per-chunk UTC reference/backdate
+  -> MiniFT8-style pre-roll scheduler
+  -> 93-block waterfall
+  -> multi-signal JS8 decoder
+  -> protocol/content decode
+  -> T062 reassembly
+  -> T063 activity model
+  -> MiniShell FS JSONL
+```
+
+T064 is COMPLETE. TX remains deferred.
