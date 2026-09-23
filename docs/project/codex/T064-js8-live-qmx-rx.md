@@ -1,6 +1,6 @@
 # T064 — Live Linux QMX JS8 RX monitor
 
-Status: TESTING
+Status: IMPLEMENTING
 
 ## Architect intent
 
@@ -184,37 +184,72 @@ Do not infer long-term slot time solely from the number of samples seen since st
 Within one active 14.88-second capture, normal sample counting is still correct; the
 fresh UTC references prevent **cross-slot cumulative drift**.
 
-## Live slot geometry
+## Live slot geometry — use MiniFT8 pre-roll scheduling
 
-At 6 kHz:
+The first real pc-1/QMX test exposed a flaw in the initial T064 scheduler: it
+required a fresh timed chunk to hit the exact UTC slot boundary. With normal
+~20 ms Audio chunks, fresh UTC-derived first-sample positions can jump from just
+before to just after the boundary without any Audio discontinuity. The old code
+then reported `timing-drop` for every slot.
 
-    full slot = 90000 samples
-    decode window = 93 * 960 = 89280 samples
-    slot tail = 720 samples
+Mirror MiniFT8's live scheduling policy, not just its per-chunk UTC reference.
 
-For every slot, its boundary is determined from the **fresh UTC-derived absolute
-sample positions of incoming chunks**, not by adding 90000 forever to an old anchor.
+Constants at 6 kHz:
 
-When the timed chunk stream reaches:
+    slot samples             = 90000
+    preroll blocks           = 10
+    preroll samples          = 10 * 960 = 9600 = 1.600 s
+    initial timing tolerance = 240 samples = 40 ms
+    capture/window blocks    = 93
+    capture/window samples   = 89280 = 14.880 s
 
-    absolute slot boundary = slot_id * 90000
+For target slot S, nominal live capture start is:
 
-then:
+    pre = S * 90000 - 9600
 
-- reset/begin the JS8 monitor at that exact boundary;
-- feed exactly the next 89280 captured samples as 93 engine blocks;
-- ignore samples belonging to the final 720-sample tail of that UTC slot;
-- locate the following slot boundary again from the newly UTC-referenced chunks.
+Initial scheduling follows MiniFT8 `rx_live_schedule_init()` semantics:
 
-Thus 90000 is the exact slot geometry, but **not** a free-running long-term clock.
+    target = floor((first_pos + 9600) / 90000)
+    pre = target*90000 - 9600
+    if first_pos > pre + 240:
+        target++
 
-This is the live equivalent of T061:
+For every fresh timed chunk, process like MiniFT8 `rx_live_process_timed_samples()`:
 
-    180000 input samples @12 kHz
-    -> 178560 used
-    -> 1440 skipped.
+- derive absolute first/end sample positions from the fresh UTC/backdated chunk;
+- if the next `pre` lies later in this chunk, consume only the prefix before it;
+- when `pre` is reached, begin a new target-slot capture;
+- if the chunk begins slightly after `pre`, begin capture at the first available
+  sample rather than declaring the slot lost;
+- continue capture through arbitrary later chunks until 89280 samples have been
+  accumulated;
+- fresh UTC references determine when the following slot's `pre` point is due;
+- real Audio discontinuity still resets everything and starts scheduling fresh.
 
-Do not overlap slots or perform a sliding search in T064.
+Do **not** require `pos == slot*90000` or `pos == pre`.
+
+Do **not** emit `timing-drop` merely because a normal chunk boundary stepped over
+the nominal capture-start sample.
+
+The slot ID attached to the decode remains the target UTC slot S, even though the
+waterfall begins 1.6 seconds before S.
+
+Why this fits JS8 Normal:
+
+    upstream JS8A_START_DELAY_MS = 500 ms
+    79 symbols * 160 ms          = 12.640 s
+
+Relative to the live capture start:
+
+    signal begins about 1.600 + 0.500 = 2.100 s
+    signal ends   about 2.100 + 12.640 = 14.740 s
+
+So the complete signal fits in the 14.880 s / 93-block window with about 140 ms
+tail margin. The existing JS8 candidate search `time_offset = -10..+19` includes
+the expected start near +13 blocks.
+
+This live pre-roll policy is intentionally different from T061's aligned-WAV
+host slicing, which can seek exactly to PCM slot zero.
 
 ## Decode/capture responsiveness
 
@@ -383,23 +418,26 @@ Add deterministic hardware-free tests for:
 3. UTC -> slot/sample conversion including negative epoch edge cases if supported;
 4. backdating every produced live chunk to its first sample;
 5. repeated per-chunk UTC references do not accumulate cross-slot sample-count drift;
-6. startup in the middle of a slot: use timed chunk positions to find the next boundary, then capture 89280;
-7. deliberately perturb successive chunk UTC/sample positions to prove the next slot re-aligns to UTC rather than an old +90000 counter;
-8. exact 90000-sample slot geometry;
-9. exact 720-sample live tail skip;
-10. chunks crossing slot boundaries;
-11. discontinuity resets frontend/timing/monitor/reassembly;
-12. no MESSAGE completed across a discontinuity;
-13. multiple consecutive slots and repeated HB;
-14. four simultaneous streams and reassembled MESSAGE;
-15. T063 live JSON identical to equivalent WAV event JSON except source-specific metadata ownership;
-16. MiniShell FS append/sync error paths;
-17. QMX receive-safe CAT exact bytes;
-18. no forbidden TX CAT strings in JS8Chat production source;
-19. finite --slots shutdown;
-20. q/input shutdown when input service present;
-21. startup cleanup on Audio/CAT/log failures;
-22. repeated launch/quit releases Audio/Serial/File handles.
+6. MiniFT8-style schedule initialization uses 9600-sample pre-roll and 240-sample tolerance;
+7. startup after a pre-roll point by <=240 samples starts the intended capture late rather than dropping it;
+8. startup later than the initial pre-roll+tolerance schedules the following slot;
+9. successive ~20 ms chunks that step over the nominal pre-roll point still start one capture and do not timing-drop;
+10. deliberately perturb successive chunk UTC/sample positions to prove later captures follow fresh UTC timing rather than an old +90000 counter;
+11. each capture accumulates exactly 89280 samples / 93 blocks from the available pre-roll start;
+12. target slot identity remains the UTC slot whose boundary is 9600 samples after nominal capture start;
+13. chunks crossing capture-start and UTC slot boundaries;
+14. discontinuity resets frontend/timing/monitor/reassembly;
+15. no MESSAGE completed across a discontinuity;
+16. multiple consecutive slots and repeated HB;
+17. four simultaneous streams and reassembled MESSAGE;
+18. T063 live JSON identical to equivalent WAV event JSON except source-specific metadata ownership;
+19. MiniShell FS append/sync error paths;
+20. QMX receive-safe CAT exact bytes;
+21. no forbidden TX CAT strings in JS8Chat production source;
+22. finite --slots shutdown;
+23. q/input shutdown when input service present;
+24. startup cleanup on Audio/CAT/log failures;
+25. repeated launch/quit releases Audio/Serial/File handles.
 
 ## Linux integration tests
 
@@ -478,9 +516,11 @@ Do NOT implement TX, tune, JSC TX, heartbeat auto-ACK, station/reachability DB, 
 - [x] every successful live frontend chunk is UTC-referenced and backdated like MiniFT8
 - [x] slot scheduling uses fresh timed chunk positions, not a free-running startup anchor
 - [x] cross-slot cumulative sample-count drift is prevented by repeated UTC re-anchoring
-- [x] exact 90000-sample live slot geometry
-- [x] exactly 89280 samples / 93 blocks decoded per slot
-- [x] final 720 samples skipped
+- [ ] MiniFT8-style 9600-sample pre-roll scheduling implemented
+- [ ] 240-sample initial timing tolerance implemented
+- [ ] normal chunk-boundary overshoot of capture start does not timing-drop
+- [ ] exact 90000-sample UTC slot cadence preserved
+- [ ] exactly 89280 samples / 93 blocks captured for each target slot
 - [x] discontinuity causes full timing/frontend/reassembly resync
 - [x] capture remains responsive while decode runs
 - [x] no multi-second raw-audio slot buffering
@@ -724,4 +764,34 @@ T064 now enters TESTING for real pc-1/QMX acceptance.
 
 ## Architect test result
 
-Pending real pc-1/QMX acceptance after supervisor review.
+### First real pc-1/QMX run — FAIL, scheduler defect identified
+
+Command:
+
+```text
+M$> js8chat --rx alsa:hw:2,0 --dial-hz 7078000 --cat serial:/dev/ttyACM0 --log /flash/js8chat/activity.jsonl --slots 20
+```
+
+Observed repeated failure before any decode:
+
+```text
+JS8 timing-drop slot=119343183 decode_us=0 read_gap_max_us=20487 candidates=0 unique=0 drops=1 discontinuities=0
+JS8 timing-drop slot=119343184 decode_us=0 read_gap_max_us=20611 candidates=0 unique=0 drops=2 discontinuities=0
+JS8 timing-drop slot=119343185 decode_us=0 read_gap_max_us=20736 candidates=0 unique=0 drops=3 discontinuities=0
+JS8 timing-drop slot=119343186 decode_us=0 read_gap_max_us=20736 candidates=0 unique=0 drops=4 discontinuities=0
+JS8 timing-drop slot=119343187 decode_us=0 read_gap_max_us=20736 candidates=0 unique=0 drops=5 discontinuities=0
+JS8 timing-drop slot=119343188 decode_us=0 read_gap_max_us=20736 candidates=0 unique=0 drops=6 discontinuities=0
+```
+
+Interpretation:
+
+- real QMX Audio open/start/read works;
+- CAT startup reached the monitor run;
+- Audio provider reports no discontinuity;
+- ~20.7 ms serviced chunk gaps are normal;
+- the T064 exact-boundary scheduler rejects every live slot because fresh timed
+  chunk positions step across the nominal boundary;
+- no candidate search/decode occurred (`candidates=0`).
+
+Required correction is the MiniFT8 pre-roll/tolerance scheduling defined above.
+Do not mark T064 COMPLETE until the corrected build passes the real 20-slot gate.
