@@ -1,6 +1,6 @@
 # T059 — JS8 Normal Huffman DATA RX decoder
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -591,11 +591,40 @@ PTY gate showed intermittent failure before passing the final full rerun, as abo
 
 ### Commit
 
-One reviewable commit on `codex/T059-js8-huffman-rx` containing these notes; SHA
-returned after push. No PR or GitHub Actions wait.
+The reviewed implementation commit is:
+
+`bea0b2a425b63d426095975f8b2831ac99e622cf`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 
+Reviewed commit `bea0b2a425b63d426095975f8b2831ac99e622cf` against T059 and the pinned JS8Call-improved v3.0.3 Huffman DATA behavior.
+
+Result: **PASS**.
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T059 baseline.
+- The exact 44-entry v3.0.3 Huffman table is implemented with fixed read-only data.
+- Normal DATA framing correctly treats only the first two application bits as the DATA/Huffman selector; the third bit remains content.
+- Padding removal matches valid upstream `packHuffMessage` frames: find the last zero sentinel in application bits 2..71 and discard it plus trailing ones.
+- Incomplete final Huffman prefixes stop decoding without replacement output, matching `huffDecode` behavior.
+- The deliberate malformed-input safety divergence is acceptable: a no-sentinel `10 + 70 ones` frame is rejected as BAD_PADDING rather than inheriting Qt negative-length container behavior. Such a frame cannot be produced by upstream `packHuffMessage`.
+- The fixed output bound is proven: at most 69 content bits / 2-bit shortest code = 34 characters plus NUL.
+- DATA_COMPRESSED remains distinct/unsupported and is not silently treated as Huffman.
+- The source-pinned oracle extracts the actual upstream Huffman table and independently generates all fixed DATA vectors without calling MiniShell production code.
+- Tests cover all 44 exact codewords, prefix freedom, every proper incomplete prefix, all sentinel positions, both 100/101 normalized DATA prefixes, all eight tail transmission flags, maximal output, malformed bits, and thirteen synthetic WAV integrations.
+- The host long-WAV policy is exactly the requested first-window behavior: full RIFF validation still covers the entire file, but only the first 93 complete 6 kHz blocks feed DSP. All later decimated samples are counted in `ignored_engine_samples`.
+- Long-WAV tests prove later samples cannot change first-window stdout, a signal only after the first window is ignored, and malformed trailing container data still fails.
+- No sliding-window or multi-slot behavior was introduced.
+- The real A_2_1 WAV remains byte-for-byte unchanged because it is DATA_COMPRESSED.
+- T056-T058 semantics, T054 DSP, monitor capacity, T055 frontend contract, and FT8 are unchanged.
+- The reported intermittent Linux serial PTY failure is unrelated to this diff; the final ordinary full suite passed 101/101 without weakening or modifying the serial test.
+- Reported gates are consistent with the diff: Linux 101/101, portable 22/22, sanitizer 11/11, external WAV, boundaries/no-heap, ADV build, oracle regeneration, and diff check all pass.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
 ## Architect test result
 
-No hardware/RF acceptance required.
+No hardware/RF acceptance required. Software review accepted; task complete.
