@@ -82,3 +82,28 @@ add_executable(js8_activity_unit ${JS8_TEST_ROOT}/tests/js8_activity_test.c)
 target_link_libraries(js8_activity_unit PRIVATE js8_phy_core)
 target_compile_options(js8_activity_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
 add_test(NAME js8_activity_unit COMMAND js8_activity_unit)
+
+add_library(js8_activity_json STATIC ${JS8_TEST_ROOT}/apps/js8chat/src/activity_json/js8_activity_json.c)
+target_include_directories(js8_activity_json PUBLIC ${JS8_TEST_ROOT}/apps/js8chat/src/activity_json)
+target_link_libraries(js8_activity_json PUBLIC js8_phy_core)
+target_compile_options(js8_activity_json PRIVATE -Wall -Wextra -Werror -Wpedantic)
+set_target_properties(js8_phy_core js8_rx_core js8_activity_json PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+add_library(js8_live_core STATIC
+    ${JS8_TEST_ROOT}/apps/js8chat/src/live_rx/js8_frontend.c
+    ${JS8_TEST_ROOT}/apps/js8chat/src/live_rx/js8_slot.c
+    ${JS8_TEST_ROOT}/apps/js8chat/src/live_rx/js8_live.c
+    ${JS8_TEST_ROOT}/apps/js8chat/src/live_rx/js8_live_semantic.c
+    ${JS8_TEST_ROOT}/apps/js8chat/src/live_rx/js8_qmx.c
+    ${JS8_TEST_ROOT}/apps/js8chat/main/js8chat_main.c)
+target_include_directories(js8_live_core PUBLIC ${JS8_TEST_ROOT}/include ${JS8_TEST_ROOT}/apps/js8chat/src/live_rx)
+target_link_libraries(js8_live_core PUBLIC js8_rx_core js8_activity_json)
+set_target_properties(js8_live_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(js8_live_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+add_executable(js8_live_unit ${JS8_TEST_ROOT}/tests/js8_live_test.c)
+target_link_libraries(js8_live_unit PRIVATE js8_live_core)
+target_compile_options(js8_live_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
+add_test(NAME js8_live_unit COMMAND js8_live_unit)
+add_test(NAME js8_live_boundary COMMAND ${Python3_EXECUTABLE}
+    ${JS8_TEST_ROOT}/tests/js8_live_boundary_test.py ${JS8_TEST_ROOT})

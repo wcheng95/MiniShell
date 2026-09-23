@@ -864,9 +864,16 @@ target_compile_options(ft8_color_adapter_unit PRIVATE -Wall -Wextra -Werror -Wpe
 add_test(NAME ft8_color_adapter_unit COMMAND ft8_color_adapter_unit)
 
 include(tests/js8_tests.cmake)
+add_minishell_app(js8chat platform/linux/linux_js8chat.c)
+target_link_libraries(js8chat PRIVATE js8_live_core pthread)
+add_minishell_app(js8_live_probe tests/js8_live_probe.c)
+target_link_libraries(js8_live_probe PRIVATE js8_live_core pthread)
+add_test(NAME linux_js8_live COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/linux_js8_live.py
+    $<TARGET_FILE:minishell> ${CMAKE_BINARY_DIR}/runtime/apps $<TARGET_FILE:js8_multislot_host_unit>
+    $<TARGET_FILE:js8_decode> ${CMAKE_SOURCE_DIR})
 
 add_executable(js8_decode apps/js8chat/tools/js8_decode.c apps/js8chat/tools/js8_activity_log.c)
-target_link_libraries(js8_decode PRIVATE js8_rx_core)
+target_link_libraries(js8_decode PRIVATE js8_rx_core js8_activity_json)
 target_compile_definitions(js8_decode PRIVATE
     JS8_JSC_DEFAULT_DICT="${CMAKE_SOURCE_DIR}/apps/js8chat/resources/jsc.dict")
 target_compile_options(js8_decode PRIVATE -Wall -Wextra -Werror -Wpedantic)
@@ -883,7 +890,7 @@ add_test(NAME js8_jsc_wav_unit COMMAND ${Python3_EXECUTABLE}
     $<TARGET_FILE:js8_decode> $<TARGET_FILE:js8_jsc_unit> ${CMAKE_SOURCE_DIR}
     $<TARGET_FILE:js8_huffman_unit>)
 add_executable(js8_multislot_host_unit tests/js8_multislot_host_test.c apps/js8chat/tools/js8_activity_log.c)
-target_link_libraries(js8_multislot_host_unit PRIVATE js8_rx_core)
+target_link_libraries(js8_multislot_host_unit PRIVATE js8_rx_core js8_activity_json)
 target_compile_definitions(js8_multislot_host_unit PRIVATE
     JS8_JSC_DEFAULT_DICT="${CMAKE_SOURCE_DIR}/apps/js8chat/resources/jsc.dict")
 target_compile_options(js8_multislot_host_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
@@ -895,7 +902,7 @@ add_test(NAME js8_reassembly_wav_unit COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/js8_reassembly_wav_test.py
     $<TARGET_FILE:js8_decode> $<TARGET_FILE:js8_multislot_host_unit> ${CMAKE_SOURCE_DIR})
 add_executable(js8_activity_log_unit tests/js8_activity_log_test.c)
-target_link_libraries(js8_activity_log_unit PRIVATE js8_phy_core)
+target_link_libraries(js8_activity_log_unit PRIVATE js8_phy_core js8_activity_json)
 target_compile_options(js8_activity_log_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
 add_test(NAME js8_activity_log_unit COMMAND js8_activity_log_unit)
 add_test(NAME js8_activity_json_unit COMMAND ${Python3_EXECUTABLE}

@@ -1,6 +1,6 @@
 # T064 — Live Linux QMX JS8 RX monitor
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -470,38 +470,38 @@ Do NOT implement TX, tune, JSC TX, heartbeat auto-ACK, station/reachability DB, 
 
 ## Acceptance criteria
 
-- [ ] MiniShell `js8chat` receive-only app target exists
-- [ ] live RX uses public MiniShell Audio service
-- [ ] Linux `alsa:` endpoint works through existing provider
-- [ ] JS8 app contains no ALSA/POSIX/termios direct dependency
-- [ ] 12k stereo -> 6k mono frontend is chunk-boundary invariant
-- [ ] every successful live frontend chunk is UTC-referenced and backdated like MiniFT8
-- [ ] slot scheduling uses fresh timed chunk positions, not a free-running startup anchor
-- [ ] cross-slot cumulative sample-count drift is prevented by repeated UTC re-anchoring
-- [ ] exact 90000-sample live slot geometry
-- [ ] exactly 89280 samples / 93 blocks decoded per slot
-- [ ] final 720 samples skipped
-- [ ] discontinuity causes full timing/frontend/reassembly resync
-- [ ] capture remains responsive while decode runs
-- [ ] no multi-second raw-audio slot buffering
-- [ ] existing multi-signal candidate capacity preserved
-- [ ] T062 reassembly unchanged
-- [ ] T063 activity event/schema unchanged
-- [ ] live MiniShell FS JSON is schema/escaping compatible with host logger
-- [ ] optional explicit dial gives exact RF mHz
-- [ ] optional QMX CAT sends only receive-safe startup sequence
-- [ ] no TX/RX/TA/TM CAT strings in JS8Chat T064 production
-- [ ] finite slots and operator quit clean up all resources
-- [ ] no-log mode works
-- [ ] hardware-free Linux integration tests pass
-- [ ] all existing T052-T063 tests remain green
-- [ ] Linux full CTest passes
-- [ ] portable CTest passes
-- [ ] boundary/no-heap checks pass
-- [ ] ASan/UBSan passes
-- [ ] ADV build remains green
-- [ ] git diff --check passes
-- [ ] no unrelated cleanup
+- [x] MiniShell `js8chat` receive-only app target exists
+- [x] live RX uses public MiniShell Audio service
+- [ ] Linux `alsa:` endpoint works through existing provider (wired and provider tests pass; real QMX pending)
+- [x] JS8 app contains no ALSA/POSIX/termios direct dependency
+- [x] 12k stereo -> 6k mono frontend is chunk-boundary invariant
+- [x] every successful live frontend chunk is UTC-referenced and backdated like MiniFT8
+- [x] slot scheduling uses fresh timed chunk positions, not a free-running startup anchor
+- [x] cross-slot cumulative sample-count drift is prevented by repeated UTC re-anchoring
+- [x] exact 90000-sample live slot geometry
+- [x] exactly 89280 samples / 93 blocks decoded per slot
+- [x] final 720 samples skipped
+- [x] discontinuity causes full timing/frontend/reassembly resync
+- [x] capture remains responsive while decode runs
+- [x] no multi-second raw-audio slot buffering
+- [x] existing multi-signal candidate capacity preserved
+- [x] T062 reassembly unchanged
+- [x] T063 activity event/schema unchanged
+- [x] live MiniShell FS JSON is schema/escaping compatible with host logger
+- [x] optional explicit dial gives exact RF mHz
+- [x] optional QMX CAT sends only receive-safe startup sequence
+- [x] no TX/RX/TA/TM CAT strings in JS8Chat T064 production
+- [x] finite slots and operator quit clean up all resources
+- [x] no-log mode works
+- [x] hardware-free Linux integration tests pass
+- [x] all existing T052-T063 tests remain green
+- [x] Linux full CTest passes
+- [x] portable CTest passes
+- [x] boundary/no-heap checks pass
+- [x] ASan/UBSan passes
+- [x] ADV build remains green
+- [x] git diff --check passes
+- [x] no unrelated cleanup
 
 Manual hardware gate:
 
@@ -540,21 +540,153 @@ Codex:
 
 ### Implementation summary
 
+Implemented against amended main `244779fc6a622ebed93621a4710c606d32011cc1`.
+The Linux `js8chat` MiniShell app provides receive-only Audio capture, a pure
+stereo/decimation frontend and timed slot scheduler, bounded asynchronous PHY
+decode, unchanged protocol/reassembly/activity modules, optional receive-safe QMX
+CAT, and append-only MiniShell FS JSONL. Shared callback serialization preserves
+the host logger's schema and escaping. No task-scope deviations.
+
 ### Files changed
+
+- `apps/js8chat/main/js8chat_main.c`: CLI, public-service validation, lifecycle,
+  capture loop and cleanup.
+- `apps/js8chat/src/live_rx/`: frontend, UTC backdating, timed scheduler, bounded
+  capture/decode handoff, semantic dispatch, FS resource/log sinks and QMX CAT.
+- `platform/linux/linux_js8chat.c`: accepted platform-owned pthread composition.
+- `apps/js8chat/src/activity_json/` and `tools/js8_activity_log.[ch]`: one shared
+  pure JSON serializer, existing FILE sink retained.
+- `CMakeLists.txt`, `tests/js8_tests.cmake`, `tests/architecture_rules.py`:
+  application/test targets and enforced ownership boundaries.
+- `tests/js8_live_test.c`, `tests/js8_live_boundary_test.py`,
+  `tests/js8_live_probe.c`, `tests/linux_js8_live.py`: hardware-free timing,
+  service, worker, failure-path and real MiniShell integration coverage.
+- App README, JS8 activity/protocol docs and this packet: usage and evidence.
 
 ### Invariants preserved
 
+No changes to `apps/js8chat/src/js8_engine` or FT8 production code. Candidate
+capacity remains 50, with exact payload dedupe reset per slot. T052–T063 PHY,
+protocol, JSC callback resource, reassembly and normalized activity semantics
+are reused unchanged. Only the existing host logger serialization moved to a
+shared callback module; its output and options remain compatible.
+
+Application code uses public MiniShell services only. Native threading is confined
+to the Linux composition layer. CAT emits exactly `MD6;FR0;FT0;FA%011u;` and no
+other command. No TX, platform audio/tty stack, raw-slot buffering or unbounded
+queue was introduced. The dictionary is read lazily through MiniShell FS from
+`/flash/js8chat/jsc.dict`; it is not loaded into RAM wholesale.
+
 ### Live timing / capture-decode evidence
+
+Every successful read/frontend conversion queries UTC and backdates by the number
+of produced 6 kHz samples. Fresh timed positions locate each boundary; sample
+counting supplies only the active 89280-sample capture. Startup discards a partial
+slot. The 720-sample tail is skipped before finding the next UTC boundary.
+Discontinuity resets frontend, timing, monitor and reassembly and invalidates
+in-flight decode results by generation.
+
+The deterministic drift regression both advances a timed chunk across a boundary
+and repeats tail timing after 90000 samples have already been consumed. Repeating
+the old slot's tail does not begin the next capture; the fresh UTC boundary does.
+This explicitly rejects an initial-anchor-plus-sample-counter implementation.
+
+Capture owns one monitor and copies only its waterfall to one fixed worker job.
+Release/acquire job ownership protects the immutable snapshot and decoded results;
+shutdown joins before releasing resources. Busy workers cause an explicit dropped
+window, tested with delayed completion. Capture continues servicing Audio during
+PHY decode. Semantic publication/log sync occurs on the capture thread.
+
+Measured on this Linux build:
+
+- Monitor workspace: 211312 bytes, including 161076-byte waterfall; alignment 16.
+- Separate worker waterfall: 161076 bytes; `sizeof(Js8Live)`: 12968 bytes.
+- App Memory allocations total 385371 bytes including 15 bytes alignment slack.
+- Raw/converted audio storage: 1024-byte transport, 512-byte frontend output and
+  3840-byte partial engine block; no complete raw slot is buffered.
+- Shared JSON formatter uses an 8192-byte bounded stack line. Linux worker stack
+  and platform/thread overhead are separate from the above app allocations.
+
+A paced synthetic real-process integration run (`ctest -V -R '^linux_js8_live$'`)
+measured decode durations 37155–68849 us, maximum serviced-chunk gap 10356 us,
+50 candidates per window, zero dropped windows and zero discontinuities. Fixtures
+included two repeated-HB slots, three header/Huffman/JSC slots, four simultaneous
+streams over two slots, and repeated launch/append. Pacing is 1 ms per 256-frame
+read in the test harness, not a claim about real QMX timing. Production diagnostics
+report slot, decode duration, maximum serviced-chunk gap, candidates, unique
+payloads, dropped windows and Audio discontinuities for hardware acceptance.
 
 ### Activity/log compatibility evidence
 
+Integration byte-compares host WAV and live MiniShell JSON after normalizing only
+source slot identity fields (`slot_index`, `elapsed_s`, `first_slot`, `last_slot`).
+UTC, exact audio/RF milli-Hz, frame content, escaping, order, and completed MESSAGE
+content match. Live slot identity is Unix UTC slot number; canonical event UTC is
+that boundary, never decode completion time. Repeated invocation appends to the
+same file and reopens Audio/Serial/FS handles. Tests cover no-log operation,
+write/sync failures and no MESSAGE completion across discontinuity.
+
 ### Test evidence
+
+All commands completed successfully on the final implementation:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 114/114 passed
+
+cmake -S tests/unit -B /tmp/T064-build-unit
+cmake --build /tmp/T064-build-unit -j8
+ctest --test-dir /tmp/T064-build-unit --output-on-failure
+# 27/27 passed
+
+cmake -S . -B /tmp/T064-build-ref -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T064-build-ref -j8 --target js8_decode
+ctest --test-dir /tmp/T064-build-ref -R 'js8.*reference|js8.*A2.*1' --output-on-failure
+# 1/1 passed; external WAV remains untracked by this commit
+
+cmake -S . -B /tmp/T064-build-sanitize -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T064-build-sanitize -j8 --target minishell js8chat js8_live_probe js8_live_unit js8_rx_unit js8_phy_unit js8_frame_unit js8_protocol_frame_unit js8_compound_unit js8_directed_unit js8_huffman_unit js8_jsc_unit js8_reassembly_unit js8_activity_unit js8_activity_log_unit js8_decode js8_multislot_host_unit
+ctest --test-dir /tmp/T064-build-sanitize -R '^(js8_(phy_unit|rx_unit|frame_unit|protocol_frame_unit|compound_unit|directed_unit|huffman_unit|jsc_unit|reassembly_unit|activity_unit|activity_log_unit|activity_json_unit|activity_wav_unit|live_unit|wav_unit|directed_wav_unit|huffman_wav_unit|jsc_wav_unit|multislot_host_unit|multislot_wav_unit|reassembly_wav_unit|A2_1_reference)|linux_js8_live)$' --output-on-failure
+# 23/23 passed, including live worker/process integration and resource corruption
+
+. "$HOME/projects/esp-idf/export.sh"
+idf.py -C platform/adv build
+# passed; image 0x151790 bytes, 78% application partition free
+
+git diff --check
+# passed
+```
+
+Full Linux/portable suites include dependency/platform boundaries, compiled engine
+no-heap checks, all existing JS8 regressions and Linux Audio provider tests.
+ASan/UBSan was run outside the restricted sandbox for LeakSanitizer support.
 
 ### Manual validation still required
 
+The real pc-1/QMX gate above remains pending **after supervisor review**. Record
+actual ALSA/CDC endpoints, dial Hz, at least 20 consecutive slots, event count,
+decode/read-gap diagnostics and discontinuity count. Verify no RF keying, real
+UTC/audio/RF log fields, clean quit and repeated reopen. No ALSA hardware or
+on-air reception claim is made by the synthetic/provider tests.
+
 ### Known limitations / risks
 
+One pending decode window is allowed; overload drops/report windows explicitly.
+FS sync and semantic formatting run on the capture thread, so real disk/QMX load
+must be evaluated using the diagnostics. Live event identities support nonnegative
+Unix slots through uint32; the pure UTC helper also tests negative epoch arithmetic.
+A missing/corrupt JSC resource fails explicitly when compressed DATA is encountered.
+Finite `--slots` counts fully decoded windows; an unpaced WAV can overrun the one-job
+handoff (the integration harness deliberately supplies paced Audio and fake UTC).
+No ADV live app packaging or hardware acceptance is added.
+
 ### Commit
+
+One implementation commit on `codex/T064-js8-live-qmx-rx`; its SHA is returned in
+the engineering handoff (this packet is included in that commit). No PR or Actions
+wait.
 
 ## Supervisor review
 

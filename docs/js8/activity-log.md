@@ -92,3 +92,30 @@ error and return a nonzero process exit after preserving decode output, with
 failure. An OS short write can leave a partial final line; append-only operation
 does not promise transactional rollback, fsync durability, or concurrent-writer
 atomicity. Rotation is out of scope.
+
+## Live MiniShell sink (T064)
+
+`js8chat --rx <Audio endpoint> [--dial-hz hz] [--cat <Serial endpoint>]
+[--log <MiniShell path>] [--slots N]` uses the same formatter and escaping through
+a write callback. The host FILE adapter remains append/flush; the app opens
+MiniShell FS with WRITE|CREATE|APPEND, syncs after each published decode slot and
+closes at shutdown. File errors are explicit, with no rotation or ADIF.
+
+Live `slot` is the actual nonnegative Unix UTC slot ID (uint32); `elapsed_s` is
+that ID times 15, consistent with the activity model. `utc` is that slot boundary,
+not decode-completion time. The formatter's metadata origin is the Unix epoch.
+Audio/RF fields remain exact integer milli-Hz. Negative UTC slot IDs are rejected
+by the live event path; the pure timing conversion tests cover negative epochs.
+
+Every successful Audio chunk gets a new MiniShell UTC reference after frontend
+conversion. The reference is backdated by the produced 6 kHz sample count, and
+its absolute position determines each new 15-second boundary. Counting is local
+to the current chunk/capture, not a free-running long-term clock. Within each
+capture exactly 89280 samples become 93 blocks; the remaining 720-sample nominal
+tail is ignored while fresh UTC positions locate the next boundary. A boundary
+missed by a timed jump is reported/dropped, not padded. Audio discontinuity resets
+frontend, timing, monitor and reassembly and invalidates stale worker output.
+
+The RX-only app and platform-worker arrangement are described in
+[the app README](../../apps/js8chat/README.md). Real QMX validation remains a
+separate hardware gate; synthetic timing/content tests do not replace it.

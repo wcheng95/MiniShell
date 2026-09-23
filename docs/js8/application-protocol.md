@@ -556,3 +556,17 @@ These are implementation checks, not known blockers:
 - perform on-air interoperability tests against desktop JS8Call.
 
 The design rule is: **implement only what another JS8Call operator must see on the air for heartbeat, reachability, calling, and direct conversation to work normally.**
+
+## Live receive monitor (T064)
+
+The first Linux `js8chat` app slice now feeds the accepted RX/reassembly/activity
+stack through public MiniShell Audio, Time/Location, Filesystem and optional
+receive-safe Serial services. Every converted chunk is UTC-referenced/backdated;
+new slot boundaries follow those timed positions. One platform-owned worker
+consumes a bounded waterfall snapshot while the app continues capture. A real
+Audio discontinuity clears temporary capture/reassembly and invalidates old
+worker results. The engine/protocol modules remain unchanged.
+
+See [activity-log.md](activity-log.md) and the app README for invocation, shared
+JSONL serialization, diagnostics and required pc-1/QMX manual acceptance. TX,
+radio tone control, live WebSDR networking, ADIF and the final UI remain deferred.

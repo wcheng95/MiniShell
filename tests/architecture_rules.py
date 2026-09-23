@@ -4,16 +4,20 @@
 # needs the same architectural enforcement; keep the checker itself generic.
 APP_RULES = {
     "js8chat": {
-        "enforced_roots": {"src", "tools"},
-        "module_paths": {"js8_engine": ("src/js8_engine",), "tools": ("tools",)},
-        "include_roots": ("src/js8_engine", "src/js8_engine/vendor/kissfft"),
-        "allowed": {"js8_engine": {"js8_engine"}, "tools": {"tools", "js8_engine"}},
+        "enforced_roots": {"src", "tools", "main"},
+        "module_paths": {"js8_engine": ("src/js8_engine",), "tools": ("tools",),
+                         "activity_json": ("src/activity_json",), "live_rx": ("src/live_rx",), "main": ("main",)},
+        "include_roots": ("src/js8_engine", "src/js8_engine/vendor/kissfft", "src/activity_json", "src/live_rx"),
+        "allowed": {"js8_engine": {"js8_engine"}, "activity_json": {"activity_json", "js8_engine"},
+                    "tools": {"tools", "js8_engine", "activity_json"},
+                    "live_rx": {"live_rx", "js8_engine", "activity_json"},
+                    "main": {"main", "live_rx", "js8_engine", "activity_json"}},
         "native_exceptions": {
             "tools/js8_decode.c": {"fopen"},
             "tools/js8_activity_log.c": {"fopen"},  # T063 host-only append logger.
         },
-        "api_modules": set(),
-        "no_heap_modules": {"js8_engine"},
+        "api_modules": {"live_rx", "main"},
+        "no_heap_modules": {"js8_engine", "activity_json"},
     },
     "ft8": {
         "enforced_roots": {"main", "include", "src"},
