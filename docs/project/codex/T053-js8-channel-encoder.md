@@ -1,6 +1,6 @@
 # T053 — JS8 Normal 79-tone channel encoder
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -463,12 +463,37 @@ Pre-existing untracked `build-keyer.sh`, `rebuild-all.sh`,
 
 ### Commit
 
-The single implementation commit containing these notes is on
-`codex/T053-js8-channel-encoder`, based on `e047565` from `origin/main`.
-The exact implementation SHA is returned after push. No PR or Actions wait.
+The reviewed implementation commit is:
+
+`28cf927706e7a1db88ef16a4b7007126634b65f5`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 
+Reviewed commit `28cf927706e7a1db88ef16a4b7007126634b65f5` against T053 and the pinned JS8Call-improved v3.0.3 encoder.
+
+Result: **PASS**.
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T053 baseline.
+- Product change is limited to `apps/js8chat/src/js8_engine/js8_channel.[ch]`; no FT8, platform, architecture-rule, UI, or application code changed.
+- `js8_channel_encode()` reuses the accepted T052 CRC and LDPC implementation and does not duplicate channel-coding logic.
+- Normal Costas is exactly `4 2 5 6 1 3 0` at offsets 0, 36, and 72.
+- Codeword bits 0..86 map directly MSB-first into 29 parity tone indices at 7..35.
+- Codeword bits 87..173 map directly MSB-first into 29 information tone indices at 43..71.
+- There is no FT8 Gray map.
+- Independent supervisor reconstruction of the first golden 79-tone vector directly from the accepted T052 codeword matches the checked-in T053 vector exactly.
+- The offline oracle pins both v3.0.3 `JS8.cpp` and `JS8.h`, extracts the actual upstream `JS8::encode()`, alphabet, and Costas definitions, and calls upstream encoding to produce the checked-in tone vectors. Production MiniShell code is not used to create the goldens.
+- Tests exercise all eight direct 3-bit word values, so an accidental FT8 Gray map cannot satisfy the regression.
+- Invalid inputs are rejected before output mutation; canaries and deterministic interleaved calls cover bounds/state.
+- Pure-C/no-heap/js8_engine-only architecture constraints remain intact.
+- Reported gates are consistent with the diff: Linux 91/91, portable 15/15, boundaries, ADV build, oracle regeneration, ASan/UBSan, and diff check all pass.
+- No manual/hardware validation is required.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
 ## Architect test result
 
-No manual/hardware validation is required for T053.
+No manual/hardware validation is required for T053. Software review accepted; task complete.
