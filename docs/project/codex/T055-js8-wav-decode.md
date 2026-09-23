@@ -1,6 +1,6 @@
 # T055 — Linux JS8 Normal WAV decoder
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -443,11 +443,39 @@ zero or multiple decodes; exactly one is the pinned reference-test gate.
 
 ### Commit
 
-The single implementation commit containing these notes is on
-`codex/T055-js8-wav-decode`, based on `b3e8db4` from `origin/main`.
-Its exact SHA is returned after push. No PR or Actions wait.
+The reviewed implementation commit is:
+
+`62d474ea878fb147b9c5412cf6f60b926b75d5d1`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
+
+Reviewed commit `62d474ea878fb147b9c5412cf6f60b926b75d5d1` against T055.
+
+Result: **PASS — implementation accepted; manual pc-1 acceptance pending.**
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T055 baseline.
+- The pinned local fixture identity was verified before DSP work: Git blob `d986a4e5a9cc654dffbfadae73ec35cc9cea1d83`, matching JS8Call-improved v3.0.3 `media/tests/A_2_1.wav`.
+- The accepted T054 monitor/search/LLR/LDPC/CRC product source is unchanged. The first real DSP run succeeded without search/sensitivity-policy changes.
+- The utility safely parses RIFF chunks instead of assuming a 44-byte header and includes a narrow compatibility case for the pinned upstream file's final odd LIST padding convention.
+- The host frontend keeps the continuous phase-0 2:1 decimation sequence and processes exactly 93 complete 960-sample blocks; the remaining 720 engine samples are ignored without padding.
+- Candidate decoding retains only LDPC+CRC-valid payloads and deduplicates by exact 75-bit payload.
+- Exactly one unique valid payload is recovered from the pinned fixture:
+  `111001011101001010000111001011100000101011000001100010000111111111111111010`.
+- Independent supervisor unpacking of that 75-bit payload with the pinned v3.0.3 alphabet gives physical frame `vTA7BWh1Y7++` and type `2`, matching the utility.
+- First-run diagnostics are coherent: score 26, lattice time 5/0, lattice frequency 57/0, derived audio frequency 556.250 Hz, hard-errors 15.
+- The new `js8_frame` helper remains a pure physical-frame unpacker; it does not interpret JS8 application commands/messages.
+- The external WAV is not committed. Normal CTest is fixture-independent; the optional reference build pins the external fixture by Git blob and exact expected payload/type/frame.
+- JS8 architecture rules add only a `tools` owner with `tools -> tools + js8_engine`; engine purity/no-heap remains unchanged.
+- FT8 production source is unchanged.
+- Reported gates are consistent with the diff: Linux 95/95, portable 18/18, external reference, malformed/synthetic WAV tests, ASan/UBSan, boundary checks, ADV build, and diff checks all pass.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
+T055 now enters TESTING for the architect's manual pc-1 run.
 
 ## Architect test result
 
