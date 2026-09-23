@@ -3,6 +3,7 @@
 ## Current baseline
 
 - Maintained targets: Linux Mint and Cardputer ADV / ESP32-S3.
+- Portable QRP radio scope is closed at five modes: CW (Mini-CW), FT8, JS8 Normal, classic 45.45-baud/170-Hz RTTY, and Robot 36 SSTV. Protocol breadth is frozen; future work should deepen field-useful features inside these five rather than add FT4, extra JS8/SSTV modes, or a sixth radio mode.
 - Linux runtime applications use `.so`; ADV supports compiled-in applications plus runtime external `.elf` loading.
 - ADV application resolution is `compiled-in > /flash/apps/<app>.elf > /sd/apps/<app>.elf`.
 - Public MiniShell API generation is v3 and exposes App, System, Console, Memory, Filesystem, Time/Location, Display, Input, Audio, and Digital I/O.
