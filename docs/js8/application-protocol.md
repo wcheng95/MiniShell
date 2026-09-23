@@ -123,6 +123,58 @@ includes 32400 (RA90); larger values, including 32767, produce an empty grid.
 No command-range extras are interpreted. Transmission flags remain independent
 of this content decoding. CQ FIELD is a calling variant, not group operation.
 
+## Standard directed RX content (T058)
+
+Standard DIRECTED frames carry these 72 application bits:
+
+| Bits | Field |
+| --- | --- |
+| 0..2 | `011` DIRECTED |
+| 3..30 | from callsign28 |
+| 31..58 | to callsign28 |
+| 59..63 | command5 |
+| 64 | portable from |
+| 65 | portable to |
+| 66..71 | number6 |
+
+The final three PHY transmission flags remain independent. The pure JS8 directed
+parser owns callsign28 decoding, including the complete v3.0.3 `basecalls` table
+at `262177560 + 1..54`. These special names (including `<....>` and group names)
+ignore portable flags when rendered; raw flags remain exposed. Generic callsigns
+are trimmed, expand `3D0` to `3DA0` and `Q[A-Z]` to `3X[A-Z]`, and append `/P`
+for the corresponding portable flag. `<....>` stays an unresolved placeholder.
+
+Canonical command strings preserve spaces, matching v3.0.3 `directed_cmds.key()`:
+
+| Code | String | Code | String |
+| --- | --- | --- | --- |
+| 0 | ` SNR?` | 16 | ` INFO?` |
+| 1 | ` DIT DIT` | 17 | ` INFO` |
+| 2 | ` NACK` | 18 | ` FB` |
+| 3 | ` HEARING?` | 19 | ` HW CPY?` |
+| 4 | ` GRID?` | 20 | ` SK` |
+| 5 | `>` | 21 | ` RR` |
+| 6 | ` STATUS?` | 22 | ` QSL?` |
+| 7 | ` STATUS` | 23 | ` QSL` |
+| 8 | ` HEARING` | 24 | ` CMD` |
+| 9 | ` MSG` | 25 | ` SNR` |
+| 10 | ` MSG TO:` | 26 | ` NO` |
+| 11 | ` QUERY` | 27 | ` YES` |
+| 12 | ` QUERY MSGS` | 28 | ` 73` |
+| 13 | ` QUERY CALL` | 29 | ` HEARTBEAT SNR` |
+| 14 | ` ACK` | 30 | ` AGN?` |
+| 15 | ` GRID` | 31 | one space (free text) |
+
+ACK (14), 73 (28), free text (31), and SNR (25/29) are explicitly identified.
+Number6 zero means absent; every other value decodes to `number6 - 31`, giving
+-30 through +32, including present zero. This applies to every command, not only
+SNR. The optional SNR formatter emits signed two-digit text (`-08`, `+05`, `+00`)
+for -60..60 and an empty string outside that upstream range.
+
+Decode support does not imply automatic action support. No compound-directed
+association, continuation text, reassembly, group-operation policy, auto-reply,
+relay/store-forward behavior, or TX packing is implemented here.
+
 ## Required application frame classes
 
 v0.1 requires the frame/application forms needed for:

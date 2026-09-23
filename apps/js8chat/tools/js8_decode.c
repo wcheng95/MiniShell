@@ -2,6 +2,7 @@
 #include "js8_frame.h"
 #include "js8_protocol_frame.h"
 #include "js8_compound.h"
+#include "js8_directed.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -190,6 +191,16 @@ int main(int argc, char **argv)
             Js8CompoundFields fields;
             if (js8_compound_fields_decode(payload.payload_bits, &fields)) goto cleanup;
             printf(" call=%s extra=%u bits3=%u", fields.callsign, fields.extra16, fields.bits3);
+        }
+        if (envelope.app_class == JS8_APP_FRAME_DIRECTED) {
+            Js8DirectedFrame directed;
+            if (js8_directed_decode(payload.payload_bits, &directed)) goto cleanup;
+            printf(" from=%s to=%s cmd=\"%s\"", directed.from, directed.to,
+                   js8_directed_command_name(directed.command_code));
+            if (directed.has_number) printf(" num=%d", directed.number);
+            if (directed.is_free_text) fputs(" free_text=1", stdout);
+            if (directed.is_ack) fputs(" ack=1", stdout);
+            if (directed.is_73) fputs(" end73=1", stdout);
         }
         putchar('\n');
     }
