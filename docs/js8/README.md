@@ -20,6 +20,11 @@ The application goal is the smallest useful JS8Call-compatible keyboard-chat end
 
 The frozen interoperability reference is **JS8Call-improved v3.0.3**. Current upstream master is only a secondary compatibility check and does not automatically change v0.1.
 
+JS8Chat's product scope is **Normal mode only**. Slow/Fast/Turbo or any other
+JS8 speed is not a later MiniShell roadmap item. Future work may improve the
+Normal-mode UI, messaging workflow, robustness, logging, and radio integration
+without expanding the speed/mode set.
+
 ## MiniShell integration
 
 JS8Chat is built into MiniShell and consumes MiniShell services:
