@@ -48,8 +48,10 @@ Deferred beyond v0.1:
 - APRS/APRS-IS;
 - PSKReporter/internet spotting;
 - TCP/UDP/JSON remote APIs;
-- the general automatic query suite;
-- additional JS8 speeds.
+- the general automatic query suite.
+
+JS8 speed scope is permanently narrow: **Normal mode only**. Additional JS8
+speeds are outside the MiniShell product scope rather than deferred v0.1 work.
 
 ## MiniShell integration and module split
 
