@@ -1,6 +1,6 @@
 # T064 — Live Linux QMX JS8 RX monitor
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -684,11 +684,43 @@ No ADV live app packaging or hardware acceptance is added.
 
 ### Commit
 
-One implementation commit on `codex/T064-js8-live-qmx-rx`; its SHA is returned in
-the engineering handoff (this packet is included in that commit). No PR or Actions
-wait.
+The reviewed implementation commit is:
+
+`3c9430f1b697fec308b0b1b9c4af81051744d3f3`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
+
+Reviewed commit `3c9430f1b697fec308b0b1b9c4af81051744d3f3` against the amended T064 timing contract and the accepted MiniFT8 live timing model.
+
+Result: **PASS — implementation accepted for real pc-1/QMX testing.**
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of amended T064 baseline `244779fc6a622ebed93621a4710c606d32011cc1`.
+- JS8 engine/protocol/reassembly/activity code remains unchanged; live integration is layered above it.
+- Production JS8Chat app code uses only public MiniShell services. Native pthread use is confined to `platform/linux/linux_js8chat.c`.
+- Linux ALSA remains fully provider-owned; JS8Chat opens only the public 12 kHz S16 stereo Audio contract.
+- Every successful live frontend chunk obtains a fresh MiniShell UTC reference and backdates it by the number of produced 6 kHz samples.
+- Slot scheduling uses the fresh timed chunk position. The regression explicitly proves that repeating/perturbing a prior tail does not start the next slot from an old `+90000` counter.
+- 90000 samples is used only as exact slot geometry; capture consumes exactly 89280 samples and skips the nominal 720-sample tail.
+- Audio discontinuity resets frontend phase, slot scheduling, monitor capture and T062 reassembly, and increments a generation so stale worker output cannot publish.
+- Capture owns the live monitor and hands one immutable waterfall snapshot to a bounded Linux decode worker. No whole raw-audio slot is buffered and there is no unbounded queue.
+- A busy worker causes an explicit decode-window drop rather than blocking Audio capture or silently overwriting work.
+- Worker ownership is synchronized with release/acquire atomics and shutdown joins the worker before state/services are released.
+- Candidate capacity and per-slot exact payload dedupe remain the accepted T054/T061 values.
+- Live semantic dispatch reuses the accepted T056-T063 decoders and T062 reassembly without introducing a parallel protocol path.
+- Shared `js8_activity_json` serialization is used by both the T063 host FILE sink and the new MiniShell FS sink; integration tests byte-compare equivalent JSON after normalizing only source slot-identity fields.
+- Live UTC in logs is the RF slot boundary, not decode-completion time. Audio/RF frequencies remain exact integer milli-Hz.
+- QMX CAT is receive-safe only and emits exactly `MD6;`, `FR0;`, `FT0;`, `FA%011u;`; no TX/tone/time CAT command exists in the production JS8Chat live source.
+- Resource cleanup covers Audio, Serial, log file, JSC dictionary and app Memory; repeated synthetic MiniShell launches prove reopen.
+- Synthetic integration exercises repeated HB, mixed Huffman/JSC message reassembly, four simultaneous streams, CAT, FS append, discontinuity invalidation and actual MiniShell app loading.
+- Reported gates are consistent with the diff: Linux 114/114, portable 27/27, sanitizer 23/23, external WAV regression, boundary/no-heap checks, ADV build and diff check all pass.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
+T064 now enters TESTING for real pc-1/QMX acceptance.
 
 ## Architect test result
 
