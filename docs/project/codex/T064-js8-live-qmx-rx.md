@@ -795,3 +795,18 @@ Interpretation:
 
 Required correction is the MiniFT8 pre-roll/tolerance scheduling defined above.
 Do not mark T064 COMPLETE until the corrected build passes the real 20-slot gate.
+
+Continued real-QMX observation produced one successful decode window amid otherwise
+continuous timing drops:
+
+```text
+JS8 timing-drop slot=119343189 ... drops=7 discontinuities=0
+JS8 decoded slot=119343190 decode_us=52877 read_gap_max_us=20810 candidates=50 unique=0 drops=7 discontinuities=0
+JS8 timing-drop slot=119343191 ... drops=8 discontinuities=0
+...
+JS8 timing-drop slot=119343200 ... drops=17 discontinuities=0
+```
+
+This is consistent with occasional accidental chunk/boundary alignment. The decode
+worker itself completed normally in ~52.9 ms and found 50 candidates, while Audio
+remained continuous. The dominant defect remains live capture-start scheduling.
