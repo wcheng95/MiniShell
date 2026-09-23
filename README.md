@@ -21,6 +21,28 @@ The hardware-accepted field milestone is documented in:
 docs/project/milestone-2026-09-21-field-baseline.md
 ```
 
+## Portable QRP radio scope
+
+MiniShell's portable-radio scope is intentionally closed at **five modes**:
+
+```text
+CW      Mini-CW field keyer/operator station
+FT8     MiniFT8 weak-signal QRP/DX
+JS8     JS8Chat keyboard messaging, Normal mode only
+RTTY    classic 45.45-baud / 170-Hz amateur RTTY
+SSTV    Robot 36 portable image QSO
+```
+
+The design goal is not to reproduce a comprehensive desktop digital-mode suite.
+Each application implements the smallest useful field subset, optimized for
+simple QRP portable operation on ADV.
+
+Protocol breadth is frozen: FT4, additional JS8 speeds, additional SSTV modes,
+and a sixth portable radio mode are not planned. Feature depth inside the five
+modes remains open when field use justifies it. For example, Mini-CW may grow
+ADV-side QMX station controls so the Cardputer can replace more of the QMX
+native UI during CW operation.
+
 ## Architecture
 
 Applications use the public MiniShell API. Platform and device mechanics remain
