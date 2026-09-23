@@ -125,6 +125,18 @@ lookup, color UI, and compact transcript/note logging.
 
 The superseded `apps/keyer` implementation and its dedicated build/tests have been removed. Historical T038/T040 task records remain under `docs/project/codex/` for engineering archaeology; Mini-CW is the only current field CW application.
 
+## RTTY
+
+Canonical RTTY architecture:
+
+```text
+docs/RTTY/architecture.md
+```
+
+RTTY is defined as a 12-kHz streaming external MiniShell application. The
+current T065 bring-up path is Linux WAV decode; later QMX/WebSDR receive reuses
+the same portable decoder core. ADV deployment remains external `rtty.elf`.
+
 ## Other application/research areas
 
 ```text
