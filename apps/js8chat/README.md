@@ -3,7 +3,9 @@
 T064 adds the first Linux receive-only app slice. The public MiniShell Audio
 service supplies 12 kHz S16 stereo; the app averages L/R and retains phase-0
 12k-to-6k decimation across reads. Every converted chunk is freshly referenced to
-MiniShell UTC and backdated before scheduling its capture boundary.
+MiniShell UTC and backdated before scheduling its capture start 1.6 seconds
+before the target slot. Initial scheduling allows 40 ms lateness, like MiniFT8;
+a scheduled start stepped over by a chunk uses its first available sample.
 
 Build with the normal Linux CMake build, then run in MiniShell:
 
