@@ -1,6 +1,6 @@
 # T060 — JS8 Normal JSC DATA_COMPRESSED RX
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -722,10 +722,42 @@ partition choices are still deferred.
 
 ### Commit
 
-One reviewable commit on `codex/T060-js8-jsc-rx` containing these notes; SHA returned
-after push. No PR or GitHub Actions wait.
+The reviewed implementation commit is:
+
+`7d80bbae37356ff7cb8ae4c139d41e9d649eb3bb`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
+
+Reviewed commit `7d80bbae37356ff7cb8ae4c139d41e9d649eb3bb` against T060 and the pinned JS8Call-improved v3.0.3 JSC decoder/map.
+
+Result: **PASS — implementation accepted; manual pc-1 text acceptance pending.**
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T060 baseline.
+- JSC RX core is pure C, no heap, no mutable singleton, and has no filesystem/platform dependency.
+- The resource boundary is caller-owned through a read callback; the engine never opens files or caches the 1.9 MiB dictionary.
+- JSC1 header fields, touched block offsets, record lengths, selected bytes, and callback results are structurally bounds-checked.
+- Dictionary lookup returns full map strings and correctly ignores upstream Tuple.size quirks for RX, including index 81 `@ALLCALL` and index 262143 `ROSIDS`.
+- Dense-codeword streaming matches v3.0.3 semantics for valid content: 4-bit nibbles, terminal <7, base-9 continuations, optional separator bit, and direct map index lookup.
+- Partial nibble, unterminated codeword, and out-of-range dictionary index stop with the decoded prefix as upstream does.
+- Malformed overlong continuation sequences are bounded safely before arithmetic/base-array overflow; valid upstream wire behavior is unchanged.
+- DATA_COMPRESSED uses the same valid-frame last-zero sentinel/trailing-one padding rule as T059; tail PHY flags remain metadata.
+- Output is fixed at 384 bytes; the maximum 14-entry / 26-byte-string bound is proven by static assertion and test.
+- Missing/corrupt JSC resource affects JSC frames only; Huffman and non-JSC decoding continue to work.
+- Host default/override dictionary access remains outside js8_engine and is independent of current working directory.
+- The source-pinned independent oracle verifies exact v3.0.3 JSC.cpp/JSC.h/JSC_map.cpp hashes, independently parses all 262,144 map strings, and derives the A_2_1 text as `MSG ID 416`.
+- The checked-in JSC1 resource remains unchanged: 1,918,009 bytes with SHA-256 `ced6b30303f004966b29f7e658e7e60c8933526716b1b85c03384d0e9a417149`.
+- The real A_2_1 WAV and independent oracle agree exactly on `codec=jsc data="MSG ID 416"`.
+- T059 Huffman behavior, long-WAV first-window behavior, T056-T058 semantics, T054 DSP, T055 frontend, and FT8 are unchanged.
+- The documented Linux serial PTY intermittency is unrelated to this diff; no serial code/test was changed and the final complete suite passed.
+- Reported gates are consistent with the diff: Linux 103/103, portable 23/23, sanitizer 13/13, corruption/resource tests, external WAV, boundaries/no-heap, ADV build, oracle regeneration, and diff check all pass.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
+T060 now enters TESTING for the architect's manual pc-1 JSC text check.
 
 ## Architect test result
 
