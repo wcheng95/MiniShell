@@ -1,6 +1,6 @@
 # T057 — JS8 heartbeat/CQ and compound identity decoder
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -488,11 +488,36 @@ No data-text decoder or frame reassembly is implemented.
 
 ### Commit
 
-One reviewable commit on `codex/T057-js8-beacon-compound` containing these notes;
-the SHA is returned after push. No PR or Actions wait.
+The reviewed implementation commit is:
+
+`4a20202c7aaeebd948593bad1053b72572d93783`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 
+Reviewed commit `4a20202c7aaeebd948593bad1053b72572d93783` against T057 and the pinned JS8Call-improved v3.0.3 Varicode formulas.
+
+Result: **PASS**.
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T057 baseline.
+- `js8_callsign50_unpack()` follows the v3.0.3 mixed radices exactly, including radix 39 for the first character, radix 2 at the slash/space positions, radix 38 elsewhere, and final global space removal.
+- The implementation deliberately accepts unconventional 50-bit values just as upstream does; it does not add callsign-validity policy at this primitive boundary.
+- Grid unpacking matches v3.0.3 edge behavior, including the non-obvious `32400 -> RA90`; only values greater than 32400 are empty/no-grid.
+- Shared compound extraction correctly maps bits 0..2, 3..52, 53..68, and 69..71 and accepts only HEARTBEAT/COMPOUND/COMPOUND_DIRECTED.
+- HEARTBEAT correctly separates HB vs CQ through extra16 bit 15; all eight HB subtypes normalize to HB and all eight CQ strings match upstream, including CQ FIELD.
+- Plain COMPOUND decodes callsign/grid but leaves command-range extras uninterpreted.
+- COMPOUND_DIRECTED remains raw callsign + extra16 + bits3 only, as required.
+- Transmission flags do not influence content decoding.
+- The independent oracle pins exact v3.0.3 source hashes and regenerates fixed vectors without calling production MiniShell code.
+- Existing real A_2_1 WAV output remains byte-for-byte unchanged because it is DATA_COMPRESSED and outside this content slice.
+- T056 envelope source/tests, T054 DSP, T055 WAV/frontend, and FT8 are unchanged.
+- Reported gates are consistent with the diff: Linux 97/97, portable 20/20, sanitizer 7/7, external WAV, boundaries/no-heap, ADV build, oracle regeneration, and diff check all pass.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
 ## Architect test result
 
-No hardware/RF acceptance required.
+No hardware/RF acceptance required. Software review accepted; task complete.
