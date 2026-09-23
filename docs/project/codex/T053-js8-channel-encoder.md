@@ -1,6 +1,6 @@
 # T053 — JS8 Normal 79-tone channel encoder
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -278,24 +278,24 @@ Do not implement:
 
 ## Acceptance criteria
 
-- [ ] JS8 Normal channel encoder accepts exactly 75 payload bits.
-- [ ] T052 CRC-12 and LDPC are reused.
-- [ ] exact 79 tones match v3.0.3 for at least three pinned payloads.
-- [ ] Costas sequence is exactly `4 2 5 6 1 3 0` at 0, 36, and 72.
-- [ ] parity tones occupy 7..35.
-- [ ] information tones occupy 43..71.
-- [ ] 3-bit words are direct binary tone indices; no FT8 Gray map.
-- [ ] all tones are 0..7.
-- [ ] pure C, no heap, no mutable global state.
-- [ ] no platform/MiniShell/FT8 dependency added.
-- [ ] golden vectors regenerate from exact pinned v3.0.3 source.
-- [ ] Linux full CTest passes.
-- [ ] portable CTest passes.
-- [ ] JS8 dependency/platform boundary checks pass.
-- [ ] real ADV build remains green.
-- [ ] sanitizer check passes for the pure JS8 test.
-- [ ] `git diff --check` passes.
-- [ ] no unrelated cleanup.
+- [x] JS8 Normal channel encoder accepts exactly 75 payload bits.
+- [x] T052 CRC-12 and LDPC are reused.
+- [x] exact 79 tones match v3.0.3 for at least three pinned payloads.
+- [x] Costas sequence is exactly `4 2 5 6 1 3 0` at 0, 36, and 72.
+- [x] parity tones occupy 7..35.
+- [x] information tones occupy 43..71.
+- [x] 3-bit words are direct binary tone indices; no FT8 Gray map.
+- [x] all tones are 0..7.
+- [x] pure C, no heap, no mutable global state.
+- [x] no platform/MiniShell/FT8 dependency added.
+- [x] golden vectors regenerate from exact pinned v3.0.3 source.
+- [x] Linux full CTest passes.
+- [x] portable CTest passes.
+- [x] JS8 dependency/platform boundary checks pass.
+- [x] real ADV build remains green.
+- [x] sanitizer check passes for the pure JS8 test.
+- [x] `git diff --check` passes.
+- [x] no unrelated cleanup.
 
 No manual/hardware validation is required.
 
@@ -363,17 +363,109 @@ Codex:
 
 ### Implementation summary
 
+Added the pure Normal-only `js8_channel_encode()` API. It validates through
+T052's CRC append, reuses the T052 LDPC encoder, groups both 87-bit halves
+MSB-first into direct binary tone indices, and inserts the original Costas
+sequence at 0, 36 and 72. Invalid inputs return -1 before any output write.
+
+Extended the independent oracle to extract and compile the actual v3.0.3
+`JS8::encode()` and `JS8::Costas` definitions, with source/header SHA-256 pins.
+The test-only adapter converts each existing 75-bit payload into the upstream
+12-character/type arguments. All three checked-in records now include exact
+79-tone arrays; their existing CRC/info/codeword fields are unchanged.
+
 ### Files changed
+
+- `apps/js8chat/src/js8_engine/js8_channel.[ch]`: minimal encoder and Normal
+  tone count, data count, symbol duration and spacing constants.
+- `tests/js8_reference_oracle.py`: extracted upstream encoder, alphabet and
+  Costas definitions; pinned header input and emitted tone arrays.
+- `tests/js8_golden_vectors.h`: three independent 79-tone vectors.
+- `tests/js8_phy_test.c`: exact tone vectors, original sync groups, direct
+  grouping of both T052 codeword halves, all eight tone values, interleaved
+  repeat calls, input preservation, output canaries, null rejection, and every
+  invalid byte value 2..255 at every payload position with unchanged output.
+- `tests/js8_tests.cmake`: adds only the channel source to the existing library.
+- `tests/js8_vectors.md`: source/header provenance and regeneration instructions.
+- This task packet: REVIEW status and handoff evidence.
 
 ### Invariants preserved
 
+Exactly 75 unpacked 0/1 payload bits produce exactly 79 tones in 0..7.
+Parity tones occupy 7..35; information tones occupy 43..71. Sync is exactly
+`4 2 5 6 1 3 0` at all three Normal positions. No Gray mapping.
+
+Pure C, fixed local scratch, caller-owned input/output arrays, no heap or
+mutable global state. T052 code/tables, FT8, architecture rules and platform
+code are unchanged. No waveform, text codec, app registration, timing owner,
+frequency helper or other submode API was added. No scope deviations.
+
 ### Local tests run
+
+All final gates passed:
+
+```sh
+git status --short
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 91/91, including existing architecture/platform checks.
+
+cmake -S tests/unit -B /tmp/T053-build-unit
+cmake --build /tmp/T053-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T053-build-unit --output-on-failure
+# PASS: 15/15.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+# Both PASS; no rule changes.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: minishell_adv.bin 0x151790 bytes, app partition 78% free.
+
+python3 tests/js8_reference_oracle.py /tmp/T053-JS8.cpp > /tmp/T053-vectors.h
+cmp tests/js8_golden_vectors.h /tmp/T053-vectors.h
+# PASS; sibling /tmp/T053-JS8.h is also SHA-256 checked.
+
+cc -std=c11 -Wall -Wextra -Werror -Wpedantic \
+  -fsanitize=address,undefined -fno-omit-frame-pointer -g \
+  -Iapps/js8chat/src/js8_engine tests/js8_phy_test.c \
+  apps/js8chat/src/js8_engine/js8_crc.c \
+  apps/js8chat/src/js8_engine/js8_ldpc.c \
+  apps/js8chat/src/js8_engine/js8_channel.c \
+  -lm -o /tmp/T053-js8-sanitize
+/tmp/T053-js8-sanitize
+# PASS: ASan/UBSan, including the existing T052 tests.
+
+git diff --check
+# PASS.
+```
+
+The sanitizer executable ran with approved escalation because T052 established
+that LeakSanitizer cannot run under the sandbox's ptrace environment. No tests
+failed and no existing assertions were weakened.
 
 ### Manual/hardware validation still required
 
+None. No flashing, RF tests or WAV use. The real ADV build validates the
+existing firmware; JS8 remains a pure host-tested library at this stage.
+
 ### Known limitations / risks
 
+This produces tone indices only; audio, receive DSP and message packing remain
+outside T053. The API follows the task's fixed-size C array contract: callers
+must provide the documented buffer sizes and non-overlapping arrays.
+No known channel-encoder limitation within this scope.
+
+Pre-existing untracked `build-keyer.sh`, `rebuild-all.sh`,
+`platform/adv/elf_apps/keyer/` and Python caches were excluded from this task.
+
 ### Commit
+
+The single implementation commit containing these notes is on
+`codex/T053-js8-channel-encoder`, based on `e047565` from `origin/main`.
+The exact implementation SHA is returned after push. No PR or Actions wait.
 
 ## Supervisor review
 

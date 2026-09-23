@@ -1,7 +1,8 @@
 get_filename_component(JS8_TEST_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 add_library(js8_phy_core STATIC
     ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_crc.c
-    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_ldpc.c)
+    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_ldpc.c
+    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_channel.c)
 target_include_directories(js8_phy_core PUBLIC ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine)
 target_compile_options(js8_phy_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
 target_link_libraries(js8_phy_core PUBLIC m)

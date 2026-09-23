@@ -1,3 +1,4 @@
+#include "js8_channel.h"
 #include "js8_crc.h"
 #include "js8_ldpc.h"
 
@@ -12,6 +13,7 @@ struct golden {
     unsigned crc;
     const char *info;
     const char *codeword;
+    uint8_t tones[JS8_TONE_COUNT];
 };
 #include "js8_golden_vectors.h"
 
@@ -140,11 +142,73 @@ static void failure_tests(void)
     assert(errors == 0 && js8_crc12_check(info) == 0);
 }
 
+static void channel_tests(void)
+{
+    _Static_assert(JS8_TONE_COUNT == 79, "Normal frame length");
+    _Static_assert(JS8_DATA_TONE_COUNT == 58, "Normal data tones");
+    _Static_assert(JS8_SYMBOL_PERIOD_MS == 160, "Normal symbol duration");
+    assert(JS8_TONE_SPACING_HZ == 6.25f);
+    const uint8_t costas[] = {4, 2, 5, 6, 1, 3, 0};
+    const unsigned sync_positions[] = {0, 36, 72};
+    unsigned seen_words = 0;
+
+    /* Interleave different payloads before repeating to expose retained state. */
+    for (unsigned repeat = 0; repeat < 2; ++repeat) {
+        for (unsigned v = 0; v < sizeof(vectors) / sizeof(vectors[0]); ++v) {
+            uint8_t payload[JS8_PAYLOAD_BITS], codeword[JS8_CODEWORD_BITS];
+            struct { uint8_t before, tones[JS8_TONE_COUNT], after; } output;
+            memset(&output, 0xa5, sizeof(output));
+            unpack(vectors[v].payload, payload, JS8_PAYLOAD_BITS);
+            unpack(vectors[v].codeword, codeword, JS8_CODEWORD_BITS);
+            assert(js8_channel_encode(payload, output.tones) == 0);
+            assert(memcmp(output.tones, vectors[v].tones, JS8_TONE_COUNT) == 0);
+            for (unsigned i = 0; i < JS8_TONE_COUNT; ++i)
+                assert(output.tones[i] <= 7);
+            for (unsigned i = 0; i < 3; ++i)
+                assert(memcmp(output.tones + sync_positions[i], costas, 7) == 0);
+            for (unsigned word = 0; word < JS8_DATA_TONE_COUNT; ++word) {
+                unsigned bit = word * 3;
+                unsigned direct = 4u * codeword[bit] + 2u * codeword[bit + 1]
+                                  + codeword[bit + 2];
+                unsigned position = word < 29 ? 7 + word : 43 + word - 29;
+                assert(output.tones[position] == direct);
+                seen_words |= 1u << direct;
+            }
+            assert(output.before == 0xa5 && output.after == 0xa5);
+            for (unsigned i = 0; i < JS8_PAYLOAD_BITS; ++i)
+                assert(payload[i] == (uint8_t)(vectors[v].payload[i] - '0'));
+        }
+    }
+    /* All eight words are exercised, so a nonidentity/FT8 Gray map fails. */
+    assert(seen_words == 0xffu);
+
+    uint8_t payload[JS8_PAYLOAD_BITS] = {0};
+    struct { uint8_t before, tones[JS8_TONE_COUNT], after; } output;
+    memset(&output, 0xa5, sizeof(output));
+    assert(js8_channel_encode(NULL, output.tones) == -1);
+    assert(js8_channel_encode(payload, NULL) == -1);
+    assert(js8_channel_encode(NULL, NULL) == -1);
+    for (unsigned i = 0; i < JS8_PAYLOAD_BITS; ++i) {
+        for (unsigned value = 2; value <= 255; ++value) {
+            payload[i] = (uint8_t)value;
+            assert(js8_channel_encode(payload, output.tones) == -1);
+            for (unsigned j = 0; j < JS8_TONE_COUNT; ++j)
+                assert(output.tones[j] == 0xa5);
+            assert(output.before == 0xa5 && output.after == 0xa5);
+        }
+        payload[i] = 0;
+    }
+    assert(js8_channel_encode(payload, output.tones) == 0);
+    assert(memcmp(output.tones, vectors[0].tones, JS8_TONE_COUNT) == 0);
+    assert(output.before == 0xa5 && output.after == 0xa5);
+}
+
 int main(void)
 {
     golden_tests();
     invalid_tests();
     failure_tests();
+    channel_tests();
     puts("js8_phy_test: PASS");
     return 0;
 }

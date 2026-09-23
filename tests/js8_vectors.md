@@ -1,4 +1,4 @@
-# T052 JS8 CRC/LDPC reference vectors
+# T052/T053 JS8 CRC/LDPC/channel reference vectors
 
 Normative source: [JS8Call-improved v3.0.3 JS8_Mode/JS8.cpp](https://github.com/JS8Call-improved/JS8Call-improved/blob/v3.0.3/JS8_Mode/JS8.cpp).
 The source credits `(C) 2025 Allan Bazinet <w6baz@arrl.net>`.
@@ -6,22 +6,45 @@ The source credits `(C) 2025 Allan Bazinet <w6baz@arrl.net>`.
 Downloaded source SHA-256:
 `b72787f6e6473919872103997ef5dc9847810ff3e7783124a3961a2da2a86bf1`.
 
-`js8_reference_oracle.py` checks that digest, extracts the upstream `parity`,
-`CRC12` (Boost augmented CRC) and `bpdecode174` definitions verbatim, and runs
-a standalone C++17 helper. Its encoder packs the payload into 11 zero-initialized
-bytes and uses the upstream parity loop. It neither compiles nor calls MiniShell
-code. Boost and the upstream file are only required to regenerate vectors:
+The channel oracle also pins [JS8_Mode/JS8.h](https://github.com/JS8Call-improved/JS8Call-improved/blob/v3.0.3/JS8_Mode/JS8.h)
+with SHA-256 `8927db1d7e8151ff00333b9fe0524b0c907b56e9c0895221e37b6882d7790dd1`.
+Normal timing was checked against [JS8_Include/commons.h](https://github.com/JS8Call-improved/JS8Call-improved/blob/v3.0.3/JS8_Include/commons.h),
+SHA-256 `d7abc3090fcf5516b64435f78dfbd08dff9b01a56905afbe4d69fa4eb9c16048`:
+1920 samples at 12 kHz, 160 ms symbols, 6.25 Hz spacing, 15 s period.
+That header is not needed to compile the isolated encoder oracle.
+
+`js8_reference_oracle.py` checks both source/header digests and extracts the
+upstream `parity`, `CRC12` (Boost augmented CRC), `bpdecode174`, alphabet,
+`JS8::encode()` and `JS8::Costas` definitions verbatim into a standalone C++17
+helper. It neither compiles nor calls MiniShell code. The existing CRC/codeword
+oracle remains unchanged. For the new tone vectors, a test-only adapter maps
+payload bits 0..71 to twelve alphabet characters and bits 72..74 to the type,
+then calls the actual extracted `JS8::encode()` with `Costas::Type::ORIGINAL`.
+No application text codec is exposed in the production module.
+
+Boost and the two upstream files are only required to regenerate vectors.
+For files downloaded as `/tmp/T053-JS8.cpp` and `/tmp/T053-JS8.h`:
 
 ```sh
-python3 tests/js8_reference_oracle.py /tmp/T052-JS8.cpp > /tmp/T052-vectors.h
-cmp tests/js8_golden_vectors.h /tmp/T052-vectors.h
+python3 tests/js8_reference_oracle.py /tmp/T053-JS8.cpp > /tmp/T053-vectors.h
+cmp tests/js8_golden_vectors.h /tmp/T053-vectors.h
 ```
+
+The optional second argument specifies the header path; otherwise the helper
+replaces the source path's `.cpp` suffix with `.h`. A pinned checkout's
+`JS8_Mode/JS8.cpp` therefore also works directly.
 
 The three 75-bit payloads are all zero, alternating `i % 2`, and the top bit
 of successive uint32 LCG states (`state = state * 1664525 + 1013904223`, seed
 `0x0528abcd`, advance before sampling). The fixed header records all input,
 information and codeword bits plus numeric CRCs 42, 3508 and 1822 respectively.
-CRC bits are information positions 75..86, MSB first.
+CRC bits are information positions 75..86, MSB first. T053 adds an exact
+79-tone array to each record; the T052 payload/CRC/info/codeword values are
+unchanged. Each Normal sync group at 0, 36 and 72 is `4 2 5 6 1 3 0`.
+Data at 7..35 encodes codeword bits 0..86; data at 43..71 encodes bits 87..173.
+Tests require consecutive MSB-first three-bit words to map directly to tone
+indices, and verify that the vectors exercise all eight words. Thus an FT8
+Gray map cannot pass the direct-mapping regression.
 
 The oracle also requires exact upstream BP recovery for each vector with LLR
 magnitude 4 (positive means 1), and again with positions 0, 87 and 173 replaced
