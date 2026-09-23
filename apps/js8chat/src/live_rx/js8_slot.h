@@ -12,8 +12,8 @@ typedef struct {
     uint64_t next_slot;
 } Js8SlotScheduler;
 /* Each call supplies a fresh UTC-derived FIRST sample position. Counting within
- * an active capture is continuous; every new boundary is located in timed input.
- * A missed boundary is skipped, never padded or synthesized. Reset with zero. */
+ * an active capture is continuous; each pre-roll start is located in timed input.
+ * Use the first available sample on overshoot; never pad or synthesize. Reset with zero. */
 int js8_slot_feed(Js8SlotScheduler *, uint32_t slot, uint32_t offset,
                    const float *, size_t, Js8SlotSink, void *);
 #endif
