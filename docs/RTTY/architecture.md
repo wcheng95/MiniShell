@@ -69,9 +69,14 @@ coding          ITA2 / Baudot, 5 data bits, LSB first
 line idle       continuous MARK
 ```
 
-The initial profile is intentionally narrow. Multiple baud rates, shifts,
-reverse sense, AFC, AGC, advanced weak-signal processing, TX, and UI are later
-extensions and must not complicate the first decoder unnecessarily.
+This profile is intentionally narrow **and is the MiniShell RTTY product
+profile**, not merely the first entry in a future matrix. Other baud rates,
+shifts, and reverse-sense protocol profiles are outside scope.
+
+Feature depth inside this classic 45.45-baud / 170-Hz profile may grow when it
+improves portable operation. TX, UI, acquisition robustness, AFC, AGC, logging,
+and contest-oriented workflow are valid future work as long as they do not turn
+RTTY into a comprehensive multi-profile workstation.
 
 ---
 
