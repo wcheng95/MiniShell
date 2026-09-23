@@ -1,6 +1,6 @@
 # T061 — Aligned multi-slot JS8 WAV decoder
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -250,32 +250,32 @@ Do NOT implement automatic WAV alignment detection, overlapping windows, arbitra
 
 ## Acceptance criteria
 
-- [ ] --all-slots added without changing default first-window behavior
-- [ ] slot stride is exactly 180000 input samples
-- [ ] each slot feeds exactly 178560 input samples / 93 engine blocks
-- [ ] final 1440 input samples per full slot are skipped
-- [ ] phase-0 decimation remains equivalent across slot seeks
-- [ ] all complete 15-second slots are decoded
-- [ ] partial trailing slot is ignored/reported
-- [ ] payload dedupe resets per slot
-- [ ] repeated payloads in different slots are retained
-- [ ] multi-slot output has exact slot index / elapsed seconds
-- [ ] candidate diagnostics identify slot in multi-slot mode
-- [ ] one monitor workspace reused across slots
-- [ ] JSC resource reused across slots
-- [ ] Huffman/JSC/application decoding unchanged
-- [ ] real A_2_1 default output unchanged
-- [ ] full RIFF validation unchanged
-- [ ] no js8_engine platform dependency
-- [ ] no FT8 changes
-- [ ] Linux full CTest passes
-- [ ] portable CTest passes
-- [ ] external A_2_1 regression passes
-- [ ] boundary/no-heap checks pass
-- [ ] ASan/UBSan passes
-- [ ] ADV build green
-- [ ] git diff --check passes
-- [ ] no unrelated cleanup
+- [x] --all-slots added without changing default first-window behavior
+- [x] slot stride is exactly 180000 input samples
+- [x] each slot feeds exactly 178560 input samples / 93 engine blocks
+- [x] final 1440 input samples per full slot are skipped
+- [x] phase-0 decimation remains equivalent across slot seeks
+- [x] all complete 15-second slots are decoded
+- [x] partial trailing slot is ignored/reported
+- [x] payload dedupe resets per slot
+- [x] repeated payloads in different slots are retained
+- [x] multi-slot output has exact slot index / elapsed seconds
+- [x] candidate diagnostics identify slot in multi-slot mode
+- [x] one monitor workspace reused across slots
+- [x] JSC resource reused across slots
+- [x] Huffman/JSC/application decoding unchanged
+- [x] real A_2_1 default output unchanged
+- [x] full RIFF validation unchanged
+- [x] no js8_engine platform dependency
+- [x] no FT8 changes
+- [x] Linux full CTest passes
+- [x] portable CTest passes
+- [x] external A_2_1 regression passes
+- [x] boundary/no-heap checks pass
+- [x] ASan/UBSan passes
+- [x] ADV build green
+- [x] git diff --check passes
+- [x] no unrelated cleanup
 
 No hardware/RF validation required.
 
@@ -305,19 +305,119 @@ Codex:
 
 ### Implementation summary
 
+Added explicit host-only `--all-slots` decoding. The validated RIFF reader retains
+its PCM offset/count and seeks to each exact aligned slot. One monitor workspace
+and lazily opened JSC dictionary serve the entire invocation; monitor state and
+payload dedupe reset per slot. Multi-slot output adds stable slot/elapsed tags,
+per-slot diagnostics, and a final complete-slot/trailing-sample summary.
+No deviations from task scope.
+
 ### Files changed
+
+- `apps/js8chat/tools/js8_decode.c`: exact slot geometry, seeks, lifecycle, CLI and output.
+- `tests/js8_multislot_host_test.c`: actual read/seek phase checks and instrumented host runner.
+- `tests/js8_multislot_wav_test.py`: synthetic aligned audio and error regressions.
+- `tests/js8_wav_reference.py`: exact T060 stdout/stderr and tagged real-WAV regression.
+- `CMakeLists.txt`: register the two host tests.
+- `docs/js8/application-protocol.md`: aligned host-mode contract.
+- This task packet: implementation and gate evidence.
 
 ### Invariants preserved
 
+Default valid one-window output remains byte-for-byte T060 compatible. Complete
+RIFF validation still precedes DSP. No changes to `js8_engine`, FT8 production,
+PHY algorithms, monitor capacity, resource format, or application decoding.
+No platform access or allocation added to the engine. No overlap, alignment
+search, wall clock, association, or reassembly.
+
 ### Multi-slot/sample arithmetic evidence
+
+Compile-time assertions pin 178560 consumed input samples and 1440 skipped input
+samples per 180000-sample slot. The host unit exercises actual seeks and all
+93 reads per slot over eight slots, comparing every kept sample against a
+continuous phase-0 sequence. Four/eight slot counts and exact byte positions pass.
+
+Synthetic integration covers different/repeated payloads, signal only in slot 1,
+four mixed heartbeat/directed/Huffman/JSC slots, ignored partial data, hostile odd
+samples, changed skipped tails, and malformed trailing RIFF. Two compressed slots
+produce two results with measured instrumentation:
+
+    probe workspace_allocations=1 dictionary_opens=1 stream_resets=2
+
+The external WAV blob remains `d986a4e5a9cc654dffbfadae73ec35cc9cea1d83`.
+`cmp` against saved T060 stdout and stderr passes for the default invocation.
+The exact output is also pinned by the reference test. Multi-slot real-WAV stdout:
+
+```text
+slot=0 slot_s=0 payload=111001011101001010000111001011100000101011000001100010000111111111111111010 type=2 frame="vTA7BWh1Y7++" tx_raw=2 class=data_compressed tx=LAST score=26 time=5/0 freq=57/0 hz=556.250 hard_errors=15 codec=jsc data="MSG ID 416"
+```
+
+Its per-slot and final summaries:
+
+```text
+slot=0 blocks=93 ignored_engine_samples=720 candidates=50 ldpc_fail=49 crc_fail=0 valid=1 unique=1
+slots=1 trailing_input_samples=0
+```
 
 ### Test evidence
 
+All required gates passed locally:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --repeat until-pass:3 --output-on-failure
+
+cmake -S tests/unit -B /tmp/T061-build-unit
+cmake --build /tmp/T061-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T061-build-unit --output-on-failure
+
+cmake -S . -B /tmp/T061-build-ref -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T061-build-ref -j"$(nproc)"
+ctest --test-dir /tmp/T061-build-ref -R "js8.*reference|js8.*A2.*1" --output-on-failure
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+
+cmake -S . -B /tmp/T061-build-sanitize -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T061-build-sanitize -j"$(nproc)" --target js8_rx_unit js8_phy_unit js8_frame_unit js8_protocol_frame_unit js8_compound_unit js8_directed_unit js8_huffman_unit js8_jsc_unit js8_decode js8_multislot_host_unit
+ctest --test-dir /tmp/T061-build-sanitize -R '^js8_(phy_unit|rx_unit|frame_unit|protocol_frame_unit|compound_unit|directed_unit|huffman_unit|jsc_unit|wav_unit|directed_wav_unit|huffman_wav_unit|jsc_wav_unit|multislot_host_unit|multislot_wav_unit|A2_1_reference)$' --output-on-failure
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+- Linux: initial run 104/105; existing intermittent `linux_serial_unit` PTY
+  assertion at line 67 (`n == 0`) failed. Full retry passed 105/105, each test on
+  its first attempt. No serial code or test changes.
+- Portable: 23/23 passed.
+- External A_2_1 reference: 1/1 passed, checking both default and all-slots output.
+- Boundary checks and existing no-heap checks: passed.
+- ASan/UBSan: 15/15 passed, including JSC resource corruption, new multi-slot
+  tests, and external WAV. Run outside the sandbox for LeakSanitizer support.
+- ADV build passed; application image `0x151790` bytes, 78% partition free.
+- Whitespace check passed.
+
 ### Manual validation still required
+
+None required for this host-only task. Optional architect experiment with an
+aligned one/two-minute WebSDR recording remains available after review. No RF or
+hardware acceptance gate, PR, or GitHub Actions wait.
 
 ### Known limitations / risks
 
+Sample zero must already be aligned. Only complete 15-second slots decode in
+explicit multi-slot mode; trailing partial input is reported and ignored. The
+existing phase-0 decimator and Normal decoder sensitivity are unchanged. Frames
+remain independent; no cross-slot association or reassembly. The external WAV
+is not committed.
+
 ### Commit
+
+One reviewable implementation commit on `codex/T061-js8-multislot-wav`; the exact
+SHA is returned in the Codex handoff (this packet is part of that commit).
 
 ## Supervisor review
 

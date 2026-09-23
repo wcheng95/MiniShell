@@ -238,6 +238,33 @@ is unchanged. Resource identity and structural validation are documented in
 This is an unassociated text fragment, not a reconstructed conversation message.
 TX JSC compression, prefix/list lookup, codec selection and reassembly remain pending.
 
+## Aligned multi-slot WAV host mode (T061)
+
+The existing `js8_decode capture.wav` invocation keeps the T060 first-window
+behavior and output. Explicit `js8_decode --all-slots capture.wav` decodes every
+complete aligned 15-second slot. The caller must align PCM sample zero to a JS8
+Normal boundary; the tool does not infer alignment or use wall-clock/UTC time.
+
+At 12 kHz each slot starts at `slot_index * 180000` input samples. Its first
+178560 samples feed phase-0 2:1 decimation into exactly 93 x 960 engine samples;
+the final 1440 input samples are skipped. The even 180000-sample stride preserves
+the same kept samples as continuous phase-0 decimation. A partial final slot is
+ignored, with its exact input-sample count reported. At least one full slot is
+required in this mode, while default mode still accepts shorter windows.
+
+Each multi-slot result starts with `slot=N slot_s=N*15`; candidate diagnostics
+and per-slot summaries also identify the slot. `slot_s` is elapsed time from
+aligned PCM sample zero, not UTC. Per-slot `ignored_engine_samples=720` describes
+the skipped full-slot tail; final `slots=` / `trailing_input_samples=` describes
+the capture. Default output remains untagged.
+
+The host allocates one monitor workspace, resets its stream per slot, and reuses
+one lazily opened JSC resource. Exact-payload dedupe resets each slot, so repeated
+heartbeats/text in different slots remain visible. Entire-RIFF validation still
+precedes DSP, including malformed trailing data. No overlap, sliding-window
+search, automatic alignment, message association or reassembly is implemented.
+This host file-seeking contract does not prescribe an embedded/live audio design.
+
 ## Required application frame classes
 
 v0.1 requires the frame/application forms needed for:

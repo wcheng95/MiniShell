@@ -6,6 +6,7 @@
 #include "js8_huffman.h"
 #include "js8_jsc.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,7 +14,35 @@
 typedef struct {
     FILE *file;
     uint32_t samples;
+    uint32_t total_samples;
+    uint64_t data_offset;
 } HostWav;
+
+#define HOST_SLOT_INPUT_SAMPLES 180000u
+#define HOST_WINDOW_INPUT_SAMPLES (2u * JS8_MONITOR_LINEAR_BLOCKS * JS8_MONITOR_BLOCK_SIZE)
+_Static_assert(HOST_WINDOW_INPUT_SAMPLES == 178560u, "Normal window geometry");
+_Static_assert(HOST_SLOT_INPUT_SAMPLES - HOST_WINDOW_INPUT_SAMPLES == 1440u,
+               "Aligned Normal slot tail");
+
+static uint32_t full_slots(uint32_t input_samples)
+{
+    return input_samples / HOST_SLOT_INPUT_SAMPLES;
+}
+
+static uint64_t slot_input_start(uint32_t slot)
+{
+    return (uint64_t)slot * HOST_SLOT_INPUT_SAMPLES;
+}
+
+static int seek_slot(HostWav *wav, uint32_t slot)
+{
+    uint64_t sample = slot_input_start(slot);
+    if (sample + HOST_SLOT_INPUT_SAMPLES > wav->total_samples) return -1;
+    uint64_t offset = wav->data_offset + sample * 2;
+    if (offset > LONG_MAX || fseek(wav->file, (long)offset, SEEK_SET)) return -1;
+    wav->samples = wav->total_samples - (uint32_t)sample;
+    return 0;
+}
 
 static uint16_t le16(const uint8_t *p)
 {
@@ -77,7 +106,8 @@ static int wav_open(const char *path, HostWav *wav)
     if (!have_fmt || !have_data || fseek(f, (long)data_offset, SEEK_SET))
         goto invalid;
     wav->file = f;
-    wav->samples = data_bytes / 2u;
+    wav->samples = wav->total_samples = data_bytes / 2u;
+    wav->data_offset = data_offset;
     return 0;
 invalid:
     fclose(f);
@@ -120,13 +150,15 @@ static int jsc_open(FILE **file, Js8JscDictionary *dict)
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <12khz-mono-s16.wav>\n", argv[0]);
+    int all_slots = argc == 3 && !strcmp(argv[1], "--all-slots");
+    if ((!all_slots && argc != 2) || (argc == 2 && !strcmp(argv[1], "--all-slots"))) {
+        fprintf(stderr, "usage: %s [--all-slots] <12khz-mono-s16.wav>\n", argv[0]);
         return 2;
     }
     HostWav wav = {0};
-    if (wav_open(argv[1], &wav)) {
-        fprintf(stderr, "invalid/unreadable 12 kHz mono S16 PCM WAV: %s\n", argv[1]);
+    const char *path = argv[all_slots ? 2 : 1];
+    if (wav_open(path, &wav)) {
+        fprintf(stderr, "invalid/unreadable 12 kHz mono S16 PCM WAV: %s\n", path);
         return 1;
     }
     int rc = 1;
@@ -137,14 +169,19 @@ int main(int argc, char **argv)
     Js8MonitorConfig cfg = js8_monitor_baseline_config();
     Js8MonitorRequirements req;
     void *memory = NULL;
+    uint32_t slots = all_slots ? full_slots(wav.total_samples) : 1;
+    if (!slots) {
+        fprintf(stderr, "--all-slots requires at least one complete 15-second slot\n");
+        goto cleanup;
+    }
     uint32_t engine_samples = (wav.samples + 1u) / 2u;
     uint32_t blocks = engine_samples / JS8_MONITOR_BLOCK_SIZE;
     if (!blocks) {
         fprintf(stderr, "WAV must contain at least one complete Normal engine block\n");
         goto cleanup;
     }
-    /* Container validation has already covered the entire file. Only the
-     * first window feeds DSP; later complete blocks and partial tail are ignored.
+    /* Container validation has already covered the entire file. Each monitor
+     * window is bounded; default mode ignores everything beyond its first one.
      */
     if (blocks > JS8_MONITOR_LINEAR_BLOCKS) blocks = JS8_MONITOR_LINEAR_BLOCKS;
     if (js8_monitor_query_requirements(&cfg, &req) != JS8_MONITOR_OK ||
@@ -153,129 +190,146 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot initialize JS8 monitor workspace\n");
         goto cleanup;
     }
-    for (uint32_t b = 0; b < blocks; ++b) {
-        float samples[JS8_MONITOR_BLOCK_SIZE];
-        if (read_block(&wav, samples) ||
-            js8_monitor_process_block(&monitor, samples) != JS8_MONITOR_OK) {
-            fprintf(stderr, "cannot process WAV block %u\n", b);
-            goto cleanup;
+    for (uint32_t slot = 0; slot < slots; ++slot) {
+        if (all_slots) {
+            if (seek_slot(&wav, slot)) {
+                fprintf(stderr, "cannot seek WAV slot %u\n", slot);
+                goto cleanup;
+            }
+            js8_monitor_reset_stream(&monitor);
         }
-    }
-    Js8WaterfallView wf;
-    Js8Candidate candidates[JS8_DECODER_CANDIDATE_CAPACITY];
-    uint8_t unique[JS8_DECODER_CANDIDATE_CAPACITY][JS8_PAYLOAD_BITS];
-    size_t count = 0, unique_count = 0, valid = 0, ldpc_fail = 0, crc_fail = 0;
-    if (js8_monitor_get_waterfall(&monitor, &wf) != JS8_MONITOR_OK ||
-        js8_decoder_find_candidates(&wf, candidates, JS8_DECODER_CANDIDATE_CAPACITY,
-                                    JS8_DECODER_MIN_SCORE, &count) != JS8_DECODER_OK)
-        goto cleanup;
-    for (size_t i = 0; i < count; ++i) {
-        Js8DecodedPayload payload;
-        Js8DecoderStatus status = js8_decoder_decode_candidate(&wf, &candidates[i], &payload);
-        if (i < 5)
-            fprintf(stderr, "candidate=%zu score=%d time=%d/%u freq=%d/%u status=%d\n",
-                    i, candidates[i].score, candidates[i].time_offset, candidates[i].time_sub,
-                    candidates[i].freq_offset, candidates[i].freq_sub, status);
-        if (status == JS8_DECODER_ERR_LDPC) { ++ldpc_fail; continue; }
-        if (status == JS8_DECODER_ERR_CRC) { ++crc_fail; continue; }
-        if (status != JS8_DECODER_OK)
-            goto cleanup;
-        ++valid;
-        size_t j;
-        for (j = 0; j < unique_count; ++j)
-            if (!memcmp(unique[j], payload.payload_bits, JS8_PAYLOAD_BITS)) break;
-        if (j < unique_count) continue;
-        memcpy(unique[unique_count++], payload.payload_bits, JS8_PAYLOAD_BITS);
-        Js8PhysicalFrame frame;
-        Js8ProtocolEnvelope envelope;
-        if (js8_frame_unpack(payload.payload_bits, &frame) ||
-            js8_protocol_envelope_decode(payload.payload_bits, &envelope))
-            goto cleanup;
-        fputs("payload=", stdout);
-        for (unsigned b = 0; b < JS8_PAYLOAD_BITS; ++b)
-            putchar('0' + payload.payload_bits[b]);
-        double hz = req.min_bin * 6.25 + candidates[i].freq_offset * 6.25 +
-                    candidates[i].freq_sub * (6.25 / cfg.freq_osr);
-        /* type is retained as the legacy spelling of raw transmission flags. */
-        printf(" type=%u frame=\"%s\" tx_raw=%u class=%s tx=%s score=%d time=%d/%u freq=%d/%u hz=%.3f hard_errors=%d",
-               frame.type, frame.text12, envelope.tx_flags,
-               js8_app_frame_class_name(envelope.app_class), js8_tx_flags_name(envelope.tx_flags),
-               candidates[i].score,
-               candidates[i].time_offset, candidates[i].time_sub,
-               candidates[i].freq_offset, candidates[i].freq_sub, hz, payload.ldpc_errors);
-        if (envelope.app_class == JS8_APP_FRAME_HEARTBEAT) {
-            Js8BeaconFrame beacon;
-            if (js8_beacon_decode(payload.payload_bits, &beacon)) goto cleanup;
-            printf(" call=%s beacon=\"%s\" grid=%s", beacon.callsign,
-                   js8_beacon_name(beacon.is_cq, beacon.subtype), beacon.grid);
-        } else if (envelope.app_class == JS8_APP_FRAME_COMPOUND) {
-            Js8CompoundIdentity identity;
-            if (js8_compound_identity_decode(payload.payload_bits, &identity)) goto cleanup;
-            printf(" call=%s grid=%s", identity.callsign, identity.grid);
-        } else if (envelope.app_class == JS8_APP_FRAME_COMPOUND_DIRECTED) {
-            Js8CompoundFields fields;
-            if (js8_compound_fields_decode(payload.payload_bits, &fields)) goto cleanup;
-            printf(" call=%s extra=%u bits3=%u", fields.callsign, fields.extra16, fields.bits3);
-        }
-        if (envelope.app_class == JS8_APP_FRAME_DIRECTED) {
-            Js8DirectedFrame directed;
-            if (js8_directed_decode(payload.payload_bits, &directed)) goto cleanup;
-            printf(" from=%s to=%s cmd=\"%s\"", directed.from, directed.to,
-                   js8_directed_command_name(directed.command_code));
-            if (directed.has_number) printf(" num=%d", directed.number);
-            if (directed.is_free_text) fputs(" free_text=1", stdout);
-            if (directed.is_ack) fputs(" ack=1", stdout);
-            if (directed.is_73) fputs(" end73=1", stdout);
-        }
-        if (envelope.app_class == JS8_APP_FRAME_DATA) {
-            Js8HuffmanData data;
-            Js8HuffmanStatus huff_status = js8_huffman_data_decode(payload.payload_bits, &data);
-            fputs(" codec=huffman", stdout);
-            if (huff_status == JS8_HUFF_BAD_PADDING) {
-                fputs(" data_error=bad_padding", stdout);
-            } else if (huff_status == JS8_HUFF_OK) {
-                fputs(" data=\"", stdout);
-                for (unsigned n = 0; n < data.text_len; ++n) {
-                    if (data.text[n] == '"') putchar('\\');
-                    putchar(data.text[n]);
-                }
-                putchar('"');
-            } else {
+        for (uint32_t b = 0; b < blocks; ++b) {
+            float samples[JS8_MONITOR_BLOCK_SIZE];
+            if (read_block(&wav, samples) ||
+                js8_monitor_process_block(&monitor, samples) != JS8_MONITOR_OK) {
+                fprintf(stderr, "cannot process WAV block %u\n", b);
                 goto cleanup;
             }
         }
-        if (envelope.app_class == JS8_APP_FRAME_DATA_COMPRESSED) {
-            if (!jsc_attempted) {
-                jsc_attempted = 1;
-                jsc_ready = jsc_open(&jsc_file, &jsc_dict) == 0;
+        Js8WaterfallView wf;
+        Js8Candidate candidates[JS8_DECODER_CANDIDATE_CAPACITY];
+        uint8_t unique[JS8_DECODER_CANDIDATE_CAPACITY][JS8_PAYLOAD_BITS];
+        size_t count = 0, unique_count = 0, valid = 0, ldpc_fail = 0, crc_fail = 0;
+        if (js8_monitor_get_waterfall(&monitor, &wf) != JS8_MONITOR_OK ||
+            js8_decoder_find_candidates(&wf, candidates, JS8_DECODER_CANDIDATE_CAPACITY,
+                                        JS8_DECODER_MIN_SCORE, &count) != JS8_DECODER_OK)
+            goto cleanup;
+        for (size_t i = 0; i < count; ++i) {
+            Js8DecodedPayload payload;
+            Js8DecoderStatus status = js8_decoder_decode_candidate(&wf, &candidates[i], &payload);
+            if (i < 5) {
+                if (all_slots) fprintf(stderr, "slot=%u ", slot);
+                fprintf(stderr, "candidate=%zu score=%d time=%d/%u freq=%d/%u status=%d\n",
+                        i, candidates[i].score, candidates[i].time_offset, candidates[i].time_sub,
+                        candidates[i].freq_offset, candidates[i].freq_sub, status);
             }
-            Js8JscData data;
-            Js8JscStatus jsc_status = jsc_ready ?
-                js8_jsc_data_decode(payload.payload_bits, &jsc_dict, &data) : JS8_JSC_BAD_RESOURCE;
-            fputs(" codec=jsc", stdout);
-            if (jsc_status != JS8_JSC_OK) {
-                fputs(jsc_status == JS8_JSC_BAD_PADDING ? " data_error=bad_padding" :
-                      " data_error=resource", stdout);
-                jsc_error = 1;
-            } else {
-                fputs(" data=\"", stdout);
-                for (unsigned n = 0; n < data.text_len; ++n) {
-                    unsigned byte = (unsigned char)data.text[n];
-                    if (byte == '"' || byte == '\\') putchar('\\');
-                    if (byte == '\n') fputs("\\n", stdout);
-                    else if (byte == '\r') fputs("\\r", stdout);
-                    else if (byte == '\t') fputs("\\t", stdout);
-                    else if (byte < 32 || byte == 127) printf("\\u%04x", byte);
-                    else putchar((int)byte);
+            if (status == JS8_DECODER_ERR_LDPC) { ++ldpc_fail; continue; }
+            if (status == JS8_DECODER_ERR_CRC) { ++crc_fail; continue; }
+            if (status != JS8_DECODER_OK)
+                goto cleanup;
+            ++valid;
+            size_t j;
+            for (j = 0; j < unique_count; ++j)
+                if (!memcmp(unique[j], payload.payload_bits, JS8_PAYLOAD_BITS)) break;
+            if (j < unique_count) continue;
+            memcpy(unique[unique_count++], payload.payload_bits, JS8_PAYLOAD_BITS);
+            Js8PhysicalFrame frame;
+            Js8ProtocolEnvelope envelope;
+            if (js8_frame_unpack(payload.payload_bits, &frame) ||
+                js8_protocol_envelope_decode(payload.payload_bits, &envelope))
+                goto cleanup;
+            if (all_slots) printf("slot=%u slot_s=%u ", slot, slot * 15u);
+            fputs("payload=", stdout);
+            for (unsigned b = 0; b < JS8_PAYLOAD_BITS; ++b)
+                putchar('0' + payload.payload_bits[b]);
+            double hz = req.min_bin * 6.25 + candidates[i].freq_offset * 6.25 +
+                        candidates[i].freq_sub * (6.25 / cfg.freq_osr);
+            /* type is retained as the legacy spelling of raw transmission flags. */
+            printf(" type=%u frame=\"%s\" tx_raw=%u class=%s tx=%s score=%d time=%d/%u freq=%d/%u hz=%.3f hard_errors=%d",
+                   frame.type, frame.text12, envelope.tx_flags,
+                   js8_app_frame_class_name(envelope.app_class), js8_tx_flags_name(envelope.tx_flags),
+                   candidates[i].score,
+                   candidates[i].time_offset, candidates[i].time_sub,
+                   candidates[i].freq_offset, candidates[i].freq_sub, hz, payload.ldpc_errors);
+            if (envelope.app_class == JS8_APP_FRAME_HEARTBEAT) {
+                Js8BeaconFrame beacon;
+                if (js8_beacon_decode(payload.payload_bits, &beacon)) goto cleanup;
+                printf(" call=%s beacon=\"%s\" grid=%s", beacon.callsign,
+                       js8_beacon_name(beacon.is_cq, beacon.subtype), beacon.grid);
+            } else if (envelope.app_class == JS8_APP_FRAME_COMPOUND) {
+                Js8CompoundIdentity identity;
+                if (js8_compound_identity_decode(payload.payload_bits, &identity)) goto cleanup;
+                printf(" call=%s grid=%s", identity.callsign, identity.grid);
+            } else if (envelope.app_class == JS8_APP_FRAME_COMPOUND_DIRECTED) {
+                Js8CompoundFields fields;
+                if (js8_compound_fields_decode(payload.payload_bits, &fields)) goto cleanup;
+                printf(" call=%s extra=%u bits3=%u", fields.callsign, fields.extra16, fields.bits3);
+            }
+            if (envelope.app_class == JS8_APP_FRAME_DIRECTED) {
+                Js8DirectedFrame directed;
+                if (js8_directed_decode(payload.payload_bits, &directed)) goto cleanup;
+                printf(" from=%s to=%s cmd=\"%s\"", directed.from, directed.to,
+                       js8_directed_command_name(directed.command_code));
+                if (directed.has_number) printf(" num=%d", directed.number);
+                if (directed.is_free_text) fputs(" free_text=1", stdout);
+                if (directed.is_ack) fputs(" ack=1", stdout);
+                if (directed.is_73) fputs(" end73=1", stdout);
+            }
+            if (envelope.app_class == JS8_APP_FRAME_DATA) {
+                Js8HuffmanData data;
+                Js8HuffmanStatus huff_status = js8_huffman_data_decode(payload.payload_bits, &data);
+                fputs(" codec=huffman", stdout);
+                if (huff_status == JS8_HUFF_BAD_PADDING) {
+                    fputs(" data_error=bad_padding", stdout);
+                } else if (huff_status == JS8_HUFF_OK) {
+                    fputs(" data=\"", stdout);
+                    for (unsigned n = 0; n < data.text_len; ++n) {
+                        if (data.text[n] == '"') putchar('\\');
+                        putchar(data.text[n]);
+                    }
+                    putchar('"');
+                } else {
+                    goto cleanup;
                 }
-                putchar('"');
             }
+            if (envelope.app_class == JS8_APP_FRAME_DATA_COMPRESSED) {
+                if (!jsc_attempted) {
+                    jsc_attempted = 1;
+                    jsc_ready = jsc_open(&jsc_file, &jsc_dict) == 0;
+                }
+                Js8JscData data;
+                Js8JscStatus jsc_status = jsc_ready ?
+                    js8_jsc_data_decode(payload.payload_bits, &jsc_dict, &data) : JS8_JSC_BAD_RESOURCE;
+                fputs(" codec=jsc", stdout);
+                if (jsc_status != JS8_JSC_OK) {
+                    fputs(jsc_status == JS8_JSC_BAD_PADDING ? " data_error=bad_padding" :
+                          " data_error=resource", stdout);
+                    jsc_error = 1;
+                } else {
+                    fputs(" data=\"", stdout);
+                    for (unsigned n = 0; n < data.text_len; ++n) {
+                        unsigned byte = (unsigned char)data.text[n];
+                        if (byte == '"' || byte == '\\') putchar('\\');
+                        if (byte == '\n') fputs("\\n", stdout);
+                        else if (byte == '\r') fputs("\\r", stdout);
+                        else if (byte == '\t') fputs("\\t", stdout);
+                        else if (byte < 32 || byte == 127) printf("\\u%04x", byte);
+                        else putchar((int)byte);
+                    }
+                    putchar('"');
+                }
+            }
+            putchar('\n');
         }
-        putchar('\n');
+        if (all_slots) fprintf(stderr, "slot=%u ", slot);
+        fprintf(stderr, "blocks=%u ignored_engine_samples=%u candidates=%zu "
+                "ldpc_fail=%zu crc_fail=%zu valid=%zu unique=%zu\n", blocks,
+                (all_slots ? HOST_SLOT_INPUT_SAMPLES / 2 : engine_samples) -
+                blocks * JS8_MONITOR_BLOCK_SIZE, count, ldpc_fail, crc_fail, valid, unique_count);
     }
-    fprintf(stderr, "blocks=%u ignored_engine_samples=%u candidates=%zu "
-            "ldpc_fail=%zu crc_fail=%zu valid=%zu unique=%zu\n", blocks,
-            engine_samples - blocks * JS8_MONITOR_BLOCK_SIZE, count, ldpc_fail, crc_fail, valid, unique_count);
+    if (all_slots)
+        fprintf(stderr, "slots=%u trailing_input_samples=%u\n", slots,
+                wav.total_samples % HOST_SLOT_INPUT_SAMPLES);
     rc = ferror(stdout) || jsc_error ? 1 : 0;
 cleanup:
     js8_monitor_destroy(&monitor);
