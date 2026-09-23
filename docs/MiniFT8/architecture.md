@@ -24,17 +24,24 @@ Linux remains the deterministic reference/regression implementation, and Cardput
 
 ### 1.1 Protocol applications
 
-Protocol selection is a MiniShell application-lifecycle decision, not mutable state inside `ft8`:
+Protocol selection is a MiniShell application-lifecycle decision, not mutable
+state inside `ft8`.
+
+The portable QRP radio set is intentionally closed at five applications/modes:
 
 ```text
-ft8      current
-ft4      future
-cw       future
-rtty     future
-js8      future
+ft8       FT8
+minicw    CW
+js8chat   JS8 Normal
+rtty      classic amateur RTTY
+sstv      Robot 36
 ```
 
-The current `ft8` application therefore owns FT8 behavior only. Future protocol applications may share implementation modules where real commonality appears, but no umbrella protocol-mode owner is introduced speculatively.
+The `ft8` application therefore owns FT8 behavior only. **FT4 is intentionally
+out of scope**, not a future MiniFT8 mode or future MiniShell application.
+The five radio applications may share implementation modules where real
+commonality appears, but no umbrella protocol-mode owner is introduced
+speculatively.
 
 ### 1.2 MiniFT8 application profiles
 
@@ -415,10 +422,13 @@ Switching protocols means returning to MiniShell and launching another applicati
 M$> ft8
 ...
 q
-M$> ft4       # future
+M$> js8chat
 ```
 
-Future applications may reuse proven modules where the interfaces genuinely match, but FT8-specific DSP remains owned by `ft8_engine` inside the FT8 application unless/until a justified shared lower-level library is extracted.
+FT4 is not part of the MiniShell portable-radio scope. Other members of the
+closed five-mode set may reuse proven modules where the interfaces genuinely
+match, but FT8-specific DSP remains owned by `ft8_engine` inside the FT8
+application unless/until a justified shared lower-level library is extracted.
 
 ## 11. Current implementation boundary
 
