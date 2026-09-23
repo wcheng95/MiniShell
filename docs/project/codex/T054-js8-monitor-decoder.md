@@ -1,6 +1,6 @@
 # T054 — JS8 Normal monitor and payload decoder
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -427,27 +427,27 @@ Do not implement:
 
 ## Acceptance criteria
 
-- [ ] JS8-owned 6 kHz/960-sample monitor implemented with caller-owned workspace.
-- [ ] monitor uses MiniFT8 compact-waterfall architecture, not upstream desktop raw PCM architecture.
-- [ ] Normal Costas candidate search uses exactly `4 2 5 6 1 3 0`.
-- [ ] sync groups are evaluated at symbols 0, 36, and 72.
-- [ ] likelihood extraction uses direct binary tone mapping; no FT8 Gray map.
-- [ ] 174 LLRs preserve parity-first/info-second codeword order.
-- [ ] T052 LDPC decoder is reused.
-- [ ] T052 CRC-12 checker is reused.
-- [ ] successful decoder output is exact 75-bit payload.
-- [ ] deterministic synthetic 6 kHz waveform from a pinned T053 tone vector decodes back to the exact payload.
-- [ ] bounded candidate capacity; no heap.
-- [ ] no mutable DSP singleton.
-- [ ] no FT8 production code changes.
-- [ ] no MiniShell/platform/application dependency.
-- [ ] Linux full CTest passes.
-- [ ] portable CTest passes.
-- [ ] JS8 boundary checks pass.
-- [ ] ASan/UBSan pure JS8 regression passes.
-- [ ] real ADV build remains green.
-- [ ] `git diff --check` passes.
-- [ ] no unrelated cleanup.
+- [x] JS8-owned 6 kHz/960-sample monitor implemented with caller-owned workspace.
+- [x] monitor uses MiniFT8 compact-waterfall architecture, not upstream desktop raw PCM architecture.
+- [x] Normal Costas candidate search uses exactly `4 2 5 6 1 3 0`.
+- [x] sync groups are evaluated at symbols 0, 36, and 72.
+- [x] likelihood extraction uses direct binary tone mapping; no FT8 Gray map.
+- [x] 174 LLRs preserve parity-first/info-second codeword order.
+- [x] T052 LDPC decoder is reused.
+- [x] T052 CRC-12 checker is reused.
+- [x] successful decoder output is exact 75-bit payload.
+- [x] deterministic synthetic 6 kHz waveform from a pinned T053 tone vector decodes back to the exact payload.
+- [x] bounded candidate capacity; no heap.
+- [x] no mutable DSP singleton.
+- [x] no FT8 production code changes.
+- [x] no MiniShell/platform/application dependency.
+- [x] Linux full CTest passes.
+- [x] portable CTest passes.
+- [x] JS8 boundary checks pass.
+- [x] ASan/UBSan pure JS8 regression passes.
+- [x] real ADV build remains green.
+- [x] `git diff --check` passes.
+- [x] no unrelated cleanup.
 
 No manual/hardware validation is required.
 
@@ -507,19 +507,168 @@ Codex:
 
 ### Implementation summary
 
+Implemented the JS8-owned 6 kHz/960-sample monitor, synchronous Normal Costas
+candidate search, direct-binary max-log likelihood extraction, and T052
+LDPC/CRC payload validation. Monitor window/FFT arithmetic, dimensions and
+candidate heap policy are adapted from the current MiniFT8 source at `e3f6d80`.
+
+The synthetic test streams 93 blocks of bounded, continuous-phase PCM from
+the third pinned T053 upstream tone vector, at base 1000 Hz, spacing 6.25 Hz,
+start sample 3000 (500 ms), amplitude 0.5. Search and decoding recover its exact
+75 payload bits with zero hard errors. No production channel encode call or
+external audio fixture is used to generate the waveform.
+
 ### Files changed
+
+- `apps/js8chat/src/js8_engine/js8_monitor.[ch]`: queryable aligned workspace,
+  compact linear waterfall, block processing, reset and destroy lifecycle.
+- `apps/js8chat/src/js8_engine/js8_decoder.[ch]`: JS8 types/statuses, bounded
+  synchronous search, raw likelihood diagnostic edge and validated payload API.
+- `apps/js8chat/src/js8_engine/vendor/kissfft/`: five private source/header
+  files copied from MiniFT8, with source hashes and no-heap changes in README.
+- `apps/js8chat/src/js8_engine/README.md`: implemented RX ownership and semantics.
+- `tests/js8_rx_test.c`: monitor, mapping/search/error tests and synthetic RX.
+- `tests/js8_no_heap_test.py`: compiled-library heap dependency check.
+- `tests/js8_tests.cmake`: pure RX library and regression targets shared by
+  Linux and portable suites.
+- `tests/architecture_rules.py`: only adds private vendor include-root lookup
+  under existing js8_engine ownership; no permission or no-heap relaxation.
+- This task packet: REVIEW handoff, test evidence and resource measurements.
 
 ### Invariants preserved
 
+Pure C, fixed/caller-owned storage, no heap or mutable DSP singleton. Normal
+geometry only. No FT8 source modifications, dependencies, generic DSP refactor,
+MiniShell/platform APIs, raw-slot PCM capture, application/UTC ownership, WAV
+use, or JS8Call desktop receive enhancements. T052/T053 product code and golden
+vectors remain unchanged.
+
+The monitor follows current source reset semantics: reset-window clears count,
+diagnostics and FFT history while retaining waterfall bytes; reset-stream also
+clears waterfall bytes. Old views are invalid after reset/processing. The JS8
+view uses an allocation-head pointer plus a logical first-block label rather
+than FT8's biased UTC-origin pointer. Negative logical rows are safely indexed
+and tested; no UTC-specific data-erasure/overwrite rule is carried over.
+
+Synchronous direct scoring retains the same 75 maximum neighborhood comparisons
+and bounded 50-candidate policy without introducing score-cache/scheduling state.
+Data rows 7..35 and 43..71 produce 174 LLRs with positive meaning bit 1, then
+MiniFT8 variance normalization and T052 BP/CRC. Invalid inputs, LDPC failure and
+CRC failure are distinct; failed attempts do not expose unvalidated payload.
+Flat/singular likelihood variance returns LDPC failure without dividing by zero.
+
+The private FFT accepts size queries/caller workspace only, float forward real
+transforms, out-of-place operation and factors 2/3/5. Generic-radix/in-place
+heap scratch, unused inverse-real code and OpenMP paths were removed. Private
+exported functions are prefixed to avoid future collisions with the FT8 copy.
+OSRs fit uint8 lanes, time_osr divides 960, frequency OSR must be FFT-supported;
+frequency bounds and samples are validated before processing. The normalized
+PCM contract is finite samples in [-1, 1]. These are local primitive validation
+choices, not mode or architecture changes. No scope deviations.
+
 ### Local tests run
+
+```sh
+git status --short
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 93/93, including existing FT8 and architecture/platform regressions.
+
+cmake -S tests/unit -B /tmp/T054-build-unit
+cmake --build /tmp/T054-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T054-build-unit --output-on-failure
+# PASS: 17/17.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+# Both PASS.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: minishell_adv.bin 0x151790 bytes, app partition 78% free.
+
+./build-linux/js8_rx_unit
+# PASS: exact pinned payload, CRC gate passed, hard_errors=0.
+# Diagnostic only: 50 candidates, matching rank 0, score 34,
+# time_offset=4/time_sub=0, freq_offset=128/freq_sub=0.
+
+cmake -S tests/unit -B /tmp/T054-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g'
+cmake --build /tmp/T054-build-sanitize --target js8_rx_unit js8_phy_unit -j"$(nproc)"
+ctest --test-dir /tmp/T054-build-sanitize -R '^js8_(rx|phy)_unit$' --output-on-failure
+# PASS: 2/2, with private FFT sources instrumented too.
+
+git diff --check
+# PASS.
+git diff -- apps/ft8
+# Empty: no FT8 production changes.
+```
+
+Sanitizer execution used approved escalation because the prior tasks established
+LeakSanitizer's incompatibility with the sandbox's ptrace environment. All tests
+passed; no existing assertions were weakened. The no-heap regression uses `nm -u`
+on both JS8 archives and finds no heap symbols, including hidden vendor calls.
 
 ### Measured resource data
 
+Baseline host GCC/x86-64, time_osr=2/freq_osr=2, 200..2900 Hz:
+
+| Resource | Bytes / value |
+| --- | ---: |
+| Total aligned workspace | 211312 |
+| Waterfall | 161076 |
+| FFT plan | 19488 |
+| Window | 7680 |
+| Rolling FFT history | 7680 |
+| Time scratch | 7680 |
+| Frequency scratch | 7688 |
+| Alignment/padding within total | 20 |
+| Required alignment | 16 |
+| Block stride | 1732 |
+| Bins | 433 (min 32, exclusive max 465) |
+| Blocks / samples per block | 93 / 960 |
+| FFT length / samples per time subblock | 1920 / 480 |
+| `sizeof(Js8Monitor)` | 200 |
+| `sizeof(Js8Candidate)` / 50 candidates | 8 / 400 |
+| `sizeof(Js8DecodedPayload)` | 88 |
+
+The runtime query/test prints these measurements. A separate temporary helper
+compiled the unchanged FT8 monitor and its FFT copy with the same baseline:
+total 211312, waterfall 161076, FFT plan 19488, `sizeof(Ft8Monitor)` 208. Thus
+the monitor workspace is exactly the current MiniFT8 resource class.
+
+Additional host compiler stack visibility (`cc -std=c11 -O2 -fstack-usage` for
+js8_monitor.c, js8_decoder.c and js8_ldpc.c, with local engine/vendor include
+paths, object outputs under `/tmp/T054-stack`): monitor process frame 80 bytes,
+search frame 184, likelihood frame 72, candidate decode frame 1024, T052 LDPC
+frame 5392. These are individual compiler-reported frames, not complete call
+chain/high-water measurements; FFT recursion, libm and caller stack are extra.
+No ADV optimization or x86-size tuning was performed.
+
 ### Manual/hardware validation still required
+
+None for T054. No flashing, RF validation or real WAV use. ADV gate builds the
+existing firmware; JS8 application registration/target integration remain later
+work. The architect's `A_2_1.wav` is untouched and reserved for T055.
 
 ### Known limitations / risks
 
+Only the deterministic noiseless synthetic signal is RX evidence here; real
+WAV timing/frequency/noise sensitivity remains unmeasured. Candidate policy may
+need measured T055 adjustments. Candidate time offsets include causal FFT
+history delay and are not UTC start-time estimates. T052's un-clipped BP numeric
+behavior is unchanged. Workspace sizes/alignment and stack frames are host
+measurements and must be queried/measured again on ADV.
+
+Pre-existing untracked build scripts, keyer ELF-app artifacts and Python caches
+were left outside the change.
+
 ### Commit
+
+The single implementation commit containing these notes is on
+`codex/T054-js8-monitor-decoder`, based on `e3f6d80` from `origin/main`.
+The exact implementation SHA is returned after push. No PR or Actions wait.
 
 ## Supervisor review
 

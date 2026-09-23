@@ -17,3 +17,20 @@ foreach(boundary dependency platform)
     add_test(NAME js8chat_${boundary}_boundary COMMAND ${Python3_EXECUTABLE}
         ${JS8_TEST_ROOT}/tests/app_${boundary}_boundary.py ${JS8_TEST_ROOT} js8chat)
 endforeach()
+
+add_library(js8_rx_core STATIC
+    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_monitor.c
+    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_decoder.c
+    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/vendor/kissfft/kiss_fft.c
+    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/vendor/kissfft/kiss_fftr.c)
+target_include_directories(js8_rx_core PUBLIC ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine)
+target_include_directories(js8_rx_core PRIVATE ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/vendor/kissfft)
+target_compile_options(js8_rx_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
+target_link_libraries(js8_rx_core PUBLIC js8_phy_core m)
+add_executable(js8_rx_unit ${JS8_TEST_ROOT}/tests/js8_rx_test.c)
+target_link_libraries(js8_rx_unit PRIVATE js8_rx_core)
+target_compile_options(js8_rx_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
+add_test(NAME js8_rx_unit COMMAND js8_rx_unit)
+add_test(NAME js8_no_heap COMMAND ${Python3_EXECUTABLE}
+    ${JS8_TEST_ROOT}/tests/js8_no_heap_test.py ${CMAKE_NM}
+    $<TARGET_FILE:js8_rx_core> $<TARGET_FILE:js8_phy_core>)
