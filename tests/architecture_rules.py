@@ -8,7 +8,10 @@ APP_RULES = {
         "module_paths": {"js8_engine": ("src/js8_engine",), "tools": ("tools",)},
         "include_roots": ("src/js8_engine", "src/js8_engine/vendor/kissfft"),
         "allowed": {"js8_engine": {"js8_engine"}, "tools": {"tools", "js8_engine"}},
-        "native_exceptions": {"tools/js8_decode.c": {"fopen"}},
+        "native_exceptions": {
+            "tools/js8_decode.c": {"fopen"},
+            "tools/js8_activity_log.c": {"fopen"},  # T063 host-only append logger.
+        },
         "api_modules": set(),
         "no_heap_modules": {"js8_engine"},
     },

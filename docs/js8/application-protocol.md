@@ -473,6 +473,19 @@ Compound association, buffered/query commands, conversation state, local-station
 filtering, auto-replies, TX and live MiniShell integration remain out of scope.
 No WAV end-of-file or elapsed timeout fabricates LAST.
 
+## Normalized RX activity (T063)
+
+The pure activity model now represents HB, CQ/CQ FIELD, compound, directed,
+Huffman/JSC DATA, and completed T062 MESSAGE observations. The optional host
+append-only JSONL logger consumes those snapshots without changing RX/reassembly
+behavior. Exact audio milli-Hz belongs to the decoder; optional dial frequency
+and aligned UTC start are caller metadata. No RF frequency or absolute UTC is
+invented when metadata is absent.
+
+See [activity-log.md](activity-log.md) for `js8-activity-v1`, CLI options, escaping,
+ordering, and failure semantics. This is an RX observation log, not ADIF/QSO
+logging. TX, live audio/CAT, networking, databases and UI remain deferred.
+
 ## Text codecs
 
 JS8Call can use both Huffman and JSC compressed data.

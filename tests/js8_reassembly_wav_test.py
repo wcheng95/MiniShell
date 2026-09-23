@@ -2,6 +2,8 @@
 """Message host integration from accepted application bits (only TX flags vary)."""
 from functools import lru_cache
 import math
+import json
+from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import re
@@ -11,7 +13,8 @@ import sys
 import tempfile
 import wave
 
-exe, probe, root = sys.argv[1:]
+exe, probe, root = sys.argv[1:4]
+activity_checks = sys.argv[4:] == ["--activity"]
 root = Path(root)
 env = os.environ.copy()
 env.pop('JS8_JSC_DICT', None)
@@ -61,6 +64,49 @@ with tempfile.TemporaryDirectory(prefix='js8-messages-') as temp:
         assert ''.join(s for s in lines if not s.startswith('message ')) == ordinary.stdout
         assert ''.join(s for s in messages.stderr.splitlines(True)
                        if 'reassembly' not in s) == ordinary.stderr
+        if activity_checks:
+            logfile = Path(temp)/'activity.jsonl'
+            logfile.write_text('{"existing":true}\n')
+            logged = subprocess.run([exe, '--all-slots', '--messages', '--log-jsonl', str(logfile),
+                                     '--dial-hz', '14078000', '--start-utc', '20260923T235945Z', str(path)],
+                                    env=env, capture_output=True, text=True, check=True)
+            assert logged.stdout == messages.stdout and logged.stderr == messages.stderr
+            rows = [json.loads(s) for s in logfile.read_text().splitlines()]
+            assert rows.pop(0) == {'existing': True}
+            raw = [s for s in lines if s.startswith('slot=')]
+            frames = [r for r in rows if r['event'] != 'MESSAGE']
+            completed = [r for r in rows if r['event'] == 'MESSAGE']
+            assert len(frames) == len(raw) and len(completed) == sum(s.startswith('message ') for s in lines)
+            for row, line in zip(frames, raw):
+                fields = dict(re.findall(r'(slot|tx_raw|score|hard_errors|hz)=([^ ]+)', line))
+                assert row['slot'] == int(fields['slot']) and row['tx_flags'] == int(fields['tx_raw'])
+                assert row['score'] == int(fields['score']) and row['hard_errors'] == int(fields['hard_errors'])
+                freq_bin, freq_sub = map(int, re.search(r'freq=(-?\d+)/(\d+)', line).groups())
+                assert row['audio_millihz'] == (32 + freq_bin)*6250 + freq_sub*3125
+                if row['event'] == 'DATA':
+                    assert row['codec'] in ('huffman', 'jsc')
+                    escaped = row['text'].replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+                    assert f'codec={row["codec"]} data="{escaped}"' in line
+                if row['event'] == 'DIRECTED':
+                    assert f'cmd="{row["command"]}"' in line
+                    assert f'from={row["from"]} to={row["to"]} ' in line
+                    for key, token in (('free_text','free_text=1'), ('ack','ack=1'), ('end73','end73=1')):
+                        assert row[key] == (token in line)
+                    assert ('number' in row) == (' num=' in line)
+                    if 'number' in row: assert f' num={row["number"]}' in line
+            for n, row in enumerate(rows):
+                assert row['schema'] == 'js8-activity-v1'
+                assert row['elapsed_s'] == row['slot']*15
+                assert row['rf_millihz'] == 14078000000 + row['audio_millihz']
+                assert row['utc'] == (datetime(2026,9,23,23,59,45) + timedelta(seconds=row['elapsed_s'])).strftime('%Y-%m-%dT%H:%M:%SZ')
+                if row['event'] == 'MESSAGE':
+                    assert n and rows[n-1]['event'] in ('DIRECTED', 'DATA')
+                    assert rows[n-1]['slot'] == row['last_slot'] == row['slot']
+                    # Same escaping as the already-pinned message output.
+                    escaped = row['text'].replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+                    hz = f'{row["audio_millihz"]//1000}.{row["audio_millihz"]%1000:03d}'
+                    expected_line = f'message from={row["from"]} to={row["to"]} first_slot={row["first_slot"]} last_slot={row["last_slot"]} hz={hz} text="{escaped}"\n'
+                    assert expected_line in lines
         return [s.rstrip('\n') for s in lines if s.startswith('message ')], messages
     def expected(text, first=0, last=1, hz='1000.000', sender='AG6AQ', to='K1ABC'):
         return f'message from={sender} to={to} first_slot={first} last_slot={last} hz={hz} text="{text}"'
@@ -110,6 +156,43 @@ with tempfile.TemporaryDirectory(prefix='js8-messages-') as temp:
     # Host escaping uses the JSC diagnostic rules for either codec's bytes.
     lines, _ = run([hdr, signal(huff[10]), signal(jsc[3], 2)])
     assert lines == [expected('\\"HELLO\\"\\n', last=2)], lines
+    if activity_checks:
+        compound = vectors('js8_compound_vectors.h')
+        # Independently accepted HB, CQ FIELD, plain and directed compound.
+        for index in (0, 1, 3, 5):
+            run([signal(compound[index]), signal(compound[index])])
+            rows = [json.loads(line) for line in (Path(temp)/'activity.jsonl').read_text().splitlines()[1:]]
+            assert len(rows) == 2 and [r['slot'] for r in rows] == [0, 1]
+            if index in (0, 1):
+                assert all(r['event'] == ('HB' if index == 0 else 'CQ') and r['call'] == 'AG6AQ'
+                           and r['grid'] == 'CM97' and r['beacon'] == ('HB' if index == 0 else 'CQ FIELD') for r in rows)
+            else:
+                assert all(r['event'] == 'COMPOUND' and r['call'] == 'KN4CRD/P' and
+                           r['compound_directed'] == (index == 5) and
+                           r['extra'] == (23883 if index == 3 else 32442) and
+                           r['bits3'] == (0 if index == 3 else 6) for r in rows)
+        run([signal(directed[7], 3)])
+        run([hdr, signal(huff[0]), signal(huff[2]), signal(jsc[-1], 2)])
+        # No reassembly option means frame-only log, with omitted metadata.
+        logfile = Path(temp)/'plain.jsonl'
+        plain = subprocess.run([exe, '--all-slots', '--log-jsonl', str(logfile), str(path)],
+                               env=env, capture_output=True, text=True, check=True)
+        original = subprocess.run([exe, '--all-slots', str(path)], env=env,
+                                  capture_output=True, text=True, check=True)
+        assert plain.stdout == original.stdout and plain.stderr == original.stderr
+        rows = [json.loads(s) for s in logfile.read_text().splitlines()]
+        assert rows and all(r['event'] != 'MESSAGE' and not {'utc','dial_hz','rf_millihz'} & r.keys() for r in rows)
+        for destination, error in ((str(Path(temp)/'missing'/'log.jsonl'), 'open'), ('/dev/full', None)):
+            failed = subprocess.run([exe, '--all-slots', '--log-jsonl', destination, str(path)],
+                                    env=env, capture_output=True, text=True)
+            assert failed.returncode == 1 and failed.stdout == original.stdout
+            assert failed.stderr.startswith(original.stderr) and 'activity log error:' in failed.stderr
+            if error: assert failed.stderr.endswith(f'activity log error: {error}\n')
+        for option, value in (('--start-utc','20260923T050001Z'), ('--start-utc','20260229T000000Z'),
+                              ('--start-utc','bad'), ('--dial-hz','-1'), ('--dial-hz','1.5'),
+                              ('--dial-hz','999999999999999999999')):
+            failed = subprocess.run([exe, '--all-slots', '--log-jsonl', str(logfile), option, value, str(path)], capture_output=True)
+            assert failed.returncode == 2 and not failed.stdout
     for args in (['--messages'], ['--messages', str(path)],
                  ['--messages', '--all-slots', str(path)], ['--all-slots', '--messages']):
         assert subprocess.run([exe]+args, capture_output=True).returncode == 2

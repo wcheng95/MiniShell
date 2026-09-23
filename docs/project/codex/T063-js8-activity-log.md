@@ -1,6 +1,6 @@
 # T063 — JS8 RX activity events and append-only host logger
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -249,35 +249,35 @@ Do NOT implement live QMX audio capture, QMX CAT in JS8Chat, WebSDR network clie
 
 ## Acceptance criteria
 
-- [ ] pure normalized RX activity model added
-- [ ] heartbeat/CQ/compound/directed/DATA/message represented
-- [ ] exact integer audio frequency preserved
-- [ ] optional dial produces exact RF milli-Hz
-- [ ] optional aligned UTC start produces exact per-slot UTC
-- [ ] JSONL v1 schema documented
-- [ ] strict JSON escaping handles arbitrary Latin-1 bytes
-- [ ] append-only host logger implemented
-- [ ] existing log content never truncated
-- [ ] deterministic event ordering
-- [ ] no logger-level dedupe
-- [ ] existing stdout/stderr unchanged without logger options
-- [ ] repeated events across slots retained
-- [ ] incomplete/orphan streams never fabricate MESSAGE
-- [ ] mixed Huffman/JSC MESSAGE logged exactly
-- [ ] logger failures deterministic/nonzero
-- [ ] T062 reassembly unchanged
-- [ ] T061 multi-slot unchanged
-- [ ] T060 A_2_1 reference unchanged
-- [ ] js8_engine platform-free/no-heap
-- [ ] no FT8 changes
-- [ ] Linux full CTest passes
-- [ ] portable CTest passes
-- [ ] external A_2_1 regression passes
-- [ ] boundary/no-heap checks pass
-- [ ] ASan/UBSan passes
-- [ ] ADV build green
-- [ ] git diff --check passes
-- [ ] no unrelated cleanup
+- [x] pure normalized RX activity model added
+- [x] heartbeat/CQ/compound/directed/DATA/message represented
+- [x] exact integer audio frequency preserved
+- [x] optional dial produces exact RF milli-Hz
+- [x] optional aligned UTC start produces exact per-slot UTC
+- [x] JSONL v1 schema documented
+- [x] strict JSON escaping handles arbitrary Latin-1 bytes
+- [x] append-only host logger implemented
+- [x] existing log content never truncated
+- [x] deterministic event ordering
+- [x] no logger-level dedupe
+- [x] existing stdout/stderr unchanged without logger options
+- [x] repeated events across slots retained
+- [x] incomplete/orphan streams never fabricate MESSAGE
+- [x] mixed Huffman/JSC MESSAGE logged exactly
+- [x] logger failures deterministic/nonzero
+- [x] T062 reassembly unchanged
+- [x] T061 multi-slot unchanged
+- [x] T060 A_2_1 reference unchanged
+- [x] js8_engine platform-free/no-heap
+- [x] no FT8 changes
+- [x] Linux full CTest passes
+- [x] portable CTest passes
+- [x] external A_2_1 regression passes
+- [x] boundary/no-heap checks pass
+- [x] ASan/UBSan passes
+- [x] ADV build green
+- [x] git diff --check passes
+- [x] no unrelated cleanup
 
 No hardware/RF validation required.
 
@@ -318,19 +318,159 @@ Codex:
 
 ### Implementation summary
 
+Implemented and tested the pure normalized model first, then added a separate
+host JSONL adapter. The model builds bounded owned snapshots from already-decoded
+facts and exact text bytes. The host logs successful semantic frame events and,
+when enabled, T062 COMPLETE events in existing receive order. Optional dial/UTC
+metadata uses integer arithmetic exclusively. No scope deviations.
+
+Reviewed JS8 ownership/protocol docs, T061/T062, and FT8 `log_service` /
+`radio_control` ownership contracts. No FT8 implementation was modified or
+imported; filesystem/UTC/JSON work remains in the explicit host tool.
+
 ### Files changed
+
+- `apps/js8chat/src/js8_engine/js8_activity.[ch]`: bounded normalized event model.
+- `apps/js8chat/tools/js8_activity_log.[ch]`: append adapter, strict ASCII JSON,
+  Gregorian UTC parsing/formatting, checked integer dial parsing, error latching.
+- `apps/js8chat/tools/js8_decode.c`: logger CLI, semantic event creation,
+  frame-before-MESSAGE ordering, per-slot flush and cleanup/error reporting.
+- `tests/js8_activity_test.c`: pure bounds, kinds, codecs, bytes and canaries.
+- `tests/js8_activity_log_test.c`, `tests/js8_activity_log_test.py`: host calendar,
+  overflow, injected I/O errors, JSON round-trip and append tests.
+- `tests/js8_reassembly_wav_test.py`: optional activity checks over existing
+  message fixtures plus beacon/compound/metadata/failure fixtures.
+- `tests/js8_tests.cmake`, `CMakeLists.txt`: portable and host test registration.
+- `tests/architecture_rules.py`: narrow `fopen` exception for the new authorized
+  host logger file; no engine restriction or generic checker was relaxed.
+- `docs/js8/activity-log.md`, `docs/js8/application-protocol.md`: schema,
+  ownership, invocation, ordering and durability limits.
+- This task packet: implementation and gate evidence.
 
 ### Invariants preserved
 
+The engine contains no allocation, platform, file, clock, JSON or codec lookup
+operations in the activity module. Caller-provided semantics are validated and
+copied without text conversion. Audio frequency stays signed integer milli-Hz;
+elapsed seconds uses 64-bit `slot * 15`. Metadata never turns audio into fake RF
+or supplies fake UTC when absent.
+
+No PHY/codec/reassembly behavior, T061 geometry/dedupe, JSC resource, FT8, public
+MiniShell API, live source, radio control, UI, TX or ADIF change. Existing decode
+stdout/stderr and no-log CLI error handling are retained. T062 output was compared
+byte-for-byte against the accepted T062 binary in default, all-slots and messages
+modes on A_2_1; representative no-log usage/error diagnostics also match (with only
+executable-path spelling normalized for usage comparisons).
+
 ### Activity schema / logger evidence
+
+`js8-activity-v1` is documented in `docs/js8/activity-log.md`. Events are HB, CQ,
+COMPOUND, DIRECTED, DATA, MESSAGE. CQ FIELD retains its canonical beacon identity.
+Raw compound-directed observations use COMPOUND plus `compound_directed:true`;
+no association/command semantics are invented. Failed codec output is not logged
+as text. MESSAGE common diagnostics refer to its completing frame.
+
+Synthetic fixtures verify heartbeat/CQ FIELD, plain/raw-directed compound, ACK,
+numbered directed content, FIRST free-text, Huffman/JSC DATA, exact mixed MESSAGE,
+repeated frames in separate slots, four simultaneous streams, gap/orphan/overflow
+absence of MESSAGE, frame-before-MESSAGE order, exact bin/sub-bin frequency,
+dial addition, UTC rollover and four-slot timestamps. Each logging run compares
+stdout/stderr with the same no-log invocation. No-message logging omits MESSAGE,
+and no-metadata logging omits UTC/dial/RF fields.
+
+Strict JSON tests round-trip all 256 Latin-1 values, including quote, backslash,
+NUL, newline, tab, DEL and high bytes in a 1023-byte MESSAGE. Output remains ASCII.
+Repeated invocation preserves an existing JSON line and appends two complete
+events. Injected write, flush and close failures latch the first error. Real host
+open failure and `/dev/full` return nonzero after retaining complete decode stdout
+and original diagnostics, then append the deterministic logger error diagnostic.
+
+The pinned external WAV remains blob
+`d986a4e5a9cc654dffbfadae73ec35cc9cea1d83` and is not committed. Exact real-WAV log
+with `--dial-hz 14078000 --start-utc 20260923T050000Z`:
+
+```json
+{"schema":"js8-activity-v1","event":"DATA","slot":0,"elapsed_s":0,"audio_millihz":556250,"tx_flags":2,"score":26,"hard_errors":15,"utc":"2026-09-23T05:00:00Z","dial_hz":14078000,"rf_millihz":14078556250,"codec":"jsc","text":"MSG ID 416"}
+```
+
+It is orphan DATA in this capture; no MESSAGE is fabricated.
+
+Measured Linux sizes: `Js8Activity` 1160 bytes, `Js8ActivityFields` 120 bytes.
+The activity object file has text=1123, data=0, bss=0 bytes. The host serializer
+uses one bounded 8192-byte line buffer; the engine adds no heap or global state.
 
 ### Test evidence
 
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --repeat until-pass:3 --output-on-failure
+ctest --test-dir build-linux --repeat until-pass:3 --output-on-failure
+ctest --test-dir build-linux -R '^linux_serial_unit$' --repeat until-pass:20 --output-on-failure
+ctest --test-dir /tmp/T061-build-ref -R '^linux_serial_unit$' --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --repeat until-pass:20 --output-on-failure
+
+cmake -S tests/unit -B /tmp/T063-build-unit
+cmake --build /tmp/T063-build-unit -j8
+ctest --test-dir /tmp/T063-build-unit --output-on-failure
+
+cmake -S . -B /tmp/T063-build-ref -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T063-build-ref -j8 --target js8_decode
+ctest --test-dir /tmp/T063-build-ref -R "js8.*reference|js8.*A2.*1" --output-on-failure
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+
+cmake -S . -B /tmp/T063-build-sanitize -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T063-build-sanitize -j8 --target js8_rx_unit js8_phy_unit js8_frame_unit js8_protocol_frame_unit js8_compound_unit js8_directed_unit js8_huffman_unit js8_jsc_unit js8_reassembly_unit js8_activity_unit js8_activity_log_unit js8_decode js8_multislot_host_unit
+ctest --test-dir /tmp/T063-build-sanitize -R '^js8_(phy_unit|rx_unit|frame_unit|protocol_frame_unit|compound_unit|directed_unit|huffman_unit|jsc_unit|reassembly_unit|activity_unit|activity_log_unit|activity_json_unit|activity_wav_unit|wav_unit|directed_wav_unit|huffman_wav_unit|jsc_wav_unit|multislot_host_unit|multislot_wav_unit|reassembly_wav_unit|A2_1_reference)$' --output-on-failure
+ctest --test-dir /tmp/T063-build-sanitize -R '^js8_activity_wav_unit$' --output-on-failure
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+Final results:
+
+- Linux full CTest: 111/111 passed; every test passed on its first attempt in
+  the final full run despite the retry allowance. Earlier runs hit the existing
+  `linux_serial_unit` line 67 PTY timeout assertion, including outside the
+  sandbox. The accepted T061 binary reproduces it; focused current-binary retry
+  passed on attempt two. No serial code/tests were changed.
+- Portable CTest: 25/25 passed.
+- External A_2_1 reference: 1/1 passed, exact legacy output.
+- Boundary/no-heap checks: passed. Initial full/portable runs identified the
+  missing host-file `fopen` registration; added only that authorized exception.
+- ASan/UBSan: 21/21 passed, including JSC resource corruption and logger/error
+  tests. Final strengthened integer-frequency assertion also passed the targeted
+  sanitized WAV test. Sanitizers ran outside the sandbox for LeakSanitizer.
+- ADV: passed, image `0x151790` bytes, 78% app partition free; no live integration.
+- `git diff --check`: passed.
+
+During focused test development, corrected a test's hand-calculated maximum dial
+value and mistaken compound-vector indices; production input validation was not
+weakened. All final assertions pass.
+
 ### Manual validation still required
+
+None required. Optional architect aligned WebSDR JSONL experiment after review.
+No RF/hardware, PR or GitHub Actions wait gate.
 
 ### Known limitations / risks
 
+T061 alignment and T062 bounded association limits still apply. Gregorian years
+are 0001..9999; a later slot beyond that range is a log error. File flush means
+stdio flush, not fsync or transactional durability. Short OS writes can leave a
+partial final line; append-only operation does not repair prior bytes or promise
+concurrent-writer atomicity. Existing files should end in LF. No rotation,
+database, ADIF, live source, CAT, UI or TX is included.
+
 ### Commit
+
+One reviewable commit on `codex/T063-js8-activity-log`; exact SHA is returned in
+the Codex handoff (this packet is part of that commit).
 
 ## Supervisor review
 

@@ -6,6 +6,7 @@
 #include "js8_huffman.h"
 #include "js8_jsc.h"
 #include "js8_reassembly.h"
+#include "js8_activity_log.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -188,23 +189,61 @@ static void print_message_result(uint32_t slot, Js8RxStatus status,
     puts("\"");
 }
 
+static int build_activity(Js8ActivityLog *log, const Js8ActivityFields *facts,
+                           const char *text, size_t length, Js8Activity *activity)
+{
+    if (!js8_activity_build(facts, text, length, activity)) return 1;
+    if (!log->error) log->error = "event";
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
-    int messages = argc == 4 && !strcmp(argv[1], "--all-slots") && !strcmp(argv[2], "--messages");
-    int all_slots = messages || (argc == 3 && !strcmp(argv[1], "--all-slots"));
-    if ((!all_slots && argc != 2) ||
-        (argc == 2 && (!strcmp(argv[1], "--all-slots") || !strcmp(argv[1], "--messages"))) ||
-        (argc == 3 && all_slots && !strcmp(argv[2], "--messages"))) {
-        fprintf(stderr, "usage: %s [--all-slots [--messages]] <12khz-mono-s16.wav>\n", argv[0]);
-        return 2;
+    int all_slots = 0, messages = 0, bad_args = argc < 2;
+    const char *log_path = NULL;
+    Js8LogMetadata metadata = {0};
+    int logging_options = 0;
+    for (int i = 1; i < argc; ++i)
+        if (!strcmp(argv[i], "--log-jsonl") || !strcmp(argv[i], "--dial-hz") ||
+            !strcmp(argv[i], "--start-utc")) logging_options = 1;
+    if (!logging_options) {
+        /* Preserve T062 argument handling and diagnostics without log options. */
+        messages = argc == 4 && !strcmp(argv[1], "--all-slots") && !strcmp(argv[2], "--messages");
+        all_slots = messages || (argc == 3 && !strcmp(argv[1], "--all-slots"));
+        if ((!all_slots && argc != 2) ||
+            (argc == 2 && (!strcmp(argv[1], "--all-slots") || !strcmp(argv[1], "--messages"))) ||
+            (argc == 3 && all_slots && !strcmp(argv[2], "--messages"))) {
+            fprintf(stderr, "usage: %s [--all-slots [--messages]] <12khz-mono-s16.wav>\n", argv[0]);
+            return 2;
+        }
+    } else {
+        for (int i = 1; i < argc-1 && !bad_args; ++i) {
+            if (!strcmp(argv[i], "--all-slots") && !all_slots) all_slots = 1;
+            else if (!strcmp(argv[i], "--messages") && all_slots && !messages) messages = 1;
+            else if (!strcmp(argv[i], "--log-jsonl") && !log_path && i+1 < argc-1)
+                log_path = argv[++i];
+            else if (!strcmp(argv[i], "--dial-hz") && !metadata.have_dial && i+1 < argc-1) {
+                bad_args = js8_log_parse_dial(argv[++i], &metadata.dial_hz) != 0;
+                metadata.have_dial = 1;
+            } else if (!strcmp(argv[i], "--start-utc") && !metadata.have_utc && i+1 < argc-1) {
+                bad_args = js8_log_parse_utc(argv[++i], &metadata.start_seconds) != 0;
+                metadata.have_utc = 1;
+            } else bad_args = 1;
+        }
+        if (bad_args || (argc >= 2 && !strncmp(argv[argc-1], "--", 2)) ||
+            (log_path && !all_slots) || ((metadata.have_dial || metadata.have_utc) && !log_path)) {
+            fprintf(stderr, "usage: %s [--all-slots [--messages] [--log-jsonl path [--dial-hz hz] [--start-utc YYYYMMDDTHHMMSSZ]]] <12khz-mono-s16.wav>\n", argv[0]);
+            return 2;
+        }
     }
     HostWav wav = {0};
-    const char *path = argv[messages ? 3 : all_slots ? 2 : 1];
+    const char *path = argv[argc-1];
     if (wav_open(path, &wav)) {
         fprintf(stderr, "invalid/unreadable 12 kHz mono S16 PCM WAV: %s\n", path);
         return 1;
     }
     int rc = 1;
+    Js8ActivityLog log = {0};
     FILE *jsc_file = NULL;
     Js8JscDictionary jsc_dict = {0};
     int jsc_attempted = 0, jsc_ready = 0, jsc_error = 0;
@@ -234,6 +273,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot initialize JS8 monitor workspace\n");
         goto cleanup;
     }
+    if (log_path) js8_log_open(&log, log_path, &metadata);
     for (uint32_t slot = 0; slot < slots; ++slot) {
         if (all_slots) {
             if (seek_slot(&wav, slot)) {
@@ -289,6 +329,14 @@ int main(int argc, char **argv)
             Js8RxStatus rx_status = JS8_RX_IGNORED;
             Js8RxDrops drops = {0};
             Js8RxMessage message;
+            Js8Activity activity;
+            Js8ActivityFields facts = {0};
+            facts.slot_index = slot;
+            facts.frequency_millihz = fragment.frequency_millihz;
+            facts.tx_flags = envelope.tx_flags;
+            facts.score = candidates[i].score;
+            facts.hard_errors = payload.ldpc_errors;
+            int activity_ready = 0;
             if (all_slots) printf("slot=%u slot_s=%u ", slot, slot * 15u);
             fputs("payload=", stdout);
             for (unsigned b = 0; b < JS8_PAYLOAD_BITS; ++b)
@@ -307,14 +355,35 @@ int main(int argc, char **argv)
                 if (js8_beacon_decode(payload.payload_bits, &beacon)) goto cleanup;
                 printf(" call=%s beacon=\"%s\" grid=%s", beacon.callsign,
                        js8_beacon_name(beacon.is_cq, beacon.subtype), beacon.grid);
+                if (log_path) {
+                    facts.kind = beacon.is_cq ? JS8_ACTIVITY_CQ : JS8_ACTIVITY_HEARTBEAT;
+                    memcpy(facts.call, beacon.callsign, sizeof(facts.call));
+                    memcpy(facts.grid, beacon.grid, sizeof(facts.grid));
+                    strcpy(facts.beacon, js8_beacon_name(beacon.is_cq, beacon.subtype));
+                    facts.subtype = beacon.subtype;
+                    activity_ready = build_activity(&log, &facts, NULL, 0, &activity);
+                }
             } else if (envelope.app_class == JS8_APP_FRAME_COMPOUND) {
                 Js8CompoundIdentity identity;
                 if (js8_compound_identity_decode(payload.payload_bits, &identity)) goto cleanup;
                 printf(" call=%s grid=%s", identity.callsign, identity.grid);
+                if (log_path) {
+                    facts.kind = JS8_ACTIVITY_COMPOUND;
+                    memcpy(facts.call, identity.callsign, sizeof(facts.call));
+                    memcpy(facts.grid, identity.grid, sizeof(facts.grid));
+                    facts.extra = identity.extra16; facts.bits3 = identity.bits3;
+                    activity_ready = build_activity(&log, &facts, NULL, 0, &activity);
+                }
             } else if (envelope.app_class == JS8_APP_FRAME_COMPOUND_DIRECTED) {
                 Js8CompoundFields fields;
                 if (js8_compound_fields_decode(payload.payload_bits, &fields)) goto cleanup;
                 printf(" call=%s extra=%u bits3=%u", fields.callsign, fields.extra16, fields.bits3);
+                if (log_path) {
+                    facts.kind = JS8_ACTIVITY_COMPOUND; facts.compound_directed = 1;
+                    memcpy(facts.call, fields.callsign, sizeof(facts.call));
+                    facts.extra = fields.extra16; facts.bits3 = fields.bits3;
+                    activity_ready = build_activity(&log, &facts, NULL, 0, &activity);
+                }
             }
             if (envelope.app_class == JS8_APP_FRAME_DIRECTED) {
                 Js8DirectedFrame directed;
@@ -325,6 +394,17 @@ int main(int argc, char **argv)
                 if (directed.is_free_text) fputs(" free_text=1", stdout);
                 if (directed.is_ack) fputs(" ack=1", stdout);
                 if (directed.is_73) fputs(" end73=1", stdout);
+                if (log_path) {
+                    facts.kind = JS8_ACTIVITY_DIRECTED;
+                    memcpy(facts.from, directed.from, sizeof(facts.from));
+                    memcpy(facts.to, directed.to, sizeof(facts.to));
+                    facts.command_code = directed.command_code;
+                    strcpy(facts.command, js8_directed_command_name(directed.command_code));
+                    facts.has_number = (uint8_t)directed.has_number; facts.number = directed.number;
+                    facts.free_text = (uint8_t)directed.is_free_text;
+                    facts.ack = (uint8_t)directed.is_ack; facts.end73 = (uint8_t)directed.is_73;
+                    activity_ready = build_activity(&log, &facts, NULL, 0, &activity);
+                }
                 if (messages) {
                     fragment.kind = JS8_RX_FRAGMENT_DIRECTED;
                     memcpy(fragment.from, directed.from, sizeof(fragment.from));
@@ -346,6 +426,11 @@ int main(int argc, char **argv)
                         putchar(data.text[n]);
                     }
                     putchar('"');
+                    if (log_path) {
+                        facts.kind = JS8_ACTIVITY_DATA;
+                        facts.codec = JS8_ACTIVITY_CODEC_HUFFMAN;
+                        activity_ready = build_activity(&log, &facts, data.text, data.text_len, &activity);
+                    }
                     if (messages) {
                         fragment.kind = JS8_RX_FRAGMENT_DATA;
                         fragment.text = data.text;
@@ -381,6 +466,11 @@ int main(int argc, char **argv)
                         else putchar((int)byte);
                     }
                     putchar('"');
+                    if (log_path) {
+                        facts.kind = JS8_ACTIVITY_DATA;
+                        facts.codec = JS8_ACTIVITY_CODEC_JSC;
+                        activity_ready = build_activity(&log, &facts, data.text, data.text_len, &activity);
+                    }
                     if (messages) {
                         fragment.kind = JS8_RX_FRAGMENT_DATA;
                         fragment.text = data.text;
@@ -391,7 +481,18 @@ int main(int argc, char **argv)
             }
             putchar('\n');
             if (messages) print_message_result(slot, rx_status, &drops, &message);
+            if (activity_ready) js8_log_event(&log, &activity);
+            if (log_path && rx_status == JS8_RX_COMPLETE) {
+                facts.kind = JS8_ACTIVITY_MESSAGE;
+                facts.frequency_millihz = message.frequency_millihz;
+                memcpy(facts.from, message.from, sizeof(facts.from));
+                memcpy(facts.to, message.to, sizeof(facts.to));
+                facts.first_slot = message.first_slot; facts.last_slot = message.last_slot;
+                if (build_activity(&log, &facts, message.text, message.text_len, &activity))
+                    js8_log_event(&log, &activity);
+            }
         }
+        if (log_path) js8_log_flush(&log);
         if (all_slots) fprintf(stderr, "slot=%u ", slot);
         fprintf(stderr, "blocks=%u ignored_engine_samples=%u candidates=%zu "
                 "ldpc_fail=%zu crc_fail=%zu valid=%zu unique=%zu\n", blocks,
@@ -403,6 +504,8 @@ int main(int argc, char **argv)
                 wav.total_samples % HOST_SLOT_INPUT_SAMPLES);
     rc = ferror(stdout) || jsc_error ? 1 : 0;
 cleanup:
+    js8_log_close(&log);
+    if (log.error) { fprintf(stderr, "activity log error: %s\n", log.error); rc = 1; }
     js8_monitor_destroy(&monitor);
     free(memory);
     if (jsc_file) fclose(jsc_file);
