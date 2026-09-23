@@ -89,10 +89,11 @@ static void worker_stop(Js8Live *s) {
 static const Js8Worker worker = {worker_start,worker_stop};
 static unsigned begins, ready, drops, samples_seen;
 static float first_sample;
+static uint32_t begun_slot;
 static int slot_sink(void *ctx, Js8SlotEvent e, uint32_t slot, const float *p, size_t n)
 {
     (void)ctx; (void)slot;
-    if (e==JS8_SLOT_BEGIN) { ++begins; samples_seen=0; }
+    if (e==JS8_SLOT_BEGIN) { ++begins; begun_slot=slot; samples_seen=0; }
     if (e==JS8_SLOT_SAMPLES) { if (!samples_seen) first_sample=*p; samples_seen+=(unsigned)n; }
     if (e==JS8_SLOT_READY) { ++ready; assert(samples_seen==89280); }
     if (e==JS8_SLOT_DROP) ++drops;
@@ -115,25 +116,50 @@ static void timing_tests(void)
     assert(!js8_live_anchor(15,0,128,&slot,&offset) && slot==0 && offset==89872);
     assert(!js8_live_anchor(-1,0,128,&slot,&offset) && slot==-1 && offset==83872);
     assert(js8_live_anchor(0,1000000000,0,&slot,&offset)==-1);
-    Js8SlotScheduler scheduler={0}; float data[100]; for(unsigned i=0;i<100;++i)data[i]=(float)i;
-    begins=ready=drops=0;
-    assert(!js8_slot_feed(&scheduler,999,89950,data,100,slot_sink,NULL));
-    assert(begins==1 && first_sample==50 && samples_seen==50);
-    for (unsigned pos=50;pos<89250;pos+=100)
-        assert(!js8_slot_feed(&scheduler,1000,pos,data,100,slot_sink,NULL));
-    assert(!js8_slot_feed(&scheduler,1000,89250,data,100,slot_sink,NULL));
-    assert(ready==1 && samples_seen==89280);
-    /* Perturb UTC forward by 600 samples. The next chunk starts at 89950:
-     * capture must begin at index 50, not after the old sample-counter tail. */
-    assert(!js8_slot_feed(&scheduler,1000,89950,data,100,slot_sink,NULL));
-    assert(begins==2 && first_sample==50 && samples_seen==50);
-    memset(&scheduler,0,sizeof(scheduler)); begins=ready=0;
-    for(unsigned pos=0;pos<90000;pos+=100)
-        assert(!js8_slot_feed(&scheduler,1000,pos,data,100,slot_sink,NULL));
+    Js8SlotScheduler scheduler={0}; float data[128];
+    for(unsigned i=0;i<128;++i)data[i]=(float)i;
+    /* Initial tolerance: early arrivals wait for pre; late <=40 ms start S. */
+    const int delta[]={-241,-240,-1,0,1,239,240,241};
+    for (unsigned i=0;i<sizeof(delta)/sizeof(delta[0]);++i) {
+        memset(&scheduler,0,sizeof(scheduler)); begins=ready=drops=0;
+        assert(!js8_slot_feed(&scheduler,999,(uint32_t)(80400+delta[i]),data,1,slot_sink,NULL));
+        assert(scheduler.next_slot==(delta[i]>=0?1001:1000));
+        assert(begins==(unsigned)(delta[i]>=0 && delta[i]<=240));
+        if(begins) assert(begun_slot==1000 && first_sample==0);
+        assert(!drops);
+    }
+    memset(&scheduler,0,sizeof(scheduler)); begins=ready=drops=0;
+    assert(!js8_slot_feed(&scheduler,999,80350,data,100,slot_sink,NULL));
+    assert(begins==1 && begun_slot==1000 && first_sample==50 && samples_seen==50);
+    /* Real failure: ~20 ms chunks leave a UTC timing gap over every pre.
+     * No discontinuity, no exact hit/cross; all three windows must finalize. */
+    memset(&scheduler,0,sizeof(scheduler)); begins=ready=drops=0;
+    for (uint32_t target=1000;target<1003;++target) {
+        assert(!js8_slot_feed(&scheduler,target-1,80260,data,120,slot_sink,NULL));
+        assert(begins==target-1000);
+        assert(!js8_slot_feed(&scheduler,target-1,80420,data,120,slot_sink,NULL));
+        assert(begins==target-999 && begun_slot==target && first_sample==0);
+        for(uint32_t n=120;n<89280;n+=120) {
+            uint64_t pos=(uint64_t)(target-1)*90000+80420+n;
+            assert(!js8_slot_feed(&scheduler,(uint32_t)(pos/90000),(uint32_t)(pos%90000),data,120,slot_sink,NULL));
+        }
+        assert(ready==target-999 && samples_seen==89280 && !drops);
+    }
+    /* Advancing fresh UTC locates pre at index 50, despite sample-count gap. */
+    assert(!js8_slot_feed(&scheduler,1002,80350,data,100,slot_sink,NULL));
+    assert(begins==4 && begun_slot==1003 && first_sample==50);
+    memset(&scheduler,0,sizeof(scheduler)); begins=ready=drops=0;
+    for(uint32_t n=0;n<90000;n+=120) {
+        uint64_t pos=UINT64_C(1000)*90000-9600+n;
+        assert(!js8_slot_feed(&scheduler,(uint32_t)(pos/90000),(uint32_t)(pos%90000),data,120,slot_sink,NULL));
+    }
     assert(ready==1 && begins==1);
-    /* UTC repeats the last tail chunk: old +90000 would start now, UTC must not. */
-    assert(!js8_slot_feed(&scheduler,1000,89900,data,100,slot_sink,NULL)); assert(begins==1);
-    assert(!js8_slot_feed(&scheduler,1001,0,data,100,slot_sink,NULL)); assert(begins==2 && first_sample==0);
+    /* Consuming 90000 samples cannot advance capture without fresh UTC pre. */
+    assert(!js8_slot_feed(&scheduler,1000,80280,data,120,slot_sink,NULL));
+    assert(begins==1);
+    assert(!js8_slot_feed(&scheduler,1000,80400,data,120,slot_sink,NULL));
+    assert(begins==2 && begun_slot==1001 && first_sample==0 && !drops);
+
 }
 static Js8DecodedPayload payload(const char *bits, unsigned flags)
 {
@@ -174,7 +200,7 @@ int main(void)
         assert(!allocations && !audio_handles && !serial_handles && !file_handles && !working);
         if (mode==0) { assert(starts==1 && stops==1 && syncs==2 && utc_queries==reads); assert(!strcmp(cat,"MD6;FR0;FT0;FA00014078000;")); }
     }
-    failure=0;quit_after=0;reads=total_frames=0;worker_delay=1500;
+    failure=0;quit_after=0;reads=total_frames=0;worker_delay=2150;
     char *plain[]={"js8chat","--rx","fake"};
     assert(!js8chat_run(&api,3,plain,&worker)); assert(!allocations);
     mini_audio_api_t bad=audio; bad.capabilities=0;api.audio=&bad;
