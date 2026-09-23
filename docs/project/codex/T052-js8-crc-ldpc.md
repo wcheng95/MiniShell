@@ -392,7 +392,16 @@ idf.py -C platform/adv build
 git diff --check
 ```
 
-If the generic app boundary scripts do not yet recognize `js8chat`, make only the minimal test-discovery change needed to cover the new pure source tree. Do not weaken the boundary rules.
+The generic app boundary scripts do not yet define `js8chat`. Add the minimal `APP_RULES["js8chat"]` entry required for this task:
+
+```text
+enforced root:  src
+module owner:   js8_engine -> src/js8_engine
+allowed deps:   js8_engine -> js8_engine only
+no-heap module: js8_engine
+```
+
+Do not add permissions for MiniShell API, platform code, other apps, or FT8 internals. Later JS8Chat tasks can extend the rule as new owned modules are introduced.
 
 ## Manual / hardware validation
 
