@@ -1,6 +1,6 @@
 # T061 — Aligned multi-slot JS8 WAV decoder
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -416,11 +416,38 @@ is not committed.
 
 ### Commit
 
-One reviewable implementation commit on `codex/T061-js8-multislot-wav`; the exact
-SHA is returned in the Codex handoff (this packet is part of that commit).
+The reviewed implementation commit is:
+
+`85b208017ee6e8d4a4174fdf3e09cd3d36cf90d8`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 
+Reviewed commit `85b208017ee6e8d4a4174fdf3e09cd3d36cf90d8` against T061.
+
+Result: **PASS**.
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T061 baseline.
+- Default one-window invocation remains byte-for-byte compatible with the accepted T060 external reference.
+- Explicit `--all-slots` mode uses exact aligned arithmetic: 180000 input samples per 15-second slot, 178560 consumed for DSP, and 1440 skipped.
+- Slot seeks preserve the same phase-0 2:1 sample sequence as a globally continuous decimator because each slot boundary is even-aligned.
+- One monitor workspace is allocated and reused across all slots; stream state resets between slots.
+- JSC resource state is lazily opened once and reused across slots.
+- Exact 75-bit payload dedupe resets per slot; repeated payloads in different slots are preserved.
+- Multi-slot stdout/candidate diagnostics carry stable slot index and elapsed-second tags; per-slot summaries report exactly 720 ignored engine samples, corresponding to the 1440 skipped input samples.
+- Final summary reports complete-slot count and exact trailing input samples.
+- Full RIFF validation still happens before DSP and malformed trailing container data remains rejected.
+- Synthetic regressions cover different/repeated payloads, signal only in slot 1, four mixed content classes, partial trailing input, hostile skipped tails, resource reuse, and default compatibility.
+- Host arithmetic/unit tests cover 4-slot and 8-slot captures and exact sample/byte positions.
+- No js8_engine DSP/content code, monitor capacity, FT8 code, auto-alignment, overlap search, wall-clock logic, or message reassembly was introduced.
+- The documented Linux serial PTY intermittency is unrelated; no serial code/test was changed and the final full retry passed.
+- Reported gates are consistent with the diff: Linux 105/105, portable 23/23, sanitizer 15/15, real A_2_1 regression, boundary/no-heap checks, ADV build, and diff check all pass.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
 ## Architect test result
 
-No required hardware/RF acceptance. Optional aligned WebSDR multi-slot run after review.
+No required hardware/RF acceptance. Optional aligned WebSDR multi-slot run remains available; task complete.
