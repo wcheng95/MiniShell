@@ -48,7 +48,10 @@ Station Profile
 
 Page navigation does **not** count as entering a submenu. A UIScreen can therefore be on page 2/3 and still be at its top level.
 
-Protocol selection is not MiniFT8 application state. Switching from FT8 to another protocol means leaving `ft8` and launching another MiniShell application such as future `ft4`, `cw`, `rtty`, or `js8`.
+Protocol selection is not MiniFT8 application state. Switching from FT8 to
+another portable mode means leaving `ft8` and launching another MiniShell
+application such as `minicw`, `js8chat`, `rtty`, or `sstv`. FT4 is
+intentionally outside the MiniShell portable-radio scope.
 
 ## First-release screen layout
 
