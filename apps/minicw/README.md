@@ -23,8 +23,8 @@ Cardputer replace more of the QMX native UI in the field. That is feature depth
 inside the CW workflow, not protocol-scope expansion.
 
 The omitted non-Keyer modes from the pinned standalone Mini-CW source remain
-outside this MiniShell application unless a concrete CW field requirement
-justifies a specific feature.
+outside this MiniShell application. Future CW improvements should be added as
+focused field features rather than by restoring the upstream mode menu.
 
 ## Ownership and provenance
 
