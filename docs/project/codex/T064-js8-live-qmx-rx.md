@@ -145,27 +145,44 @@ On a real Audio discontinuity:
 
 Do not hide discontinuities by padding samples.
 
-## UTC/sample anchoring
+## Live UTC/sample timing — match MiniFT8 exactly
 
 Live input begins at an arbitrary point in a 15-second JS8 slot.
 
-Use MiniShell UTC only to acquire/reacquire a sample reference.
+**Do not establish one UTC anchor and then free-run indefinitely by sample count.**
+That would accumulate error across slots if samples are lost or the audio clock differs
+slightly from UTC.
 
-Follow the accepted MiniFT8 timing model conceptually:
+Mirror the accepted MiniFT8 live timing model:
 
-1. after a successful audio read/frontend conversion, query UTC;
-2. convert UTC to:
+1. after **every successful live Audio read** and 12 kHz -> 6 kHz frontend conversion,
+   query MiniShell UTC;
+2. convert that current UTC to:
 
        slot_id = floor(unix_seconds / 15)
        sample_offset = seconds_into_slot*6000 + fractional_ns*6000/1e9
 
-3. backdate that reference by the number of 6 kHz samples just produced so it describes the first sample in the chunk;
-4. once aligned, advance by sample counting;
-5. on discontinuity, discard the old anchor and reacquire from UTC.
+3. backdate that reference by the number of 6 kHz samples just produced so the
+   resulting (slot_id, sample_offset) describes the **first sample of this chunk**;
+4. convert that pair to an absolute 6 kHz sample position for slot scheduling;
+5. use the chunk's fresh absolute timed position to decide whether/where the next
+   exact JS8 slot boundary falls inside the chunk;
+6. sample counting is used only to walk within the current timed chunk/capture,
+   never as the long-term clock across later slots;
+7. repeat this UTC-reference/backdate operation for every subsequent live chunk;
+8. on Audio discontinuity, additionally reset frontend/timing/monitor/reassembly
+   and resume only from a fresh timed chunk.
+
+This is the same ownership model used by MiniFT8's live path:
+`utc_to_slot_reference()` + `backdate_slot_reference()` are applied on each live
+frontend output chunk before the timed samples are given to the live slot scheduler.
 
 Do not use wall-clock sleeps to count samples.
 
-Do not infer time from audio callbacks alone before a valid UTC anchor exists.
+Do not infer long-term slot time solely from the number of samples seen since startup.
+
+Within one active 14.88-second capture, normal sample counting is still correct; the
+fresh UTC references prevent **cross-slot cumulative drift**.
 
 ## Live slot geometry
 
@@ -175,12 +192,21 @@ At 6 kHz:
     decode window = 93 * 960 = 89280 samples
     slot tail = 720 samples
 
-For every UTC-aligned slot:
+For every slot, its boundary is determined from the **fresh UTC-derived absolute
+sample positions of incoming chunks**, not by adding 90000 forever to an old anchor.
 
-- reset/begin the JS8 monitor at exact slot sample 0;
-- feed exactly the first 89280 samples as 93 engine blocks;
-- skip the final 720 samples;
-- next slot begins exactly 90000 samples later.
+When the timed chunk stream reaches:
+
+    absolute slot boundary = slot_id * 90000
+
+then:
+
+- reset/begin the JS8 monitor at that exact boundary;
+- feed exactly the next 89280 captured samples as 93 engine blocks;
+- ignore samples belonging to the final 720-sample tail of that UTC slot;
+- locate the following slot boundary again from the newly UTC-referenced chunks.
+
+Thus 90000 is the exact slot geometry, but **not** a free-running long-term clock.
 
 This is the live equivalent of T061:
 
@@ -355,23 +381,25 @@ Add deterministic hardware-free tests for:
 1. Audio adapter lifecycle and MiniShell service validation;
 2. arbitrary transport chunk sizes preserving 12k->6k decimation phase;
 3. UTC -> slot/sample conversion including negative epoch edge cases if supported;
-4. backdating a produced chunk to its first sample;
-5. startup in the middle of a slot: discard to next boundary then capture 89280;
-6. exact 90000-sample slot stride;
-7. exact 720-sample live tail skip;
-8. chunks crossing slot boundaries;
-9. discontinuity resets frontend/timing/monitor/reassembly;
-10. no MESSAGE completed across a discontinuity;
-11. multiple consecutive slots and repeated HB;
-12. four simultaneous streams and reassembled MESSAGE;
-13. T063 live JSON identical to equivalent WAV event JSON except source-specific metadata ownership;
-14. MiniShell FS append/sync error paths;
-15. QMX receive-safe CAT exact bytes;
-16. no forbidden TX CAT strings in JS8Chat production source;
-17. finite --slots shutdown;
-18. q/input shutdown when input service present;
-19. startup cleanup on Audio/CAT/log failures;
-20. repeated launch/quit releases Audio/Serial/File handles.
+4. backdating every produced live chunk to its first sample;
+5. repeated per-chunk UTC references do not accumulate cross-slot sample-count drift;
+6. startup in the middle of a slot: use timed chunk positions to find the next boundary, then capture 89280;
+7. deliberately perturb successive chunk UTC/sample positions to prove the next slot re-aligns to UTC rather than an old +90000 counter;
+8. exact 90000-sample slot geometry;
+9. exact 720-sample live tail skip;
+10. chunks crossing slot boundaries;
+11. discontinuity resets frontend/timing/monitor/reassembly;
+12. no MESSAGE completed across a discontinuity;
+13. multiple consecutive slots and repeated HB;
+14. four simultaneous streams and reassembled MESSAGE;
+15. T063 live JSON identical to equivalent WAV event JSON except source-specific metadata ownership;
+16. MiniShell FS append/sync error paths;
+17. QMX receive-safe CAT exact bytes;
+18. no forbidden TX CAT strings in JS8Chat production source;
+19. finite --slots shutdown;
+20. q/input shutdown when input service present;
+21. startup cleanup on Audio/CAT/log failures;
+22. repeated launch/quit releases Audio/Serial/File handles.
 
 ## Linux integration tests
 
@@ -447,8 +475,10 @@ Do NOT implement TX, tune, JSC TX, heartbeat auto-ACK, station/reachability DB, 
 - [ ] Linux `alsa:` endpoint works through existing provider
 - [ ] JS8 app contains no ALSA/POSIX/termios direct dependency
 - [ ] 12k stereo -> 6k mono frontend is chunk-boundary invariant
-- [ ] UTC/sample anchor acquired and backdated correctly
-- [ ] exact 90000-sample live slots
+- [ ] every successful live frontend chunk is UTC-referenced and backdated like MiniFT8
+- [ ] slot scheduling uses fresh timed chunk positions, not a free-running startup anchor
+- [ ] cross-slot cumulative sample-count drift is prevented by repeated UTC re-anchoring
+- [ ] exact 90000-sample live slot geometry
 - [ ] exactly 89280 samples / 93 blocks decoded per slot
 - [ ] final 720 samples skipped
 - [ ] discontinuity causes full timing/frontend/reassembly resync
@@ -502,7 +532,7 @@ Codex:
 8. add hardware-free service/timing/discontinuity/CAT/log tests;
 9. run all full gates;
 10. set Status to REVIEW;
-11. document any decode-worker architecture and measured timing;
+11. document the per-chunk UTC timing implementation, decode-worker architecture, and measured timing;
 12. push one reviewable commit and return SHA;
 13. no PR and no Actions wait.
 
