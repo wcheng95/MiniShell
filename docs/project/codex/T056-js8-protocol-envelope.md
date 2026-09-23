@@ -1,6 +1,6 @@
 # T056 — JS8 protocol envelope and transmission flags
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Architect intent
 
@@ -443,11 +443,35 @@ FIRST/LAST are flags only; no reassembly policy is implied.
 
 ### Commit
 
-One reviewable commit on `codex/T056-js8-protocol-envelope` containing this handoff;
-its SHA is returned after push. No PR or Actions wait.
+The reviewed implementation commit is:
+
+`9aee8aad9a4fe91a3a17b07b8c27a1a858fb59c3`
+
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 
+Reviewed commit `9aee8aad9a4fe91a3a17b07b8c27a1a858fb59c3` against T056 and the pinned JS8Call-improved v3.0.3 protocol enums/dispatch.
+
+Result: **PASS**.
+
+Review findings:
+
+- One bounded implementation commit, one commit ahead of the T056 baseline.
+- Application frame class and the tail transmission field are represented by separate types/fields.
+- Exhaustive tests cover all eight application prefixes and all eight transmission flag combinations.
+- Prefix normalization matches v3.0.3 exactly: 000 heartbeat, 001 compound, 010 compound-directed, 011 directed, 10X data, 11X compressed data.
+- FIRST=1, LAST=2, DATA=4 are treated as independent bit flags.
+- The accepted T055 payload classifies as DATA_COMPRESSED + LAST, correcting the prior ambiguity around `type=2`.
+- `js8_decode` retains the original payload/frame diagnostics while appending stable envelope diagnostics.
+- Physical-frame unpacking remains separate from protocol-envelope classification.
+- No callsign, command, Huffman, JSC, reassembly, conversation, or UI semantics were introduced.
+- T054 DSP and T055 WAV/frontend product source are unchanged; FT8 is unchanged.
+- Documentation now explicitly records that physical transmission bits are not application FrameType and marks T052-T055 milestone 1 complete.
+- Reported gates are consistent with the diff: Linux 96/96, portable 19/19, reference WAV, sanitizer 6/6, boundary/no-heap checks, ADV build, and diff check all pass.
+
+Main was fast-forwarded to the reviewed implementation commit.
+
 ## Architect test result
 
-No hardware/RF acceptance required.
+No hardware/RF acceptance required. Software review accepted; task complete.
