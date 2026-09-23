@@ -1,0 +1,528 @@
+# T054 — JS8 Normal monitor and payload decoder
+
+Status: READY
+
+## Architect intent
+
+Continue JS8Chat using the proven MiniFT8 receive architecture, changing only what the JS8 Normal PHY requires.
+
+T052 established CRC-12 + LDPC(174,87). T053 established the exact JS8 Normal 79-tone channel mapping.
+
+T054 is the first receive-DSP stage. It must remain KISS and **Normal/Mode A only**.
+
+The architect's real upstream fixture:
+
+```text
+~/projects/js8chat/A_2_1.wav
+```
+
+is deliberately reserved for T055. T054 proves the receive architecture with deterministic synthetic Normal-mode audio first.
+
+## Objective
+
+Implement the pure JS8 Normal receive path through the validated 75-bit payload boundary:
+
+```text
+6 kHz mono float PCM
+    -> compact MiniFT8-style waterfall
+    -> Normal Costas candidate search
+    -> direct-binary 8-FSK likelihood extraction
+    -> T052 BP LDPC(174,87)
+    -> T052 CRC-12
+    -> exact 75-bit payload
+```
+
+The implementation architecture is MiniFT8. Do **not** port JS8Call-improved's desktop `DecodeMode<ModeA>`, 60-second PCM buffer, FFTW workspace, Qt threading, whitening/soft-combiner framework, or multi-submode abstractions.
+
+## Accepted baseline
+
+```text
+T052  CRC-12 + LDPC(174,87)       COMPLETE
+      39023694a59ad06ef86051d98931d79703e67e3c
+
+T053  Normal 79-tone encoder      COMPLETE
+      28cf927706e7a1db88ef16a4b7007126634b65f5
+```
+
+## Source of truth
+
+Read before editing:
+
+```text
+AGENTS.md
+docs/js8/README.md
+docs/js8/architecture.md
+docs/js8/implementation-plan.md
+docs/js8/js8-phy.md
+docs/project/codex/T052-js8-crc-ldpc.md
+docs/project/codex/T053-js8-channel-encoder.md
+
+apps/js8chat/src/js8_engine/js8_crc.[ch]
+apps/js8chat/src/js8_engine/js8_ldpc.[ch]
+apps/js8chat/src/js8_engine/js8_channel.[ch]
+
+apps/ft8/src/ft8_engine/README.md
+apps/ft8/src/ft8_engine/ft8_monitor.[ch]
+apps/ft8/src/ft8_engine/ft8_decoder.[ch]
+docs/MiniFT8/rx-1c-monitor.md
+docs/MiniFT8/rx-1d-decoder.md
+```
+
+Frozen wire reference remains:
+
+```text
+JS8Call-improved/JS8Call-improved
+tag v3.0.3
+```
+
+Use upstream for PHY constants/semantics, but use MiniFT8 for receive implementation architecture.
+
+## Key Normal-mode equivalence
+
+At 12 kHz, JS8 Normal uses:
+
+```text
+1920 samples/symbol
+79 symbols
+6.25 Hz tone spacing
+```
+
+At the MiniFT8 engine rate of 6 kHz this becomes:
+
+```text
+960 samples/symbol
+160 ms/symbol
+79 symbols
+6.25 Hz tone spacing
+```
+
+Therefore the current MiniFT8 monitor geometry is directly applicable.
+
+## Architectural constraints
+
+1. **JS8 Normal only.**
+   - No B/C/E/I modes.
+   - No generic submode abstraction.
+
+2. Pure host-testable C.
+
+3. No heap inside JS8 engine modules.
+
+4. No mutable DSP singleton.
+
+5. Caller-owned/queryable monitor workspace.
+
+6. No MiniShell API, Linux/POSIX audio, ESP-IDF, NuttX, UI, Time, Radio, filesystem, or application protocol dependency.
+
+7. Do not modify FT8 production code.
+
+8. Do not refactor FT8 into a shared generic engine yet.
+
+9. Preserve the MiniFT8 receive model:
+   - 6 kHz mono float engine edge;
+   - exact 960-sample blocks;
+   - compact uint8 waterfall;
+   - time/frequency oversampling;
+   - bounded candidate list;
+   - safe logical waterfall indexing;
+   - exact payload is the RX identity at this boundary.
+
+10. No JS8Call desktop raw-audio/FFTW architecture.
+
+11. Candidate score/order are diagnostics, not interoperability identity. Exact decoded 75-bit payload is authoritative.
+
+## Monitor scope
+
+Add JS8-owned monitor files, for example:
+
+```text
+apps/js8chat/src/js8_engine/
+    js8_monitor.c
+    js8_monitor.h
+```
+
+Follow the current MiniFT8 monitor ownership/lifecycle design.
+
+Baseline host configuration:
+
+```text
+sample rate       6000 Hz
+block size         960 samples
+symbol duration    160 ms
+f_min              200 Hz
+f_max             2900 Hz
+time_osr              2
+freq_osr              2
+linear blocks         93
+```
+
+The implementation should derive dimensions from the configuration exactly as the FT8 monitor does.
+
+Required behavior:
+
+```text
+query requirements
+caller allocates aligned workspace
+init
+process 960-sample blocks
+get waterfall view
+reset window
+reset stream
+destroy
+```
+
+Normal slot/window transition semantics are not yet owned by T054; this task only needs the monitor lifecycle and a usable linear waterfall.
+
+### FFT dependency
+
+Use KissFFT as the MiniFT8 architecture does.
+
+For T054, do **not** move or refactor the FT8 vendor directory. Since JS8Chat may not depend on FT8 internals, copy the minimal pinned KissFFT source/header set into a JS8-owned private vendor directory if needed:
+
+```text
+apps/js8chat/src/js8_engine/vendor/kissfft/
+```
+
+This temporary duplication is preferable to changing the accepted FT8 engine during initial JS8 bring-up.
+
+Record the copied source provenance. A later post-M1 cleanup may deduplicate the FFT dependency once JS8 is proven.
+
+## Candidate representation
+
+Use a JS8-owned candidate type equivalent in shape to MiniFT8:
+
+```c
+typedef struct {
+    int16_t score;
+    int16_t time_offset;
+    int16_t freq_offset;
+    uint8_t time_sub;
+    uint8_t freq_sub;
+} Js8Candidate;
+```
+
+Do not reuse FT8 types or headers.
+
+Suggested initial bounded policy, matching the existing MiniFT8 resource class:
+
+```text
+candidate capacity       50
+minimum sync score        5
+time search              -10 .. +19 blocks
+```
+
+These are initial implementation policy values, not frozen JS8 protocol facts. T055 may adjust them only with measured WAV evidence.
+
+## Normal Costas search
+
+JS8 Normal uses the original Costas sequence:
+
+```text
+4 2 5 6 1 3 0
+```
+
+at symbol offsets:
+
+```text
+0
+36
+72
+```
+
+Port the MiniFT8 candidate-search architecture and safe waterfall addressing, replacing only the Costas pattern.
+
+The maximum cached score-term count remains 75 for this 3 x 7 sync structure.
+
+Keep candidate search bounded and deterministic.
+
+A synchronous full search API is sufficient for T054. A resumable search cursor may be ported now if doing so is a direct mechanical adaptation of the current FT8 code, but do not add scheduling/application ownership.
+
+## Likelihood extraction
+
+JS8 Normal channel tones are **direct binary 3-bit values**, not FT8 Gray mapped.
+
+For each data tone, use the eight measured tone magnitudes directly:
+
+```text
+tone 0 = 000
+tone 1 = 001
+tone 2 = 010
+tone 3 = 011
+tone 4 = 100
+tone 5 = 101
+tone 6 = 110
+tone 7 = 111
+```
+
+For max-log LLRs with T052 sign convention positive => bit 1:
+
+```text
+bit 0:
+    max(4,5,6,7) - max(0,1,2,3)
+
+bit 1:
+    max(2,3,6,7) - max(0,1,4,5)
+
+bit 2:
+    max(1,3,5,7) - max(0,2,4,6)
+```
+
+Do not use the FT8 Gray table.
+
+Data symbol locations are:
+
+```text
+7..35   -> LDPC codeword bits   0..86
+43..71  -> LDPC codeword bits  87..173
+```
+
+Thus 58 data tones produce exactly 174 LLRs in the same parity-first/information-second ordering accepted by T052.
+
+Use the same waterfall byte-to-dB interpretation and likelihood normalization structure as the current MiniFT8 decoder unless a test demonstrates a JS8-specific requirement:
+
+```c
+dB = byte * 0.5f - 120.0f
+```
+
+Do not add upstream v3.0.3 whitening, soft combining, frequency tracking, timing tracking, signal subtraction, or LDPC-feedback passes in T054. Those are desktop decoder enhancements, not required by the frozen MiniFT8-style architecture.
+
+## CRC / decoded payload boundary
+
+After BP success:
+
+- T052 returns the recovered 87 information bits.
+- `js8_crc12_check()` must pass.
+- Return the first 75 bits as the validated JS8 payload.
+
+Suggested output:
+
+```c
+typedef struct {
+    Js8Candidate candidate;
+    int ldpc_errors;
+    uint8_t payload_bits[JS8_PAYLOAD_BITS];
+} Js8DecodedPayload;
+```
+
+No text/application parsing occurs here.
+
+Distinct decoder status values should distinguish at least:
+
+```text
+OK
+invalid input
+LDPC failure
+CRC failure
+```
+
+## Synthetic end-to-end golden
+
+Add a deterministic host regression that does **not** depend on the real WAV yet.
+
+Use one checked-in T053 upstream-derived 79-tone vector directly as the transmitted symbol source; do not generate the test waveform through `js8_channel_encode()` alone.
+
+Generate synthetic 6 kHz mono float audio with:
+
+```text
+base audio frequency    1000.0 Hz
+tone spacing               6.25 Hz
+symbol duration           160 ms
+79 symbols
+start near JS8 Normal's 500 ms nominal delay
+no noise initially
+bounded amplitude
+```
+
+Prefer a 500 ms start delay in the synthetic stream so timing search is exercised rather than perfectly block-aligned.
+
+Feed the generated samples through `Js8Monitor` in exact 960-sample blocks, obtain the waterfall, search candidates, and attempt decode strongest-first until the expected payload is found.
+
+Acceptance identity is:
+
+```text
+exact 75 payload bits == chosen pinned T053 vector
+CRC passes
+```
+
+Do not assert a permanent exact candidate score/order unless necessary for a local unit invariant.
+
+The test should prove at least one valid candidate decode and exact payload recovery.
+
+## Monitor tests
+
+Add focused tests for:
+
+- requirements/dimensions;
+- insufficient workspace;
+- misaligned workspace;
+- reset-window/reset-stream semantics;
+- two independent instances;
+- waterfall-full status;
+- safe destroy;
+- no heap.
+
+Do not require an FT8 waterfall fingerprint. JS8 owns its own monitor boundary even though the mathematics is intentionally equivalent.
+
+## Decoder tests
+
+Add focused tests for:
+
+- invalid waterfall/candidate arguments;
+- capacity enforcement;
+- minimum-score pruning;
+- exact Normal Costas groups;
+- direct binary likelihood mapping (no Gray);
+- LDPC failure status;
+- CRC failure status where constructible;
+- synthetic 6 kHz end-to-end payload recovery.
+
+## Resource visibility
+
+At test time print or document the baseline host monitor requirements:
+
+```text
+total workspace
+waterfall bytes
+FFT plan bytes
+window/history/scratch bytes
+block stride
+num bins
+```
+
+Do not optimize based on x86 sizes yet.
+
+T054 should demonstrate that the architecture remains in the MiniFT8 resource class. ADV optimization is later.
+
+## Build / architecture enforcement
+
+Extend the existing JS8Chat architecture rule only to recognize private vendor headers under the same `js8_engine` ownership.
+
+Do not permit dependencies on `apps/ft8`.
+
+The JS8 engine remains a no-heap module.
+
+## Non-goals
+
+Do not implement:
+
+- real `A_2_1.wav` decode;
+- WAV parsing;
+- 12 kHz input frontend/decimator;
+- Js8Engine top-level lifecycle wrapper;
+- UTC slot framer;
+- application/message parsing;
+- 12-character text codec;
+- callsigns;
+- CQ/HB/directed commands;
+- Huffman/JSC;
+- conversations;
+- UI;
+- TX scheduling;
+- MiniShell app registration;
+- live UAC;
+- QMX CAT;
+- ADV performance tuning;
+- other JS8 speeds;
+- generic shared FT8/JS8 DSP refactor.
+
+## Acceptance criteria
+
+- [ ] JS8-owned 6 kHz/960-sample monitor implemented with caller-owned workspace.
+- [ ] monitor uses MiniFT8 compact-waterfall architecture, not upstream desktop raw PCM architecture.
+- [ ] Normal Costas candidate search uses exactly `4 2 5 6 1 3 0`.
+- [ ] sync groups are evaluated at symbols 0, 36, and 72.
+- [ ] likelihood extraction uses direct binary tone mapping; no FT8 Gray map.
+- [ ] 174 LLRs preserve parity-first/info-second codeword order.
+- [ ] T052 LDPC decoder is reused.
+- [ ] T052 CRC-12 checker is reused.
+- [ ] successful decoder output is exact 75-bit payload.
+- [ ] deterministic synthetic 6 kHz waveform from a pinned T053 tone vector decodes back to the exact payload.
+- [ ] bounded candidate capacity; no heap.
+- [ ] no mutable DSP singleton.
+- [ ] no FT8 production code changes.
+- [ ] no MiniShell/platform/application dependency.
+- [ ] Linux full CTest passes.
+- [ ] portable CTest passes.
+- [ ] JS8 boundary checks pass.
+- [ ] ASan/UBSan pure JS8 regression passes.
+- [ ] real ADV build remains green.
+- [ ] `git diff --check` passes.
+- [ ] no unrelated cleanup.
+
+No manual/hardware validation is required.
+
+## Automated tests
+
+Run:
+
+```bash
+git status --short
+
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T054-build-unit
+cmake --build /tmp/T054-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T054-build-unit --output-on-failure
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+
+# Run the task-specific synthetic JS8 RX test directly if it has a standalone target.
+
+# ASan/UBSan: compile/run the pure JS8 PHY/monitor/decoder test target with the
+# same sanitizer policy used by T052/T053. Include the private JS8 KissFFT
+# sources when required.
+
+git diff --check
+```
+
+## Branch workflow
+
+Use:
+
+```text
+codex/T054-js8-monitor-decoder
+```
+
+Codex:
+
+1. read AGENTS.md, canonical JS8 docs, T052/T053, and the current FT8 monitor/decoder architecture;
+2. implement a JS8-owned monitor and payload decoder without modifying FT8;
+3. keep Normal mode hard-coded and explicit;
+4. add the synthetic upstream-tone-vector end-to-end regression;
+5. run all required local gates;
+6. set Status to REVIEW;
+7. fill implementation notes including measured workspace sizes;
+8. commit and push one reviewable commit;
+9. return commit SHA;
+10. no PR;
+11. no GitHub Actions wait.
+
+## Codex implementation notes
+
+### Implementation summary
+
+### Files changed
+
+### Invariants preserved
+
+### Local tests run
+
+### Measured resource data
+
+### Manual/hardware validation still required
+
+### Known limitations / risks
+
+### Commit
+
+## Supervisor review
+
+## Architect test result
+
+No manual/hardware validation is required for T054.
