@@ -89,6 +89,23 @@ documented as separate configuration files.
 
 Hardware-specific application settings are allowed. Application meaning remains outside MiniShell; applications request generic services such as Audio or Digital I/O.
 
+## Portable QRP radio scope
+
+MiniShell deliberately limits portable radio operation to five modes:
+
+```text
+CW      Mini-CW
+FT8     MiniFT8 / ft8
+JS8     JS8Chat, Normal speed only
+RTTY    45.45 baud / 170 Hz classic amateur profile
+SSTV    Robot 36 only
+```
+
+This is a protocol-scope freeze, not a feature freeze. New work should deepen
+field usefulness inside these applications rather than add more modes. FT4,
+other JS8 speeds, other SSTV modes, and a sixth radio mode are outside the
+planned MiniShell portable scope.
+
 ## MiniFT8
 
 Read in this order:
@@ -137,11 +154,25 @@ RTTY is defined as a 12-kHz streaming external MiniShell application. The
 current T065 bring-up path is Linux WAV decode; later QMX/WebSDR receive reuses
 the same portable decoder core. ADV deployment remains external `rtty.elf`.
 
-## Other application/research areas
+## JS8Chat and SSTV
+
+Canonical JS8 material lives under:
 
 ```text
-docs/js8/       JS8 DSP research and future JS8Chat project
+docs/js8/
 ```
+
+JS8Chat supports the JS8 **Normal** speed only. Other JS8 speeds are not a
+future roadmap item.
+
+Canonical SSTV architecture:
+
+```text
+docs/SSTV/architecture.md
+```
+
+MiniShell SSTV is a deliberately narrow **Robot 36 RX/TX** portable/POTA image
+application. Martin, Scottie, PD, and other SSTV modes are outside scope.
 
 ## Project records
 
