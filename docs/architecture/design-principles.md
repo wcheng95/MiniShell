@@ -289,6 +289,35 @@ small interfaces
 no accidental dependence on host-only facilities
 ```
 
+## 15. Portable radio scope is deliberately narrow
+
+MiniShell is a QRP portable platform, not a comprehensive desktop digital-mode
+workstation. The planned portable-radio set is closed at five modes:
+
+```text
+CW      Mini-CW
+FT8     MiniFT8
+JS8     JS8Chat, Normal mode only
+RTTY    classic 45.45-baud / 170-Hz profile
+SSTV    Robot 36 only
+```
+
+Do not add protocol variants merely for completeness. In particular, FT4,
+additional JS8 speeds, and additional SSTV modes are not planned.
+
+This is **not** a feature freeze. Improve the five applications when a feature
+makes portable operation better. A mode may gain better UI, logging, radio
+control, robustness, or workflow support without expanding protocol breadth.
+For example, Mini-CW may eventually use ADV as a richer QMX operator front end
+and replace more of the radio's native UI during CW operation.
+
+A new feature should therefore answer:
+
+> Does this make one of the five portable modes simpler, more efficient, or more
+> useful in the field?
+
+Adding another mode is not a project goal.
+
 ## Review question
 
 Before merging a new feature, ask:
