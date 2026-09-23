@@ -12,32 +12,58 @@ new implementation task.
 
 ## Goal
 
-Add SSTV as another portable MiniShell radio application while preserving the same
-architecture boundary used by MiniFT8, Mini-CW, JS8, and RTTY:
+Add SSTV as one of MiniShell's five portable QRP operating modes.
+
+The primary use case is a portable/POTA image QSO rather than a general-purpose SSTV
+workstation:
 
 ~~~text
-audio/file source
+take park photo on iPhone
+    |
+    v
+transfer by WebFS or USB MSC
+    |
+    v
+ADV prepares 320x240 SSTV image
+    |
+    +--> crop/scale
+    +--> overlay:
+    |       CQ POTA AG6AQ
+    |       US-3473
+    |
+    v
+Robot 36 TX through QMX
+    |
+    v
+receive SSTV reply
+    |
+    +--> save image
+    +--> inspect callsign manually
+    +--> manually log QSO
+    |
+    v
+optional QSL-card-style closing image
+~~~
+
+The design should remain small and purpose-driven. MiniShell does not need to become a
+universal SSTV workstation.
+
+The portable software boundary remains:
+
+~~~text
+audio/file/image source
     |
     v
 SSTV application
     |
-    +--> pure portable SSTV RX core
+    +--> pure portable SSTV codec/image core
     |
-    +--> MiniShell Filesystem / Console / future raster Display
+    +--> MiniShell Filesystem / Audio / Display
     |
     v
-Linux runtime module now
-ADV external ELF later
+Linux runtime module for bring-up
+ADV external ELF for field operation
 ~~~
-
-The first useful path is receive-only and file-oriented:
-
-1. Linux WAV decode first.
-2. Validate the decoder against deterministic and independent SSTV test audio.
-3. Add live QMX Audio RX in a later task without changing the decoder core.
-4. Add ADV external-ELF packaging in a later task.
-5. Add live image preview only after MiniShell has a suitable portable raster Display
-   capability.
 
 ## Decision 1 — SSTV is an external application
 
@@ -63,12 +89,12 @@ or
 
 Do not add SSTV to the ADV compiled-in application registry.
 
-SSTV protocol/DSP/image code belongs under apps/sstv/. Platform-specific USB,
-ALSA, FATFS, LCD, ESP-IDF, or board code must not enter the SSTV core.
+SSTV protocol/DSP/image code belongs under apps/sstv/. Platform-specific USB, ALSA,
+FATFS, LCD, ESP-IDF, or board code must not enter the SSTV core.
 
-## Decision 2 — fixed decoder boundary is 12 kHz S16 mono
+## Decision 2 — fixed audio boundary is 12 kHz S16 mono
 
-The portable RX core consumes:
+The portable RX core consumes and the portable TX core produces:
 
 ~~~text
 sample rate:   12000 Hz
@@ -80,73 +106,151 @@ signal:        ordinary real audio
 Reasons:
 
 - MiniShell/QMX already uses a 12 kHz audio path.
-- SSTV signaling occupies roughly the 1100..2300 Hz region, comfortably inside a
-  12 kHz sample rate.
-- Keeping one fixed rate removes resampling from the embedded decoder.
-- Martin M1 timing is intentionally non-integer at 12 kHz, which forces the design
-  to handle fractional timing correctly rather than depending on rounded sample
-  counts.
+- SSTV signaling fits comfortably inside a 12 kHz sample rate.
+- Keeping one fixed rate removes resampling from the embedded codec.
+- Linux tests and ADV use the same audio boundary.
 
 The SSTV core contains no resampler.
 
-A WAV adapter may accept PCM16 or PCM24, mono or stereo, but the WAV sample rate for
-the first implementation must be exactly 12000 Hz. Stereo is downmixed before the
+A WAV adapter may accept PCM16 or PCM24 and mono or stereo, but the WAV sample rate
+for the first implementation must be exactly 12000 Hz. Stereo is downmixed before the
 core.
 
-Live QMX Audio RX later feeds the same 12 kHz S16-mono boundary.
+Live QMX Audio RX/TX later uses the same 12 kHz S16-mono boundary.
 
-## Decision 3 — RX first; TX is outside the initial architecture
+## Decision 3 — Robot 36 is the first operating mode
 
-The first SSTV implementation is decode-only.
+The first complete MiniShell SSTV mode is Robot 36, for both RX and TX.
 
-No SSTV transmit encoder, QMX CAT/PTT sequence, audio TX, or direct RF tone
-generation is part of the first SSTV work.
+Robot 36 is selected because:
 
-TX will be designed separately after RX is operational. This avoids coupling receive
-architecture to an unvalidated transmit path.
+- it is widely supported by phone and desktop SSTV software;
+- its roughly 36-second transmission is practical for portable/POTA use;
+- it produces a useful 320x240 color image;
+- it is already implemented by PicoSSTV, our primary MCU reference;
+- implementing its Y/chroma reconstruction exercises the important embedded codec
+  path without requiring many modes.
 
-## Decision 4 — Martin M1 is the first decoded mode
+Robot 36 is the only mode required for the first field-capable implementation.
 
-The first implementation target is Martin M1:
+Martin M1 is a reasonable later addition, especially as a cross-check against a
+different RGB-family protocol. Scottie and PD modes remain optional. Mode count is not
+a goal by itself.
+
+## Decision 4 — SSTV is a POTA image-QSO application
+
+The intended exchange is deliberately simple:
+
+1. Operator transfers a park photograph to ADV.
+2. ADV prepares a transmit image with callsign and POTA reference.
+3. Operator calls CQ using SSTV.
+4. A received reply containing a recognizable callsign is sufficient for the operator
+   to log the contact manually.
+5. A QSL-card-like closing exchange may be sent when desired.
+
+Automatic callsign recognition, automatic ADIF logging, or a mandatory closing image
+is not required.
+
+The software must not require a QSL-card exchange for a valid operating workflow.
+
+## Decision 5 — canonical working image is 320x240
+
+The first implementation uses a 320x240 RGB working image.
+
+The iPhone source image does not need to be pre-sized exactly. ADV owns the final image
+preparation step:
 
 ~~~text
-VIS:             44 / 0x2C
-image:           320 x 256
-color order:     Green -> Blue -> Red
-sync:            1200 Hz, 4.862 ms
-porch/separator: 1500 Hz, 0.572 ms
-one color scan:  146.432 ms
-pixel time:      457.6 us
-video mapping:   1500 Hz black .. 2300 Hz white
+source JPEG/PNG
+    -> choose/crop 4:3 region
+    -> scale to 320x240
+    -> add text overlay
+    -> save prepared image
+    -> transmit
 ~~~
 
-Martin M1 is a good first target because:
+This keeps phone-side preparation minimal and makes the on-air image deterministic.
 
-- it is widely supported;
-- its RGB/GBR organization is simpler than Robot Y/chroma reconstruction;
-- 320-pixel rows fit a very small line-buffer architecture;
-- it exercises all important SSTV problems: VIS, frequency demodulation, fractional
-  pixel timing, horizontal sync, clock/slant error, and long-duration streaming.
-
-The architecture must be mode-table driven from the beginning. Martin M1 is the only
-mode required by the first implementation, but adding another mode must not require
-rewriting the audio demodulator, VIS detector, image sink, or application shell.
-
-Expected later mode order:
+The first overlay is intentionally simple:
 
 ~~~text
-Martin M1
-Robot 36
-Scottie S1
-PD120
-then additional modes as useful
+CQ POTA AG6AQ
+US-3473
 ~~~
 
-This is a roadmap, not an implementation commitment.
+The park reference is runtime data, not compiled into the application.
 
-## Decision 5 — mode descriptions are data, not duplicated decoders
+Future optional metadata may include UTC, band, or a short caption, but the MVP does
+not require it.
 
-Use a static mode descriptor/table for protocol timing and image organization.
+## Decision 6 — source images arrive through existing MiniShell file paths
+
+The normal portable source is a photo taken on iPhone and transferred to ADV using an
+existing MiniShell mechanism:
+
+- WebFS; or
+- USB MSC.
+
+Do not add a camera subsystem to SSTV.
+
+Suggested storage ownership:
+
+~~~text
+/flash/sstv/
+    inbox/          transferred source images
+    tx/             prepared 320x240 images
+    rx/             received images
+    qsl/            optional reusable closing/QSL images
+~~~
+
+Exact filenames and retention policy belong to implementation tasks.
+
+## Decision 7 — BMP is the authoritative prepared/received image
+
+The authoritative SSTV image copy is a file, not LCD RAM and not an ESP32 framebuffer.
+
+For the first implementation, use uncompressed BMP where practical because it permits
+simple bounded-memory row access and deterministic tests.
+
+The file copy is authoritative:
+
+~~~text
+BMP/file image = persistent truth
+LCD controller GRAM = disposable display cache
+ESP32 SRAM = small working buffers only
+~~~
+
+If the display is reset, another MiniShell app takes over the LCD, or LCD contents are
+lost, the image can be reconstructed from the file without affecting the SSTV codec.
+
+JPEG/PNG decoding may be supported for transferred source photographs, but the SSTV
+codec must not depend on JPEG/PNG compression libraries internally.
+
+## Decision 8 — image processing and SSTV codec are separate layers
+
+Keep three distinct layers:
+
+~~~text
+image pipeline
+    load / crop / scale / text overlay
+
+SSTV codec
+    Robot 36 encode / decode
+    VIS / timing / tone mapping
+
+application/UI
+    file selection / RX / TX / image viewer / operator controls
+~~~
+
+The SSTV codec receives or emits scanlines/components. It does not know how the source
+photo was cropped or how the UI selected the file.
+
+This separation also allows later QSL templates or another SSTV mode without changing
+the core DSP.
+
+## Decision 9 — mode descriptions are data, not duplicated decoders
+
+Use static mode descriptors/tables for protocol timing and image organization.
 
 Conceptually each mode supplies:
 
@@ -158,8 +262,8 @@ line organization
 sync location and duration
 porch/separator durations
 scan durations
-channel/component order
-pixel count per scan
+component order
+pixel/component counts
 ~~~
 
 The generic receiver owns:
@@ -171,20 +275,20 @@ frequency-offset correction
 sync detection
 fractional sample clock
 line clock/slant tracking
-pixel sampling
+pixel/component sampling
 image-sink calls
 ~~~
 
-Mode-family code owns only the reconstruction rules that genuinely differ, for
-example GBR versus Robot Y/R-Y/B-Y.
+Mode-family code owns only reconstruction rules that genuinely differ, such as Robot
+Y/chroma handling versus Martin RGB/GBR handling.
 
 Do not implement one unrelated decoder state machine per SSTV mode.
 
-## Decision 6 — streaming frequency demodulation; no FFT dependency
+## Decision 10 — streaming frequency demodulation; no FFT dependency
 
 SSTV is treated as a continuously varying audio-frequency signal.
 
-The preferred portable demodulator is:
+The preferred portable RX demodulator is:
 
 ~~~text
 12 kHz real PCM
@@ -195,9 +299,6 @@ The preferred portable demodulator is:
     -> instantaneous-frequency stream + confidence
 ~~~
 
-The nominal video center is 1900 Hz, with useful image tones at 1500..2300 Hz.
-VIS/sync detection also needs 1100, 1200, 1300, and 1900 Hz recognition.
-
 The implementation may use floating point first. Optimize only if ADV measurement
 shows it is necessary.
 
@@ -206,46 +307,32 @@ dependency. Do not require an FFT waterfall to decode SSTV.
 
 The demodulator must be causal and bounded-memory.
 
-## Decision 7 — VIS is the normal acquisition path
+## Decision 11 — VIS is the normal acquisition path
 
 Normal receive state flow:
 
 ~~~text
 HUNT
-  -> 1900-Hz leader
-  -> 1200-Hz break
-  -> leader
-  -> VIS start/data/parity/stop
+  -> leader/break sequence
+  -> VIS
   -> supported mode
   -> image receive
   -> complete / reacquire
 ~~~
 
-VIS decode uses the standard tone meanings:
+The receiver validates the VIS framing/parity before accepting the mode.
 
-~~~text
-VIS 1:  1100 Hz
-sync:   1200 Hz
-VIS 0:  1300 Hz
-leader: 1900 Hz
-~~~
+An unsupported but valid VIS code should be reported cleanly rather than decoded with
+guessed timing.
 
-The receiver validates start/stop and parity before accepting the mode.
+A force-mode test option may exist for damaged or synthetic test vectors, but normal
+portable operation uses VIS.
 
-The first implementation may provide an explicit Martin-M1 force option for damaged
-or synthetic headers, but automatic VIS detection is the normal path.
-
-An unsupported but valid VIS code should be reported cleanly rather than decoded
-with guessed timing.
-
-## Decision 8 — calibrate frequency offset from known SSTV tones
+## Decision 12 — frequency offset and timing are continuously corrected
 
 Real SSB reception can shift the whole SSTV audio spectrum when tuning is slightly
-off. A decoder that assumes exact 1500/2300-Hz video tones will introduce brightness
-and color errors.
-
-The receiver therefore maintains one small frequency-offset estimate derived from
-known protocol tones, primarily the 1900-Hz leader and 1200-Hz sync pulses.
+off. The receiver therefore maintains a small frequency-offset estimate derived from
+known protocol tones.
 
 Conceptually:
 
@@ -253,78 +340,57 @@ Conceptually:
 corrected_hz = measured_hz - offset_hz
 ~~~
 
-This is a global/slow correction, not a complex AFC loop.
-
 The same corrected frequency stream feeds VIS and image decoding.
 
-## Decision 9 — all timing is fractional and cumulative
+All protocol timing is cumulative/fractional. Never round each pixel, component, or
+segment independently when the nominal duration is not an integer number of 12 kHz
+samples.
 
-At 12 kHz, Martin M1 durations are not integer sample counts. For example one pixel
-is approximately 5.4912 samples.
+Horizontal synchronization closes the line timing loop. The decoder tracks predicted
+versus observed sync position and applies slow line-period/sample-clock correction to
+avoid image slant.
 
-Never round every pixel or segment independently.
+One missed sync may be bridged from predicted timing. Repeated invalid sync eventually
+terminates the image or returns to acquisition.
 
-Use a fractional sample/time accumulator, or an equivalent cumulative-time
-representation, so timing is derived from absolute/cumulative positions.
+## Decision 13 — no full-resolution image framebuffer in ESP32 SRAM
 
-Pixel values are sampled/integrated over their fractional windows. The exact
-interpolation/filter implementation may be selected during the first implementation
-task, but it must not collapse the protocol onto integer samples per pixel.
+ADV/Cardputer has no PSRAM. SSTV must not depend on a 320x240 RGB/RGB565 framebuffer in
+ESP32 SRAM.
 
-## Decision 10 — horizontal sync closes the timing loop
+A 320x240 RGB565 buffer alone would consume 153600 bytes, so the normal architecture
+uses only small line/component/work buffers.
 
-VIS identifies the mode; it does not provide enough timing stability for an
-approximately two-minute image.
-
-For Martin M1, every line's 1200-Hz sync pulse is used to correct line phase and
-slow sample-clock/slant error.
-
-The decoder maintains:
+RX conceptually operates as:
 
 ~~~text
-predicted next sync position
-observed sync position
-line phase error
-slow line-period / sample-clock correction
+audio
+    -> decode current Robot component/line
+    -> reconstruct completed image row(s)
+    -> write persistent BMP
+    -> write display path
+    -> reuse working buffers
 ~~~
 
-Use a small tracking loop or equivalent bounded estimator. Do not require storing the
-whole raw audio transmission and re-rendering it later.
-
-If one sync pulse is missed, the decoder may continue briefly from the predicted line
-clock. Repeated missing/invalid sync eventually terminates the image or returns to
-acquisition.
-
-This is intentionally a streaming slant-correction architecture.
-
-## Decision 11 — no full-resolution image framebuffer in the core
-
-ADV/Cardputer has no PSRAM, so the architecture must not depend on a complete
-320x256 RGB framebuffer.
-
-For Martin M1, keep only the current row's component data:
+TX conceptually operates as:
 
 ~~~text
-G[320]
-B[320]
-R[320]
+prepared BMP
+    -> read required row/component data
+    -> Robot 36 encoder
+    -> 12 kHz S16 audio
 ~~~
 
-plus small DSP/timing state.
+Future modes may require a small number of line buffers for chroma reconstruction, but
+still no whole-image ESP32 framebuffer.
 
-After the red scan completes, combine the three channels into one RGB row, pass that
-row to an image sink, and reuse the buffers for the next line.
+Linux should exercise the same bounded-memory model rather than taking advantage of a
+desktop-sized full-image allocation inside the codec.
 
-This keeps the core suitable for ADV and also makes Linux exercise the embedded
-memory model.
+## Decision 14 — image output uses a sink interface
 
-Future Robot/PD modes may require a small number of line buffers for chroma
-reconstruction, but still no whole-image buffer.
-
-## Decision 12 — image output uses a sink interface
-
-The decoder core does not know about BMP files, Linux windows, Cardputer LCDs, or
-WebFS.
+The decoder core does not know about BMP files, Linux windows, Cardputer LCDs, WebFS,
+or USB MSC.
 
 It emits metadata and completed RGB scanlines to an image sink:
 
@@ -334,110 +400,166 @@ row(y, RGB data)
 end(status)
 ~~~
 
-This separation permits the same core to drive:
+The same decoded row may feed more than one sink.
 
-- a file writer;
-- a future MiniShell raster Display sink;
-- tests that capture rows in memory;
-- optional future network/export sinks.
+Expected sinks include:
 
-## Decision 13 — first persistent image format is uncompressed 24-bit BMP
+- persistent BMP/file sink;
+- ADV LCD/display sink;
+- tests that capture selected rows;
+- optional future export/network sinks.
 
-For the first Linux WAV decoder, write an uncompressed 24-bit BMP.
+## Decision 15 — use LCD controller GRAM as the ADV display-side image cache
 
-Use top-down BMP row order so completed SSTV rows can be written sequentially as they
-arrive. No full image buffer is needed.
+ADV's visible LCD is 240x135 while the ST7789-class controller has substantially more
+internal frame memory.
 
-Reasons for BMP rather than PNG/JPEG in the first implementation:
+The SSTV display path should exploit controller GRAM rather than allocate a second
+full image in ESP32 SRAM.
 
-- trivial bounded-memory writer;
-- no compression library;
-- widely viewable;
-- deterministic output for tests;
-- maps directly from RGB scanlines.
-
-PNG/JPEG may be added later only if there is a practical reason.
-
-Initial file-oriented command shape:
+During RX or image preparation:
 
 ~~~text
-sstv <input.wav> <output.bmp>
+completed image data
+    +--> persistent BMP
+    +--> LCD controller GRAM
 ~~~
 
-No live Audio endpoint or CAT option belongs in the first SSTV task.
+The intent is to write the image into controller RAM once while it is being produced.
+Arrow-key browsing should then move a 240x135 viewport over the stored 320x240 image
+without rebuilding the image in ESP32 RAM.
 
-## Decision 14 — current MiniShell Display API is intentionally insufficient
+Controls:
 
-MiniShell API v3 currently exposes text Display operations only. SSTV must not call
-Cardputer/M5Stack/ESP-IDF graphics APIs directly to work around that boundary.
+~~~text
+Left / Right    pan horizontally
+Up   / Down     pan vertically
+~~~
 
-Therefore the first SSTV implementation has no graphical MiniShell preview.
+For a 320x240 source and 240x135 visible area, the conceptual viewport origin is:
 
-A later independent runtime task should add a portable raster Display capability.
-The required shape is scanline/span oriented, not a mandatory full framebuffer.
-SSTV should be able to submit RGB565 or equivalent pixel spans incrementally so the
-ADV provider can draw the image without allocating a full source image.
+~~~text
+x = 0 .. 80
+y = 0 .. 105
+~~~
 
-The SSTV core must not need modification when that future Display sink is added.
+Exact ST7789 register mapping, rotation, offsets, and whether both axes can be moved
+purely through controller addressing/scroll state are hardware-driver validation
+items. The architecture requirement is:
 
-## Decision 15 — ADV preview will be downscaled while streaming
+- use controller GRAM as display-side storage where possible;
+- do not allocate a 153600-byte ESP32 framebuffer merely for viewing;
+- do not make LCD readback part of the normal image-storage architecture;
+- keep the BMP/file copy authoritative.
 
-When raster Display support exists, ADV preview should be produced incrementally from
-decoded rows.
+If one pan direction ultimately needs data to be reissued because of controller
+scanout limitations, that is a display-provider detail and must not change the codec
+or persistent-image architecture.
 
-Do not allocate a 320x256 display framebuffer just to scale it to the Cardputer
-screen.
+## Decision 16 — TX is streaming and does not need a synthesized whole-audio buffer
 
-The preview sink may:
+The Robot 36 encoder reads prepared image data incrementally and emits 12 kHz S16 mono
+audio incrementally.
 
-1. map source rows to destination rows;
-2. scale 320 source pixels to the available display width;
-3. convert RGB888 row data to the Display provider's portable raster format;
-4. draw/present incrementally.
+Do not build the complete approximately 36-second waveform in RAM.
 
-The saved BMP remains full decoded resolution.
+The TX core owns protocol tone/timing generation. QMX CAT/PTT and physical audio output
+belong to the MiniShell/application adapter.
 
-## Decision 16 — Linux WAV bring-up must mirror the future live path
+The TX path should eventually follow the same ownership model already established by
+other MiniShell radio applications:
 
-First implementation flow:
+~~~text
+prepared image
+    -> SSTV encoder
+    -> MiniShell Audio TX
+    -> QMX
+~~~
+
+Physical TX state, pause/resume behavior, and QMX CAT sequencing are integration tasks,
+not SSTV protocol logic.
+
+## Decision 17 — Linux bring-up mirrors ADV
+
+Linux tests should exercise the same codec and bounded-memory paths intended for ADV.
+
+Useful first flows are:
 
 ~~~text
 12 kHz WAV
-    -> WAV streaming adapter
-    -> exact same S16-mono SSTV core used later by Audio RX
-    -> BMP image sink
+    -> Robot 36 decoder
+    -> BMP
 ~~~
 
-Later live flow:
+and:
+
+~~~text
+320x240 BMP
+    -> Robot 36 encoder
+    -> 12 kHz WAV
+~~~
+
+These permit deterministic round-trip and independent-reference tests without QMX or
+ADV hardware.
+
+Later live paths are:
 
 ~~~text
 MiniShell Audio RX (QMX)
-    -> same S16-mono SSTV core
-    -> BMP sink
-    + future raster preview sink
+    -> same decoder
+    -> BMP + display sink
 ~~~
 
-Do not create a special offline NumPy/SciPy decoder that would later be replaced for
-ADV.
+and:
 
-## Expected first implementation boundaries
+~~~text
+prepared BMP
+    -> same encoder
+    -> MiniShell Audio TX (QMX)
+~~~
 
-When SSTV implementation is eventually opened, the approximate ownership should be:
+Do not create a special NumPy/SciPy implementation that is later replaced on ADV.
+
+## Decision 18 — manual logging is sufficient for the first field version
+
+A received SSTV reply does not need OCR or automatic callsign extraction.
+
+If the operator can recognize the remote callsign in the received image, the QSO may
+be logged manually.
+
+Therefore the first field version does not require:
+
+- OCR;
+- callsign database lookup;
+- automatic ADIF creation;
+- automatic POTA upload;
+- automatic QSL-card generation.
+
+Those features may be considered later only if field operation demonstrates a real
+need.
+
+## Expected implementation boundaries
+
+When SSTV implementation is eventually opened, approximate ownership should be:
 
 ~~~text
 apps/sstv/
     README.md
     main/
-        application / arguments
+        application / UI
         WAV adapter
-        BMP sink
+        BMP/source-image adapters
+        MiniShell Audio adapter
+        MiniShell Display adapter
     src/
         streaming demodulator
         VIS detector
         timing/sync tracker
         mode table
-        Martin M1 reconstruction
+        Robot 36 reconstruction
+        Robot 36 encoder
         image-sink interface
+        bounded-memory image helpers
 ~~~
 
 Exact filenames are intentionally not fixed by this architecture note.
@@ -445,53 +567,63 @@ Exact filenames are intentionally not fixed by this architecture note.
 The pure src/ layer must not call POSIX, ALSA, ESP-IDF, FreeRTOS, MiniShell
 Filesystem, MiniShell Display, or platform code.
 
-## Future validation strategy
+## Validation strategy
 
-The first implementation task should include deterministic synthetic vectors and at
-least one independently generated/reference SSTV recording.
+The implementation should include deterministic synthetic vectors and independently
+generated/reference SSTV recordings/images.
 
 Required categories should eventually include:
 
-- valid Martin M1 VIS decode;
+- valid Robot 36 VIS decode;
 - parity/header rejection;
 - 12 kHz PCM16 mono WAV;
 - 12 kHz PCM24 stereo WAV adaptation;
-- known gray ramp -> expected frequency/brightness mapping;
-- known RGB bars -> correct G/B/R reconstruction;
-- fractional 457.6-us pixel timing without cumulative shear;
+- known gray/color patterns -> expected reconstruction;
+- Robot alternating chroma handling;
 - small carrier/audio-frequency offset corrected from protocol tones;
 - sample-clock mismatch/slant corrected from repeated line sync;
 - one or more dropped/noisy sync pulses;
-- malformed/unsupported WAV rejection;
-- valid unsupported VIS code reported cleanly;
+- Robot 36 encode timing;
+- independent decoder successfully decodes MiniShell-generated Robot 36 WAV;
+- MiniShell decoder successfully decodes independent Robot 36 WAV;
+- 320x240 BMP round trip;
+- overlay/crop/scale tests separated from modem tests;
 - no whole-file audio buffer;
-- no whole-image framebuffer requirement.
+- no whole-image ESP32 framebuffer requirement.
 
 Internet downloads must not be required by the automated test suite.
 
-## Explicit non-goals for the first SSTV implementation
+## Explicit non-goals for the first field-capable SSTV implementation
 
-- SSTV TX.
-- CAT/PTT.
-- QMX live audio.
-- WebSDR/network capture.
-- ADV ELF packaging.
-- ADV hardware execution.
-- graphical MiniShell UI.
-- MiniShell public API changes.
-- PNG/JPEG compression.
-- all SSTV modes.
-- whole-file FFT processing.
-- whole-image framebuffer.
-- direct Cardputer/LCD access from the application.
-- weak-signal contest-grade DSP.
-- OCR/callsign recognition.
-- image post-processing or denoising.
+- universal SSTV mode support;
+- camera integration;
+- photo editing UI;
+- OCR/callsign recognition;
+- automatic ADIF/POTA logging;
+- mandatory QSL exchange;
+- whole-file FFT processing;
+- whole-audio TX buffer;
+- whole-image ESP32 framebuffer;
+- LCD RAM readback as persistent storage;
+- direct Cardputer/LCD access from the portable codec;
+- image post-processing/denoising beyond crop, scale, and simple text overlay.
 
 ## Reference material
 
-Architecture and protocol decisions were cross-checked against these public
-implementations/references; they are references, not runtime dependencies:
+Architecture and protocol decisions should be cross-checked against public
+implementations/references. They are references, not runtime dependencies.
+
+Primary MCU reference:
+
+- **dawsonjon/PicoSSTV** — primary embedded SSTV reference for MiniShell. PicoSSTV
+  demonstrates standalone microcontroller RX and TX, Martin/Scottie/Robot/SC2/PD mode
+  support, SD-card image storage, image browsing, and a menu-driven UI on RP2040-class
+  hardware. Use it to cross-check Robot 36 timing/reconstruction, bounded-memory
+  encoder/decoder structure, scanline-oriented image handling, and portable UI/storage
+  patterns. MiniShell code should remain independently structured around MiniShell's
+  APIs and ADV constraints.
+
+Additional references:
 
 - JL Barber, N7CXI, "Proposal for SSTV Mode Specifications" ("Dayton paper").
 - unexcellent/sstv: table-driven multi-mode encoder/decoder intended for
@@ -499,12 +631,11 @@ implementations/references; they are references, not runtime dependencies:
 - colaclanth/sstv: file-oriented Martin/Scottie/Robot decoder.
 - F4JTV/sstv_decoder: streaming receive architecture with VIS detection and
   line-sync-based slant correction.
-- JO3ALT/TinySSTV: compact Martin M1 timing reference and ESP32 implementation.
+- JO3ALT/TinySSTV: compact MCU SSTV transmit reference.
 - SSTV Handbook / published VIS tables.
 
-These references should be used to cross-check protocol timing. New MiniShell SSTV
-code should remain independently structured around MiniShell's portable API and
-embedded memory constraints.
+These references should be used to cross-check protocol timing and interoperability,
+not copied into MiniShell as architecture dependencies.
 
 ## Implementation gate
 
@@ -516,10 +647,7 @@ Do not open the implementation task until:
 2. The architect reviews this SSTV architecture after the RTTY experience.
 3. The architect explicitly selects the first SSTV implementation task.
 
-At that point, the first bounded task should be Linux-only:
+At that point the first bounded implementation should stay Linux-oriented and verify
+the portable Robot 36 core with deterministic files before QMX/ADV integration.
 
-~~~text
-12 kHz WAV -> Martin M1 -> 24-bit BMP
-~~~
-
-Everything else remains later work.
+No SSTV code change is authorized by this architecture update.
