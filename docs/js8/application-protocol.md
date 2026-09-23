@@ -46,11 +46,12 @@ MONITOR
 
 ## Compatibility target
 
-- Normal-speed JS8 first.
+- **Normal-speed JS8 is the only MiniShell JS8 speed.**
 - RF interoperability with **JS8Call-improved v3.0.3** is the frozen target.
 - The `v3.0.3` source/tag is the normative implementation reference when written documentation and implementation disagree.
 - Current JS8Call-improved master is a secondary compatibility check only.
-- Additional JS8 speeds can be added after Normal-mode interoperability is proven.
+- Other JS8 speeds are intentionally outside the portable product scope; they
+  are not gated on later Normal-mode success.
 
 ## Physical frame and protocol envelope
 
@@ -541,7 +542,7 @@ ADIF export and network upload are separate later work.
 - large persistent activity database;
 - desktop logbook integration;
 - full JS8Call UI behavior;
-- additional JS8 speeds until Normal-mode interoperability is proven.
+- every JS8 speed other than Normal mode.
 
 ## Remaining validation work
 
