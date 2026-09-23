@@ -922,12 +922,12 @@ Real live run after scheduler correction produced on-air semantic decodes and JS
 Observed records included:
 
 ```json
-{"schema":"js9-activity-v1","event":"DIRECTED","slot":119343251,"elapsed_s":1790148765,"audio_millihz":840625,"tx_flags":3,"score":22,"hard_errors":2,"utc":"2026-09-23T07:32:45Z","dial_hz":7078000,"rf_millihz":7078840625,"from":"KD4E","to":"VO1PAT","command_code":29,"command":" HEARTBEAT SNR","number":-18,"free_text":false,"ack":false,"end73":false}
+{"schema":"js8-activity-v1","event":"DIRECTED","slot":119343251,"elapsed_s":1790148765,"audio_millihz":840625,"tx_flags":3,"score":22,"hard_errors":2,"utc":"2026-09-23T07:32:45Z","dial_hz":7078000,"rf_millihz":7078840625,"from":"KD4E","to":"VO1PAT","command_code":29,"command":" HEARTBEAT SNR","number":-18,"free_text":false,"ack":false,"end73":false}
 {"schema":"js8-activity-v1","event":"HB","slot":119343266,"elapsed_s":1790148990,"audio_millihz":1956250,"tx_flags":3,"score":16,"hard_errors":15,"utc":"2026-09-23T07:36:30Z","dial_hz":7078000,"rf_millihz":7079956250,"call":"NI9D","grid":"EM28","beacon":"HB","subtype":0}
 {"schema":"js8-activity-v1","event":"DIRECTED","slot":119343267,"elapsed_s":1790149005,"audio_millihz":496875,"tx_flags":3,"score":16,"hard_errors":16,"utc":"2026-09-23T07:36:45Z","dial_hz":7078000,"rf_millihz":7078496875,"from":"W9NFG","to":"NI9D","command_code":29,"command":" HEARTBEAT SNR","number":-10,"free_text":false,"ack":false,"end73":false}
 ```
 
 This proves live QMX Audio -> UTC slot scheduling -> JS8 decode -> protocol semantics -> activity JSONL on real RF.
-The first pasted record spells the schema `js9-activity-v1`; current production serializer hard-codes `js8-activity-v1`, so confirm whether that is an actual file byte or a transcription/paste typo before final acceptance.
+Follow-up `grep -n '"schema"'` on the actual file confirmed all three records use `js8-activity-v1`. The earlier `js9-activity-v1` spelling was only a transcription/paste typo; no logger/schema defect exists.
 
 Final 20-slot summary (`drops`, `discontinuities`, `error`) and repeated reopen are still required before COMPLETE.
