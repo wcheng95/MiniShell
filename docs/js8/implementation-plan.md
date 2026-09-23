@@ -1,6 +1,6 @@
 # JS8Chat implementation plan
 
-Status: **READY TO START**
+Status: **FIRST LINUX WAV MILESTONE COMPLETE (T052–T055)**
 
 This document is the implementation roadmap for the frozen JS8Chat v0.1 architecture.
 
@@ -50,7 +50,13 @@ JS8 Normal also uses 79 channel symbols, so the existing MiniFT8 waterfall/candi
 
 The first milestone is deliberately narrow:
 
-> **Decode JS8 Normal test WAV files on Linux through a MiniFT8-style JS8 engine and recover valid JS8 frames/messages.**
+> **Decode JS8 Normal test WAV files on Linux through a MiniFT8-style JS8 engine and recover valid 75-bit JS8 payloads and physical frames.**
+
+T052–T055 completed this milestone. The pinned `A_2_1.wav` produces exactly one
+unique LDPC+CRC-valid payload and physical frame `vTA7BWh1Y7++`; T055 records
+the exact payload, local gates, resource measurements, and accepted pc-1 evidence.
+The physical frame is not decoded application text. T056 adds only envelope
+classification (`DATA_COMPRESSED + LAST`).
 
 No UI, chat state, heartbeat scheduler, JSC storage optimization, radio control, or ADV integration is required for this milestone.
 
@@ -117,7 +123,7 @@ Do **not** refactor the known-good FT8 engine into a generic shared engine befor
 
 ## Milestone 1 stages
 
-### M1A — CRC-12 and LDPC(174,87)
+### M1A — CRC-12 and LDPC(174,87) — COMPLETE (T052)
 
 Implement the JS8 Normal channel-code boundary first.
 
@@ -154,7 +160,7 @@ Acceptance:
 - exact LDPC codeword matches v3.0.3;
 - decode of the same soft/hard vector returns the exact original 75-bit payload.
 
-### M1B — frame/tone encoder vectors
+### M1B — frame/tone encoder vectors — COMPLETE (T053)
 
 Establish the exact over-the-air symbol mapping before audio decoding.
 
@@ -180,7 +186,7 @@ Acceptance:
 
 This encoder is also useful for deterministic synthetic waveform generation and later TX.
 
-### M1C — MiniFT8-style monitor/candidate decoder
+### M1C — MiniFT8-style monitor/candidate decoder — COMPLETE (T054)
 
 Adapt the MiniFT8 receive structure rather than upstream `DecodeMode<ModeA>`.
 
@@ -204,7 +210,7 @@ Only change parameters/algorithms required by JS8 Normal.
 
 The upstream desktop decoder's large raw PCM buffer, giant FFT arrays, Qt objects, FFTW plans, and desktop threading model are explicitly out of scope.
 
-### M1D — exact payload from WAV
+### M1D — exact payload from WAV — COMPLETE (T055)
 
 Before requiring human-readable application text, prove the PHY boundary.
 
@@ -225,7 +231,7 @@ Acceptance:
 - candidate timing/frequency are plausible;
 - no upstream JS8Call DSP library is linked into the MiniShell implementation.
 
-### M1E — Linux `js8_decode` utility
+### M1E — Linux `js8_decode` utility — COMPLETE (T055)
 
 Create a host utility parallel to:
 
@@ -239,7 +245,7 @@ Target usage:
 ./build/js8_decode <normal-mode.wav>
 ```
 
-The first useful parser only needs enough JS8 frame/application decoding to print the expected message(s) from the selected fixture. Full HB, FIRST/LAST, directed chat, Huffman, JSC, compound calls, and conversation state are later stages.
+The completed first parser prints the exact payload, 12-character physical frame, and raw transmission field from the selected fixture. Application message text remains deferred. Full HB, FIRST/LAST, directed chat, Huffman, JSC, compound calls, and conversation state are later stages.
 
 Milestone 1 is complete when:
 
@@ -249,7 +255,7 @@ WAV
  -> LDPC(174,87) passes
  -> CRC-12 passes
  -> exact 75-bit payload matches reference
- -> expected JS8 text/frame is emitted
+ -> expected 12-character physical frame is emitted
 ```
 
 and the host test is automated under CTest.

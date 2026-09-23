@@ -1,5 +1,6 @@
 #include "js8_decoder.h"
 #include "js8_frame.h"
+#include "js8_protocol_frame.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -159,15 +160,20 @@ int main(int argc, char **argv)
         if (j < unique_count) continue;
         memcpy(unique[unique_count++], payload.payload_bits, JS8_PAYLOAD_BITS);
         Js8PhysicalFrame frame;
-        if (js8_frame_unpack(payload.payload_bits, &frame))
+        Js8ProtocolEnvelope envelope;
+        if (js8_frame_unpack(payload.payload_bits, &frame) ||
+            js8_protocol_envelope_decode(payload.payload_bits, &envelope))
             goto cleanup;
         fputs("payload=", stdout);
         for (unsigned b = 0; b < JS8_PAYLOAD_BITS; ++b)
             putchar('0' + payload.payload_bits[b]);
         double hz = req.min_bin * 6.25 + candidates[i].freq_offset * 6.25 +
                     candidates[i].freq_sub * (6.25 / cfg.freq_osr);
-        printf(" type=%u frame=\"%s\" score=%d time=%d/%u freq=%d/%u hz=%.3f hard_errors=%d\n",
-               frame.type, frame.text12, candidates[i].score,
+        /* type is retained as the legacy spelling of raw transmission flags. */
+        printf(" type=%u frame=\"%s\" tx_raw=%u class=%s tx=%s score=%d time=%d/%u freq=%d/%u hz=%.3f hard_errors=%d\n",
+               frame.type, frame.text12, envelope.tx_flags,
+               js8_app_frame_class_name(envelope.app_class), js8_tx_flags_name(envelope.tx_flags),
+               candidates[i].score,
                candidates[i].time_offset, candidates[i].time_sub,
                candidates[i].freq_offset, candidates[i].freq_sub, hz, payload.ldpc_errors);
     }

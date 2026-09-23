@@ -5,10 +5,10 @@
 
 typedef struct {
     char text12[13];
-    uint8_t type;
+    uint8_t type; /* Raw transmission flags, NOT application FrameType. */
 } Js8PhysicalFrame;
 
-/* Physical 12 x 6-bit alphabet words plus 3-bit type, not application text.
+/* Physical 12 x 6-bit alphabet words plus 3 transmission bits, not application text.
  * Input is 75 unpacked 0/1 bits. Both pointers are required and storage must
  * not overlap. Returns 0 on success, -1 on invalid input with output unchanged.
  * LDPC/CRC validation belongs to the caller before presenting received frames.

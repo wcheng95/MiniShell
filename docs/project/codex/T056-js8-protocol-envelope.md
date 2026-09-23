@@ -1,6 +1,6 @@
 # T056 — JS8 protocol envelope and transmission flags
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -290,22 +290,22 @@ Do not implement in T056:
 
 ## Acceptance criteria
 
-- [ ] application class and transmission field are separate concepts
-- [ ] all 8 application-prefix values classify exactly like v3.0.3
-- [ ] all 8 transmission values decode as bit flags
-- [ ] T055 fixture classifies as DATA_COMPRESSED + LAST
-- [ ] js8_decode prints stable class/tx diagnostics
-- [ ] T054 DSP and T055 WAV/frontend behavior unchanged
-- [ ] js8_engine remains pure/no-heap
-- [ ] no FT8 changes
-- [ ] normal Linux CTest passes
-- [ ] portable CTest passes
-- [ ] optional A_2_1 reference regression passes
-- [ ] boundary/no-heap tests pass
-- [ ] ASan/UBSan passes
-- [ ] ADV build remains green
-- [ ] git diff --check passes
-- [ ] no unrelated cleanup
+- [x] application class and transmission field are separate concepts
+- [x] all 8 application-prefix values classify exactly like v3.0.3
+- [x] all 8 transmission values decode as bit flags
+- [x] T055 fixture classifies as DATA_COMPRESSED + LAST
+- [x] js8_decode prints stable class/tx diagnostics
+- [x] T054 DSP and T055 WAV/frontend behavior unchanged
+- [x] js8_engine remains pure/no-heap
+- [x] no FT8 changes
+- [x] normal Linux CTest passes
+- [x] portable CTest passes
+- [x] optional A_2_1 reference regression passes
+- [x] boundary/no-heap tests pass
+- [x] ASan/UBSan passes
+- [x] ADV build remains green
+- [x] git diff --check passes
+- [x] no unrelated cleanup
 
 No manual hardware/RF validation is required.
 
@@ -333,17 +333,118 @@ Codex:
 
 ### Implementation summary
 
+Added a pure Normal protocol-envelope classifier with independent application-prefix
+and transmission-flag fields. Fixed literal naming helpers feed stable host diagnostics;
+legacy `type=` remains the raw transmission field, also printed as `tx_raw=`.
+No deviations from task scope.
+
+Inspected v3.0.3 `JS8_Main/Varicode.h`, `JS8_Main/Varicode.cpp`, and
+`JS8_Mode/DecodedText.cpp`. Enum values and Normal data header handling establish
+000/001/010/011/10X/11X classes independently of FIRST=1, LAST=2, DATA=4.
+`DecodedText` selects an alternate unpacker for DATA; this classifier only reports
+that flag and the Normal prefix, as required, without adding that unpacker.
+
 ### Files changed
+
+- `apps/js8chat/src/js8_engine/js8_protocol_frame.[ch]`: validated pure envelope and names.
+- `apps/js8chat/src/js8_engine/js8_frame.h`: clarify the existing physical type field.
+- `apps/js8chat/tools/js8_decode.c`: append independent envelope diagnostics.
+- `tests/js8_protocol_frame_test.c`, `tests/js8_tests.cmake`: exhaustive prefix/flag
+  cross-product with zero/one middle bits, all existing golden payloads, pinned WAV
+  payload, invalid bits at every position, null arguments, and naming checks.
+- `tests/js8_wav_test.py`, `tests/js8_wav_reference.py`: require stable classification.
+- `docs/js8/application-protocol.md`, `docs/js8/implementation-plan.md`: layer mapping
+  and completed first Linux WAV milestone; frozen product scope unchanged.
+- This task: review handoff and evidence.
 
 ### Invariants preserved
 
+All 75 bits are validated before output writes. Input stays unchanged, invalid input
+leaves output unchanged, and the module has no heap or mutable global state.
+Physical unpacking remains separate. T054 DSP, T055 WAV/frontend, and FT8 code are
+unchanged. No codecs, callsign/command interpretation, state, reassembly, or UI added.
+
 ### Test evidence
+
+All commands passed on 2026-09-22:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# 96/96, including no-heap and boundaries; external WAV not configured.
+
+cmake -S tests/unit -B /tmp/T056-build-unit
+cmake --build /tmp/T056-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T056-build-unit --output-on-failure
+# 19/19.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+# Both PASS.
+
+cmake -S . -B /tmp/T056-build-ref -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T056-build-ref -j"$(nproc)"
+ctest --test-dir /tmp/T056-build-ref -R 'js8.*reference|js8.*A2.*1' --output-on-failure
+# 1/1.
+
+git hash-object ~/projects/js8chat/A_2_1.wav
+# d986a4e5a9cc654dffbfadae73ec35cc9cea1d83
+/tmp/T056-build-ref/js8_decode "$HOME/projects/js8chat/A_2_1.wav"
+
+cmake -S . -B /tmp/T056-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
+  -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T056-build-sanitize -j"$(nproc)" \
+  --target js8_rx_unit js8_phy_unit js8_frame_unit js8_protocol_frame_unit js8_decode
+ctest --test-dir /tmp/T056-build-sanitize \
+  -R '^js8_(phy_unit|rx_unit|frame_unit|protocol_frame_unit|wav_unit|A2_1_reference)$' \
+  --output-on-failure
+# 6/6; executed outside sandbox for LeakSanitizer ptrace compatibility.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS; image 0x151790 bytes, app partition 78% free.
+
+git diff --check
+# PASS.
+```
+
+Exact real-WAV stdout:
+
+```text
+payload=111001011101001010000111001011100000101011000001100010000111111111111111010 type=2 frame="vTA7BWh1Y7++" tx_raw=2 class=data_compressed tx=LAST score=26 time=5/0 freq=57/0 hz=556.250 hard_errors=15
+```
+
+Exact real-WAV stderr:
+
+```text
+candidate=0 score=26 time=5/0 freq=57/0 status=0
+candidate=1 score=14 time=5/0 freq=57/1 status=-2
+candidate=2 score=12 time=18/0 freq=54/0 status=-2
+candidate=3 score=10 time=5/0 freq=56/1 status=-2
+candidate=4 score=10 time=17/0 freq=110/1 status=-2
+blocks=93 ignored_engine_samples=720 candidates=50 ldpc_fail=49 crc_fail=0 valid=1 unique=1
+```
+
+The payload, physical frame, candidate diagnostics and unique count match T055;
+only envelope diagnostics were appended. The external WAV remains untracked outside
+the repository and is not needed for normal CTest.
 
 ### Manual validation still required
 
+None for T056; no hardware/RF acceptance required.
+
 ### Known limitations / risks
 
+Envelope classification does not validate application contents or CRC and cannot
+recover message text. DATA is reported without implementing the alternate unpacker.
+FIRST/LAST are flags only; no reassembly policy is implied.
+
 ### Commit
+
+One reviewable commit on `codex/T056-js8-protocol-envelope` containing this handoff;
+its SHA is returned after push. No PR or Actions wait.
 
 ## Supervisor review
 

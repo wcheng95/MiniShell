@@ -52,6 +52,39 @@ MONITOR
 - Current JS8Call-improved master is a secondary compatibility check only.
 - Additional JS8 speeds can be added after Normal-mode interoperability is proven.
 
+## Physical frame and protocol envelope
+
+The 75-bit PHY payload contains 72 application bits followed by three transmission
+flags. **Physical transmission bits are not application FrameType.** The physical
+12-character representation encodes the 72 application bits; it is not decoded
+message text. In host diagnostics, legacy `type=` and `tx_raw=` both report the
+raw transmission field.
+
+The pinned v3.0.3 [Varicode enums](https://github.com/JS8Call-improved/JS8Call-improved/blob/v3.0.3/JS8_Main/Varicode.h)
+and [Normal data unpacking](https://github.com/JS8Call-improved/JS8Call-improved/blob/v3.0.3/JS8_Main/Varicode.cpp)
+define these independent mappings:
+
+| Application prefix | Application class |
+| --- | --- |
+| `000` | HEARTBEAT |
+| `001` | COMPOUND |
+| `010` | COMPOUND_DIRECTED |
+| `011` | DIRECTED |
+| `100`, `101` | DATA |
+| `110`, `111` | DATA_COMPRESSED |
+
+For the two data families, the third prefix bit belongs to the payload.
+The tail flags are `FIRST=1`, `LAST=2`, and `DATA=4`; zero means none and all
+bitwise combinations are possible. The DATA transmission flag is distinct from
+the DATA application class. Upstream [DecodedText dispatch](https://github.com/JS8Call-improved/JS8Call-improved/blob/v3.0.3/JS8_Mode/DecodedText.cpp)
+uses that flag to select a different data unpacker. T056 only reports it while
+classifying the Normal prefix; it does not implement that unpacker or another mode.
+
+The T055 payload starts with `111` and ends with `010`: physical frame
+`vTA7BWh1Y7++` therefore has application class **DATA_COMPRESSED** and transmission
+flag **LAST**. Envelope classification performs no content decoding or reassembly
+and does not replace LDPC/CRC validation.
+
 ## Required application frame classes
 
 v0.1 requires the frame/application forms needed for:

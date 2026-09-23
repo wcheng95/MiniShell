@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory(prefix='js8-wav-test-') as temp:
         if decoded:
             lines = result.stdout.splitlines()
             assert len(lines) == 1, result.stdout
-            assert lines[0].startswith(f'payload={payload} type=3 frame="CVUJtH2w2sAS" '), result.stdout
+            assert lines[0].startswith(f'payload={payload} type=3 frame="CVUJtH2w2sAS" tx_raw=3 class=compound tx=FIRST|LAST '), result.stdout
             assert 'blocks=93 ignored_engine_samples=720 ' in result.stderr, result.stderr
             assert result.stderr.endswith('unique=1\n'), result.stderr
         return result
