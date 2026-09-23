@@ -4,6 +4,7 @@
 #include "js8_compound.h"
 #include "js8_directed.h"
 #include "js8_huffman.h"
+#include "js8_jsc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -101,6 +102,22 @@ static int read_block(HostWav *wav, float block[JS8_MONITOR_BLOCK_SIZE])
     return 0;
 }
 
+static int jsc_file_read(void *context, uint32_t offset, void *dst, size_t bytes)
+{
+    FILE *file = context;
+    return fseek(file, (long)offset, SEEK_SET) || fread(dst, 1, bytes, file) != bytes ? -1 : 0;
+}
+
+static int jsc_open(FILE **file, Js8JscDictionary *dict)
+{
+    const char *path = getenv("JS8_JSC_DICT");
+    if (!path) path = JS8_JSC_DEFAULT_DICT;
+    *file = fopen(path, "rb");
+    if (!*file) return -1;
+    if (fseek(*file, 0, SEEK_END) || ftell(*file) != 1918009L) return -1;
+    return js8_jsc_dictionary_init(jsc_file_read, *file, 1918009, dict) == JS8_JSC_OK ? 0 : -1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -113,6 +130,9 @@ int main(int argc, char **argv)
         return 1;
     }
     int rc = 1;
+    FILE *jsc_file = NULL;
+    Js8JscDictionary jsc_dict = {0};
+    int jsc_attempted = 0, jsc_ready = 0, jsc_error = 0;
     Js8Monitor monitor = {0};
     Js8MonitorConfig cfg = js8_monitor_baseline_config();
     Js8MonitorRequirements req;
@@ -224,15 +244,43 @@ int main(int argc, char **argv)
                 goto cleanup;
             }
         }
+        if (envelope.app_class == JS8_APP_FRAME_DATA_COMPRESSED) {
+            if (!jsc_attempted) {
+                jsc_attempted = 1;
+                jsc_ready = jsc_open(&jsc_file, &jsc_dict) == 0;
+            }
+            Js8JscData data;
+            Js8JscStatus jsc_status = jsc_ready ?
+                js8_jsc_data_decode(payload.payload_bits, &jsc_dict, &data) : JS8_JSC_BAD_RESOURCE;
+            fputs(" codec=jsc", stdout);
+            if (jsc_status != JS8_JSC_OK) {
+                fputs(jsc_status == JS8_JSC_BAD_PADDING ? " data_error=bad_padding" :
+                      " data_error=resource", stdout);
+                jsc_error = 1;
+            } else {
+                fputs(" data=\"", stdout);
+                for (unsigned n = 0; n < data.text_len; ++n) {
+                    unsigned byte = (unsigned char)data.text[n];
+                    if (byte == '"' || byte == '\\') putchar('\\');
+                    if (byte == '\n') fputs("\\n", stdout);
+                    else if (byte == '\r') fputs("\\r", stdout);
+                    else if (byte == '\t') fputs("\\t", stdout);
+                    else if (byte < 32 || byte == 127) printf("\\u%04x", byte);
+                    else putchar((int)byte);
+                }
+                putchar('"');
+            }
+        }
         putchar('\n');
     }
     fprintf(stderr, "blocks=%u ignored_engine_samples=%u candidates=%zu "
             "ldpc_fail=%zu crc_fail=%zu valid=%zu unique=%zu\n", blocks,
             engine_samples - blocks * JS8_MONITOR_BLOCK_SIZE, count, ldpc_fail, crc_fail, valid, unique_count);
-    rc = ferror(stdout) ? 1 : 0;
+    rc = ferror(stdout) || jsc_error ? 1 : 0;
 cleanup:
     js8_monitor_destroy(&monitor);
     free(memory);
+    if (jsc_file) fclose(jsc_file);
     fclose(wav.file);
     return rc;
 }

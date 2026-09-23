@@ -144,6 +144,40 @@ return selected string
 
 At worst this scans 255 short strings. That cost is insignificant compared with JS8 RF frame time, and a small flash/SD page cache can remove most repeated I/O.
 
+## Implemented RX boundary (T060)
+
+`js8_engine/js8_jsc.[ch]` implements Normal compressed DATA RX through a pure
+caller-supplied `read(context, offset, destination, bytes)` callback. The caller
+owns an immutable resource/context; no filesystem/platform API is called in the
+engine. Initialization validates the frozen JSC1 header; each lookup bounds-checks
+current/next block offsets and record lengths, reading only selected string bytes.
+Resource failures leave output unchanged. Host/test tooling verifies the frozen
+SHA-256; the engine does not implement hashing.
+
+Normal `11` frames use two prefix bits, content, then a zero sentinel followed by
+ones. The final PHY transmission flags are not content. The decoder streams the
+upstream nibble/dense-codeword arithmetic without dynamic vectors or lists, using
+full Latin-1 map strings rather than Tuple.size. The 384-byte text capacity covers
+14 maximum-length entries and separators; overflow is checked before append.
+On the tested Linux ABI dictionary state is 24 bytes, output struct 388 bytes, and
+the largest callback read is the 32-byte header. No index cache is required.
+
+The source-pinned independent oracle first derived the real A_2_1 text as
+**`MSG ID 416`** (Latin-1 hex `4d534720494420343136`). The real-WAV host decode
+matches it exactly. See `tests/js8_jsc_vectors.md` for source hashes, vectors,
+corruption tests, and bounded malformed-input behavior.
+
+Only the Linux host tool provides a FILE adapter. Its build-time default points
+to the checked-in resource regardless of working directory; `JS8_JSC_DICT` can
+override it. It validates the fixed resource size/header and touched record bounds.
+CTest verifies SHA-256 and every record/index; the runtime does not hash overrides.
+A JSC resource error prints `codec=jsc data_error=resource` and causes exit 1 when
+JSC content is encountered, while Huffman and other frame classes remain usable.
+The dictionary is opened lazily and is not needed for a non-JSC capture.
+
+TX prefix/list packing, compression, MiniShell flash/filesystem binding, and final
+ADV partition layout are still pending. This RX step does not freeze that layout.
+
 ## TX lookup strategy
 
 v0.1 follows upstream JS8Call's JSC design:

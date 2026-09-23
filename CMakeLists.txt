@@ -867,6 +867,8 @@ include(tests/js8_tests.cmake)
 
 add_executable(js8_decode apps/js8chat/tools/js8_decode.c)
 target_link_libraries(js8_decode PRIVATE js8_rx_core)
+target_compile_definitions(js8_decode PRIVATE
+    JS8_JSC_DEFAULT_DICT="${CMAKE_SOURCE_DIR}/apps/js8chat/resources/jsc.dict")
 target_compile_options(js8_decode PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME js8_wav_unit COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/js8_wav_test.py $<TARGET_FILE:js8_decode>)
@@ -876,6 +878,10 @@ add_test(NAME js8_directed_wav_unit COMMAND ${Python3_EXECUTABLE}
 add_test(NAME js8_huffman_wav_unit COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/js8_huffman_wav_test.py
     $<TARGET_FILE:js8_decode> $<TARGET_FILE:js8_huffman_unit>)
+add_test(NAME js8_jsc_wav_unit COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_SOURCE_DIR}/tests/js8_jsc_wav_test.py
+    $<TARGET_FILE:js8_decode> $<TARGET_FILE:js8_jsc_unit> ${CMAKE_SOURCE_DIR}
+    $<TARGET_FILE:js8_huffman_unit>)
 set(JS8_A2_1_REFERENCE_WAV "" CACHE FILEPATH "Pinned v3.0.3 media/tests/A_2_1.wav (external)")
 if(JS8_A2_1_REFERENCE_WAV)
     add_test(NAME js8_A2_1_reference COMMAND ${Python3_EXECUTABLE}

@@ -1,6 +1,6 @@
 # T060 — JS8 Normal JSC DATA_COMPRESSED RX
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -457,36 +457,36 @@ Do NOT implement:
 
 ## Acceptance criteria
 
-- [ ] exact v3.0.3 JSC decompression algorithm implemented
-- [ ] DATA_COMPRESSED 11 framing and padding decoded
-- [ ] caller-provided resource read abstraction; no engine fopen/platform I/O
-- [ ] JSC1 header validated structurally
-- [ ] direct map[j] lookup from JSC1 implemented
-- [ ] index 81 returns full @ALLCALL
-- [ ] index 262143 returns full ROSIDS
-- [ ] separators reproduce exact spaces
-- [ ] incomplete/truncated codeword behavior matches upstream valid semantics
-- [ ] corrupt resource/read failures return explicit errors
-- [ ] fixed source-pinned JSC vectors checked in
-- [ ] independent oracle determines A_2_1 text
-- [ ] real A_2_1 WAV prints exact same JSC text
-- [ ] optional A_2_1 regression locks that text
-- [ ] js8_decode uses checked-in resource by default and supports a narrow override
-- [ ] missing JSC resource does not break non-JSC decoding
-- [ ] Huffman DATA behavior unchanged
-- [ ] long-WAV first-window behavior unchanged
-- [ ] T056-T059 semantics unchanged
-- [ ] T054/T055 DSP/WAV unchanged
-- [ ] js8_engine pure/no-heap
-- [ ] no FT8 changes
-- [ ] Linux full CTest passes
-- [ ] portable CTest passes without host filesystem dependency in core tests
-- [ ] external A_2_1 regression passes
-- [ ] boundary/no-heap checks pass
-- [ ] ASan/UBSan passes
-- [ ] ADV build green
-- [ ] git diff --check passes
-- [ ] no unrelated cleanup
+- [x] exact v3.0.3 JSC decompression algorithm implemented
+- [x] DATA_COMPRESSED 11 framing and padding decoded
+- [x] caller-provided resource read abstraction; no engine fopen/platform I/O
+- [x] JSC1 header validated structurally
+- [x] direct map[j] lookup from JSC1 implemented
+- [x] index 81 returns full @ALLCALL
+- [x] index 262143 returns full ROSIDS
+- [x] separators reproduce exact spaces
+- [x] incomplete/truncated codeword behavior matches upstream valid semantics
+- [x] corrupt resource/read failures return explicit errors
+- [x] fixed source-pinned JSC vectors checked in
+- [x] independent oracle determines A_2_1 text
+- [x] real A_2_1 WAV prints exact same JSC text
+- [x] optional A_2_1 regression locks that text
+- [x] js8_decode uses checked-in resource by default and supports a narrow override
+- [x] missing JSC resource does not break non-JSC decoding
+- [x] Huffman DATA behavior unchanged
+- [x] long-WAV first-window behavior unchanged
+- [x] T056-T059 semantics unchanged
+- [x] T054/T055 DSP/WAV unchanged
+- [x] js8_engine pure/no-heap
+- [x] no FT8 changes
+- [x] Linux full CTest passes
+- [x] portable CTest passes without host filesystem dependency in core tests
+- [x] external A_2_1 regression passes
+- [x] boundary/no-heap checks pass
+- [x] ASan/UBSan passes
+- [x] ADV build green
+- [x] git diff --check passes
+- [x] no unrelated cleanup
 
 No RF/hardware validation is required.
 
@@ -521,21 +521,209 @@ Codex:
 
 ### Implementation summary
 
+Implemented pure streaming Normal JSC RX, a caller-owned JSC1 read interface,
+structural header/lookup validation, fixed Latin-1 output, and explicit errors.
+The Linux utility lazily opens the repository dictionary or `JS8_JSC_DICT` override
+and appends escaped JSC text. Missing/corrupt resources produce a stable resource
+error with exit 1 when needed by a JSC frame; non-JSC decoding remains available.
+
+The independent oracle first derived the real A_2_1 text as **`MSG ID 416`** before
+the C decoder was implemented. The real WAV now produces that exact text.
+No scope deviations; bounded malformed-input differences are documented below.
+
 ### Files changed
+
+- `apps/js8chat/src/js8_engine/js8_jsc.[ch]`: pure JSC1 initialization/lookup,
+  streaming dense decompression, bounded output and statuses.
+- `apps/js8chat/tools/js8_decode.c`: FILE adapter, lazy default/override resource,
+  escaped Latin-1 JSC diagnostics and deterministic resource-error exit policy.
+- `tests/js8_jsc_oracle.py`, `tests/js8_jsc_vectors.h`, `tests/js8_jsc_vectors.md`:
+  independent source-pinned oracle, small fixed vectors and provenance.
+- `tests/js8_jsc_test.c`: filesystem-free virtual-reader tests, corrupt resources,
+  independent contexts, malformed codewords, capacity bound, and waveform fixtures.
+- `tests/js8_jsc_wav_test.py`: frozen-resource hash/full structure checks, 21
+  end-to-end vectors, cwd independence, overrides and missing/corrupt-resource tests.
+- `tests/js8_wav_reference.py`: lock real A_2_1 JSC text with the default resource.
+- `tests/js8_tests.cmake`, `CMakeLists.txt`: library/unit/host regression wiring and
+  build-time default dictionary path.
+- `docs/js8/application-protocol.md`, `docs/js8/jsc-dictionary.md`: implemented RX
+  ownership, framing, resource/error contract, verified text and pending TX work.
+- This task: REVIEW handoff and evidence.
 
 ### Invariants preserved
 
+No heap, mutable global state, filesystem/platform calls, dynamic vectors, or
+index/dictionary cache in the engine. Caller owns the immutable resource/context.
+Init validates every frozen header field; lookup validates current/next block
+bounds, each scanned record length, selected bytes and callback success. Reads are
+bounded against resource_bytes before calling the reader. Every error preserves
+caller outputs, including failures after decoding has begun (result is local).
+
+All 75 bits are validated through T056; only 11 content enters JSC. Separators,
+terminal-without-separator, partial nibble, unterminated word and out-of-range index
+match upstream defined RX semantics. Full map strings are used, not Tuple.size.
+The output bound is at most 14 entries plus spaces: conservative 14*(26+1)+1=379
+bytes including NUL fits 384, backed by static assertion and append checks. A test
+with 14 maximum-length strings and 13 spaces returns exactly 377 text bytes.
+
+Malformed-input safety: absent sentinel returns BAD_PADDING. Six continuation
+nibbles already imply base[6]=465010, beyond this map; stop before overflow or the
+upstream base-array overrun possible for even longer malformed sequences. Valid
+codewords and defined out-of-range stops are unchanged. No other behavior deviation.
+
+Huffman, directed/compound/envelope semantics, T054 DSP, T059 whole-RIFF validation,
+phase-0 decimation and first-93-block long-WAV policy remain unchanged. No FT8,
+TX compression/prefix/list, association/reassembly, conversations, UI or ADV
+partition-layout change. The existing JSC1 file/metadata remain byte-for-byte intact.
+
 ### JSC resource / oracle provenance
+
+Frozen source repository/tag: JS8Call-improved/JS8Call-improved v3.0.3.
+SHA-256 pins verified by the independent oracle:
+
+- JSC.cpp: `0f1c974a96fd65e043b1a4dbdb69a9ae43e42dafe81f5f22f196b09596dbcdeb`
+- JSC.h: `3edfda65865dc4ede66730113c1c7250861253d78ed83f17626ce55c79b0f1d8`
+- JSC_map.cpp: `ab2bd62ef594f4629a2c93b6de43f5469b1fd6fe67ebf4d24f915bd11ccef813`
+
+The oracle independently parses upstream map strings and reproduces its two-pass
+nibble/separator decode. Production instead streams bounded state. No production
+MiniShell code or extractor is called by the oracle. Fixed vectors cover all task
+cases plus newline, quote, backslash and non-ASCII Latin-1. Normal tests need no
+upstream checkout and never regenerate the resource.
+
+JSC1 evidence: 1,918,009 bytes; SHA-256
+`ced6b30303f004966b29f7e658e7e60c8933526716b1b85c03384d0e9a417149`.
+Host test tooling enforces this hash and verifies all 1024 block offsets and 262144
+records, max length 26, including index 81 `@ALLCALL` and index 262143 `ROSIDS`.
+Runtime validation is structural, not a SHA implementation; overrides are not hashed.
+Measured Linux dictionary state is 24 bytes, output struct 388 bytes, maximum single
+core callback read 32 bytes. Lookup uses at most two adjacent index entries and
+256 length-byte reads, then the selected string; no 4 KB index cache is needed.
 
 ### First real JSC decode evidence
 
+Independent oracle ran first:
+
+```sh
+python3 tests/js8_jsc_oracle.py /tmp/T060-JSC.cpp /tmp/T060-JSC.h /tmp/T060-JSC_map.cpp > tests/js8_jsc_vectors.h
+```
+
+```text
+A_2_1 independent Latin-1 text: b'MSG ID 416'
+A_2_1 text hex: 4d534720494420343136
+```
+
+The unpadded content has 54 bits and six dictionary words. The pure vectors, host
+synthetic fixture and real WAV all match the independent expected Latin-1 bytes.
+Real-WAV stdout:
+
+```text
+payload=111001011101001010000111001011100000101011000001100010000111111111111111010 type=2 frame="vTA7BWh1Y7++" tx_raw=2 class=data_compressed tx=LAST score=26 time=5/0 freq=57/0 hz=556.250 hard_errors=15 codec=jsc data="MSG ID 416"
+```
+
+Real-WAV stderr:
+
+```text
+candidate=0 score=26 time=5/0 freq=57/0 status=0
+candidate=1 score=14 time=5/0 freq=57/1 status=-2
+candidate=2 score=12 time=18/0 freq=54/0 status=-2
+candidate=3 score=10 time=5/0 freq=56/1 status=-2
+candidate=4 score=10 time=17/0 freq=110/1 status=-2
+blocks=93 ignored_engine_samples=720 candidates=50 ldpc_fail=49 crc_fail=0 valid=1 unique=1
+```
+
+The WAV blob remains `d986a4e5a9cc654dffbfadae73ec35cc9cea1d83`, outside the
+repository and uncommitted. PHY payload/candidate diagnostics are unchanged.
+
 ### Test evidence
+
+Commands/results on 2026-09-22:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Initial run and ordinary full rerun: 102/103; existing linux_serial_unit
+# intermittently failed its PTY write timeout assertion (line 67).
+ctest --test-dir build-linux -R '^linux_serial_unit$' --repeat until-pass:3 --output-on-failure
+# Passed first attempt in this targeted invocation.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --repeat until-pass:3 --output-on-failure
+# Final full run: 103/103, every test passed its first attempt; no repeats needed.
+
+cmake -S tests/unit -B /tmp/T060-build-unit
+cmake --build /tmp/T060-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T060-build-unit --output-on-failure
+# 23/23. Core JSC tests use only a virtual in-memory reader.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+# Both PASS; full CTest includes compiled-library no-heap checks.
+
+cmake -S . -B /tmp/T060-build-ref -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T060-build-ref -j"$(nproc)"
+ctest --test-dir /tmp/T060-build-ref -R 'js8.*reference|js8.*A2.*1' --output-on-failure
+# 1/1, exact MSG ID 416 locked.
+/tmp/T060-build-ref/js8_decode "$HOME/projects/js8chat/A_2_1.wav"
+git hash-object ~/projects/js8chat/A_2_1.wav
+sha256sum apps/js8chat/resources/jsc.dict
+# Hashes match above.
+
+cmake -S . -B /tmp/T060-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
+  -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T060-build-sanitize -j"$(nproc)" \
+  --target js8_rx_unit js8_phy_unit js8_frame_unit js8_protocol_frame_unit js8_compound_unit js8_directed_unit js8_huffman_unit js8_jsc_unit js8_decode
+ctest --test-dir /tmp/T060-build-sanitize \
+  -R '^js8_(phy_unit|rx_unit|frame_unit|protocol_frame_unit|compound_unit|directed_unit|huffman_unit|jsc_unit|wav_unit|directed_wav_unit|huffman_wav_unit|jsc_wav_unit|A2_1_reference)$' \
+  --output-on-failure
+# 13/13 including corruption tests; outside sandbox for LeakSanitizer compatibility.
+
+JS8_JSC_DICT=/tmp/T060-missing-dictionary ctest --test-dir build-linux \
+  -R '^js8_(wav_unit|directed_wav_unit|huffman_wav_unit)$' --output-on-failure
+# 3/3, covering non-JSC classes with no resource.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS; image 0x151790 bytes, app partition 78% free.
+
+python3 tests/js8_jsc_oracle.py /tmp/T060-JSC.cpp /tmp/T060-JSC.h /tmp/T060-JSC_map.cpp > /tmp/T060-regenerated.h
+cmp tests/js8_jsc_vectors.h /tmp/T060-regenerated.h
+# Identical.
+git diff --check
+# PASS.
+```
+
+No serial code/test or gate was changed to address the intermittent unrelated PTY
+failure. Corruption tests cover every header byte, truncated index callback,
+out-of-range/reversed block offsets, record length beyond resource/block bounds,
+length >26, embedded NUL, invalid index, callback failures, independent contexts,
+and unchanged outputs. Host tests exercise missing, empty-path, corrupt and
+truncated resource overrides without modifying the checked-in dictionary.
 
 ### Manual validation still required
 
+After supervisor review, the architect must run on pc-1:
+
+```sh
+./build-linux/js8_decode ~/projects/js8chat/A_2_1.wav
+```
+
+Confirm `codec=jsc data="MSG ID 416"` before marking T060 COMPLETE. No RF/hardware
+acceptance is required; this manual host check remains pending.
+
 ### Known limitations / risks
 
+The core checks structure/bounds, not resource authenticity; frozen SHA identity is
+enforced by test tooling. Caller must keep the resource/context immutable and valid.
+Runtime host overrides receive structural validation only. Unrelated serial PTY
+intermittency is recorded above. JSC TX and prefix/list resources remain pending;
+text fragments have no directed association or reassembly. ADV resource binding and
+partition choices are still deferred.
+
 ### Commit
+
+One reviewable commit on `codex/T060-js8-jsc-rx` containing these notes; SHA returned
+after push. No PR or GitHub Actions wait.
 
 ## Supervisor review
 

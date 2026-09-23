@@ -181,7 +181,8 @@ Normal legacy DATA uses application prefix `10`. Its third bit is the first
 Huffman content bit, so both `100` and `101` envelopes select this decoder.
 The JS8-owned pure Huffman module uses the exact 44-entry v3.0.3 `hufftable` to
 produce uppercase/punctuation text fragments, without escapes or JSC support.
-`11` remains DATA_COMPRESSED and returns a distinct unsupported/compressed status.
+`11` remains DATA_COMPRESSED and returns a distinct compressed status from the
+Huffman module; T060 routes that class separately to JSC.
 
 `packHuffMessage` adds a code only when the resulting application length is
 strictly less than 72. It then appends one zero sentinel followed by enough ones
@@ -207,6 +208,35 @@ block or reads the whole recording into memory. `blocks=` reports processed bloc
 `ignored_engine_samples=` includes every decimated sample beyond those blocks,
 both complete later blocks and the incomplete tail. This is not a sliding-window
 or multi-slot decoder; a signal occurring only after the first window is ignored.
+
+## Normal JSC DATA_COMPRESSED RX (T060)
+
+The pure `js8_jsc` module now decodes Normal `11` DATA_COMPRESSED frames using the
+same last-zero sentinel/trailing-one padding rule as Huffman. Tail PHY flags stay
+metadata. Four-bit nibbles >=7 extend a base-9 codeword; a terminal nibble <7 forms
+the dictionary index with the upstream dense-code base, and its optional separator
+bit appends one space. Partial trailing nibbles, unterminated words, and out-of-range
+indices stop with the previously decoded prefix, matching defined v3.0.3 RX behavior.
+Missing padding and resource failures are explicit errors, without partial output.
+
+A caller-supplied read callback owns JSC1 access; the engine performs no file,
+MiniShell or platform I/O and uses no heap. Each lookup reads only needed offsets,
+lengths and the selected string, without loading the complete index/dictionary.
+The result holds Latin-1 bytes in a 384-byte text buffer (at most 14 entries of
+26 bytes plus separators). The full map strings are used, including `@ALLCALL`
+and `ROSIDS` despite upstream Tuple.size quirks.
+
+The pinned A_2_1 payload independently decodes to **`MSG ID 416`**. The real WAV
+and independent oracle agree exactly. Host diagnostics append
+`codec=jsc data="MSG ID 416"`; quotes, backslashes and control bytes are escaped.
+The host uses the repository dictionary by default and accepts `JS8_JSC_DICT` as
+a path override. A missing/corrupt resource yields `data_error=resource` and exit 1
+if a JSC frame needs it; non-JSC decoding remains available. T059 long-WAV policy
+is unchanged. Resource identity and structural validation are documented in
+`jsc-dictionary.md`.
+
+This is an unassociated text fragment, not a reconstructed conversation message.
+TX JSC compression, prefix/list lookup, codec selection and reassembly remain pending.
 
 ## Required application frame classes
 
