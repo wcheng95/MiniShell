@@ -1,6 +1,6 @@
 # T065 — Linux RTTY WAV decoder
 
-Status: READY
+Status: DRAFT
 
 ## Architect intent
 
