@@ -1,6 +1,6 @@
 # T055 — Linux JS8 Normal WAV decoder
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -479,4 +479,26 @@ T055 now enters TESTING for the architect's manual pc-1 run.
 
 ## Architect test result
 
-Pending manual run of js8_decode ~/projects/js8chat/A_2_1.wav after supervisor review.
+**PASS on pc-1.**
+
+Architect manually ran:
+
+```sh
+./build-linux/js8_decode ~/projects/js8chat/A_2_1.wav
+```
+
+Observed:
+
+```text
+candidate=0 score=26 time=5/0 freq=57/0 status=0
+payload=111001011101001010000111001011100000101011000001100010000111111111111111010 type=2 frame="vTA7BWh1Y7++" score=26 time=5/0 freq=57/0 hz=556.250 hard_errors=15
+candidate=1 score=14 time=5/0 freq=57/1 status=-2
+candidate=2 score=12 time=18/0 freq=54/0 status=-2
+candidate=3 score=10 time=5/0 freq=56/1 status=-2
+candidate=4 score=10 time=17/0 freq=110/1 status=-2
+blocks=93 ignored_engine_samples=720 candidates=50 ldpc_fail=49 crc_fail=0 valid=1 unique=1
+```
+
+This exactly matches the reviewed reference evidence: one unique LDPC+CRC-valid payload, type 2, physical frame `vTA7BWh1Y7++`, score 26, lattice frequency 57/0 (556.250 Hz), and 15 hard errors.
+
+T055 and the first Linux real-WAV JS8 Normal decode milestone are complete.
