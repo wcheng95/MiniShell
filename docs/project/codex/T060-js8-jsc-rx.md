@@ -1,6 +1,6 @@
 # T060 — JS8 Normal JSC DATA_COMPRESSED RX
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -761,4 +761,20 @@ T060 now enters TESTING for the architect's manual pc-1 JSC text check.
 
 ## Architect test result
 
-Pending manual pc-1 A_2_1 JSC text check after supervisor review.
+**PASS on pc-1.**
+
+Architect manually ran:
+
+```sh
+./build-linux/js8_decode ~/projects/js8chat/A_2_1.wav
+```
+
+Observed:
+
+```text
+payload=111001011101001010000111001011100000101011000001100010000111111111111111010 type=2 frame="vTA7BWh1Y7++" tx_raw=2 class=data_compressed tx=LAST score=26 time=5/0 freq=57/0 hz=556.250 hard_errors=15 codec=jsc data="MSG ID 416"
+```
+
+This exactly matches the independently derived v3.0.3 JSC oracle and reviewed reference output.
+
+T060 and the first real DATA_COMPRESSED/JSC text decode milestone are complete.
