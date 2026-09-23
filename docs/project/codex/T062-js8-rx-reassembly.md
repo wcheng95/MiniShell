@@ -1,6 +1,6 @@
 # T062 — Directed free-text RX reassembly
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -473,41 +473,41 @@ Do NOT implement:
 
 ## Acceptance criteria
 
-- [ ] pure fixed-state reassembler added
-- [ ] four concurrent contexts supported
-- [ ] standard free-text DIRECTED+FIRST opens stream
-- [ ] DATA/Huffman and DATA_COMPRESSED/JSC append identically
-- [ ] LAST completes and clears stream
-- [ ] FIRST|LAST header completes empty message
-- [ ] +/-10 Hz frequency matching implemented
-- [ ] nearest/tie behavior deterministic
-- [ ] frequency drift updates stream key
-- [ ] per-slot progression checked
-- [ ] duplicate/stale fragments not appended twice
-- [ ] gaps never produce a valid complete message
-- [ ] stale streams expire after >90 seconds
-- [ ] overflow drops instead of truncating
-- [ ] orphan DATA is explicit
-- [ ] ACK/73 do not open text streams
-- [ ] placeholders remain deferred
-- [ ] pure unit tests cover state machine
-- [ ] --messages host mode added without changing default/T061 output
-- [ ] completed message lines are stable and tested
-- [ ] mixed Huffman/JSC multi-slot message reconstructs exact bytes
-- [ ] four concurrent synthetic streams reassemble correctly
-- [ ] T061 multi-slot behavior unchanged without --messages
-- [ ] T060 A_2_1 default output unchanged
-- [ ] T056-T060 content semantics unchanged
-- [ ] js8_engine remains no-heap/platform-free
-- [ ] no FT8 changes
-- [ ] Linux full CTest passes
-- [ ] portable CTest passes
-- [ ] external A_2_1 regression passes
-- [ ] boundary/no-heap checks pass
-- [ ] ASan/UBSan passes
-- [ ] ADV build green
-- [ ] git diff --check passes
-- [ ] no unrelated cleanup
+- [x] pure fixed-state reassembler added
+- [x] four concurrent contexts supported
+- [x] standard free-text DIRECTED+FIRST opens stream
+- [x] DATA/Huffman and DATA_COMPRESSED/JSC append identically
+- [x] LAST completes and clears stream
+- [x] FIRST|LAST header completes empty message
+- [x] +/-10 Hz frequency matching implemented
+- [x] nearest/tie behavior deterministic
+- [x] frequency drift updates stream key
+- [x] per-slot progression checked
+- [x] duplicate/stale fragments not appended twice
+- [x] gaps never produce a valid complete message
+- [x] stale streams expire after >90 seconds
+- [x] overflow drops instead of truncating
+- [x] orphan DATA is explicit
+- [x] ACK/73 do not open text streams
+- [x] placeholders remain deferred
+- [x] pure unit tests cover state machine
+- [x] --messages host mode added without changing default/T061 output
+- [x] completed message lines are stable and tested
+- [x] mixed Huffman/JSC multi-slot message reconstructs exact bytes
+- [x] four concurrent synthetic streams reassemble correctly
+- [x] T061 multi-slot behavior unchanged without --messages
+- [x] T060 A_2_1 default output unchanged
+- [x] T056-T060 content semantics unchanged
+- [x] js8_engine remains no-heap/platform-free
+- [x] no FT8 changes
+- [x] Linux full CTest passes
+- [x] portable CTest passes
+- [x] external A_2_1 regression passes
+- [x] boundary/no-heap checks pass
+- [x] ASan/UBSan passes
+- [x] ADV build green
+- [x] git diff --check passes
+- [x] no unrelated cleanup
 
 No hardware/RF validation required.
 
@@ -537,21 +537,171 @@ Codex:
 
 ### Implementation summary
 
+Implemented the pure fixed-state reassembler first, then connected it to the
+optional `--all-slots --messages` host mode. A normalized event API owns no codec,
+DSP, filesystem, clock, heap, or singleton state. Four contexts preserve exact
+text bytes, enforce consecutive slot progression, and only emit on valid LAST.
+Status and cleanup masks distinguish incomplete/gap, orphan, duplicate, overflow,
+expiry, replacement, and eviction. No scope deviations.
+
+Reviewed pinned v3.0.3 `buildMessageFrames()` FIRST/LAST assignment,
+`processDecodeEvent.cpp` buffer replacement/append behavior,
+`processBufferedActivity.cpp` LAST/90-second stale removal, and
+`hasExistingMessageBuffer()` frequency drift matching. The task deliberately
+omits desktop forced LAST at 60 seconds and whitespace trimming, while freezing
+nearest-frequency/context-index ties and strict gap detection. Source SHA-256:
+
+```text
+JS8_Main/Varicode.cpp
+2b4a877e7dae1a3fdd9141f4dd8af422185977d2e9363ad23ef6bc1918eaf53a
+JS8_Mainwindow/processDecodeEvent.cpp
+168a7b20765d9a8f46fda2c480f56e4e9cdf3e1e9624bc84edce0d4748b0e270
+JS8_Mainwindow/processBufferedActivity.cpp
+283aabb47b7f03c82abbc6a1a2740d6c4ca8a9d095a19172b7ffd10c4a754d60
+JS8_UI/mainwindow.cpp
+a6cef3f55add36791386eafd75736ce2d84bf578625fb591ec66b5cfe60e04a8
+```
+
 ### Files changed
+
+- `apps/js8chat/src/js8_engine/js8_reassembly.[ch]`: normalized events,
+  caller-owned fixed state, completion output and deterministic result/drop API.
+- `apps/js8chat/tools/js8_decode.c`: optional message mode, exact integer
+  candidate frequency conversion, semantic feed, escaped message output.
+- `tests/js8_reassembly_test.c`: pure state-machine and canary tests.
+- `tests/js8_reassembly_wav_test.py`: synthetic end-to-end message regressions.
+- `tests/js8_multislot_host_test.c`: direct bin/sub-bin conversion checks.
+- `tests/js8_tests.cmake`, `CMakeLists.txt`: portable/Linux unit and host gates.
+- `docs/js8/application-protocol.md`: implemented temporary RX state contract.
+- This task packet: implementation and gate evidence.
 
 ### Invariants preserved
 
+Only standard DIRECTED command 31 + FIRST without placeholders opens a stream.
+FIRST|LAST completes empty text. Both codecs append bytes identically without
+space insertion/removal; transmission flags stay separate from application class.
+Closest frequency within inclusive 10000 mHz wins; matching updates drift and
+exact ties use the lowest stable index. Stalest eviction compares last_slot,
+with the same index tie rule. Four buffers each reserve 1024 bytes including NUL.
+Overflow clears instead of truncating. Duplicate/stale DATA does not append;
+gaps persist until LAST/drop and never become valid messages. Expiry is strictly
+more than six slots, with no synthetic LAST or end-of-file completion.
+
+Default and ordinary all-slots outputs remain unchanged. Existing PHY, CRC,
+LDPC, codecs, resource callback, RIFF validation and T061 geometry/dedupe are
+unchanged. No FT8 changes, compound association, buffered commands, persistent
+conversations, platform integration, UI, auto-replies or TX were added.
+
 ### Reassembly/state-machine evidence
+
+The pure portable test covers every status, all four concurrent streams,
+nearest/tied matches, exact +/-10000 mHz boundaries, drift, FIRST replacement,
+deterministic full-table eviction, duplicates/out-of-order events, gaps, expiry
+at >90 seconds, ignored commands 0..30, missing FIRST, both placeholder fields,
+empty LAST, 1023-byte capacity and overflow, exact embedded-NUL bytes, invalid
+arguments without state/output mutation, and surrounding state/output canaries.
+Extreme signed frequencies and non-wrapping UINT32_MAX slots are tested.
+
+Measured on the Linux build:
+
+```text
+Js8RxReassembly = 4272 bytes
+Js8RxContext    = 1068 bytes (including 1024-byte text storage)
+Js8RxMessage    = 1064 bytes
+js8_reassembly.c.o: text=1842 data=0 bss=0 bytes
+```
+
+The compiled no-heap gate covers the new source through `js8_phy_core`.
 
 ### Multi-slot host evidence
 
+Fixtures use fixed accepted T058/T059/T060 application bits; test-only code alters
+only final TX flags and uses the existing PHY encoder for waveform generation.
+Representative exact completed lines:
+
+```text
+message from=AG6AQ to=K1ABC first_slot=0 last_slot=1 hz=1000.000 text="HELLO WORLD"
+message from=AG6AQ to=K1ABC first_slot=0 last_slot=2 hz=1000.000 text="HELLOMSG ID 416"
+message from=AG6AQ to=K1ABC first_slot=0 last_slot=2 hz=696.875 text="HELLOMSG ID 416"
+```
+
+Four simultaneous audio streams at 600/750/900/1050 Hz independently complete
+with the four distinct accepted header address pairs and expected texts. Host
+fixtures also cover orphan LAST, missing middle slot, out-of-range drift,
+replacement, empty FIRST|LAST, expiry, ACK/73/placeholders, escaped quotes/newline,
+and repeated identical payloads across slots. A 32-slot overflow fixture retains
+all 32 raw frame lines and reports `slot=31 reassembly=overflow`, with no complete
+message. Same-slot duplicate semantics are exercised directly in the pure unit
+because T061 raw dedupe intentionally filters those before host semantic feed.
+
+Every message fixture compares its raw stdout and original stderr against the
+same WAV without `--messages`; only added message/reassembly lines differ.
+`cmp` also matches both stdout and stderr against saved T060 default and T061
+all-slots A_2_1 evidence. The external WAV hash is still
+`d986a4e5a9cc654dffbfadae73ec35cc9cea1d83`; no WAV is committed.
+
 ### Test evidence
+
+Commands (all local):
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T062-build-unit
+cmake --build /tmp/T062-build-unit -j8
+ctest --test-dir /tmp/T062-build-unit --output-on-failure
+
+cmake -S . -B /tmp/T062-build-ref -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T062-build-ref -j8 --target js8_decode
+ctest --test-dir /tmp/T062-build-ref -R "js8.*reference|js8.*A2.*1" --output-on-failure
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+
+cmake -S . -B /tmp/T062-build-sanitize -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T062-build-sanitize -j8 --target js8_rx_unit js8_phy_unit js8_frame_unit js8_protocol_frame_unit js8_compound_unit js8_directed_unit js8_huffman_unit js8_jsc_unit js8_reassembly_unit js8_decode js8_multislot_host_unit
+ctest --test-dir /tmp/T062-build-sanitize -R '^js8_(phy_unit|rx_unit|frame_unit|protocol_frame_unit|compound_unit|directed_unit|huffman_unit|jsc_unit|reassembly_unit|wav_unit|directed_wav_unit|huffman_wav_unit|jsc_wav_unit|multislot_host_unit|multislot_wav_unit|reassembly_wav_unit|A2_1_reference)$' --output-on-failure
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+git diff --check
+```
+
+- Linux full CTest: 107/107 passed on the first full run.
+- Portable CTest: 24/24 passed, including the pure reassembler.
+- External A_2_1 regression: 1/1 passed, exact default and all-slots output.
+- Dependency/platform boundary and compiled no-heap checks: passed.
+- ASan/UBSan: 17/17 passed, including JSC corruption and message WAV tests;
+  executed outside the sandbox for LeakSanitizer.
+- ADV build: passed, image `0x151790` bytes, 78% app partition free. This task
+  does not add live ADV integration.
+- `git diff --check`: passed.
+
+The initial focused host test found a missing-filename CLI case
+(`--all-slots --messages`) returning file-open error instead of usage. Fixed the
+argument check; the focused suite and subsequent full Linux run pass unchanged
+assertions. No tests were weakened.
 
 ### Manual validation still required
 
+None required. Optional aligned WebSDR `--all-slots --messages` testing remains
+for the architect after review. No hardware/RF, PR, or GitHub Actions wait gate.
+
 ### Known limitations / risks
 
+The host relies on T061's exact sample-zero alignment and complete slots.
+Frequency proximity and slot continuity are the available association evidence;
+there is no on-air sequence number or collision recovery in this bounded layer.
+T061 exact-payload dedupe within a slot is preserved, including its treatment of
+identical simultaneous raw payloads. Compound placeholders and non-free-text
+commands stay deferred. Unfinished messages at end of capture are not emitted.
+
 ### Commit
+
+One reviewable commit on `codex/T062-js8-rx-reassembly`; the exact SHA is returned
+in the Codex handoff (this task packet belongs to that commit).
 
 ## Supervisor review
 

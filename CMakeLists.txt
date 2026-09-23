@@ -891,6 +891,9 @@ add_test(NAME js8_multislot_host_unit COMMAND js8_multislot_host_unit)
 add_test(NAME js8_multislot_wav_unit COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/js8_multislot_wav_test.py
     $<TARGET_FILE:js8_decode> $<TARGET_FILE:js8_multislot_host_unit> ${CMAKE_SOURCE_DIR})
+add_test(NAME js8_reassembly_wav_unit COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_SOURCE_DIR}/tests/js8_reassembly_wav_test.py
+    $<TARGET_FILE:js8_decode> $<TARGET_FILE:js8_multislot_host_unit> ${CMAKE_SOURCE_DIR})
 set(JS8_A2_1_REFERENCE_WAV "" CACHE FILEPATH "Pinned v3.0.3 media/tests/A_2_1.wav (external)")
 if(JS8_A2_1_REFERENCE_WAV)
     add_test(NAME js8_A2_1_reference COMMAND ${Python3_EXECUTABLE}

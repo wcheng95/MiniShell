@@ -57,6 +57,15 @@ int main(int argc, char **argv)
                 workspace_allocations, dictionary_opens, stream_resets);
         return result;
     }
+    Js8MonitorRequirements req = {0};
+    Js8MonitorConfig cfg = js8_monitor_baseline_config();
+    Js8Candidate candidate = {0};
+    req.min_bin = 32; candidate.freq_offset = 79; candidate.freq_sub = 1;
+    assert(candidate_millihz(&req, &cfg, &candidate) == 696875);
+    candidate.freq_offset = -1;
+    assert(candidate_millihz(&req, &cfg, &candidate) == 196875);
+    req.min_bin = 0;
+    assert(candidate_millihz(&req, &cfg, &candidate) == -3125);
     assert(full_slots(179999) == 0 && full_slots(180000) == 1);
     assert(full_slots(720000) == 4 && full_slots(1440000) == 8);
     assert(full_slots(1441234) == 8 && 1441234 % HOST_SLOT_INPUT_SAMPLES == 1234);

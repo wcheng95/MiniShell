@@ -420,25 +420,58 @@ MiniShell owns audio, keyboard/display, filesystem/logging, radio/platform servi
 
 GPS-backed MiniShell time is expected to keep slot timing accurate. JS8Chat uses that time source for JS8 Normal scheduling. The decoder may estimate received timing offset, but v0.1 does not require cloning the full desktop manual drift-control UI.
 
-## Receive stream state
+## Directed free-text receive state (T062)
 
-Multi-frame receive reassembly is separate from the persistent per-peer conversation model. Continuation data does not repeat all addressing information, so the receiver needs temporary RF stream state to associate continuation frames with the directed message that started them.
+The pure `js8_reassembly` module accepts normalized standard DIRECTED headers and
+successfully decoded DATA text. FIRST belongs to the first logical frame,
+normally the DIRECTED free-text header (command 31); LAST belongs to the final
+logical frame, normally the last DATA fragment. FIRST|LAST on a free-text header
+completes an empty message. ACK, 73, other commands, and `<....>` placeholders do
+not open text streams.
 
-The natural discriminator is primarily RX audio-frequency offset plus timing/addressing context.
+Four caller-owned contexts each contain a 1024-byte temporary text buffer,
+including NUL. Both Huffman DATA and JSC DATA_COMPRESSED append identical decoded
+bytes with no whitespace changes. No codec, DSP, resource, heap, platform, or
+clock access occurs inside this layer. This is temporary RF state; persistent
+conversation history and UI remain separate and unimplemented.
 
-An MCU implementation can use a very small fixed table, for example 4-8 temporary contexts:
+Association chooses the closest latest frequency within inclusive +/-10 Hz,
+with the lowest context index winning ties. The host computes integer milli-Hz
+from candidate bin/sub-bin fields, without rounding a floating-point diagnostic.
+A match updates the stored frequency. FIRST replaces a matching context,
+otherwise uses the first free context or evicts the oldest last-slot context
+(lowest index on ties).
 
-```text
-frequency
-destination/source context
-last-frame time
-message buffer state
-FIRST/LAST state
+DATA at or before the last accepted slot is a duplicate/stale event and does not
+append. A gap between consecutive 15-second slots permanently marks the stream
+incomplete; LAST then drops it without a valid completed message. An unfinished
+stream expires on a new semantic event more than six slots (90 seconds) after
+its last fragment. No forced completion at 60 seconds occurs. Buffer overflow
+explicitly drops the affected stream instead of truncating it.
+
+The optional host invocation is:
+
+```sh
+./build-linux/js8_decode --all-slots --messages aligned.wav
 ```
 
-When a complete directed message is reassembled, it is appended to the corresponding per-peer conversation history.
+It keeps all raw frame output and adds completed lines such as:
 
-Exact collision rules must be validated against upstream captures and test vectors before freezing the structure.
+```text
+message from=AG6AQ to=K1ABC first_slot=0 last_slot=1 hz=1000.000 text="HELLO WORLD"
+```
+
+Text uses the existing JSC diagnostic escaping rules. Stable stderr diagnostics
+identify orphan/duplicate/gap/overflow events and expired/replaced/evicted
+context bit masks. With `--messages` absent, default and ordinary `--all-slots`
+output are unchanged. The T061 sample-zero alignment contract still applies.
+Per-slot raw payload dedupe runs before reassembly, so identical raw payloads
+in separate slots remain eligible to append. Same-slot semantic duplicate
+handling is based on stream progression, not global payload identity.
+
+Compound association, buffered/query commands, conversation state, local-station
+filtering, auto-replies, TX and live MiniShell integration remain out of scope.
+No WAV end-of-file or elapsed timeout fabricates LAST.
 
 ## Text codecs
 

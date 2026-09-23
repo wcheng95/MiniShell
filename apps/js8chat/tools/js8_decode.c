@@ -5,6 +5,7 @@
 #include "js8_directed.h"
 #include "js8_huffman.h"
 #include "js8_jsc.h"
+#include "js8_reassembly.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -148,15 +149,57 @@ static int jsc_open(FILE **file, Js8JscDictionary *dict)
     return js8_jsc_dictionary_init(jsc_file_read, *file, 1918009, dict) == JS8_JSC_OK ? 0 : -1;
 }
 
+static int32_t candidate_millihz(const Js8MonitorRequirements *req,
+                                  const Js8MonitorConfig *cfg, const Js8Candidate *candidate)
+{
+    return (int32_t)req->min_bin * 6250 + (int32_t)candidate->freq_offset * 6250 +
+           (int32_t)candidate->freq_sub * (6250 / (int32_t)cfg->freq_osr);
+}
+
+static void print_message_result(uint32_t slot, Js8RxStatus status,
+                                 const Js8RxDrops *drops, const Js8RxMessage *message)
+{
+    if (drops->expired || drops->replaced || drops->evicted)
+        fprintf(stderr, "slot=%u reassembly_drop expired=0x%x replaced=0x%x evicted=0x%x\n",
+                slot, drops->expired, drops->replaced, drops->evicted);
+    const char *error = status == JS8_RX_ORPHAN ? "orphan" :
+                        status == JS8_RX_DUPLICATE ? "duplicate" :
+                        status == JS8_RX_GAP ? "gap" :
+                        status == JS8_RX_OVERFLOW ? "overflow" :
+                        status == JS8_RX_INVALID ? "invalid" : NULL;
+    if (error) fprintf(stderr, "slot=%u reassembly=%s\n", slot, error);
+    if (status != JS8_RX_COMPLETE) return;
+    /* Format from the integer stream key, never the rounded PHY diagnostic. */
+    int64_t magnitude = message->frequency_millihz;
+    const char *sign = magnitude < 0 ? "-" : "";
+    if (magnitude < 0) magnitude = -magnitude;
+    printf("message from=%s to=%s first_slot=%u last_slot=%u hz=%s%u.%03u text=\"",
+           message->from, message->to, message->first_slot, message->last_slot,
+           sign, (unsigned)(magnitude / 1000), (unsigned)(magnitude % 1000));
+    for (unsigned n = 0; n < message->text_len; ++n) {
+        unsigned byte = (unsigned char)message->text[n];
+        if (byte == '"' || byte == '\\') putchar('\\');
+        if (byte == '\n') fputs("\\n", stdout);
+        else if (byte == '\r') fputs("\\r", stdout);
+        else if (byte == '\t') fputs("\\t", stdout);
+        else if (byte < 32 || byte == 127) printf("\\u%04x", byte);
+        else putchar((int)byte);
+    }
+    puts("\"");
+}
+
 int main(int argc, char **argv)
 {
-    int all_slots = argc == 3 && !strcmp(argv[1], "--all-slots");
-    if ((!all_slots && argc != 2) || (argc == 2 && !strcmp(argv[1], "--all-slots"))) {
-        fprintf(stderr, "usage: %s [--all-slots] <12khz-mono-s16.wav>\n", argv[0]);
+    int messages = argc == 4 && !strcmp(argv[1], "--all-slots") && !strcmp(argv[2], "--messages");
+    int all_slots = messages || (argc == 3 && !strcmp(argv[1], "--all-slots"));
+    if ((!all_slots && argc != 2) ||
+        (argc == 2 && (!strcmp(argv[1], "--all-slots") || !strcmp(argv[1], "--messages"))) ||
+        (argc == 3 && all_slots && !strcmp(argv[2], "--messages"))) {
+        fprintf(stderr, "usage: %s [--all-slots [--messages]] <12khz-mono-s16.wav>\n", argv[0]);
         return 2;
     }
     HostWav wav = {0};
-    const char *path = argv[all_slots ? 2 : 1];
+    const char *path = argv[messages ? 3 : all_slots ? 2 : 1];
     if (wav_open(path, &wav)) {
         fprintf(stderr, "invalid/unreadable 12 kHz mono S16 PCM WAV: %s\n", path);
         return 1;
@@ -165,6 +208,7 @@ int main(int argc, char **argv)
     FILE *jsc_file = NULL;
     Js8JscDictionary jsc_dict = {0};
     int jsc_attempted = 0, jsc_ready = 0, jsc_error = 0;
+    Js8RxReassembly reassembly = {0};
     Js8Monitor monitor = {0};
     Js8MonitorConfig cfg = js8_monitor_baseline_config();
     Js8MonitorRequirements req;
@@ -238,6 +282,13 @@ int main(int argc, char **argv)
             if (js8_frame_unpack(payload.payload_bits, &frame) ||
                 js8_protocol_envelope_decode(payload.payload_bits, &envelope))
                 goto cleanup;
+            Js8RxFragment fragment = {0};
+            fragment.slot_index = slot;
+            fragment.frequency_millihz = candidate_millihz(&req, &cfg, &candidates[i]);
+            fragment.tx_flags = envelope.tx_flags;
+            Js8RxStatus rx_status = JS8_RX_IGNORED;
+            Js8RxDrops drops = {0};
+            Js8RxMessage message;
             if (all_slots) printf("slot=%u slot_s=%u ", slot, slot * 15u);
             fputs("payload=", stdout);
             for (unsigned b = 0; b < JS8_PAYLOAD_BITS; ++b)
@@ -274,6 +325,13 @@ int main(int argc, char **argv)
                 if (directed.is_free_text) fputs(" free_text=1", stdout);
                 if (directed.is_ack) fputs(" ack=1", stdout);
                 if (directed.is_73) fputs(" end73=1", stdout);
+                if (messages) {
+                    fragment.kind = JS8_RX_FRAGMENT_DIRECTED;
+                    memcpy(fragment.from, directed.from, sizeof(fragment.from));
+                    memcpy(fragment.to, directed.to, sizeof(fragment.to));
+                    fragment.command_code = directed.command_code;
+                    rx_status = js8_rx_reassembly_feed(&reassembly, &fragment, &message, &drops);
+                }
             }
             if (envelope.app_class == JS8_APP_FRAME_DATA) {
                 Js8HuffmanData data;
@@ -288,6 +346,12 @@ int main(int argc, char **argv)
                         putchar(data.text[n]);
                     }
                     putchar('"');
+                    if (messages) {
+                        fragment.kind = JS8_RX_FRAGMENT_DATA;
+                        fragment.text = data.text;
+                        fragment.text_len = data.text_len;
+                        rx_status = js8_rx_reassembly_feed(&reassembly, &fragment, &message, &drops);
+                    }
                 } else {
                     goto cleanup;
                 }
@@ -317,9 +381,16 @@ int main(int argc, char **argv)
                         else putchar((int)byte);
                     }
                     putchar('"');
+                    if (messages) {
+                        fragment.kind = JS8_RX_FRAGMENT_DATA;
+                        fragment.text = data.text;
+                        fragment.text_len = data.text_len;
+                        rx_status = js8_rx_reassembly_feed(&reassembly, &fragment, &message, &drops);
+                    }
                 }
             }
             putchar('\n');
+            if (messages) print_message_result(slot, rx_status, &drops, &message);
         }
         if (all_slots) fprintf(stderr, "slot=%u ", slot);
         fprintf(stderr, "blocks=%u ignored_engine_samples=%u candidates=%zu "
