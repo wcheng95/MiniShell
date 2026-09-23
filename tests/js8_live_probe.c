@@ -20,8 +20,8 @@ static mini_result_t timed_read(mini_audio_stream_t stream, void *frames, uint32
 }
 static mini_result_t timed_utc(mini_utc_time_t *utc)
 {
-    uint64_t samples=input_frames/2;
-    utc->unix_seconds=15000+(int64_t)(samples/6000);
+    uint64_t samples=UINT64_C(90000000)-9600+input_frames/2;
+    utc->unix_seconds=(int64_t)(samples/6000);
     utc->nanoseconds=(uint32_t)((samples%6000)*1000000000/6000+1);
     return MINI_OK;
 }
