@@ -109,11 +109,12 @@ by the live event path; the pure timing conversion tests cover negative epochs.
 
 Every successful Audio chunk gets a new MiniShell UTC reference after frontend
 conversion. The reference is backdated by the produced 6 kHz sample count, and
-its absolute position determines each new 15-second boundary. Counting is local
-to the current chunk/capture, not a free-running long-term clock. Within each
-capture exactly 89280 samples become 93 blocks; the remaining 720-sample nominal
-tail is ignored while fresh UTC positions locate the next boundary. A boundary
-missed by a timed jump is reported/dropped, not padded. Audio discontinuity resets
+its absolute position locates each target slot's capture start 9600 samples
+(1.6 s) before the UTC boundary. MiniFT8's initial 240-sample (40 ms) tolerance
+selects the first target. A scheduled start stepped over by a chunk begins at the
+first available sample. Counting fills exactly 89280 samples / 93 blocks, then
+fresh UTC positions locate the following pre-roll point; no free-running clock
+or sample padding is used. Audio discontinuity resets
 frontend, timing, monitor and reassembly and invalidates stale worker output.
 
 The RX-only app and platform-worker arrangement are described in
