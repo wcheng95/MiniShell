@@ -1,6 +1,6 @@
 # T055 — Linux JS8 Normal WAV decoder
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -193,27 +193,27 @@ Do not relax js8_engine no-heap or platform rules.
 
 ## Acceptance criteria
 
-- [ ] local fixture blob matches pinned v3.0.3 blob
-- [ ] js8_decode accepts the real 12 kHz mono S16 WAV
-- [ ] frontend produces continuous 6 kHz samples
-- [ ] exactly 93 full monitor blocks are processed
-- [ ] unchanged T054 policy is tried first
-- [ ] exactly one unique valid 75-bit payload is recovered
-- [ ] payload is printed stably
-- [ ] physical type and 12-character frame are printed
-- [ ] first-run diagnostics are recorded
-- [ ] external WAV is not committed
-- [ ] normal tests require no external WAV
-- [ ] optional pinned-WAV reference test passes
-- [ ] js8_engine remains pure/no-heap
-- [ ] FT8 production source unchanged
-- [ ] Linux full CTest passes
-- [ ] portable CTest passes
-- [ ] JS8 boundary checks pass
-- [ ] ASan/UBSan passes
-- [ ] ADV build remains green
-- [ ] git diff --check passes
-- [ ] no unrelated cleanup
+- [x] local fixture blob matches pinned v3.0.3 blob
+- [x] js8_decode accepts the real 12 kHz mono S16 WAV
+- [x] frontend produces continuous 6 kHz samples
+- [x] exactly 93 full monitor blocks are processed
+- [x] unchanged T054 policy is tried first
+- [x] exactly one unique valid 75-bit payload is recovered
+- [x] payload is printed stably
+- [x] physical type and 12-character frame are printed
+- [x] first-run diagnostics are recorded
+- [x] external WAV is not committed
+- [x] normal tests require no external WAV
+- [x] optional pinned-WAV reference test passes
+- [x] js8_engine remains pure/no-heap
+- [x] FT8 production source unchanged
+- [x] Linux full CTest passes
+- [x] portable CTest passes
+- [x] JS8 boundary checks pass
+- [x] ASan/UBSan passes
+- [x] ADV build remains green
+- [x] git diff --check passes
+- [x] no unrelated cleanup
 
 No RF/hardware validation is required. After supervisor review, the architect will manually run js8_decode on pc-1; that manual run is the milestone acceptance.
 
@@ -274,19 +274,178 @@ Codex must:
 
 ### Implementation summary
 
+Added the Linux `js8_decode` utility and the pure `js8_frame_unpack()` physical
+frame helper. The utility parses RIFF chunks, normalizes S16 samples and keeps
+the continuous phase-0 sequence (input samples 0, 2, 4, ...), passes complete
+960-sample blocks to the accepted T054 monitor, searches strongest-first,
+validates through T054/T052 LDPC+CRC, and deduplicates by all 75 payload bits.
+Stdout contains one stable line per unique payload; stderr contains top-five
+candidate diagnostics and capture/decode counts.
+
+The accepted T054 DSP and policy decoded the real fixture unchanged. No search,
+normalization, sensitivity, FFT, BP, CRC or monitor changes were necessary.
+
 ### Files changed
+
+- `apps/js8chat/tools/js8_decode.c`: bounded single-window host reader/decoder.
+- `apps/js8chat/src/js8_engine/js8_frame.[ch]`: twelve 6-bit alphabet words plus
+  three-bit type, with validation and no application-protocol parsing.
+- `tests/js8_frame_test.c`: three existing golden payloads, all 64 alphabet
+  values and eight types, null/invalid arguments and output bounds.
+- `tests/js8_wav_test.py`: synthetic upstream-tone waveform, phase-0 decimation,
+  exact 93-block capture/tail handling, nonstandard chunk order, odd padding,
+  extended fmt, malformed/truncated headers/data, format and length rejection.
+- `tests/js8_wav_reference.py`: optional external fixture blob/size verification
+  and exactly one expected payload/type/physical-frame regression.
+- `CMakeLists.txt`, `tests/js8_tests.cmake`: host utility/tests and pure frame test;
+  optional `JS8_A2_1_REFERENCE_WAV` cache path (unset in normal builds).
+- `tests/architecture_rules.py`: tools -> tools + js8_engine; fopen exception
+  only at `tools/js8_decode.c`. Engine purity/no-heap restrictions unchanged.
+- This task packet: REVIEW status and exact evidence.
 
 ### Invariants preserved
 
+Normal only, 6 kHz/960-sample engine blocks, time_osr=2/freq_osr=2, capacity 50,
+minimum score 5, -10..19 time search, positive LLR means 1 and parity-first
+codeword order. The real 180000-sample input yields 90000 engine samples;
+exactly 93 complete blocks are processed, with 720 remaining engine samples
+ignored. No padding or 94th block. Inputs exceeding 93 complete blocks are
+rejected rather than silently truncated into one window.
+
+Engine remains pure C/no-heap, with unchanged T052-T054 product source and
+private FFT. Only the host utility owns file access and workspace allocation.
+Full RIFF/chunk bounds are checked, including the ignored tail; no fixed
+44-byte header assumption or full-file PCM allocation. Physical frame decoding
+is not application message interpretation. No FT8 changes, WAV commit, live
+platform integration, FIR/resampler or broader protocol work. No deviations
+from task scope.
+
 ### First real-WAV decode evidence
+
+The very first command before implementation was:
+
+```sh
+git hash-object ~/projects/js8chat/A_2_1.wav
+# d986a4e5a9cc654dffbfadae73ec35cc9cea1d83
+```
+
+File size: 360208 bytes. Source identity: JS8Call-improved v3.0.3,
+`media/tests/A_2_1.wav`. This identity is also enforced by the optional reference
+test using the Git blob hash construction.
+
+The initial host-reader probe rejected the container before invoking DSP:
+RIFF declares 360199 bytes (end offset 360207), while the final LIST chunk is
+155 bytes plus its physical padding byte at offset 360207. Its data chunk is
+360000 bytes at offset 44. The reader now accepts a final odd-chunk pad outside
+the declared RIFF end only when that byte exists in the file; chunk contents
+must still fit within RIFF. A focused positive/negative regression covers this
+upstream convention. This was solely a container-reader correction.
+
+The **first DSP run** then used the accepted T054 path unchanged and succeeded:
+
+```text
+payload=111001011101001010000111001011100000101011000001100010000111111111111111010 type=2 frame="vTA7BWh1Y7++" score=26 time=5/0 freq=57/0 hz=556.250 hard_errors=15
+```
+
+Exact first-run stderr:
+
+```text
+candidate=0 score=26 time=5/0 freq=57/0 status=0
+candidate=1 score=14 time=5/0 freq=57/1 status=-2
+candidate=2 score=12 time=18/0 freq=54/0 status=-2
+candidate=3 score=10 time=5/0 freq=56/1 status=-2
+candidate=4 score=10 time=17/0 freq=110/1 status=-2
+blocks=93 ignored_engine_samples=720 candidates=50 ldpc_fail=49 crc_fail=0 valid=1 unique=1
+```
+
+Thus unique LDPC+CRC-valid payload count is exactly **1**, physical type **2**,
+physical frame **`vTA7BWh1Y7++`**, score **26**, time lattice **5/0**, frequency
+lattice **57/0**, audio frequency **556.250 Hz**, LDPC hard-error count **15**.
+Frequency is `200 + 57*6.25 + 0*3.125`. Time is a candidate lattice coordinate,
+not exact UTC DT. Scores/order/hard-error counts are recorded diagnostics;
+the reference test locks payload, type, frame, unique count and block handling.
+Separate reference and sanitized builds reproduce the same payload/frame.
 
 ### Local tests run
 
+All final gates passed:
+
+```sh
+git hash-object ~/projects/js8chat/A_2_1.wav
+# PASS: d986a4e5a9cc654dffbfadae73ec35cc9cea1d83
+
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 95/95, no external fixture configured.
+
+cmake -S tests/unit -B /tmp/T055-build-unit
+cmake --build /tmp/T055-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T055-build-unit --output-on-failure
+# PASS: 18/18, including pure frame helper and compiled no-heap regression.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+# Both PASS.
+
+cmake -S . -B /tmp/T055-build-ref \
+  -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T055-build-ref -j"$(nproc)"
+ctest --test-dir /tmp/T055-build-ref -R 'js8.*reference|js8.*A2.*1' --output-on-failure
+/tmp/T055-build-ref/js8_decode "$HOME/projects/js8chat/A_2_1.wav"
+# PASS: 1/1 reference test; exact single payload line and diagnostics above.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: minishell_adv.bin 0x151790 bytes; app partition 78% free.
+
+cmake -S . -B /tmp/T055-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
+  -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T055-build-sanitize \
+  --target js8_rx_unit js8_phy_unit js8_frame_unit js8_decode -j"$(nproc)"
+ctest --test-dir /tmp/T055-build-sanitize \
+  -R '^js8_(phy_unit|rx_unit|frame_unit|wav_unit|A2_1_reference)$' --output-on-failure
+# PASS: 5/5, pure tests plus malformed/synthetic and real host-WAV paths.
+
+git diff --check
+# PASS.
+git diff -- apps/ft8
+# Empty.
+git diff -- apps/js8chat/src/js8_engine/js8_monitor.c apps/js8chat/src/js8_engine/js8_decoder.c
+# Empty: unchanged T054 DSP/policy.
+```
+
+Sanitizer execution used approved escalation because prior tasks established
+LeakSanitizer cannot execute inside the ptrace-based sandbox. No test assertions
+were weakened. Existing unrelated untracked scripts, old keyer artifacts and
+Python caches were excluded.
+
 ### Manual validation still required
+
+After supervisor review, the architect runs:
+
+```sh
+./build-linux/js8_decode ~/projects/js8chat/A_2_1.wav
+```
+
+on pc-1 for milestone acceptance. That manual result remains pending; no RF or
+hardware test is required. ADV build here validates existing firmware only.
 
 ### Known limitations / risks
 
+This is one bounded Normal receive window from a seekable mono 12 kHz PCM16
+RIFF file. No multi-slot utility, anti-alias filter, live frontend, application
+message parsing or protocol meaning is claimed for the twelve physical
+characters. Simple decimation and the existing T054 policy are proven for this
+pinned fixture, not a broad sensitivity corpus. The general utility can report
+zero or multiple decodes; exactly one is the pinned reference-test gate.
+
 ### Commit
+
+The single implementation commit containing these notes is on
+`codex/T055-js8-wav-decode`, based on `b3e8db4` from `origin/main`.
+Its exact SHA is returned after push. No PR or Actions wait.
 
 ## Supervisor review
 

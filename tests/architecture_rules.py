@@ -4,10 +4,11 @@
 # needs the same architectural enforcement; keep the checker itself generic.
 APP_RULES = {
     "js8chat": {
-        "enforced_roots": {"src"},
-        "module_paths": {"js8_engine": ("src/js8_engine",)},
+        "enforced_roots": {"src", "tools"},
+        "module_paths": {"js8_engine": ("src/js8_engine",), "tools": ("tools",)},
         "include_roots": ("src/js8_engine", "src/js8_engine/vendor/kissfft"),
-        "allowed": {"js8_engine": {"js8_engine"}},
+        "allowed": {"js8_engine": {"js8_engine"}, "tools": {"tools", "js8_engine"}},
+        "native_exceptions": {"tools/js8_decode.c": {"fopen"}},
         "api_modules": set(),
         "no_heap_modules": {"js8_engine"},
     },
