@@ -45,7 +45,7 @@ def riff(*chunks):
 with tempfile.TemporaryDirectory(prefix='js8-wav-test-') as temp:
     path = Path(temp) / 'test.wav'
 
-    def run(data, success=True, decoded=False):
+    def run(data, success=True, decoded=False, ignored=720):
         path.write_bytes(data)
         result = subprocess.run([exe, str(path)], capture_output=True, text=True)
         assert (result.returncode == 0) == success, (result.returncode, result.stderr)
@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix='js8-wav-test-') as temp:
             assert len(lines) == 1, result.stdout
             assert lines[0].startswith(f'payload={payload} type=3 frame="CVUJtH2w2sAS" tx_raw=3 class=compound tx=FIRST|LAST '), result.stdout
             assert lines[0].endswith(' call=DA/IXRO81 grid=CB51'), result.stdout
-            assert 'blocks=93 ignored_engine_samples=720 ' in result.stderr, result.stderr
+            assert f'blocks=93 ignored_engine_samples={ignored} ' in result.stderr, result.stderr
             assert result.stderr.endswith('unique=1\n'), result.stderr
         return result
 
@@ -70,6 +70,22 @@ with tempfile.TemporaryDirectory(prefix='js8-wav-test-') as temp:
 
     standard = riff(chunk(b'fmt ', fmt), chunk(b'data', pcm))
     run(standard, decoded=True)
+    # Host-only first-window truncation: preserve the same signal and compare
+    # exact stdout while varying all samples beyond the 93 complete blocks.
+    window = pcm[:93 * 960 * 4]
+    baseline = run(riff(chunk(b'fmt ', fmt), chunk(b'data', window)), decoded=True, ignored=0)
+    for tail in (bytes(720*4), bytes(960*4), pcm*2, b'\xff' * (180000*4)):
+        result = run(riff(chunk(b'fmt ', fmt), chunk(b'data', window + tail)),
+                     decoded=True, ignored=len(tail)//4)
+        assert result.stdout == baseline.stdout
+    later_only = run(riff(chunk(b'fmt ', fmt), chunk(b'data', bytes(len(window)) + pcm*2)))
+    assert later_only.stdout == '' and 'blocks=93 ignored_engine_samples=180000 ' in later_only.stderr
+    long_wav = riff(chunk(b'fmt ', fmt), chunk(b'data', window + pcm*2))
+    run(long_wav[:-1], success=False)
+    run(riff(chunk(b'fmt ', fmt), chunk(b'data', window + pcm*2),
+             b'JUNK' + struct.pack('<I', 1000) + b'x'), success=False)
+    # Even a malformed chunk after a valid long data chunk remains an error.
+
     # Unknown odd chunk, odd-length extended fmt, and data before fmt.
     run(riff(chunk(b'JUNK', b'abc'), chunk(b'data', pcm), chunk(b'fmt ', fmt + b'\0')), decoded=True)
     # Pinned WAV convention: final LIST pad exists, but RIFF size excludes it.
@@ -100,7 +116,6 @@ with tempfile.TemporaryDirectory(prefix='js8-wav-test-') as temp:
         riff(chunk(b'fmt ', fmt), chunk(b'data', pcm), chunk(b'data', b'')),
         riff(chunk(b'fmt ', fmt), chunk(b'data', b'1')),
         riff(chunk(b'fmt ', fmt), chunk(b'data', bytes(100))),
-        riff(chunk(b'fmt ', fmt), chunk(b'data', bytes(94 * 960 * 4))),
         riff(chunk(b'fmt ', fmt), b'JUNK' + struct.pack('<I', 0xffffffff)),
         riff(chunk(b'fmt ', fmt), b'data' + struct.pack('<I', 360000) + bytes(100)),
         bytes(padded[:-1]),

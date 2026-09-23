@@ -1,6 +1,6 @@
 # T059 — JS8 Normal Huffman DATA RX decoder
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -382,34 +382,34 @@ Do NOT implement:
 
 ## Acceptance criteria
 
-- [ ] exact 44-entry v3.0.3 Huffman table implemented
-- [ ] Normal 10 DATA framing decoded
-- [ ] upstream padding removed exactly for valid frames
-- [ ] partial undecodable suffix stops like upstream huffDecode
-- [ ] JSC/compressed frames return distinct unsupported/compressed status
-- [ ] fixed upstream-derived vectors checked in
-- [ ] all 44 table entries individually tested
-- [ ] prefix-free property tested
-- [ ] tail transmission flags remain independent
-- [ ] js8_decode prints exact Huffman fragment for DATA frames
-- [ ] synthetic WAV integrations pass
-- [ ] js8_decode accepts WAVs longer than 93 engine blocks
-- [ ] long WAVs are deterministically truncated to the first 93 complete blocks
-- [ ] samples after the first 93 blocks cannot affect decode output
-- [ ] long-WAV ignored-sample diagnostics are tested
-- [ ] real A_2_1 output remains unchanged
-- [ ] T056-T058 semantics unchanged
-- [ ] T054/T055 DSP/WAV unchanged
-- [ ] js8_engine pure/no-heap
-- [ ] no FT8 changes
-- [ ] Linux full CTest passes
-- [ ] portable CTest passes
-- [ ] external A_2_1 regression passes
-- [ ] boundary/no-heap checks pass
-- [ ] ASan/UBSan passes
-- [ ] ADV build green
-- [ ] git diff --check passes
-- [ ] no unrelated cleanup
+- [x] exact 44-entry v3.0.3 Huffman table implemented
+- [x] Normal 10 DATA framing decoded
+- [x] upstream padding removed exactly for valid frames
+- [x] partial undecodable suffix stops like upstream huffDecode
+- [x] JSC/compressed frames return distinct unsupported/compressed status
+- [x] fixed upstream-derived vectors checked in
+- [x] all 44 table entries individually tested
+- [x] prefix-free property tested
+- [x] tail transmission flags remain independent
+- [x] js8_decode prints exact Huffman fragment for DATA frames
+- [x] synthetic WAV integrations pass
+- [x] js8_decode accepts WAVs longer than 93 engine blocks
+- [x] long WAVs are deterministically truncated to the first 93 complete blocks
+- [x] samples after the first 93 blocks cannot affect decode output
+- [x] long-WAV ignored-sample diagnostics are tested
+- [x] real A_2_1 output remains unchanged
+- [x] T056-T058 semantics unchanged
+- [x] T054/T055 DSP/WAV unchanged
+- [x] js8_engine pure/no-heap
+- [x] no FT8 changes
+- [x] Linux full CTest passes
+- [x] portable CTest passes
+- [x] external A_2_1 regression passes
+- [x] boundary/no-heap checks pass
+- [x] ASan/UBSan passes
+- [x] ADV build green
+- [x] git diff --check passes
+- [x] no unrelated cleanup
 
 No hardware/RF validation required.
 
@@ -438,19 +438,161 @@ Codex:
 
 ### Implementation summary
 
+Added a bounded pure Normal Huffman DATA RX decoder with the exact 44-entry table,
+explicit invalid/wrong-class/compressed/bad-padding statuses, and upstream partial-code
+stop behavior. Host DATA diagnostics print `codec=huffman data="..."`, escaping
+quotation marks; malformed padding prints `data_error=bad_padding` while retaining
+the valid PHY payload diagnostics. Compressed DATA output remains unchanged.
+
+Implemented the explicitly authorized host-only long-WAV policy: process the first
+min(total complete blocks, 93), count every remaining decimated sample as ignored,
+and leave whole-container RIFF validation in front of DSP. No sliding windows.
+No deviations beyond the task-required malformed-padding safety behavior below.
+
 ### Files changed
+
+- `apps/js8chat/src/js8_engine/js8_huffman.[ch]`: pure RX decoder, immutable table,
+  explicit statuses and fixed output buffer.
+- `apps/js8chat/tools/js8_decode.c`: Huffman diagnostics and first-window truncation.
+- `tests/js8_huffman_oracle.py`, `tests/js8_huffman_vectors.h`,
+  `tests/js8_huffman_vectors.md`: independent pinned vectors and provenance.
+- `tests/js8_huffman_test.c`: exact table, prefix freedom, incomplete suffixes,
+  padding positions, capacity bound, tail flags and invalid-input canaries;
+  test-only PHY waveform fixture mode.
+- `tests/js8_huffman_wav_test.py`: thirteen synthetic end-to-end payload/text tests.
+- `tests/js8_wav_test.py`: exact 93-block, partial-tail, 94-block, and nearly
+  three-period inputs; later signals/noise cannot affect the first window;
+  malformed/truncated trailing data still fails.
+- `tests/js8_tests.cmake`, `CMakeLists.txt`: module/unit/host gate integration.
+- `docs/js8/application-protocol.md`: Huffman framing/ownership, fragment boundary,
+  and host long-recording/ignored-sample policy.
+- This task: REVIEW handoff and evidence.
 
 ### Invariants preserved
 
+Pure C, no heap or mutable global state, no platform/FT8 dependencies. Output stays
+unchanged on every error. The two-bit `10` prefix is independent of the third bit;
+all 75 bits are validated and tail flags never become text. At least one sentinel
+leaves at most 69 content bits; the shortest code is two bits, so at most 34 text
+characters plus NUL fit the 35-byte buffer. Static assertion and maximal-space
+fixture establish this bound. Incomplete suffixes stop without replacement output.
+
+Deliberate safety behavior: `10` plus 70 ones returns BAD_PADDING because the data
+area has no sentinel. Upstream can use the selector zero and Qt's negative-length
+`mid` behavior to expose those 70 bits. Such input cannot come from packHuffMessage;
+valid frames and decoder-only incomplete-code cases retain exact upstream behavior.
+An empty fragment with a real sentinel at bit 2 remains valid.
+
+T056-T058 production modules and existing semantic tests are unchanged. T054 DSP,
+monitor capacity and the 12 kHz mono S16/phase-0 contract remain unchanged. The only
+T055 WAV-policy change is the long-input truncation expressly authorized in T059;
+its previous >93-block rejection test is replaced with acceptance/ignored-tail tests.
+No whole-recording allocation, padding of partial blocks, or skipping RIFF validation.
+No JSC, reassembly, directed association, conversations, auto-replies or production TX.
+
 ### Golden-vector provenance
+
+Read exact v3.0.3 `Varicode.cpp/.h`: hufftable, huffEncode/huffDecode,
+packHuffMessage, packDataMessage, and unpackDataMessage. SHA-256 pins and regeneration
+commands are documented in `tests/js8_huffman_vectors.md`.
+
+The source-pinned Python oracle extracts all 44 entries and independently transcribes
+upstream packing, sentinel removal, and sorted QMap decoding. It forces the Huffman
+branch rather than implementing packDataMessage's Huffman/JSC competition. The header
+records each input, 72 application bits, consumed count, expected fragment, unpadded
+bit count and full payload. All requested strings, 34 spaces, a 69-bit near-full
+frame, quotes, empty content and a decoder-only HE + incomplete suffix are checked in.
+The latter has NULL source/-1 consumed to distinguish it from encoder output.
+
+The host fixture uses existing PHY encoding only to synthesize audio from fixed
+application bits; it is not the independent application oracle. Normal tests require
+neither Qt nor an upstream checkout. Offline regeneration matches byte-for-byte.
 
 ### Test evidence
 
+Final commands/results on 2026-09-22:
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Final full rerun: 101/101, no external WAV configured.
+
+cmake -S tests/unit -B /tmp/T059-build-unit
+cmake --build /tmp/T059-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T059-build-unit --output-on-failure
+# 22/22.
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . js8chat
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . js8chat
+# Both PASS; full CTest also includes compiled-library no-heap checks.
+
+cmake -S . -B /tmp/T059-build-ref -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T059-build-ref -j"$(nproc)"
+ctest --test-dir /tmp/T059-build-ref -R 'js8.*reference|js8.*A2.*1' --output-on-failure
+# 1/1.
+git hash-object ~/projects/js8chat/A_2_1.wav
+# d986a4e5a9cc654dffbfadae73ec35cc9cea1d83
+/tmp/T059-build-ref/js8_decode "$HOME/projects/js8chat/A_2_1.wav"
+
+cmake -S . -B /tmp/T059-build-sanitize \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
+  -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T059-build-sanitize -j"$(nproc)" \
+  --target js8_rx_unit js8_phy_unit js8_frame_unit js8_protocol_frame_unit js8_compound_unit js8_directed_unit js8_huffman_unit js8_decode
+ctest --test-dir /tmp/T059-build-sanitize \
+  -R '^js8_(phy_unit|rx_unit|frame_unit|protocol_frame_unit|compound_unit|directed_unit|huffman_unit|wav_unit|directed_wav_unit|huffman_wav_unit|A2_1_reference)$' \
+  --output-on-failure
+# 11/11, outside sandbox for LeakSanitizer ptrace compatibility.
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS; image 0x151790 bytes, app partition 78% free.
+
+python3 tests/js8_huffman_oracle.py /tmp/T056-Varicode.cpp /tmp/T056-Varicode.h > /tmp/T059-regenerated.h
+cmp tests/js8_huffman_vectors.h /tmp/T059-regenerated.h
+# Identical.
+git diff --check
+# PASS.
+```
+
+The initial full Linux run passed 100/101 but hit the existing serial PTY write
+queue assertion at `tests/linux_serial_test.c:67`; one isolated retry also failed.
+`ctest --test-dir build-linux -R '^linux_serial_unit$' --repeat until-pass:3
+--output-on-failure` then passed on its first attempt, and the subsequent ordinary
+full CTest passed 101/101. No serial code/test or gate was modified or weakened.
+
+Long-WAV regressions assert `blocks=93` with ignored counts 0 (exact window), 720
+(old partial tail), 960 (94 blocks), and 180000 (two more 15-second periods).
+The latter files preserve identical decoded stdout despite later signals/full-scale
+samples. A signal only after the first window yields no decoded output. Truncated
+long data and malformed chunks after long data still return failure.
+
+Exact real-WAV stdout, byte-for-byte identical to T058:
+
+```text
+payload=111001011101001010000111001011100000101011000001100010000111111111111111010 type=2 frame="vTA7BWh1Y7++" tx_raw=2 class=data_compressed tx=LAST score=26 time=5/0 freq=57/0 hz=556.250 hard_errors=15
+```
+
+Summary remains `blocks=93 ignored_engine_samples=720 candidates=50 ldpc_fail=49
+crc_fail=0 valid=1 unique=1`. The WAV stays external and uncommitted.
+
 ### Manual validation still required
+
+None for T059 acceptance. Optional architect WebSDR experiments can use longer files,
+with the documented first-window limitation; no hardware/RF gate is required.
 
 ### Known limitations / risks
 
+Only Huffman DATA is decoded. Fragments have no directed context or reassembly;
+JSC has a distinct unsupported status. The caller owns PHY CRC validity.
+Later windows in long recordings are intentionally ignored. The unrelated serial
+PTY gate showed intermittent failure before passing the final full rerun, as above.
+
 ### Commit
+
+One reviewable commit on `codex/T059-js8-huffman-rx` containing these notes; SHA
+returned after push. No PR or GitHub Actions wait.
 
 ## Supervisor review
 

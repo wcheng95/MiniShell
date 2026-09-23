@@ -175,6 +175,39 @@ Decode support does not imply automatic action support. No compound-directed
 association, continuation text, reassembly, group-operation policy, auto-reply,
 relay/store-forward behavior, or TX packing is implemented here.
 
+## Normal Huffman DATA RX (T059)
+
+Normal legacy DATA uses application prefix `10`. Its third bit is the first
+Huffman content bit, so both `100` and `101` envelopes select this decoder.
+The JS8-owned pure Huffman module uses the exact 44-entry v3.0.3 `hufftable` to
+produce uppercase/punctuation text fragments, without escapes or JSC support.
+`11` remains DATA_COMPRESSED and returns a distinct unsupported/compressed status.
+
+`packHuffMessage` adds a code only when the resulting application length is
+strictly less than 72. It then appends one zero sentinel followed by enough ones
+to reach 72 bits. RX finds the final zero in application bits 2..71, drops it and
+all trailing ones, and decodes only the preceding content after the two-bit prefix.
+The three PHY transmission flags are excluded. An incomplete final code stops
+decoding and returns the text decoded so far, matching upstream `huffDecode`.
+
+At most 69 content bits and a shortest code of two bits yield 34 output characters;
+the caller-owned buffer holds 35 bytes including NUL. Missing data-area sentinel
+is an explicit BAD_PADDING error with output unchanged, instead of relying on Qt
+negative-length container behavior. An empty fragment with a valid sentinel is
+accepted. No replacement character is invented for an incomplete suffix.
+
+A DATA fragment is not yet a conversation message. Association with a directed
+header and FIRST/LAST reassembly remain future work. No production Huffman TX
+packer, compressed text decoder, or automatic action is introduced.
+
+For host WebSDR experiments, `js8_decode` validates the entire 12 kHz mono S16 RIFF
+container and processes only its first 93 complete 960-sample blocks at 6 kHz,
+with continuous phase-0 decimation from input sample zero. It never pads a partial
+block or reads the whole recording into memory. `blocks=` reports processed blocks;
+`ignored_engine_samples=` includes every decimated sample beyond those blocks,
+both complete later blocks and the incomplete tail. This is not a sliding-window
+or multi-slot decoder; a signal occurring only after the first window is ignored.
+
 ## Required application frame classes
 
 v0.1 requires the frame/application forms needed for:

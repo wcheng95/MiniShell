@@ -3,6 +3,7 @@
 #include "js8_protocol_frame.h"
 #include "js8_compound.h"
 #include "js8_directed.h"
+#include "js8_huffman.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,10 +119,14 @@ int main(int argc, char **argv)
     void *memory = NULL;
     uint32_t engine_samples = (wav.samples + 1u) / 2u;
     uint32_t blocks = engine_samples / JS8_MONITOR_BLOCK_SIZE;
-    if (!blocks || blocks > JS8_MONITOR_LINEAR_BLOCKS) {
-        fprintf(stderr, "WAV must contain 1..93 complete Normal engine blocks\n");
+    if (!blocks) {
+        fprintf(stderr, "WAV must contain at least one complete Normal engine block\n");
         goto cleanup;
     }
+    /* Container validation has already covered the entire file. Only the
+     * first window feeds DSP; later complete blocks and partial tail are ignored.
+     */
+    if (blocks > JS8_MONITOR_LINEAR_BLOCKS) blocks = JS8_MONITOR_LINEAR_BLOCKS;
     if (js8_monitor_query_requirements(&cfg, &req) != JS8_MONITOR_OK ||
         !(memory = aligned_alloc(req.alignment, req.total_bytes)) ||
         js8_monitor_init(&monitor, &cfg, memory, req.total_bytes) != JS8_MONITOR_OK) {
@@ -202,11 +207,28 @@ int main(int argc, char **argv)
             if (directed.is_ack) fputs(" ack=1", stdout);
             if (directed.is_73) fputs(" end73=1", stdout);
         }
+        if (envelope.app_class == JS8_APP_FRAME_DATA) {
+            Js8HuffmanData data;
+            Js8HuffmanStatus huff_status = js8_huffman_data_decode(payload.payload_bits, &data);
+            fputs(" codec=huffman", stdout);
+            if (huff_status == JS8_HUFF_BAD_PADDING) {
+                fputs(" data_error=bad_padding", stdout);
+            } else if (huff_status == JS8_HUFF_OK) {
+                fputs(" data=\"", stdout);
+                for (unsigned n = 0; n < data.text_len; ++n) {
+                    if (data.text[n] == '"') putchar('\\');
+                    putchar(data.text[n]);
+                }
+                putchar('"');
+            } else {
+                goto cleanup;
+            }
+        }
         putchar('\n');
     }
     fprintf(stderr, "blocks=%u ignored_engine_samples=%u candidates=%zu "
             "ldpc_fail=%zu crc_fail=%zu valid=%zu unique=%zu\n", blocks,
-            engine_samples % JS8_MONITOR_BLOCK_SIZE, count, ldpc_fail, crc_fail, valid, unique_count);
+            engine_samples - blocks * JS8_MONITOR_BLOCK_SIZE, count, ldpc_fail, crc_fail, valid, unique_count);
     rc = ferror(stdout) ? 1 : 0;
 cleanup:
     js8_monitor_destroy(&monitor);

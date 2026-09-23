@@ -6,7 +6,8 @@ add_library(js8_phy_core STATIC
     ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_frame.c
     ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_protocol_frame.c
     ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_compound.c
-    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_directed.c)
+    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_directed.c
+    ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine/js8_huffman.c)
 target_include_directories(js8_phy_core PUBLIC ${JS8_TEST_ROOT}/apps/js8chat/src/js8_engine)
 target_compile_options(js8_phy_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
 target_link_libraries(js8_phy_core PUBLIC m)
@@ -58,3 +59,8 @@ add_executable(js8_directed_unit ${JS8_TEST_ROOT}/tests/js8_directed_test.c)
 target_link_libraries(js8_directed_unit PRIVATE js8_phy_core)
 target_compile_options(js8_directed_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
 add_test(NAME js8_directed_unit COMMAND js8_directed_unit)
+
+add_executable(js8_huffman_unit ${JS8_TEST_ROOT}/tests/js8_huffman_test.c)
+target_link_libraries(js8_huffman_unit PRIVATE js8_phy_core)
+target_compile_options(js8_huffman_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
+add_test(NAME js8_huffman_unit COMMAND js8_huffman_unit)
