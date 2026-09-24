@@ -150,9 +150,7 @@ Canonical RTTY architecture:
 docs/RTTY/architecture.md
 ```
 
-RTTY is defined as a 12-kHz streaming external MiniShell application. The
-current T065 bring-up path is Linux WAV decode; later QMX/WebSDR receive reuses
-the same portable decoder core. ADV deployment remains external `rtty.elf`.
+RTTY is defined as a 12-kHz streaming external MiniShell application. T065 Linux WAV decode is architect-accepted through the actual `rtty` runtime app; later QMX/WebSDR receive reuses the same portable decoder core. ADV deployment remains external `rtty.elf`.
 
 ## JS8Chat and SSTV
 
