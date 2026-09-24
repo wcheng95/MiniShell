@@ -1,6 +1,6 @@
 # T066 — JS8 Linux WebSDR/browser audio input
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -533,7 +533,29 @@ No PR or GitHub Actions wait.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual diff and test evidence.
+Reviewed commit `1f63b0732cdfbcd628cef3875ed4d6d24daac7d8` against T066 and the accepted T064 live-QMX baseline.
+
+Result: **PASS — implementation accepted for pc-1 WebSDR/browser testing.**
+
+Review findings:
+
+- One bounded implementation commit, exactly one commit ahead of baseline `a4d4a2bb6f3b26ef1a64df875790c68d10dc77e5`.
+- No public MiniShell API, JS8 PHY/protocol/reassembly/activity schema, CAT, scheduler geometry or FT8 production changes.
+- Existing `alsa:` QMX behavior remains isolated at 48 kHz / S24_3LE / stereo, phase-0 /4 conversion and 10 ms target latency.
+- New `pulse:` handling stays entirely inside the Linux Audio provider and uses the existing dynamically loaded ALSA stack; no libpulse/PipeWire/network/browser dependency was introduced.
+- `pulse:<source>` maps to ALSA `pulse:DEVICE=<source>`. The accepted source-name character filter is bounded and prevents ALSA-argument injection while covering normal Pulse/PipeWire monitor names and `@DEFAULT_MONITOR@`.
+- The upstream ALSA Pulse plugin configuration accepts a named `DEVICE` argument exactly in this form.
+- Pulse capture negotiates requested S16_LE rate/channels directly and bypasses the QMX decimator. Provider tests cover stereo/mono PCM, named/default sources, short reads, EAGAIN, recovery, failure cleanup, reopen and coexistence exclusion.
+- `--rx-delay-ms` is bounded to 0..5000, defaults to zero and is retained across discontinuity reset.
+- Delay subtraction occurs on each fresh UTC reading before the existing produced-sample backdating and slot anchor. Nanosecond borrow, second/slot boundaries, negative epoch and INT64 underflow are covered.
+- Zero-delay integration remains byte-identical to the T064 baseline. Artificial 750 ms and 5000 ms source-age cases decode to identical event bytes and slot identities when matching correction is supplied.
+- Real local desktop evidence is sufficient for supervisor review: ALSA Pulse captured 12 kHz S16 stereo from `@DEFAULT_MONITOR@`, and an actual MiniShell JS8 one-slot run completed with drops=0, discontinuities=0 and error=none.
+- The intermittent `linux_serial_unit` failure is not caused by T066: Serial sources/tests are unchanged, the same line-67 failure reproduces from an untouched baseline build, and the final bounded full suite passed 117/117 without retrying individual tests.
+- Final reported gates are consistent with the diff: Linux 117/117, portable 27/27, sanitizer 26/26, plus `git diff --check`.
+
+No blocking defect or architecture deviation found.
+
+Main was fast-forwarded to the reviewed implementation commit. T066 now enters TESTING for the real pc-1 browser/KFS path. The remaining gate is operator/browser routing, delay selection and live WebSDR reception; a quiet band does not invalidate the Pulse provider.
 
 ## Architect test result
 
