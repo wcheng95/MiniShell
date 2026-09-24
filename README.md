@@ -330,3 +330,89 @@ docs/project/milestone-2026-09-21-field-baseline.md
 
 The project is currently in **field-use / learning mode**. New implementation
 work should start from concrete field feedback or a bounded learning experiment.
+
+## Credits and references
+
+MiniShell is an independent project, but its radio applications were developed with
+help from earlier implementations, protocol references, test vectors, and engineering
+tools. These projects and resources deserve explicit credit.
+
+### FT8 / MiniFT8
+
+- **Mini-FT8 V2** — `wcheng95/Mini-FT8` is the pinned behavioral reference for
+  MiniFT8-V3. Its validated FT8 decoder/encoder behavior, generated golden WAV files,
+  message handling, AutoSeq behavior, and field-operation experience provided the
+  starting point for the MiniShell FT8 implementation.
+- **FT8 protocol/reference implementations** used during Mini-FT8 development and
+  interoperability work provided independent checks for synchronization, LDPC/CRC,
+  message packing/unpacking, and on-air compatibility. MiniShell keeps its own
+  portable architecture rather than depending on a desktop FT8 application at
+  runtime.
+
+### JS8
+
+- **JS8Call-improved**, especially the pinned **v3.0.3** release, is the normative
+  interoperability reference for MiniShell JS8 Normal-mode framing, Varicode,
+  directed messages, Huffman/JSC data, command mappings, and wire behavior:
+  <https://github.com/JS8Call-improved/JS8Call-improved>
+- The original **JS8Call** source has also been useful for physical-layer and DSP
+  cross-checking:
+  <https://github.com/js8call/js8call>
+- MiniShell's JS8 implementation is MCU-oriented and independently structured; it
+  does not link the desktop JS8Call decoder.
+
+### RTTY
+
+- **wcheng95/rtty_decoder** provided the earlier RTTY experiments, QMX/I-Q research,
+  continuous-phase AFSK test encoder, and decoder-design investigation that led to
+  the MiniShell streaming RTTY receiver.
+- Classic amateur **ITA2/Baudot, 45.45-baud, 170-Hz-shift RTTY** conventions and
+  existing amateur-radio implementations were used to cross-check framing and
+  interoperability. The MiniShell decoder itself is a small independent streaming
+  implementation rather than a port of a desktop RTTY program.
+
+### SSTV
+
+The SSTV architecture and Robot 36 implementation were cross-checked against several
+excellent public references:
+
+- **PicoSSTV** by Dawson Jones — the primary microcontroller SSTV reference:
+  <https://github.com/dawsonjon/PicoSSTV>
+- **JL Barber, N7CXI**, *Proposal for SSTV Mode Specifications* (the Dayton paper).
+- **unexcellent/sstv** — compact, table-driven MCU SSTV implementation:
+  <https://github.com/unexcellent/sstv>
+- **colaclanth/sstv** — file-oriented Martin/Scottie/Robot decoder:
+  <https://github.com/colaclanth/sstv>
+- **F4JTV/sstv_decoder** — streaming VIS/sync/slant-correction reference:
+  <https://github.com/F4JTV/sstv_decoder>
+- **JO3ALT/TinySSTV** — compact embedded SSTV reference:
+  <https://github.com/JO3ALT/TinySSTV>
+- Published SSTV mode/VIS tables and SSTV handbook material were also used to
+  cross-check Robot 36 timing and interoperability.
+
+MiniShell SSTV remains independently structured around its 12-kHz streaming audio
+boundary, bounded-memory image pipeline, and Cardputer ADV constraints.
+
+### CW / Mini-CW
+
+- **Mini-CW V1.2** — `wcheng95/Mini-CW` is the hardware-behavior reference for the
+  MiniShell Mini-CW application. Its keyer timing, paddle behavior, continuous-audio
+  scheduling, UI concepts, and field-tested clean-audio behavior were preserved while
+  platform ownership was migrated to MiniShell services.
+
+### Engineering assistance
+
+- **ChatGPT by OpenAI** has been used as the project supervisor/research assistant:
+  architecture discussion, protocol/reference research, task decomposition,
+  documentation, code/diff review, debugging analysis, and test planning.
+- **OpenAI Codex** has been used as an implementation engineer for bounded repository
+  tasks, including writing code and tests from architect-approved task packets.
+
+Architecture choices, hardware experiments, on-air operation, acceptance testing, and
+final project decisions remain under the project author's control. AI-generated or
+AI-assisted changes are reviewed and tested before they become accepted baselines.
+
+References above are credited for ideas, documented behavior, interoperability, and
+test comparison unless a source file explicitly states otherwise. Upstream projects
+retain their own copyrights and licenses; inclusion here does not change those terms.
+
