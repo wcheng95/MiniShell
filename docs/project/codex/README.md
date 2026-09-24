@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active / next tasks
 
 ```text
-T066-js8-websdr-audio.md            TESTING — supervisor PASS; pc-1 KFS/browser validation pending
+T066-js8-websdr-audio.md            COMPLETE — pc-1 KFS/browser Pulse monitor JS8 RX accepted
 ```
 
 Most recent completed task:
