@@ -160,13 +160,72 @@ bits 66..71  number6
 bits 72..74  transmission flags
 ```
 
-`number6 == 0` means absent. Otherwise:
+### Portable flags
+
+Bits 64 and 65 are independent `/P` indicators for ordinary decoded callsigns:
 
 ```text
-number = number6 - 31
+bit 64 = 0  from callsign unchanged
+bit 64 = 1  append /P to ordinary from callsign
+
+bit 65 = 0  to callsign unchanged
+bit 65 = 1  append /P to ordinary to callsign
 ```
 
-giving the range **-30 .. +32**, including zero.
+Examples:
+
+```text
+AG6AQ    -> N6HAN
+AG6AQ/P  -> N6HAN
+AG6AQ    -> N6HAN/P
+AG6AQ/P  -> N6HAN/P
+```
+
+Upstream special/basecall-table entries such as symbolic/group names ignore these
+portable flags when rendered; the raw flag bits still exist in the frame.
+
+### number6
+
+Bits 66..71 carry a six-bit optional signed number.
+
+```text
+raw number6 = 0   -> number absent
+
+raw number6 = 1   -> -30
+raw number6 = 2   -> -29
+...
+raw number6 = 30  -> -1
+raw number6 = 31  ->  0
+raw number6 = 32  -> +1
+...
+raw number6 = 63  -> +32
+```
+
+Equivalent rule:
+
+```text
+if number6 == 0:
+    absent
+else:
+    number = number6 - 31
+```
+
+So the representable numeric value range is **-30 .. +32**.
+
+The field structurally exists for every DIRECTED command. Commands such as
+`SNR` and `HEARTBEAT SNR` make especially direct use of it, but command
+semantics decide whether the number is meaningful.
+
+Example:
+
+```text
+command5 = 29        HEARTBEAT SNR
+number6  = 13
+
+13 - 31 = -18
+
+=> HEARTBEAT SNR -18
+```
 
 ### DIRECTED command5 map
 
