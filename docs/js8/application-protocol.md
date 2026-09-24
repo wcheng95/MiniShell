@@ -1,5 +1,7 @@
 # JS8Chat Application Protocol Scope
 
+Compact wire-field reference: [`75-bit-field-map.md`](75-bit-field-map.md).
+
 This document defines the intended **v0.1 interoperability subset** for the MiniShell built-in JS8Chat app. It deliberately separates the JS8 modem/DSP from the JS8Call application protocol.
 
 ## Status
