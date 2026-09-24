@@ -1,6 +1,6 @@
 # T065 — Linux RTTY WAV decoder
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -440,4 +440,16 @@ Main was fast-forwarded to the reviewed implementation commit. T065 now enters T
 
 ## Architect test result
 
-Record Linux WAV validation and final acceptance here.
+### Linux generated-WAV acceptance — PASS
+
+Architect ran the accepted Linux MiniShell path on pc-1:
+
+```text
+M$> rtty /flash/test.wav
+THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG
+M$>
+```
+
+The expected message decoded exactly through the actual MiniShell runtime application.
+
+T065 is COMPLETE. The accepted baseline is the Linux WAV receive path using the portable 12 kHz streaming RTTY/ITA2 core. Live QMX/WebSDR receive and ADV external `rtty.elf` packaging remain deferred to later tasks.
