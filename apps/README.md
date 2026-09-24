@@ -16,7 +16,7 @@ The maintained targets are Linux Mint and Cardputer ADV. The same application so
 
 Code-facing application names are lowercase. Project names may remain proper-case in prose; for example, the MiniFT8 project provides runtime app `ft8` from `apps/ft8/`.
 
-Protocol selection is application selection. The current implementation provides `ft8`; future protocol apps such as `ft4`, `cw`, `rtty`, and `js8` are added only when their real implementation begins.
+Protocol selection is application selection. The current implementation provides `ft8`; future protocol apps such as `ft4`, `cw`, and `js8` are added only when their real implementation begins.
 
 On Linux, the reference build produces runtime-loadable `.so` modules under:
 
@@ -51,6 +51,7 @@ Current applications:
 
 ```text
 ft8      MiniFT8 FT8 application
+rtty     external Linux RTTY WAV receiver (later ADV artifact: rtty.elf)
 hello    minimal foreground Display/Input lifecycle example
 cat      text-file display
 cp       binary-safe file copy

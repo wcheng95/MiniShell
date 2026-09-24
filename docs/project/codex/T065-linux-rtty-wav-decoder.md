@@ -1,6 +1,6 @@
 # T065 — Linux RTTY WAV decoder
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -220,24 +220,24 @@ Update `apps/README.md` to list `rtty` as a current application once implementat
 
 ## Acceptance criteria
 
-- [ ] `apps/rtty/` exists and uses only the public MiniShell API at the application boundary.
-- [ ] Pure RTTY core is platform-independent and causal/streaming.
-- [ ] Core uses bounded memory and does not buffer an entire WAV.
-- [ ] Core input contract is fixed 12 kHz S16 mono.
-- [ ] 45.45 baud is represented fractionally rather than rounded to an integer baud.
-- [ ] Receiver automatically acquires a 170-Hz tone pair whose tones lie within 500..1500 Hz.
-- [ ] Correct ITA2 LETTERS/FIGURES shift behavior is covered by tests.
-- [ ] Linux build produces `build-linux/runtime/apps/rtty.so`.
-- [ ] `rtty <path.wav>` accepts supported real-audio PCM WAV files via MiniShell Filesystem.
-- [ ] 12 kHz / 24-bit / stereo AFSK decodes a clean known message such as `THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG`.
-- [ ] At least one 12 kHz / 16-bit WAV case is also tested.
-- [ ] Clean synthetic vectors decode with the tone pair at more than one location in the 500..1500 Hz window (for example MARK/SPACE 1000/830 Hz and 1400/1230 Hz).
-- [ ] A supported PCM WAV with a non-12-kHz sample rate is rejected clearly.
-- [ ] Unsupported WAV format returns a concise error and nonzero result.
-- [ ] Existing MiniShell tests remain green.
-- [ ] No code is added to `platform/adv/adv_apps.c`.
-- [ ] No public API changes.
-- [ ] `apps/rtty/README.md` documents the current Linux WAV-only state and the later external ADV target name `rtty.elf`.
+- [x] `apps/rtty/` exists and uses only the public MiniShell API at the application boundary.
+- [x] Pure RTTY core is platform-independent and causal/streaming.
+- [x] Core uses bounded memory and does not buffer an entire WAV.
+- [x] Core input contract is fixed 12 kHz S16 mono.
+- [x] 45.45 baud is represented fractionally rather than rounded to an integer baud.
+- [x] Receiver automatically acquires a 170-Hz tone pair whose tones lie within 500..1500 Hz.
+- [x] Correct ITA2 LETTERS/FIGURES shift behavior is covered by tests.
+- [x] Linux build produces `build-linux/runtime/apps/rtty.so`.
+- [x] `rtty <path.wav>` accepts supported real-audio PCM WAV files via MiniShell Filesystem.
+- [x] 12 kHz / 24-bit / stereo AFSK decodes a clean known message such as `THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG`.
+- [x] At least one 12 kHz / 16-bit WAV case is also tested.
+- [x] Clean synthetic vectors decode with the tone pair at more than one location in the 500..1500 Hz window (for example MARK/SPACE 1000/830 Hz and 1400/1230 Hz).
+- [x] A supported PCM WAV with a non-12-kHz sample rate is rejected clearly.
+- [x] Unsupported WAV format returns a concise error and nonzero result.
+- [x] Existing MiniShell tests remain green.
+- [x] No code is added to `platform/adv/adv_apps.c`.
+- [x] No public API changes.
+- [x] `apps/rtty/README.md` documents the current Linux WAV-only state and the later external ADV target name `rtty.elf`.
 
 ## Automated tests
 
@@ -279,21 +279,138 @@ Live WebSDR/QMX receive is a later task after this WAV path is accepted.
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
-
 ### Implementation summary
+
+Implemented on `codex/T065-linux-rtty-wav-decoder` from main
+`bf6114b94334281aae421bc399dcb41e8fd53230`. Added the external Linux `rtty.so`
+app, a causal caller-owned RTTY/ITA2 core, public Filesystem WAV adaptation,
+Console output, and reproducible standard-library test tooling. No scope deviations.
+
+Read the pinned `rtty_encode.py` at `9f50ca6f0387946f7656207767fad9d3ade6d5ab`
+and `DESIGN.md` at `eb4c762b72b8d1f30464d354713479474d44e605` from the private
+reference repository. No offline SciPy decoder or complex-I/Q path was ported.
+
+The core scans 100 ms acquisition blocks with 5 Hz Goertzel spacing, infers the
+lower SPACE from a dominant idle MARK, then uses only two 10 ms tone detectors
+with 1 ms decisions. Start-edge timing uses `12000.0/45.45` samples per bit.
+Start/data/stop validation precedes ITA2 emission. Three seconds without valid
+framing expires lock for reacquisition. Decoder state is 2704 bytes on Linux;
+the adapter holds 1536 transport bytes and 512 mono PCM bytes, independent of
+WAV duration. No heap is required by either module.
 
 ### Files changed
 
+- `apps/rtty/src/rtty_core.[ch]`, `rtty_ita2.[ch]`: pure streaming receiver.
+- `apps/rtty/main/rtty_main.c`, `rtty_wav.[ch]`: public-service CLI and WAV adapter.
+- `apps/rtty/tools/generate_wav.py`: deterministic stdlib AFSK producer.
+- `apps/rtty/README.md`, `apps/README.md`: profile, invocation, limits and later
+  external `rtty.elf` deployment boundary.
+- `CMakeLists.txt`: Linux module, core library and two test targets.
+- `tests/rtty_test.c`, `tests/rtty_wav_test.py`: unit, core-vector, FS/WAV and
+  actual MiniShell runtime tests.
+- `tests/architecture_rules.py`: RTTY dependency/purity/no-heap enforcement.
+- This packet: REVIEW and handoff evidence.
+
 ### Invariants preserved
+
+No public API or ADV compiled-in registry changes; no FT8/JS8 code changes.
+RTTY app output uses Console, WAV I/O uses only MiniShell Filesystem, and the
+core imports no MiniShell/native/platform API. No Audio, Serial, Display, TX,
+resampler or large runtime dependency. The fixed profile remains 12 kHz,
+45.45 baud, 170 Hz normal-LSB shift with both tones inside 500..1500 Hz.
+
+WAV supports PCM16/PCM24 mono/stereo; stereo uses bounded signed arithmetic to
+average channels. The final odd-sized data chunk may omit its pad byte (Python
+wave behavior); inter-chunk padding and all payload bounds are checked. Only
+the first data chunk is decoded. Malformed/unsupported input and FS errors
+produce nonzero status, including close failures.
 
 ### Local tests run
 
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 116/116, 39.79 seconds, including dependency/platform boundaries.
+
+cmake -S . -B /tmp/T065-sanitize -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g'
+cmake --build /tmp/T065-sanitize -j8 --target minishell rtty rtty_unit
+ctest --test-dir /tmp/T065-sanitize -R '^rtty_' --output-on-failure
+# PASS: 2/2, 3.10 seconds; run outside sandbox for LeakSanitizer.
+
+build-linux/rtty_unit
+# rtty unit: PASS state=2704 samples_per_bit=264.026402640
+nm -u build-linux/librtty_core.a
+# Only cosf, memset and the internal rtty_ita2_decode reference; no allocation.
+git diff --check
+# PASS
+```
+
+Focused coverage includes LETTERS/FIGURES/CR/LF/space and invalid symbols;
+MARK 670, 672.5, 1000, 1232.5, 1400 and 1500 Hz; 1.5/2 stop bits; 1/137/4096
+sample chunks with byte-identical decoded text; false starts and bad stops;
+silence and reacquisition at a new frequency; all four supported PCM formats;
+unequal stereo channel levels; 7-byte short FS reads; odd ancillary chunks and
+extended fmt; malformed lengths/headers, unsupported encodings/rates; injected
+read/seek/close errors; actual loader invocation, repeated launch, and nonzero
+runtime results for invalid-rate/usage errors.
+
+Independent one-time comparison against the pinned encoder used its `encode()`
+with `fs=12000`, normal LSB and MARK 670/1000/1400/1500 Hz. ITA2 symbols and
+180859-sample lengths matched exactly; maximum absolute floating sample
+differences were respectively 9.15e-12, 6.06e-12, 1.65e-11 and 1.82e-11.
+NumPy was used only to run that existing reference, not in the committed tests
+or generator. All automated tests run offline with Python standard library.
+
+Actual runtime command, generated PCM24 stereo WAV:
+
+```sh
+mkdir -p /tmp/T065-manual/flash
+python3 apps/rtty/tools/generate_wav.py /tmp/T065-manual/flash/test.wav
+MINISHELL_ROOT=/tmp/T065-manual MINISHELL_APP_DIR=/home/wei/projects/MiniShell/build-linux/runtime/apps build-linux/minishell
+```
+
+Input/output (message ends in CR/LF):
+
+```text
+minishell
+M$> rtty /flash/test.wav
+THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG
+M$> exit
+```
+
+The noninteractive verification fed these commands to stdin; its exact captured
+stdout, expressed with escapes to preserve bytes, was:
+
+```text
+"minishell\nM$> THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG\r\nM$> THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG\r\nM$> "
+```
+
+The second invocation was `rtty /flash/pinned.wav`, produced directly with the
+pinned encoder's `encode(..., fs=12000, mark=1000, sideband='lsb')` and
+`write_wav24()` using the same message. Both decoded exactly. WAV files remain
+outside the repository.
+
 ### Manual/hardware validation still required
+
+Supervisor/architect acceptance of the Linux generated-WAV path remains pending.
+The actual MiniShell runtime check above is completed local evidence. No ADV
+hardware validation is required; live QMX/WebSDR and ADV ELF packaging remain
+future tasks.
 
 ### Known limitations / risks
 
+Clean-signal receiver, not contest-grade. Acquisition assumes dominant idle MARK
+for roughly 100 ms (reference preamble is about 0.5 s). Arbitrary mid-message
+entry, interference, weak-signal behavior and post-lock drift are not guaranteed.
+No AFC/AGC/squelch or sense reversal; lock loss resets LETTERS. File errors after
+some decoded output cannot retract already printed characters. No whole-file
+buffering, speculative sensitivity tuning or production encoder was introduced.
+
 ### Commit
+
+One implementation commit on `codex/T065-linux-rtty-wav-decoder`; SHA returned in
+the handoff. No PR or GitHub Actions wait.
 
 ## Supervisor review
 

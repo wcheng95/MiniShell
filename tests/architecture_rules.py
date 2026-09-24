@@ -3,6 +3,15 @@
 # Application-local dependency rules. Add another entry when a new application
 # needs the same architectural enforcement; keep the checker itself generic.
 APP_RULES = {
+    "rtty": {
+        "enforced_roots": {"src", "main"},
+        "module_paths": {"core": ("src",), "main": ("main",)},
+        "include_roots": ("src", "main"),
+        "allowed": {"core": {"core"}, "main": {"main", "core"}},
+        "native_exceptions": {},
+        "api_modules": {"main"},
+        "no_heap_modules": {"core"},
+    },
     "js8chat": {
         "enforced_roots": {"src", "tools", "main"},
         "module_paths": {"js8_engine": ("src/js8_engine",), "tools": ("tools",),

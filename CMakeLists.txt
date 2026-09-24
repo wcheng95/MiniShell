@@ -916,3 +916,18 @@ if(JS8_A2_1_REFERENCE_WAV)
         ${CMAKE_SOURCE_DIR}/tests/js8_wav_reference.py
         $<TARGET_FILE:js8_decode> "${JS8_A2_1_REFERENCE_WAV}")
 endif()
+
+add_library(rtty_core STATIC apps/rtty/src/rtty_core.c apps/rtty/src/rtty_ita2.c)
+target_include_directories(rtty_core PUBLIC apps/rtty/src)
+target_link_libraries(rtty_core PUBLIC m)
+set_target_properties(rtty_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(rtty_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_minishell_app(rtty apps/rtty/main/rtty_main.c apps/rtty/main/rtty_wav.c)
+target_link_libraries(rtty PRIVATE rtty_core)
+add_executable(rtty_unit tests/rtty_test.c apps/rtty/main/rtty_wav.c)
+target_include_directories(rtty_unit PRIVATE include apps/rtty/main)
+target_link_libraries(rtty_unit PRIVATE rtty_core)
+target_compile_options(rtty_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
+add_test(NAME rtty_unit COMMAND rtty_unit)
+add_test(NAME rtty_wav COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/rtty_wav_test.py
+    $<TARGET_FILE:rtty_unit> $<TARGET_FILE:minishell> ${CMAKE_BINARY_DIR}/runtime/apps ${CMAKE_SOURCE_DIR})
