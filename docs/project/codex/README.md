@@ -6,7 +6,9 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active / next tasks
 
-No Codex task is currently selected.
+```text
+T066-js8-websdr-audio.md            READY — Linux browser/WebSDR monitor audio + JS8 source-delay correction
+```
 
 Most recent completed task:
 
@@ -14,7 +16,7 @@ Most recent completed task:
 T065-linux-rtty-wav-decoder.md      COMPLETE — Linux WAV RTTY receive path architect-accepted
 ```
 
-T052-T064 JS8 work and T042-T051 Mini-CW/MiniFT8 follow-on work are also complete except for historical tasks explicitly marked BREAK. New implementation work should start from a newly approved READY task packet rather than an older stale entry.
+T052-T064 JS8 work and T042-T051 Mini-CW/MiniFT8 follow-on work are also complete except for historical tasks explicitly marked BREAK.
 
 ## Rule
 
