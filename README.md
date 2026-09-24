@@ -363,7 +363,7 @@ tools. These projects and resources deserve explicit credit.
 
 ### RTTY
 
-- **wcheng95/rtty_decoder** provided the earlier RTTY experiments, QMX/I-Q research,
+- **rtty_decoder by N6HAN** provided the earlier RTTY experiments, QMX/I-Q research,
   continuous-phase AFSK test encoder, and decoder-design investigation that led to
   the MiniShell streaming RTTY receiver.
 - Classic amateur **ITA2/Baudot, 45.45-baud, 170-Hz-shift RTTY** conventions and
