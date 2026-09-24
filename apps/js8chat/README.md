@@ -82,3 +82,28 @@ are rejected. The plugin supplies requested S16 mono/stereo PCM at the requested
 rate (JS8 requests 12 kHz stereo). There is no QMX decimation in this mode.
 The existing `alsa:` QMX path remains 48 kHz S24_3LE stereo, phase-0 /4 conversion,
 and 10 ms target latency. No direct WebSDR or native libpulse client is added.
+
+
+## Human-readable activity log
+
+Keep `js8-activity-v1` JSONL as the canonical lossless log. For reading band
+activity, convert it with the checked-in formatter:
+
+```sh
+python3 apps/js8chat/tools/js8_log_text.py /path/to/activity.jsonl
+```
+
+The formatter prints one compact line per event with UTC, RF/audio frequency,
+semantic content, candidate score and LDPC hard-error count. Examples:
+
+```text
+2026-09-24 04:45:45    7.078706 MHz  +706.250 Hz  HB         KC0CYR AP90 [score=16 err=15]
+2026-09-24 04:46:00    7.078753 MHz  +753.125 Hz  DIRECTED   W8RAY -> K1CF  HEARTBEAT SNR -10 [score=22 err=2]
+```
+
+Use `--no-quality` for a cleaner operator view or `--messages-only` to show
+only completed multi-frame MESSAGE events. The tool also accepts stdin:
+
+```sh
+cat activity.jsonl | python3 apps/js8chat/tools/js8_log_text.py --no-quality
+```
