@@ -938,3 +938,27 @@ target_compile_options(rtty_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEB
 add_test(NAME rtty_unit COMMAND rtty_unit)
 add_test(NAME rtty_wav COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/rtty_wav_test.py
     $<TARGET_FILE:rtty_unit> $<TARGET_FILE:minishell> ${CMAKE_BINARY_DIR}/runtime/apps ${CMAKE_SOURCE_DIR})
+
+
+add_library(sstv_core STATIC apps/sstv/src/sstv_core.c)
+target_include_directories(sstv_core PUBLIC apps/sstv/src)
+target_link_libraries(sstv_core PUBLIC m)
+set_target_properties(sstv_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(sstv_core PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_minishell_app(sstv
+    apps/sstv/main/sstv_main.c
+    apps/sstv/main/sstv_wav.c
+    apps/sstv/main/sstv_bmp.c)
+target_link_libraries(sstv PRIVATE sstv_core)
+add_executable(sstv_unit
+    tests/sstv_test.c
+    apps/sstv/main/sstv_wav.c
+    apps/sstv/main/sstv_bmp.c)
+target_include_directories(sstv_unit PRIVATE include apps/sstv/main)
+target_link_libraries(sstv_unit PRIVATE sstv_core)
+target_compile_options(sstv_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
+add_test(NAME sstv_unit COMMAND sstv_unit)
+add_test(NAME sstv_wav COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_SOURCE_DIR}/tests/sstv_wav_test.py
+    $<TARGET_FILE:sstv_unit> $<TARGET_FILE:minishell>
+    ${CMAKE_BINARY_DIR}/runtime/apps ${CMAKE_SOURCE_DIR})

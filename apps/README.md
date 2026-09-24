@@ -89,3 +89,18 @@ Persistent application settings use the canonical namespace:
 The application owns the meaning of those settings; MiniShell Filesystem owns path/handle/storage semantics.
 
 The public API is still under active development. External `.elf` work does **not** freeze a long-term binary ABI yet. During this phase an external application may need to be rebuilt for the matching MiniShell API generation.
+
+
+## SSTV
+
+`sstv` is an external Robot 36 SSTV application. T067 provides the first
+Linux receive path:
+
+```text
+sstv <input.wav> <output.bmp>
+```
+
+The decoder is streaming and fixed at a 12 kHz S16-mono core boundary. Linux
+builds `build-linux/runtime/apps/sstv.so`; the eventual ADV deployment target is
+external `/flash/apps/sstv.elf` or `/sd/apps/sstv.elf`. Live WebSDR/QMX receive,
+TX, and ADV display integration are later tasks.

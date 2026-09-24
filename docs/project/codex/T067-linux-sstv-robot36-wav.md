@@ -1,6 +1,6 @@
 # T067 — Linux SSTV Robot 36 WAV decoder
 
-Status: IMPLEMENTING
+Status: REVIEW
 
 ## Architect intent
 
@@ -170,11 +170,55 @@ calling frequency.
 
 ### Implementation summary
 
+Implemented the Linux Robot 36 WAV receive path as an external MiniShell app.
+The pure core uses a 19-tap streaming Hilbert/phase discriminator, standard VIS
+acquisition/parity checking, slow frequency-offset tracking, fractional Robot 36
+line/pixel timing, horizontal-sync line-clock tracking, and bounded two-line
+Y/Cr/Cb reconstruction. Completed RGB rows stream directly into a top-down 24-bit
+BMP sink.
+
+
 ### Files changed
+
+- `apps/sstv/README.md`
+- `apps/sstv/src/sstv_core.c/.h`
+- `apps/sstv/main/sstv_main.c`
+- `apps/sstv/main/sstv_wav.c/.h`
+- `apps/sstv/main/sstv_bmp.c/.h`
+- `apps/sstv/tools/generate_test_wav.py`
+- `tests/sstv_test.c`
+- `tests/sstv_wav_test.py`
+- `CMakeLists.txt`
+- `apps/README.md`
+
 
 ### Tests run
 
+Local standalone validation in the supervisor environment:
+
+- all new C sources compile with `-std=c11 -Wall -Wextra -Werror -Wpedantic`;
+- deterministic 12-kHz Robot 36 `test.wav` auto-detects VIS 8 and completes 240 rows;
+- caller chunk sizes 1, 137, and 4096 samples produce byte-identical RGB output;
+- PCM16/PCM24 mono/stereo WAV adapter cases pass;
+- invalid VIS parity and valid unsupported VIS are rejected without a partial BMP;
+- output BMP is 320x240, top-down, 24-bit, 230454 bytes;
+- sampled color-bar/gray-ramp pixels are within 12/255 maximum channel error in the
+  local clean-vector check;
+- malformed/sample-rate rejection and cleanup checks pass.
+
+The full repository CMake/CTest run and actual MiniShell runtime-loader portion of
+`sstv_wav_test.py` remain to be run on pc-1 because this execution environment
+cannot clone/materialize the user's GitHub working tree.
+
+
 ### Known limitations / risks
+
+- T067 is deliberately clean-WAV bring-up, not weak-signal/on-air optimization.
+- Live WebSDR/QMX audio is deferred to T068.
+- The current instantaneous-frequency estimator is intentionally small and may need
+  threshold/filter tuning after real WebSDR recordings.
+- No SSTV TX or graphical Display path is included.
+
 
 ### Commit
 
