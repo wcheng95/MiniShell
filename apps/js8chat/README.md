@@ -36,7 +36,7 @@ Activity/reassembly and FS/console publication occur on the app thread.
 between serviced frontend chunks, candidate/unique counts, dropped windows and
 Audio discontinuities. `JS8 stopped` reports completed slots and cleanup status.
 These are measurement aids, not real-time guarantees. T064 records accepted
-real pc-1/QMX reception; T066 browser-monitor acceptance is a separate gate.
+real pc-1/QMX reception; T066 records accepted real pc-1 KFS/browser-monitor reception.
 
 The frozen reference is JS8Call-improved v3.0.3. The T052-T063 engine and semantics
 are unchanged. Shared JSON serialization lives in `src/activity_json`; the host
@@ -71,8 +71,7 @@ Do not supply `--cat` for remote WebSDR receive. `--dial-hz` describes the remot
 dial for RF logging; it does not tune the browser. Try delay values such as
 0/250/500/750/1000/1250/1500 ms if needed, then record the selected value and run
 `--slots 20`. Record drops/discontinuities and decoded activity, quit and reopen.
-A quiet band is not itself an Audio-provider failure. Real pc-1 browser testing
-remains a separate acceptance gate.
+A quiet band is not itself an Audio-provider failure. Real pc-1 KFS testing is accepted using the explicit analog-stereo monitor source with `--rx-delay-ms 0`; multiple HB/directed frames decoded with zero observed drops/discontinuities.
 
 The Linux provider maps `pulse:<source>` to ALSA `pulse:DEVICE=<source>` using the
 [ALSA Pulse plugin configuration](https://github.com/alsa-project/alsa-plugins/blob/master/pulse/50-pulseaudio.conf).
