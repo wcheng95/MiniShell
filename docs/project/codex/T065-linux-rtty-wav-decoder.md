@@ -1,6 +1,6 @@
 # T065 — Linux RTTY WAV decoder
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -414,7 +414,29 @@ the handoff. No PR or GitHub Actions wait.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and local test evidence.
+Reviewed commit `5ba128b509994077ea6d703ab82ec80366931a3b` against T065 and the accepted RTTY architecture.
+
+Result: **PASS — implementation accepted for Linux architect testing.**
+
+Review findings:
+
+- One bounded implementation commit, exactly one commit ahead of the reviewed main baseline `bf6114b94334281aae421bc399dcb41e8fd53230`.
+- The pure RTTY core remains platform-independent, causal and bounded; it owns no MiniShell/native API access and performs no heap allocation.
+- The core boundary is exactly 12 kHz S16 mono and preserves fractional 45.45-baud timing.
+- Acquisition is small and causal: 100 ms Goertzel scan, dominant idle MARK acquisition from 670..1500 Hz, inferred SPACE at MARK-170 Hz, followed by two-tone streaming detection only.
+- The fixed normal-LSB 170-Hz profile keeps both acquired tones inside 500..1500 Hz and tests cover lower/upper band edges plus off-grid tones.
+- Character timing is re-seeded from MARK->SPACE start edges, samples five LSB-first data bits at fractional timing, validates MARK stop state, and accepts 1.5- and 2-bit stops.
+- ITA2 LETTERS/FIGURES behavior matches the pinned encoder variant and is covered across shifts, CR/LF, space, punctuation and invalid symbols.
+- WAV adaptation uses only MiniShell Filesystem and Console services. PCM16/PCM24 mono/stereo conversion is bounded and streaming; unsupported rates/formats and malformed/short I/O paths are rejected.
+- No Audio, Serial, Display, TX, public API, FT8/JS8, or ADV compiled-in registry changes were introduced.
+- Linux runtime packaging is the intended `rtty.so`; later ADV deployment remains external `rtty.elf`.
+- Architecture enforcement now covers RTTY module ownership, native dependency boundaries and no-heap core policy.
+- Test evidence is consistent with the diff: Linux 116/116, focused sanitizer 2/2, exact runtime module loading/reopen, all four supported WAV PCM combinations, malformed/I/O fault coverage, reacquisition, false-start/bad-stop rejection and chunk-size invariance.
+- The committed deterministic generator was independently compared against the pinned encoder at multiple MARK frequencies and the actual MiniShell runtime decoded both generated and pinned-reference WAVs exactly.
+
+No blocking defect or task-scope deviation found.
+
+Main was fast-forwarded to the reviewed implementation commit. T065 now enters TESTING for architect acceptance of the Linux generated-WAV path. Live QMX/WebSDR receive and ADV ELF packaging remain deferred.
 
 ## Architect test result
 
