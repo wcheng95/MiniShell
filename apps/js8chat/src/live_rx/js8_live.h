@@ -11,7 +11,7 @@ typedef struct {
     const char *rx, *cat, *log;
     int have_dial;
     int64_t dial_hz;
-    uint32_t slots;
+    uint32_t slots, rx_delay_ms;
 } Js8LiveOptions;
 int js8_live_options(int argc, char **argv, Js8LiveOptions *out);
 /* The platform composition starts/joins a worker. App/engine code never uses
@@ -32,7 +32,7 @@ typedef struct Js8Live {
     size_t decoded_count, candidate_count;
     int decode_error;
     uint64_t decode_us, max_read_gap_us, last_read_us;
-    uint32_t dropped, discontinuities, processed;
+    uint32_t dropped, discontinuities, processed, rx_delay_ms;
     Js8RxReassembly reassembly;
     mini_file_t log_file, dictionary_file;
     Js8JscDictionary dictionary;

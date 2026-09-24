@@ -470,6 +470,13 @@ target_include_directories(linux_audio_discontinuity_unit PRIVATE
 target_link_libraries(linux_audio_discontinuity_unit PRIVATE dl pthread)
 target_compile_options(linux_audio_discontinuity_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
+add_executable(linux_pulse_audio_unit tests/linux_pulse_audio_test.c)
+target_include_directories(linux_pulse_audio_unit PRIVATE include core/minishell_services)
+target_link_libraries(linux_pulse_audio_unit PRIVATE dl)
+target_compile_options(linux_pulse_audio_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
+add_test(NAME linux_pulse_audio_unit COMMAND linux_pulse_audio_unit)
+set_tests_properties(linux_pulse_audio_unit PROPERTIES SKIP_RETURN_CODE 77)
+
 add_executable(linux_alsa_discontinuity_unit tests/linux_alsa_discontinuity_test.c)
 target_include_directories(linux_alsa_discontinuity_unit PRIVATE include core/minishell_services)
 target_link_libraries(linux_alsa_discontinuity_unit PRIVATE dl)

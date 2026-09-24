@@ -161,6 +161,36 @@ static void timing_tests(void)
     assert(begins==2 && begun_slot==1001 && first_sample==0 && !drops);
 
 }
+static void delay_tests(void)
+{
+    Js8LiveOptions options;
+    char *plain[]={"js8chat","--rx","fake"};
+    assert(!js8_live_options(3,plain,&options) && options.rx_delay_ms==0);
+    char *values[]={"0","1","750","5000","-1","5001","x","1.0","+1","","9999999999999999999999999"};
+    for(unsigned i=0;i<sizeof(values)/sizeof(values[0]);++i) {
+        char *args[]={"js8chat","--rx","fake","--rx-delay-ms",values[i]};
+        assert((js8_live_options(5,args,&options)==0)==(i<4));
+    }
+    char *duplicate[]={"js8chat","--rx","fake","--rx-delay-ms","0","--rx-delay-ms","1"};
+    assert(js8_live_options(7,duplicate,&options));
+    assert(js8_live_options(4,duplicate,&options));
+    int64_t seconds=15, slot; uint32_t ns=100000000, offset;
+    assert(!js8_live_delay(&seconds,&ns,750) && seconds==14 && ns==350000000);
+    assert(!js8_live_anchor(seconds,ns,128,&slot,&offset) && slot==0 && offset==85972);
+    seconds=16; ns=0;
+    assert(!js8_live_delay(&seconds,&ns,1000) && seconds==15 && ns==0);
+    assert(!js8_live_anchor(seconds,ns,128,&slot,&offset) && slot==0 && offset==89872);
+    seconds=15; ns=750000000;
+    assert(!js8_live_delay(&seconds,&ns,750) && seconds==15 && ns==0);
+    seconds=0; ns=0;
+    assert(!js8_live_delay(&seconds,&ns,1) && seconds==-1 && ns==999000000);
+    seconds=INT64_MIN; ns=0;
+    assert(js8_live_delay(&seconds,&ns,1) && seconds==INT64_MIN && ns==0);
+    seconds=20; ns=123456789;
+    assert(!js8_live_delay(&seconds,&ns,0) && seconds==20 && ns==123456789);
+    assert(!js8_live_delay(&seconds,&ns,5000) && seconds==15 && ns==123456789);
+    assert(js8_live_delay(&seconds,&ns,5001));
+}
 static Js8DecodedPayload payload(const char *bits, unsigned flags)
 {
     Js8DecodedPayload p={0}; p.candidate.freq_offset=128;p.candidate.score=20;
@@ -190,7 +220,7 @@ static void semantic_tests(void)
 }
 int main(void)
 {
-    timing_tests(); semantic_tests();
+    timing_tests(); delay_tests(); semantic_tests();
     char *args[]={"js8chat","--rx","fake","--dial-hz","14078000","--cat","serial:fake","--log","/flash/log","--slots","2"};
     for (unsigned mode=0;mode<9;++mode) {
         failure=mode<8?mode:0; quit_after=mode==8?5:0; reads=total_frames=starts=stops=utc_queries=syncs=0;
@@ -203,6 +233,10 @@ int main(void)
     failure=0;quit_after=0;reads=total_frames=0;worker_delay=2150;
     char *plain[]={"js8chat","--rx","fake"};
     assert(!js8chat_run(&api,3,plain,&worker)); assert(!allocations);
+    worker_delay=0; failure=3; reads=total_frames=0;
+    char *delayed[]={"js8chat","--rx","fake","--rx-delay-ms","750","--slots","1"};
+    assert(!js8chat_run(&api,7,delayed,&worker) && !allocations && !audio_handles);
+    failure=0;
     mini_audio_api_t bad=audio; bad.capabilities=0;api.audio=&bad;
     assert(js8chat_run(&api,3,plain,&worker)==1);api.audio=&audio;
     char *invalid[]={"js8chat","--rx","fake","--cat","serial:fake"};

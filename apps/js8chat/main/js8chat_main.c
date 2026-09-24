@@ -7,6 +7,7 @@
 int js8_live_options(int argc, char **argv, Js8LiveOptions *out)
 {
     Js8LiveOptions o = {0};
+    int have_delay = 0;
     for (int i = 1; i < argc; i += 2) {
         if (i+1 >= argc || !argv[i+1][0]) return -1;
         if (!strcmp(argv[i], "--rx") && !o.rx) o.rx = argv[i+1];
@@ -15,6 +16,10 @@ int js8_live_options(int argc, char **argv, Js8LiveOptions *out)
         else if (!strcmp(argv[i], "--dial-hz") && !o.have_dial) {
             if (js8_log_parse_dial(argv[i+1], &o.dial_hz)) return -1;
             o.have_dial = 1;
+        } else if (!strcmp(argv[i], "--rx-delay-ms") && !have_delay) {
+            int64_t value;
+            if (js8_log_parse_dial(argv[i+1], &value) || value > 5000) return -1;
+            o.rx_delay_ms = (uint32_t)value; have_delay = 1;
         } else if (!strcmp(argv[i], "--slots") && !o.slots) {
             int64_t value;
             if (js8_log_parse_dial(argv[i+1], &value) || value < 1 || value > UINT32_MAX) return -1;
@@ -32,7 +37,7 @@ int js8chat_run(const mini_api_t *api, int argc, char **argv, const Js8Worker *w
 {
     Js8LiveOptions o;
     if (js8_live_options(argc, argv, &o)) {
-        say(api, "usage: js8chat --rx endpoint [--dial-hz hz] [--cat endpoint] [--log path] [--slots N]\n"); return 2;
+        say(api, "usage: js8chat --rx endpoint [--dial-hz hz] [--rx-delay-ms N] [--cat endpoint] [--log path] [--slots N]\n"); return 2;
     }
     if (!api || api->api_version != MINISHELL_API_VERSION || api->struct_size < sizeof(*api) ||
         !worker || !worker->start || !worker->stop ||
@@ -53,6 +58,7 @@ int js8chat_run(const mini_api_t *api, int argc, char **argv, const Js8Worker *w
     mini_serial_t serial = MINI_SERIAL_INVALID;
     int started = 0, working = 0, rc = 1;
     if (js8_live_init(s, api)) goto cleanup;
+    s->rx_delay_ms = o.rx_delay_ms;
     s->metadata.have_dial = o.have_dial; s->metadata.dial_hz = o.dial_hz;
     if (o.log && (api->fs->open(o.log, MINI_FS_WRITE|MINI_FS_CREATE|MINI_FS_APPEND, &s->log_file) || !s->log_file)) {
         s->error = "log_open"; goto cleanup;

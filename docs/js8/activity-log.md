@@ -107,6 +107,12 @@ not decode-completion time. The formatter's metadata origin is the Unix epoch.
 Audio/RF fields remain exact integer milli-Hz. Negative UTC slot IDs are rejected
 by the live event path; the pure timing conversion tests cover negative epochs.
 
+T066 adds optional `--rx-delay-ms N` (integer 0..5000, default zero). Source age
+is subtracted from each fresh UTC reference before sample backdating, so slot/UTC
+fields identify the corrected RF slot. JSON schema and audio/RF arithmetic are
+unchanged. Browser/WebSDR routing belongs to the operator; use no local CAT for
+that path. See the app README for Linux `pulse:` monitor setup.
+
 Every successful Audio chunk gets a new MiniShell UTC reference after frontend
 conversion. The reference is backdated by the produced 6 kHz sample count, and
 its absolute position locates each target slot's capture start 9600 samples

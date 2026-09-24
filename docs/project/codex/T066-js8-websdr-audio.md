@@ -1,6 +1,6 @@
 # T066 — JS8 Linux WebSDR/browser audio input
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -310,19 +310,19 @@ format handling from Pulse monitor handling. Do not redesign the public Audio AP
 
 ## Acceptance criteria
 
-- [ ] Linux Audio accepts `pulse:<source>` and returns 12 kHz S16 stereo through the existing MiniShell Audio contract.
+- [x] Linux Audio accepts `pulse:<source>` and returns 12 kHz S16 stereo through the existing MiniShell Audio contract.
 - [ ] `pulse:@DEFAULT_MONITOR@` is supported on the pc-1 desktop audio stack.
-- [ ] Existing `alsa:<QMX>` behavior is unchanged.
-- [ ] No public MiniShell API change.
-- [ ] No WebSDR/network/browser code enters JS8Chat.
-- [ ] JS8 accepts `--rx-delay-ms 0..5000`; default is zero.
-- [ ] Delay correction is applied before JS8 UTC slot scheduling/backdating.
-- [ ] Delay arithmetic is correct across UTC second and 15-second slot boundaries.
-- [ ] Zero-delay synthetic live output remains identical to T064.
-- [ ] Delayed synthetic live audio decodes with matching delay correction.
-- [ ] Audio discontinuity behavior remains T064-compatible.
-- [ ] Existing JS8/QMX and repository tests remain green.
-- [ ] Documentation explains browser monitor routing, KFS use, and why no `--cat` is used.
+- [x] Existing `alsa:<QMX>` behavior is unchanged.
+- [x] No public MiniShell API change.
+- [x] No WebSDR/network/browser code enters JS8Chat.
+- [x] JS8 accepts `--rx-delay-ms 0..5000`; default is zero.
+- [x] Delay correction is applied before JS8 UTC slot scheduling/backdating.
+- [x] Delay arithmetic is correct across UTC second and 15-second slot boundaries.
+- [x] Zero-delay synthetic live output remains identical to T064.
+- [x] Delayed synthetic live audio decodes with matching delay correction.
+- [x] Audio discontinuity behavior remains T064-compatible.
+- [x] Existing JS8/QMX and repository tests remain green.
+- [x] Documentation explains browser monitor routing, KFS use, and why no `--cat` is used.
 - [ ] Real pc-1 browser-monitor audio can be opened and serviced continuously.
 - [ ] At least one real WebSDR JS8 frame is decoded when on-air activity is available; if the selected band is quiet, lack of a station is not treated as an Audio-provider failure.
 
@@ -390,7 +390,146 @@ No RF transmit is involved.
 
 ## Codex implementation notes
 
-Codex fills this section before handoff.
+### Implementation summary
+
+Implemented against main `a4d4a2bb6f3b26ef1a64df875790c68d10dc77e5` on
+`codex/T066-js8-websdr-audio`. Added a Linux provider-owned `pulse:<source>` path
+using the existing dynamically loaded ALSA stack, plus generic JS8
+`--rx-delay-ms 0..5000` correction (default zero). No task-scope deviations.
+
+The ALSA Pulse configuration's `DEVICE` argument was checked against the installed
+`/usr/share/alsa/alsa.conf.d/50-pulseaudio.conf` and the upstream
+[ALSA plugin configuration](https://github.com/alsa-project/alsa-plugins/blob/master/pulse/50-pulseaudio.conf).
+Source names are bounded to 255 ASCII letters/digits or `_`, `-`, `.`, `@`,
+preventing ALSA argument injection. The provider opens `pulse:DEVICE=<source>`
+nonblocking, requests S16_LE at the application's rate/channels, and returns
+bounded reads with the existing wait/recovery/discontinuity contract. Mono/stereo
+are supported; JS8 continues requesting 12 kHz stereo. Plugin/server errors fail
+open cleanly. No new linked desktop-audio library, network client or routing change.
+
+### Files changed
+
+- `platform/linux/linux_audio_wav.c`: endpoint validation, Pulse native format,
+  bounded S16 reads and cleanup, with unchanged QMX conversion/recovery path.
+- `apps/js8chat/main/js8chat_main.c`, `src/live_rx/js8_live.[ch]`: delay option,
+  lifecycle storage and correction before existing anchor/backdating.
+- `src/live_rx/js8_frontend.[ch]`: pure bounded integer UTC delay subtraction.
+  The existing timing helper lives here; there is no `js8_timing.c` in this baseline.
+- `tests/linux_pulse_audio_test.c`, `CMakeLists.txt`: server-free provider test.
+- `tests/js8_live_test.c`, `tests/js8_live_probe.c`, `tests/linux_js8_live.py`:
+  parsing/borrow/reset tests and independently delayed synthetic input.
+- App README, `docs/js8/activity-log.md`, this packet: setup and evidence.
+
+### Behavior / invariants preserved
+
+No public API, FT8 production, JS8 engine/protocol/reassembly/schema, scheduler,
+CAT or host decoder changes. QMX remains blocking capture at 48 kHz S24_3LE
+stereo, phase-0 /4 conversion and 10000 us target latency. Pulse uses no QMX
+conversion. Its native sample format is decoded explicitly as little-endian S16.
+
+Delay subtracts whole milliseconds from each fresh UTC reading with nanosecond
+borrow and underflow checking, then the existing produced-sample backdating
+runs. Zero is an identity operation. Discontinuity resets remain unchanged and
+the configured delay survives reset. Slot cadence, pre-roll and capture length
+are unchanged. `sizeof(Js8Live)` remains 12968 bytes on this build; no raw-audio
+queue, new worker or additional persistent sample buffer was added.
+
+### Tests run and results
+
+```sh
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Sandbox: 116/117 passed; existing linux_serial_unit failed at line 67.
+ctest --test-dir build-linux -R '^linux_serial_unit$' --output-on-failure
+# Outside sandbox: 1/1 passed unchanged.
+ctest --test-dir build-linux --output-on-failure
+# Outside sandbox full rerun: 116/117; the same Serial assertion failed.
+ctest --test-dir build-linux --repeat until-pass:5 --output-on-failure
+# Final outside-sandbox run: 117/117 passed, 55.69 seconds; all passed on their first attempt.
+
+cmake -S tests/unit -B /tmp/T064-build-unit
+cmake --build /tmp/T064-build-unit -j8
+ctest --test-dir /tmp/T064-build-unit --output-on-failure
+# 27/27 passed, 1.20 seconds.
+
+cmake -S . -B /tmp/T064-build-sanitize -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' -DJS8_A2_1_REFERENCE_WAV="$HOME/projects/js8chat/A_2_1.wav"
+cmake --build /tmp/T064-build-sanitize -j8 --target minishell js8chat js8_live_probe js8_live_unit linux_pulse_audio_unit linux_alsa_discontinuity_unit linux_audio_discontinuity_unit js8_rx_unit js8_phy_unit js8_frame_unit js8_protocol_frame_unit js8_compound_unit js8_directed_unit js8_huffman_unit js8_jsc_unit js8_reassembly_unit js8_activity_unit js8_activity_log_unit js8_decode js8_multislot_host_unit
+ctest --test-dir /tmp/T064-build-sanitize -R '^(js8_(phy_unit|rx_unit|frame_unit|protocol_frame_unit|compound_unit|directed_unit|huffman_unit|jsc_unit|reassembly_unit|activity_unit|activity_log_unit|activity_json_unit|activity_wav_unit|live_unit|wav_unit|directed_wav_unit|huffman_wav_unit|jsc_wav_unit|multislot_host_unit|multislot_wav_unit|reassembly_wav_unit|A2_1_reference)|linux_js8_live|linux_pulse_audio_unit|linux_alsa_discontinuity_unit|linux_audio_discontinuity_unit)$' --output-on-failure
+# 26/26 passed, 83.23 seconds; outside sandbox for LeakSanitizer.
+
+git diff --check
+# Passed.
+```
+
+The Serial failure asserts a full PTY output queue returns TIMEOUT with zero
+bytes. It repeated in isolated sandbox runs (including five retries), passed in
+an isolated unsandboxed run, then failed in the first full unsandboxed rerun.
+A fresh archive/build of untouched baseline `a4d4a2b` reproduced the same line-67
+failure (`cmake -S /tmp/T066-baseline -B /tmp/T066-baseline-build`, build target
+`linux_serial_unit`, CTest selection `^linux_serial_unit$`). The final bounded
+full run above passed the Serial test on its first attempt. Serial code/tests
+were not changed and no assertion was weakened.
+
+Coverage includes omitted/zero/1/750/5000 delay, negative/malformed/overflow and
+duplicate rejection, second/slot borrow, exact boundaries, negative epoch and
+INT64 underflow, produced-sample backdating, and delayed discontinuity cleanup.
+Existing zero-delay fixtures remain intact. Additional 0/750/5000 ms source-age
+fixtures use independent fake UTC and matching CLI correction; complete live JSON
+is byte-identical to the baseline for repeated HB, mixed Huffman/JSC reassembly
+and four streams. The provider test verifies default/named source conversion,
+invalid names, format negotiation, actual PCM channel values, QMX phase retained
+across short native reads, timeout/EAGAIN, recovery, open/config failure cleanup,
+close/reopen and alternate Pulse mono/rate requests, without a Pulse server.
+
+### Local desktop observation / manual validation still required
+
+Outside the sandbox, the installed ALSA Pulse plugin captured one second using:
+
+```sh
+arecord -D pulse:DEVICE=@DEFAULT_MONITOR@ -f S16_LE -r 12000 -c 2 -d 1 /tmp/T066-pulse-probe.wav
+```
+
+Result: `Recording WAVE ... : Signed 16 bit Little Endian, Rate 12000 Hz, Stereo`.
+The sandbox attempt could not connect and was stopped; the unsandboxed probe
+succeeded. No routing or playback configuration was changed.
+
+Actual MiniShell invocation on this development host (not a pc-1 acceptance run):
+
+```text
+js8chat --rx pulse:@DEFAULT_MONITOR@ --slots 1
+```
+
+Captured output:
+
+```text
+JS8 receive monitor started (q to quit)
+JS8 decoded slot=119348251 decode_us=20728 read_gap_max_us=5726 candidates=0 unique=0 drops=0 discontinuities=0
+JS8 stopped slots=1 drops=0 discontinuities=0 error=none
+```
+
+The actual command used `timeout 45s env MINISHELL_ROOT=/tmp/T066-manual
+MINISHELL_APP_DIR=/home/wei/projects/MiniShell/build-linux/runtime/apps
+build-linux/minishell` with the invocation above on stdin. Exit status was zero;
+no timeout occurred. The dictionary was copied into this temporary root.
+
+After supervisor review, pc-1 must still perform the browser/KFS test, trial delay
+selection, at least 20 slots, activity/log inspection, quit/reopen and QMX regression
+specified above. No real WebSDR frame was claimed by the local silent-monitor run.
+
+### Known limitations / risks
+
+Requires the ALSA Pulse plugin and a running PulseAudio/PipeWire-Pulse server;
+no direct libpulse fallback. Ordinary CI uses injected provider functions.
+Source latency is a fixed operator-selected correction; jitter/drift are not
+estimated. Other desktop sounds can contaminate monitor capture. No browser
+control, automatic sink creation, network access or local CAT for WebSDR is added.
+Manual setup and source-name constraints are documented in the app README.
+
+### Commit reference
+
+One bounded commit on `codex/T066-js8-websdr-audio`; SHA returned in the handoff.
+No PR or GitHub Actions wait.
 
 ## Supervisor review
 

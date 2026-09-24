@@ -80,6 +80,7 @@ int js8_live_chunk(Js8Live *s, const int16_t *frames, size_t count)
     mini_utc_time_t utc = {.struct_size = sizeof(utc)};
     /* Every successful conversion is freshly UTC-referenced, even after startup. */
     if (s->api->time_location->utc_get(&utc) != MINI_OK) { js8_live_reset(s); return 0; }
+    if (js8_live_delay(&utc.unix_seconds, &utc.nanoseconds, s->rx_delay_ms)) return -1;
     int64_t slot; uint32_t offset;
     if (js8_live_anchor(utc.unix_seconds, utc.nanoseconds, produced, &slot, &offset) || slot < 0 || slot > UINT32_MAX) return -1;
     uint64_t stamp = now(s);

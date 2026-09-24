@@ -25,3 +25,14 @@ int js8_live_anchor(int64_t seconds, uint32_t ns, size_t produced,
     *slot = id; *offset = (uint32_t)sample;
     return 0;
 }
+
+int js8_live_delay(int64_t *seconds, uint32_t *ns, uint32_t delay_ms)
+{
+    if (!seconds || !ns || *ns >= 1000000000u || delay_ms > 5000) return -1;
+    uint32_t fraction = (delay_ms % 1000)*1000000u;
+    int64_t whole = delay_ms/1000 + (int64_t)(*ns < fraction);
+    if (*seconds < INT64_MIN + whole) return -1;
+    *seconds -= whole;
+    *ns = *ns < fraction ? *ns + 1000000000u - fraction : *ns - fraction;
+    return 0;
+}

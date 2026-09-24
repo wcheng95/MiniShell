@@ -12,6 +12,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdio.h>
 #include <alsa/asoundlib.h>
 #endif
 
@@ -43,6 +44,8 @@ typedef struct {
     snd_pcm_t *pcm;
     bool started;
     uint8_t decimation_phase;
+    bool pulse;
+    uint32_t pulse_channels;
 
     int (*pcm_open)(snd_pcm_t **pcm, const char *name,
                     snd_pcm_stream_t stream, int mode);
@@ -225,6 +228,27 @@ static bool is_alsa_endpoint(const char *endpoint)
     return endpoint != NULL && strncmp(endpoint, "alsa:", 5u) == 0 && endpoint[5] != '\0';
 }
 
+static bool is_pulse_endpoint(const char *endpoint)
+{
+    return endpoint != NULL && strncmp(endpoint, "pulse:", 6u) == 0;
+}
+
+/* ALSA PCM arguments are configuration syntax, not a shell. Accept source-name
+ * characters only so the endpoint cannot inject other PCM arguments. */
+static bool pulse_pcm_name(const char *endpoint, char name[272])
+{
+    if (!is_pulse_endpoint(endpoint)) return false;
+    const char *source = endpoint + 6u;
+    size_t n = 0;
+    for (; source[n]; ++n) {
+        unsigned char c = (unsigned char)source[n];
+        if (n >= 255 || !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.' || c == '@')) return false;
+    }
+    if (!n) return false;
+    return snprintf(name, 272, "pulse:DEVICE=%s", source) < 272;
+}
+
 static bool alsa_load(void)
 {
     if (s_alsa.library != NULL) return true;
@@ -274,23 +298,28 @@ static mini_result_t alsa_rx_open(const char *endpoint,
 {
     if (out_audio == NULL) return MINI_ERR_INVALID;
     *out_audio = MINISHELL_BACKEND_AUDIO_INVALID;
-    if (!is_alsa_endpoint(endpoint)) return MINI_ERR_NOT_FOUND;
+    bool pulse = is_pulse_endpoint(endpoint);
+    char pulse_name[272];
+    if (pulse && !pulse_pcm_name(endpoint, pulse_name)) return MINI_ERR_INVALID;
+    if (!pulse && !is_alsa_endpoint(endpoint)) return MINI_ERR_NOT_FOUND;
     if (s_alsa.pcm != NULL) return MINI_ERR_TOO_MANY_OPEN;
-    if (sample_rate_hz != 12000u || sample_format != MINI_AUDIO_SAMPLE_S16 || channels != 2u) {
+    if (sample_format != MINI_AUDIO_SAMPLE_S16 ||
+        (pulse ? (sample_rate_hz == 0u || (channels != 1u && channels != 2u))
+               : (sample_rate_hz != 12000u || channels != 2u))) {
         return MINI_ERR_UNSUPPORTED;
     }
     if (!alsa_load()) return MINI_ERR_UNSUPPORTED;
 
     snd_pcm_t *pcm = NULL;
-    if (s_alsa.pcm_open(&pcm, endpoint + 5u, SND_PCM_STREAM_CAPTURE, 0) < 0) {
+    if (s_alsa.pcm_open(&pcm, pulse ? pulse_name : endpoint + 5u, SND_PCM_STREAM_CAPTURE, pulse ? SND_PCM_NONBLOCK : 0) < 0) {
         return MINI_ERR_IO;
     }
 
     if (s_alsa.pcm_set_params(pcm,
-                              SND_PCM_FORMAT_S24_3LE,
+                              pulse ? SND_PCM_FORMAT_S16_LE : SND_PCM_FORMAT_S24_3LE,
                               SND_PCM_ACCESS_RW_INTERLEAVED,
-                              ALSA_NATIVE_CHANNELS,
-                              ALSA_NATIVE_RATE,
+                              pulse ? channels : ALSA_NATIVE_CHANNELS,
+                              pulse ? sample_rate_hz : ALSA_NATIVE_RATE,
                               0,
                               ALSA_TARGET_LATENCY_US) < 0) {
         (void)s_alsa.pcm_close(pcm);
@@ -298,6 +327,8 @@ static mini_result_t alsa_rx_open(const char *endpoint,
     }
 
     s_alsa.pcm = pcm;
+    s_alsa.pulse = pulse;
+    s_alsa.pulse_channels = pulse ? channels : 0;
     s_alsa.started = false;
     s_alsa.decimation_phase = 0u;
     *out_audio = ALSA_AUDIO_HANDLE;
@@ -312,7 +343,7 @@ static mini_result_t audio_rx_open(void *ctx, const char *endpoint,
 {
     (void)ctx;
 #ifdef MINISHELL_LINUX_HAVE_ALSA
-    if (is_alsa_endpoint(endpoint)) {
+    if (is_alsa_endpoint(endpoint) || is_pulse_endpoint(endpoint)) {
         return alsa_rx_open(endpoint, sample_rate_hz, sample_format, channels, out_audio);
     }
 #endif
@@ -320,6 +351,9 @@ static mini_result_t audio_rx_open(void *ctx, const char *endpoint,
     if (out_audio == NULL) return MINI_ERR_INVALID;
     *out_audio = MINISHELL_BACKEND_AUDIO_INVALID;
     if (endpoint == NULL) return MINI_ERR_NOT_FOUND;
+#ifndef MINISHELL_LINUX_HAVE_ALSA
+    if (strncmp(endpoint, "pulse:", 6u) == 0) return MINI_ERR_UNSUPPORTED;
+#endif
     if (s_wav.file != MINISHELL_BACKEND_FILE_INVALID) return MINI_ERR_TOO_MANY_OPEN;
 
     minishell_backend_file_t file = MINISHELL_BACKEND_FILE_INVALID;
@@ -385,6 +419,25 @@ static mini_result_t audio_rx_read(void *ctx, minishell_backend_audio_t audio,
             if (s_alsa.pcm_recover(s_alsa.pcm, ready, 1) < 0) return MINI_ERR_IO;
             s_alsa.decimation_phase = 0u;
             return MINI_ERR_DISCONTINUITY;
+        }
+
+        if (s_alsa.pulse) {
+            /* Desktop resampling belongs to the Pulse plugin. No QMX /4 path. */
+            snd_pcm_uframes_t want = frame_capacity;
+            if (want > ALSA_NATIVE_CHUNK_FRAMES) want = ALSA_NATIVE_CHUNK_FRAMES;
+            snd_pcm_sframes_t got = s_alsa.pcm_readi(s_alsa.pcm, native, want);
+            if (got == -EAGAIN) return MINI_OK;
+            if (got < 0) {
+                if (s_alsa.pcm_recover(s_alsa.pcm, (int)got, 1) < 0) return MINI_ERR_IO;
+                return MINI_ERR_DISCONTINUITY;
+            }
+            if ((snd_pcm_uframes_t)got > want) return MINI_ERR_IO;
+            for (size_t i = 0; i < (size_t)got*s_alsa.pulse_channels; ++i) {
+                uint16_t v = read_u16_le(native + 2*i);
+                dst[i] = (int16_t)(v >= 32768u ? (int32_t)v - 65536 : (int32_t)v);
+            }
+            *out_frames = (uint32_t)got;
+            return MINI_OK;
         }
 
         while (produced < frame_capacity) {
@@ -476,6 +529,8 @@ static mini_result_t audio_rx_close(void *ctx, minishell_backend_audio_t audio)
     if (valid_alsa_handle(audio)) {
         (void)s_alsa.pcm_close(s_alsa.pcm);
         s_alsa.pcm = NULL;
+        s_alsa.pulse = false;
+        s_alsa.pulse_channels = 0;
         s_alsa.started = false;
         s_alsa.decimation_phase = 0u;
         return MINI_OK;

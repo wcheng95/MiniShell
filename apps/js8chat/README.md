@@ -35,12 +35,51 @@ Activity/reassembly and FS/console publication occur on the app thread.
 `JS8 decoded` diagnostics include per-job decode microseconds, maximum interval
 between serviced frontend chunks, candidate/unique counts, dropped windows and
 Audio discontinuities. `JS8 stopped` reports completed slots and cleanup status.
-These are measurement aids, not real-time guarantees. Real pc-1/QMX acceptance,
-including 20 consecutive slots without decode-induced discontinuity, remains
-required after supervisor review.
+These are measurement aids, not real-time guarantees. T064 records accepted
+real pc-1/QMX reception; T066 browser-monitor acceptance is a separate gate.
 
 The frozen reference is JS8Call-improved v3.0.3. The T052-T063 engine and semantics
 are unchanged. Shared JSON serialization lives in `src/activity_json`; the host
 FILE sink and MiniShell FS sink use the same `js8-activity-v1` formatter. See
 `docs/js8/activity-log.md` and the T064 task for timing, ownership and test evidence.
 No TX, live network source, final UI, conversations or ADIF are implemented.
+
+## Linux browser / WebSDR audio (T066)
+
+The browser owns WebSDR networking, tuning and audio playback. MiniShell captures
+its desktop playback monitor through the Linux Audio provider:
+
+```text
+js8chat --rx pulse:@DEFAULT_MONITOR@ --rx-delay-ms 800 --dial-hz 7078000 --log /flash/js8chat/activity.jsonl
+```
+
+The example 800 ms is a trial value, not a default or calibrated KFS delay.
+`--rx-delay-ms N` accepts integer 0..5000, defaults to zero, and works with any RX
+endpoint. Positive N means arriving PCM is N milliseconds old: the app subtracts
+it from each fresh UTC reading before produced-sample backdating. The target RF
+slot identity, 1.6-second pre-roll, 93-block capture, decoder and log schema remain
+unchanged. Discontinuity resets capture/reassembly while retaining this option.
+
+On pc-1, open KFS in the browser, tune an active JS8 Normal frequency (for example
+7078 kHz USB), choose bandwidth covering roughly 200..2900 Hz audio, and click
+Audio Start. Inspect sources with `pactl list short sources`. Select the default
+monitor above or `pulse:alsa_output.pci-0000_00_1f.3.analog-stereo.monitor` using
+the actual source name. Keep other desktop sounds quiet. A dedicated monitor
+sink is optional operator configuration; MiniShell does not create or reroute it.
+
+Do not supply `--cat` for remote WebSDR receive. `--dial-hz` describes the remote
+dial for RF logging; it does not tune the browser. Try delay values such as
+0/250/500/750/1000/1250/1500 ms if needed, then record the selected value and run
+`--slots 20`. Record drops/discontinuities and decoded activity, quit and reopen.
+A quiet band is not itself an Audio-provider failure. Real pc-1 browser testing
+remains a separate acceptance gate.
+
+The Linux provider maps `pulse:<source>` to ALSA `pulse:DEVICE=<source>` using the
+[ALSA Pulse plugin configuration](https://github.com/alsa-project/alsa-plugins/blob/master/pulse/50-pulseaudio.conf).
+It requires ALSA development headers at build time and the ALSA Pulse plugin plus
+a running PulseAudio or PipeWire-Pulse server at runtime. Source names are 1..255
+ASCII letters/digits or `_`, `-`, `.`, `@`; empty names and ALSA argument syntax
+are rejected. The plugin supplies requested S16 mono/stereo PCM at the requested
+rate (JS8 requests 12 kHz stereo). There is no QMX decimation in this mode.
+The existing `alsa:` QMX path remains 48 kHz S24_3LE stereo, phase-0 /4 conversion,
+and 10 ms target latency. No direct WebSDR or native libpulse client is added.

@@ -89,6 +89,22 @@ with tempfile.TemporaryDirectory(prefix='js8-live-') as tmp:
         normalized=[re.sub(r'"(slot|elapsed_s|first_slot|last_slot)":(\d+)',normalize,line) for line in lines]
         assert normalized==want,(name,normalized,want,output)
     assert 'MESSAGE' in output and 'HELLOMSG ID 416' in output,output
+    # Source age is injected independently by the test composition's UTC clock.
+    # Matching correction must preserve exact event bytes and target slot identity.
+    for delay in (0,750,5000):
+        delayed_commands=[]
+        for name,slots in cases:
+            delayed_commands.append(f'run js8_live_probe --rx /flash/{name}.wav --rx-delay-ms {delay} --dial-hz 14078000 --log /flash/{name}-{delay}.jsonl --slots {len(slots)}')
+        delayed_env=dict(env,MINISHELL_TEST_JS8_DELAY_MS=str(delay))
+        delayed=subprocess.run([shell],input="\n".join(delayed_commands+["exit",""]),env=delayed_env,
+                               text=True,capture_output=True,timeout=40)
+        delayed_output=delayed.stdout+delayed.stderr
+        assert delayed.returncode==0 and delayed_output.count("error=none")==3,delayed_output
+        assert "drop slot=" not in delayed_output and "discontinuities=0" in delayed_output,delayed_output
+        for name,_ in cases:
+            baseline=(flash/f"{name}.jsonl").read_text().splitlines(True)
+            if name=="repeat": baseline=baseline[:len(baseline)//2]
+            assert (flash/f"{name}-{delay}.jsonl").read_text().splitlines(True)==baseline,(name,delay,delayed_output)
     # Actual production target opens/cleans through public Audio on an empty WAV.
     with wave.open(str(flash/'empty.wav'),'wb') as wav:
         wav.setparams((2,2,12000,0,'NONE','not compressed'));wav.writeframes(bytes(4))
