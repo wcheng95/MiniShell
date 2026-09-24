@@ -6,61 +6,15 @@ Roles are defined in repository-root `AGENTS.md`.
 
 ## Active / next tasks
 
-```text
-T046-minicw-callsign-lookup.md      READY — bounded no-heap CSV lookup from audited baseline
-```
+No Codex task is currently selected.
 
-T038 K6 is COMPLETE. T039 is BREAK after multiple hardware attempts failed to eliminate the remaining Keyer speaker pop. T040 is in hardware testing. The next architecture track is the Mini-CW migration: T042 ports Mini-CW Keyer-mode structure onto MiniShell services, with the pinned Mini-CW V1.2-era source as the golden reference and audio deliberately deferred to T043.
-
-Recently completed / closed:
+Most recent completed task:
 
 ```text
-T039-adv-display-dirty-present.md   BREAK — pop remained through dirty-row and continuous-tone experiments
-T038-keyer-k6-field-ui.md         COMPLETE — K6 field UI/settings + hardware acceptance
-T027-nonstandard-tx.md           COMPLETE — V2-compatible hash/type-4 TX
-T028-rx-message-order.md         COMPLETE — controller-owned RX priority/SNR order
-T029-rx-display-lifetime.md      COMPLETE — RX rows persist through TX, clear at TX end
+T065-linux-rtty-wav-decoder.md      COMPLETE — Linux WAV RTTY receive path architect-accepted
 ```
 
-T029 live validation passed. Previous sorted RX rows remain visible during TX,
-clear on successful TX completion/RX resume, and are replaced normally by the
-next completed RX batch. Ordinary RX transport resets do not prematurely clear
-the current displayed snapshot.
-
-Earlier consolidated MiniFT8 tasks:
-
-```text
-T022-linux-qmx-first-qso.md      COMPLETE
-T023-cq-beacon-ui.md             COMPLETE
-T024-offset-source-random.md     COMPLETE
-```
-
-Current baseline is on `main`. T025 provides resident aliases from
-`/flash/minishell/alias.txt`. T026 is explicitly accepted as a temporary
-pinned-V2 keyword-before-grid workaround for exact `RR73`; permanent
-RR73-vs-locator disambiguation is deferred.
-
-Workflow remains: one temporary task branch -> local build/tests -> supervisor
-diff review -> real-system validation when required -> fast-forward `main` ->
-delete the temporary branch.
-
-Current stable recovery checkpoint:
-
-```text
-golden/minicw-persistence-clean-audio
-da934b03bce4cc8f908fbc1a40afed501a37196d
-```
-
-Earlier audio-only recovery checkpoint:
-
-Golden recovery checkpoint for Mini-CW audio work:
-
-```text
-golden/minicw-clean-audio
-48a40d79c13ed60ef9f8444a060164852d226fcd
-```
-
-Any audible regression in T044A is an immediate stop/revert condition.
+T052-T064 JS8 work and T042-T051 Mini-CW/MiniFT8 follow-on work are also complete except for historical tasks explicitly marked BREAK. New implementation work should start from a newly approved READY task packet rather than an older stale entry.
 
 ## Rule
 
