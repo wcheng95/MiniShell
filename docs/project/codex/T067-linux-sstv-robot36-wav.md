@@ -222,6 +222,24 @@ cannot clone/materialize the user's GitHub working tree.
 
 ### Commit
 
+`4a1e47197a968fb7b65bec37d99c3e1ddb7ca124`
+
 ## Supervisor review
+
+Initial code/diff review: PASS for architect pc-1 validation.
+
+The implementation stays inside T067 scope: external Linux app, pure bounded streaming
+core, 12 kHz S16-mono boundary, standard Robot 36 VIS 8, top-down 24-bit BMP sink,
+no whole-image framebuffer, and no Display/Audio/Serial/CAT/public-API/ADV-registry
+changes.
+
+The deterministic generator, core chunk-invariance checks, PCM16/PCM24 mono/stereo
+WAV adaptation, malformed-input cleanup, VIS parity/unsupported-mode handling, and
+actual MiniShell runtime-loader regression are present in the branch.
+
+Remaining evidence before merge is the full repository build/CTest and the architect's
+real pc-1 generation/decode/view of `test.wav -> test.bmp`.
+
+## Architect test result
 
 ## Architect test result
