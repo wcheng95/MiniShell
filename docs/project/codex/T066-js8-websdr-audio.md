@@ -1,6 +1,6 @@
 # T066 — JS8 Linux WebSDR/browser audio input
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -323,8 +323,8 @@ format handling from Pulse monitor handling. Do not redesign the public Audio AP
 - [x] Audio discontinuity behavior remains T064-compatible.
 - [x] Existing JS8/QMX and repository tests remain green.
 - [x] Documentation explains browser monitor routing, KFS use, and why no `--cat` is used.
-- [ ] Real pc-1 browser-monitor audio can be opened and serviced continuously.
-- [ ] At least one real WebSDR JS8 frame is decoded when on-air activity is available; if the selected band is quiet, lack of a station is not treated as an Audio-provider failure.
+- [x] Real pc-1 browser-monitor audio can be opened and serviced continuously.
+- [x] At least one real WebSDR JS8 frame is decoded when on-air activity is available; if the selected band is quiet, lack of a station is not treated as an Audio-provider failure.
 
 ## Automated tests
 
@@ -559,4 +559,39 @@ Main was fast-forwarded to the reviewed implementation commit. T066 now enters T
 
 ## Architect test result
 
-Record pc-1 browser/WebSDR validation and final acceptance here.
+### pc-1 KFS WebSDR acceptance — PASS
+
+The architect used the active PipeWire monitor source:
+
+```text
+alsa_output.pci-0000_00_1f.3.analog-stereo.monitor
+```
+
+Browser audio changed that source from SUSPENDED to RUNNING. MiniShell was then run with:
+
+```text
+M$> js8chat --rx pulse:alsa_output.pci-0000_00_1f.3.analog-stereo.monitor --rx-delay-ms 0 --dial-hz 7078000 --slots 20
+```
+
+Real KFS/WebSDR JS8 traffic decoded immediately. Accepted evidence included:
+
+```text
+JS8 decoded slot=119348340 ... candidates=50 unique=0 drops=0 discontinuities=0
+JS8 decoded slot=119348341 ... candidates=50 unique=0 drops=0 discontinuities=0
+JS8 decoded slot=119348342 ... candidates=50 unique=0 drops=0 discontinuities=0
+2026-09-24T04:45:45Z audio_millihz=706250 HB KC0CYR AP90
+JS8 decoded slot=119348343 ... candidates=50 unique=1 drops=0 discontinuities=0
+2026-09-24T04:46:00Z audio_millihz=753125 DIRECTED W8RAY -> K1CF
+2026-09-24T04:46:00Z audio_millihz=959375 DIRECTED KK7UMM -> KC0CYR
+2026-09-24T04:46:00Z audio_millihz=559375 DIRECTED KL7UT -> KC0CYR
+2026-09-24T04:46:00Z audio_millihz=509375 DIRECTED K8IMT -> KC0CYR
+2026-09-24T04:46:00Z audio_millihz=906250 DIRECTED WD5EED -> KC0CYR
+2026-09-24T04:46:00Z audio_millihz=606250 DIRECTED WB7TSQ -> KC0CYR
+JS8 decoded slot=119348344 ... candidates=50 unique=6 drops=0 discontinuities=0
+```
+
+Observed read-gap maximum was about 6.1 ms and decode time about 46-70 ms, with zero drops and zero Audio discontinuities in the accepted sample. The architect determined that the KFS/browser/network latency is already within the existing JS8 timing/search tolerance on this path, so `--rx-delay-ms 0` is accepted for current KFS use; no hard-coded delay is introduced.
+
+The explicit named monitor source is the accepted pc-1 path. `pulse:@DEFAULT_MONITOR@` remains supported by implementation/provider tests but was not required for final acceptance because the active named monitor was unambiguous.
+
+T066 is COMPLETE. The accepted Linux JS8 RX inputs now include local QMX ALSA and browser/WebSDR Pulse/PipeWire monitor audio.
