@@ -157,7 +157,10 @@ RTTY is defined as a 12-kHz streaming external MiniShell application. T065 Linux
 Canonical JS8 material lives under:
 
 ```text
-docs/js8/
+docs/js8/architecture.md
+docs/js8/application-protocol.md
+docs/js8/75-bit-field-map.md
+docs/js8/activity-log.md
 ```
 
 JS8Chat supports the JS8 **Normal** speed only. Other JS8 speeds are not a
