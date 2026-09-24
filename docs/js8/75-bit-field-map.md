@@ -126,8 +126,36 @@ bits 69..71  bits3
 bits 72..74  transmission flags
 ```
 
-For plain COMPOUND, `extra16 <= 32400` is interpreted as a grid. Larger values
-remain raw/unresolved.
+COMPOUND is primarily an **identity** frame for a callsign that needs the 50-bit
+compound representation, for example a portable/prefix/suffix callsign.
+
+Typical meaning:
+
+```text
+COMPOUND
+    callsign50
+    optional grid in extra16
+```
+
+For plain COMPOUND:
+
+- `extra16 <= 32400` is interpreted as a packed four-character grid;
+- values above the grid range are not interpreted as a grid by MiniShell and
+  remain raw/unresolved;
+- upstream `packCompoundMessage()` normally uses this class when it has a
+  compound callsign plus optional grid and no directed command.
+
+Example conceptually:
+
+```text
+VE6/LB9YH DO30
+    -> COMPOUND
+       callsign50 = VE6/LB9YH
+       extra16    = packed DO30
+```
+
+The class does **not** itself mean "from" or "to". Which party this identity
+belongs to comes from the surrounding directed-message sequence/context.
 
 ---
 
@@ -141,9 +169,83 @@ bits 69..71  bits3
 bits 72..74  transmission flags
 ```
 
-MiniShell currently preserves `extra16` and `bits3` as raw compound-directed
-content. Association with another frame is an application/reassembly concern,
-not a different PHY layout.
+COMPOUND_DIRECTED uses the same physical layout, but `extra16` carries a
+**reduced directed command** instead of an ordinary grid.
+
+Conceptually:
+
+```text
+COMPOUND_DIRECTED
+    callsign50
+    command [+ optional SNR number] in extra16
+```
+
+This form is useful when a directed exchange involves a callsign that cannot be
+represented cleanly by the normal 28-bit DIRECTED callsign fields. JS8Call can
+send a compound identity frame and a compound-directed frame as separate logical
+frames; the receiver associates them using the surrounding receive context.
+
+The reserved `extra16` ranges are:
+
+```text
+0 .. 32400        grid range
+32401 .. 32409    reserved gap
+32410 .. 32766    user/command range
+32767             max/sentinel value
+
+nbasegrid = 32400
+nusergrid = 32410
+nmaxgrid  = 32767
+```
+
+Upstream packing is:
+
+```text
+extra16 = 32410 + packed_command
+```
+
+For ordinary directed commands, `packed_command` is the reduced command code
+stored in the low 7 bits.
+
+For SNR-family commands, upstream uses an 8-bit compact form:
+
+```text
+packed_command:
+
+bit 7      = 1          marks SNR-family encoding
+bit 6      = 0          SNR
+             1          HEARTBEAT SNR
+bits 5..0  = number6
+```
+
+The six-bit number uses the same compact number convention as standard DIRECTED:
+
+```text
+0       = absent
+1..63   = -30 .. +32 via value = raw - 31
+```
+
+So, for example, a compound callsign followed by an SNR-family command can be
+carried without needing the two 28-bit callsign fields of a standard DIRECTED
+frame.
+
+Important distinction:
+
+| Class | Main purpose | `extra16` interpretation |
+| --- | --- | --- |
+| COMPOUND | identify compound callsign | grid / identity metadata |
+| COMPOUND_DIRECTED | directed operation involving compound callsign | reduced command, optionally SNR number |
+
+Neither class contains both sender and recipient callsigns in one frame. Full
+from/to meaning may require association with adjacent directed/compound frames.
+
+MiniShell currently decodes the shared raw fields for COMPOUND_DIRECTED but does
+not yet perform the full upstream association/command interpretation; `extra16`
+and `bits3` remain available in the JSONL/debug path.
+
+Current upstream `packCompoundMessage()` supplies `bits3=0` for ordinary
+COMPOUND and COMPOUND_DIRECTED message packing, although the shared wire field is
+still three bits wide.
 
 ---
 
