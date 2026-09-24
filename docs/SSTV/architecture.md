@@ -1,6 +1,6 @@
 # SSTV architecture for MiniShell
 
-Status: ARCHITECTURE ONLY — implementation deferred until RTTY is complete and accepted.
+Status: ACTIVE — architecture accepted; T067 Linux Robot 36 WAV RX implementation opened.
 
 This document records the architecture decisions for adding SSTV to MiniShell. It is
 not a Codex implementation task. Do not start SSTV code, create an SSTV task branch,
@@ -627,15 +627,8 @@ not copied into MiniShell as architecture dependencies.
 
 ## Implementation gate
 
-SSTV remains documentation-only now.
+The implementation gate is satisfied: RTTY T065 is COMPLETE and the architect has opened T067.
 
-Do not open the implementation task until:
+T067 is the first bounded Linux implementation and verifies the portable Robot 36 RX core with deterministic WAV/BMP files before WebSDR, QMX, or ADV integration.
 
-1. RTTY T065 is complete and accepted.
-2. The architect reviews this SSTV architecture after the RTTY experience.
-3. The architect explicitly selects the first SSTV implementation task.
-
-At that point the first bounded implementation should stay Linux-oriented and verify
-the portable Robot 36 core with deterministic files before QMX/ADV integration.
-
-No SSTV code change is authorized by this architecture update.
+Live WebSDR receive is intentionally the next task after T067 acceptance.
