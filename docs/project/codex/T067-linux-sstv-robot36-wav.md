@@ -1,6 +1,6 @@
 # T067 — Linux SSTV Robot 36 WAV decoder
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -249,8 +249,16 @@ architect's real pc-1 generation/decode/view of `test.wav -> test.bmp`.
 
 ## Architect test result
 
-### pc-1 CTest attempt
+### pc-1 CTest
 
-119 tests were run; 118 passed. `sstv_wav` failed only on the expected truncated-WAV
-rejection case because the decoder had already completed the image before reaching
-the removed tail bytes. Fix committed; rerun pending.
+After the truncated-WAV fix, the architect reran the full Linux suite on pc-1:
+
+```text
+119/119 PASS
+```
+
+The focused `sstv_wav` regression and the full repository CTest both pass.
+
+Automated acceptance is complete. Remaining architect validation is the manual
+generation/decode/view of `test.wav -> test.bmp` to confirm the expected Robot 36
+color bars and gray ramp visually before T067 is marked COMPLETE and merged.
