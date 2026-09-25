@@ -1,0 +1,535 @@
+# T079 — Tab shows ambiguous pathname choices
+
+Status: READY
+
+## Architect intent
+
+Build the second stage of the accepted T078 pathname-completion behavior.
+
+T078 is now explicit Tab-only:
+
+```text
+typing / paste    literal
+Tab               expand pathname to longest common prefix
+```
+
+T079 extends that behavior only when Tab cannot grow the pathname any farther
+because multiple matching pathnames remain.
+
+Example:
+
+```text
+directory contains:
+  RT260925.txt
+  RT260926.txt
+
+M$> cat RT<Tab>
+M$> cat RT26092
+
+# another Tab: no longer common prefix exists
+M$> cat RT26092<Tab>
+RT260925.txt
+RT260926.txt
+M$> cat RT26092
+```
+
+The editable command and cursor remain exactly where they were after the list.
+
+## Objective
+
+On an interactive Tab request:
+
+1. preserve T078's pathname-only longest-prefix expansion;
+2. if the Tab request changes the line, redraw and stop — do not list choices;
+3. if the line cannot grow and **two or more** valid pathname matches remain,
+   print those remaining choices;
+4. restore the same editable prompt, line, cursor, history-navigation state and
+   ADV blinking cursor;
+5. if zero or one match remains, do nothing.
+
+No command/app/alias completion is added.
+
+## Current context
+
+Read before editing:
+
+```text
+AGENTS.md
+docs/api/console-api.md
+docs/api/filesystem-api.md
+docs/project/codex/T075-shell-history.md
+docs/project/codex/T076-adv-shell-key-remap.md
+docs/project/codex/T077-adv-edit-cursor.md
+docs/project/codex/T078-pathname-auto-expansion.md
+core/shell_completion.c
+core/shell_completion.h
+platform/linux/linux_console.c
+platform/adv/adv_console.c
+platform/adv/adv_display.cpp
+tests/shell_completion_test.c
+tests/linux_shell_history.py
+tests/adv_console_scrollback_test.py
+```
+
+Current accepted invariants:
+
+- typing/paste never triggers pathname completion;
+- `MINI_KEY_TAB` is the only completion trigger;
+- command token never completes;
+- explicit path-looking non-command tokens are eligible under any command;
+- bare tokens are eligible only in T078's known filesystem operand positions;
+- matching is case-sensitive, final-component-only, no fuzzy matching;
+- hidden names require a typed leading `.`;
+- names containing shell whitespace are skipped;
+- no automatic trailing slash is inserted into the command;
+- shared matcher uses only public Filesystem `dir_*` operations;
+- no heap, cache, task, worker or public API change.
+
+## Exact Tab behavior
+
+Treat each Tab independently.
+
+### Case A — Tab can expand
+
+```text
+M$> cd /f<Tab>
+M$> cd /flash
+```
+
+Behavior:
+
+- run T078 expansion;
+- if `shell_completion_expand()` changes the editor line, redraw once;
+- stop processing this Tab;
+- do **not** print candidate choices even if `/flash...` would still be ambiguous.
+
+Therefore one Tab performs at most one conceptual action: **expand OR list**.
+
+### Case B — Tab cannot expand and multiple matches remain
+
+```text
+M$> cat RT26092<Tab>
+RT260925.txt
+RT260926.txt
+M$> cat RT26092
+```
+
+Behavior:
+
+- line remains byte-for-byte unchanged;
+- print all matching eligible choices;
+- restore the prompt and same edit state.
+
+### Case C — zero or one match
+
+Silent no-op.
+
+Examples:
+
+```text
+M$> cat absent<Tab>       # no matches: no output
+M$> cat setting.txt<Tab>  # one exact match: no output
+```
+
+### Case D — non-path completion context
+
+Silent no-op and no filesystem output.
+
+Examples:
+
+```text
+M$> ft<Tab>               # command token
+M$> unknown bare<Tab>     # arbitrary bare app argument
+```
+
+## Shared completion architecture
+
+Candidate discovery/filtering belongs in `core/shell_completion.*` beside the
+T078 matcher. Do not duplicate pathname-context parsing or filtering in Linux
+and ADV.
+
+Refactor the T078 internals if useful so expansion and candidate listing share:
+
+- active-token eligibility;
+- parent/final-component extraction;
+- directory iteration;
+- hidden-name filtering;
+- shell-whitespace filtering;
+- prefix matching.
+
+A reasonable private core interface is conceptually:
+
+```c
+typedef void (*shell_completion_emit_fn)(const mini_fs_dir_entry_t *entry, void *ctx);
+
+bool shell_completion_expand(shell_editor_t *editor);
+size_t shell_completion_list(const shell_editor_t *editor,
+                             shell_completion_emit_fn emit, void *ctx);
+```
+
+Exact private signatures are up to the implementation.
+
+The list operation must **not mutate** the editor.
+
+Do not expose this through `include/minishell/api.h`.
+
+## Candidate set
+
+The displayed choices must be exactly the same valid matches T078 considers for
+the active pathname component at the current cursor position.
+
+Examples:
+
+```text
+active token: /flash/ft8/RT26092
+display final components only:
+  RT260925.txt
+  RT260926.txt
+
+active token: ../min
+display children matching `min` in parent `..`
+```
+
+Do not print the parent path repeatedly.
+
+Skip:
+
+- `.` and `..` entries;
+- hidden names unless typed component starts `.`;
+- names containing shell whitespace;
+- entries that do not match the typed final-component prefix.
+
+Files and directories both participate.
+
+## Directory marker
+
+For display only, append `/` to a candidate whose `entry.type` is
+`MINI_FS_TYPE_DIRECTORY`.
+
+Example:
+
+```text
+ft8/
+setting.txt
+```
+
+This slash is **visual only**. T079 does not insert `/` into the command line and
+does not change T078's no-auto-slash rule.
+
+If the backend reports an unknown/non-directory type, display the name without
+a slash.
+
+## Candidate order
+
+Use the backend/public-Filesystem enumeration order.
+
+Do not add sorting, buffering, or a candidate cache in T079. This keeps the
+implementation bounded and avoids allocating a pathname table on ADV.
+
+The result must be independent of ordering for the decision to list; only the
+presentation order may follow the backend.
+
+## Number of choices
+
+List all valid matches. Do not impose a candidate-count cap in T079.
+
+This is intentionally simple: users should type a longer prefix before Tab when
+a directory has many matches. ADV's existing 50-row console scrollback remains
+the output-history mechanism; no completion-specific pager is added.
+
+## Linux presentation
+
+When choices are listed on an interactive Linux TTY:
+
+1. terminate/move below the current editable prompt line;
+2. print each candidate on its own line;
+3. print `M$> ` again;
+4. redraw the unchanged editor line at its unchanged cursor position;
+5. remain in the current shell raw/input session.
+
+Do not submit the line, leave raw mode, create a history entry, or start a new
+shell command.
+
+The candidate listing becomes ordinary terminal scrollback.
+
+Long candidate names may wrap according to the host terminal.
+
+## ADV presentation
+
+On ADV, candidate listing uses the normal retained resident console, not
+application Display ownership and not a new full-screen UI.
+
+Required lifecycle:
+
+1. temporarily remove/hide the T077 edit cursor overlay;
+2. commit the listing as ordinary resident console output;
+3. print each candidate followed by newline;
+4. print a fresh `M$> ` prompt;
+5. start a new private edit snapshot from that prompt;
+6. redraw the original editor line/cursor;
+7. restart the visible T077 cursor/blink phase.
+
+The command line itself must not enter console history as submitted output;
+only the normal prompt redraw/edit region is restored after the choices.
+
+Candidate output **does** become part of the existing 50 physical rows of console
+scrollback. Ctrl+`;` / Ctrl+`.` must be able to review it normally.
+
+Do not replay candidate listing periodically to USB. One Tab listing should
+produce one ordinary listing on both TFT and USB mirror.
+
+## Editor/history invariants
+
+Listing must preserve the complete `shell_editor_t` byte-for-byte:
+
+- `line`;
+- `length`;
+- `cursor`;
+- draft;
+- history ring;
+- navigation index.
+
+Only a preceding successful T078 expansion may mutate the editor.
+
+After listing:
+
+- normal typing continues at the same cursor;
+- Backspace/Delete work normally;
+- Fn/arrow cursor motion works normally;
+- history navigation remains at the same logical position;
+- Enter submits only the editable command, not the choices.
+
+## Repeated Tab
+
+Repeated Tab at the same ambiguous prefix may list the choices again.
+
+No double-Tab timing state, suppression flag, cycling, or menu selection is
+required.
+
+This deliberately avoids timing-sensitive terminal semantics.
+
+## Errors
+
+`dir_open`, `dir_read`, or `dir_close` failure during candidate listing is a
+silent no-op from the operator's perspective:
+
+- do not print partial candidates;
+- do not corrupt/redraw the prompt as a listing;
+- preserve the editor.
+
+Because a late read/close failure must suppress partial output, do **not** stream
+candidate lines directly to the console during the first/only directory pass if
+that would make rollback impossible.
+
+Use a bounded strategy without heap. Acceptable approaches include a validation
+pass followed by a second enumeration/output pass, or equivalent bounded logic.
+
+Do not retain directory handles across input events.
+
+## Resource constraints
+
+- no heap allocation;
+- no candidate cache;
+- no new task/thread/timer;
+- no persistent state;
+- no large fixed table of all candidate names;
+- every successfully opened directory is closed;
+- public Filesystem API only.
+
+A two-pass directory enumeration for listing is acceptable and preferred over
+storing an unbounded/bulky candidate table.
+
+## Public/private boundaries
+
+- `MINISHELL_API_VERSION` remains 3;
+- `include/minishell/api.h` unchanged;
+- T072 CWD service unchanged;
+- T075 history engine unchanged;
+- T076 key mapping unchanged;
+- T077 ADV renderer semantics preserved;
+- pathname completion remains resident private shell behavior.
+
+## Non-goals
+
+Do not implement:
+
+- command-name completion;
+- alias-name completion;
+- app-name completion;
+- option completion;
+- candidate selection/cycling;
+- fuzzy/case-insensitive matching;
+- completion pager;
+- columns/grid layout;
+- automatic trailing `/` insertion;
+- quoting/escaping;
+- globbing;
+- persistent completion history/cache;
+- double-Tab timing semantics;
+- `clear`.
+
+## Acceptance criteria
+
+- [ ] First Tab that grows a pathname performs only T078 expansion.
+- [ ] A subsequent Tab at an ambiguous longest prefix lists 2+ matching choices.
+- [ ] Zero matches produces no listing.
+- [ ] One exact/remaining match produces no listing.
+- [ ] Command token Tab produces no listing.
+- [ ] Arbitrary bare non-path argument Tab produces no listing.
+- [ ] Explicit path-looking arbitrary argument can list matches.
+- [ ] Bare filesystem-command operands can list matches.
+- [ ] Candidate filtering exactly matches T078 rules.
+- [ ] Directories display with a visual trailing `/`; files do not.
+- [ ] Candidate order follows backend enumeration order; no sorting/cache.
+- [ ] All valid matches are listed.
+- [ ] Editor state is preserved byte-for-byte by listing.
+- [ ] Linux redraw restores same line and cursor.
+- [ ] ADV redraw restores same line and cursor with visible blinking cursor.
+- [ ] Candidate output enters normal ADV 50-row console scrollback.
+- [ ] Ctrl+`;` / Ctrl+`.` can review candidate output afterward.
+- [ ] Repeated Tab may list again without state corruption.
+- [ ] Candidate-list FS failure prints no partial listing and preserves editor.
+- [ ] No directory-handle leaks.
+- [ ] Typing and paste remain literal.
+- [ ] T078 expansion behavior remains unchanged.
+- [ ] Public API/CWD/history/keymap invariants remain unchanged.
+- [ ] Full Linux CTest passes except documented unrelated known flakes.
+- [ ] ADV firmware builds successfully.
+
+## Automated tests
+
+Extend shared completion tests to cover candidate enumeration without editor
+mutation:
+
+1. 0 matches;
+2. 1 exact match;
+3. 2+ ambiguous matches;
+4. exact name plus longer sibling (`foo`, `foobar`);
+5. hidden filtering;
+6. whitespace-name filtering;
+7. files + directories and directory display type;
+8. arbitrary explicit path context;
+9. known bare-path command positions;
+10. invalid command/bare argument context;
+11. mid-token cursor;
+12. read failure;
+13. close failure;
+14. enumeration order;
+15. all handles closed;
+16. editor byte-for-byte unchanged after list query.
+
+Linux PTY integration must cover:
+
+```text
+type `cat RT`
+Tab -> line expands to common prefix only, no list
+Tab -> choices printed, then prompt + same line restored
+
+type full path/paste -> remains literal
+
+Tab on command/non-path -> no list
+```
+
+Verify cursor position after list restoration and terminal mode restoration on
+eventual app/exit.
+
+ADV host console test must cover physical and USB Tab paths, including:
+
+- expansion-only first Tab;
+- listing second Tab;
+- T077 cursor hidden during output and restored afterward;
+- editor byte-for-byte preservation;
+- choices recorded in resident console history;
+- Ctrl scrollback interaction;
+- repeated listing;
+- no USB duplicate/replay;
+- failure produces no partial listing.
+
+Run at minimum:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T079-unit
+cmake --build /tmp/T079-unit -j"$(nproc)"
+ctest --test-dir /tmp/T079-unit --output-on-failure
+
+idf.py -C platform/adv build
+git diff --check
+```
+
+## Manual / hardware validation
+
+Prepare two similar names, for example:
+
+```text
+/flash/ft8/RT260925.txt
+/flash/ft8/RT260926.txt
+```
+
+On ADV and pc-1:
+
+```text
+M$> cd /flash/ft8
+M$> cat RT<Tab>
+# becomes the longest common prefix
+
+<Tab>
+# prints both remaining choices
+# then restores M$> cat <common-prefix> with cursor intact
+```
+
+Also verify:
+
+- typing/paste never auto-completes;
+- a unique pathname expands on Tab without printing a list;
+- Tab on command name does nothing;
+- candidate directory names show `/` only in the list;
+- ADV blinking cursor returns correctly;
+- Ctrl scrollback can review the candidate output;
+- Enter after listing executes only the command line.
+
+No QMX/RF validation is required.
+
+## Codex branch / handoff
+
+Work on:
+
+```text
+codex/T079-tab-pathname-choices
+```
+
+Start from current `main`.
+
+Read T075-T078 and this task before editing. Keep pathname parsing/filtering
+shared in `core/shell_completion.*`; keep Linux/ADV code limited to Tab/list
+presentation and edit-region restoration.
+
+Keep T079 to one reviewable implementation commit. Do not merge to `main` and
+do not open a PR unless asked.
+
+## Codex implementation notes
+
+### Implementation summary
+
+### Files changed
+
+### Invariants preserved
+
+### Local tests run
+
+### Manual/hardware validation still required
+
+### Known limitations / risks
+
+### Commit
+
+## Supervisor review
+
+Supervisor fills this after reviewing the actual `main..<commit>` diff and test evidence.
+
+## Architect test result
+
+Record ADV/pc-1 candidate-list validation here.
