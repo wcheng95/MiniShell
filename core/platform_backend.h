@@ -19,6 +19,8 @@ typedef int32_t minishell_platform_result_t;
 
 int minishell_platform_init(void);
 void minishell_platform_shutdown(void);
+/* Private boot policy: percentage 1..100; unsupported displays may ignore it. */
+void minishell_platform_display_brightness(uint32_t percent);
 const char *minishell_platform_name(void);
 int minishell_platform_resource_limits(minishell_resource_limits_t *out_limits);
 

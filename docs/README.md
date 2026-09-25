@@ -83,7 +83,8 @@ Configuration ownership:
 /flash/<app>/setting.txt      application-owned configuration/deployment settings
 ```
 
-`setting.txt` is the public resident-settings location. WebFS uses it today;
+`setting.txt` is the public resident-settings location. It contains WebFS
+credentials plus boot-time `brightness=1..100` and `startup=cmd1;cmd2` settings;
 future operator-facing resident settings should be added there rather than
 documented as separate configuration files.
 

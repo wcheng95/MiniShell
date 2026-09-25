@@ -3,6 +3,16 @@
 #include "minishell_services.h"
 #include "platform_backend.h"
 #include "shell.h"
+#include "resident_settings.h"
+
+static void apply_boot_settings(void)
+{
+    minishell_resident_settings_t settings;
+    const mini_api_t *api = mini_api_get();
+    if (!minishell_resident_settings_load(api ? api->fs : NULL, &settings)) return;
+    if (settings.brightness) minishell_platform_display_brightness(settings.brightness);
+    minishell_shell_startup(settings.startup);
+}
 
 int minishell_run(void)
 {
@@ -25,6 +35,7 @@ int minishell_run(void)
     minishell_platform_services_started();
 
     minishell_platform_console_write("minishell\n");
+    apply_boot_settings();
     int result = minishell_shell_run();
 
     minishell_platform_services_stopping();

@@ -105,3 +105,8 @@ minishell_platform_result_t minishell_platform_app_run(const char *name,
 {
     return linux_loader_app_run(name, argc, argv, out_app_result);
 }
+
+void minishell_platform_display_brightness(uint32_t percent)
+{
+    (void)percent; /* Host terminal brightness is outside MiniShell ownership. */
+}

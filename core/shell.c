@@ -187,46 +187,66 @@ static int run_app(const char *name, int argc, char **argv, int command_lookup)
     return app_result;
 }
 
+/* True is an exit request, honored only by the interactive prompt loop. */
+static bool execute_line(char *line)
+{
+    char expanded[SHELL_LINE_MAX];
+    char *argv[SHELL_ARG_MAX];
+    if (strlen(line) >= SHELL_LINE_MAX) {
+        shell_write("shell: command too long\n");
+        return false;
+    }
+    int expansion = expand_alias(line, expanded);
+    if (expansion < 0) return false;
+    int argc = split_args(expansion ? expanded : line, argv, SHELL_ARG_MAX);
+    if (argc == 0) return false;
+
+    if (strcmp(argv[0], "exit") == 0) return true;
+    if (strcmp(argv[0], "help") == 0) {
+        cmd_help();
+        return false;
+    }
+    if (strcmp(argv[0], "status") == 0) {
+        cmd_status();
+        return false;
+    }
+    if (strcmp(argv[0], "apps") == 0) {
+        minishell_platform_result_t result = minishell_app_list(show_app, NULL);
+        if (result != MINISHELL_PLATFORM_OK) {
+            shell_printf("apps: failed (%d)\n", (int)result);
+        }
+        return false;
+    }
+    if (strcmp(argv[0], "run") == 0) {
+        if (argc < 2) shell_write("usage: run <app> [args...]\n");
+        else (void)run_app(argv[1], argc - 1, &argv[1], 0);
+        return false;
+    }
+
+    (void)run_app(argv[0], argc, argv, 1);
+    return false;
+}
+
+void minishell_shell_startup(char *commands)
+{
+    char *segment = commands;
+    while (segment && *segment) {
+        char *next = strchr(segment, ';');
+        if (next) *next++ = '\0';
+        (void)execute_line(segment);
+        segment = next;
+    }
+}
+
 int minishell_shell_run(void)
 {
-    char line[SHELL_LINE_MAX], expanded[SHELL_LINE_MAX];
-    char *argv[SHELL_ARG_MAX];
-
+    char line[SHELL_LINE_MAX];
     for (;;) {
         shell_write("M$> ");
-
         if (minishell_platform_console_read_line(line, sizeof(line)) <= 0) {
             shell_write("\n");
             return 0;
         }
-
-        int expansion = expand_alias(line, expanded);
-        if (expansion < 0) continue;
-        int argc = split_args(expansion ? expanded : line, argv, SHELL_ARG_MAX);
-        if (argc == 0) continue;
-
-        if (strcmp(argv[0], "exit") == 0) return 0;
-        if (strcmp(argv[0], "help") == 0) {
-            cmd_help();
-            continue;
-        }
-        if (strcmp(argv[0], "status") == 0) {
-            cmd_status();
-            continue;
-        }
-        if (strcmp(argv[0], "apps") == 0) {
-            minishell_platform_result_t result = minishell_app_list(show_app, NULL);
-            if (result != MINISHELL_PLATFORM_OK) {
-                shell_printf("apps: failed (%d)\n", (int)result);
-            }
-            continue;
-        }
-        if (strcmp(argv[0], "run") == 0) {
-            if (argc < 2) shell_write("usage: run <app> [args...]\n");
-            else (void)run_app(argv[1], argc - 1, &argv[1], 0);
-            continue;
-        }
-
-        (void)run_app(argv[0], argc, argv, 1);
+        if (execute_line(line)) return 0;
     }
 }

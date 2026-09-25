@@ -16,6 +16,8 @@ with tempfile.TemporaryDirectory() as tmp:
 struct Display {
  char cells[7][20]; unsigned fg[7][20], bg[7][20], color=0, gap=0;
  int row=0, column=0;
+ unsigned brightness=0, brightness_calls=0;
+ void setBrightness(unsigned n){brightness=n;++brightness_calls;}
  void begin(){} void setRotation(int){} int width(){return 240;} int height(){return 135;}
  void setTextFont(int){} void setTextSize(int){} void setTextWrap(bool){} void fillScreen(unsigned){}
  void fillRect(int x,int y,int,int,unsigned c){

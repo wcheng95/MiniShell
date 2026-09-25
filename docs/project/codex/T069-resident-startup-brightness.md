@@ -1,6 +1,6 @@
 # T069 — MiniShell resident startup and brightness settings
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -352,17 +352,121 @@ Before handoff, fill in the required sections below and push the commit.
 
 ### Implementation summary
 
+Implemented from current `origin/main` at
+`6d9b0aa4b8d7c80daf5cef94361ee2a0bc41931e` on the requested branch.
+No scope deviations.
+
+A private core loader reads at most 1,024 bytes through MiniShell Filesystem,
+probes EOF at the exact limit, closes the handle, and only then parses/applies
+settings. Missing/read/close/oversize failures leave defaults. Last valid
+`brightness` and `startup` definitions win independently; an empty startup
+clears an earlier definition. Unknown keys, including WebFS credentials, remain
+outside this parser's ownership.
+
+Boot applies brightness after service initialization and before startup.
+ADV uses rounded `(percent * 255 + 50) / 100`; Linux is a private no-op.
+The shell's existing dispatch logic is factored into one function used by the
+interactive loop and semicolon-separated startup segments. Alias expansion,
+built-ins, app manager lifecycle and diagnostics are shared. Startup ignores
+exit requests and continues after command failures; interactive exit is unchanged.
+
 ### Files changed
+
+- `core/resident_settings.[ch]`: bounded parser and FS loader, no added heap allocation.
+- `core/minishell_runtime.c`: once-per-session settings application before prompt.
+- `core/shell.[ch]`: shared normal dispatcher and startup segment sequencing.
+- `core/platform_backend.h`: private resident brightness operation.
+- `platform/adv/adv_backend.c`, `adv_internal.h`, `adv_display.cpp`: private
+  brightness routing, ready/range guards and native display mapping.
+- `platform/linux/linux_backend.c`: brightness no-op.
+- Root and ADV `CMakeLists.txt`: compile the core module and register focused tests.
+- `tests/resident_settings_test.c`: parser and fault-injected bounded loader.
+- `tests/resident_boot_test.c`: real runtime/shell/app-manager over fake platform,
+  including foreground return, live alias reload and failure/exit sequencing.
+- `tests/linux_startup.py`: actual Linux runtime, Filesystem and utility apps.
+- Existing ADV display/scrollback tests: brightness-capable M5 stubs; display
+  test covers all 100 percentages, readiness, invalid ranges and maximum.
+- Existing WebFS settings test: combined credentials/startup/brightness file.
+- `README.md`, `docs/README.md`, `docs/architecture/configuration.md`: setting
+  examples, limits, ownership, defaults and boot behavior.
+- This task packet: implementation evidence and review handoff.
 
 ### Invariants preserved
 
+Public API v3 and `include/minishell/api.h` are unchanged. No public Config or
+Display capability. WebFS production code and credential semantics are unchanged.
+Aliases retain first-`=` parsing, live lookup, one expansion, built-in precedence
+and last-definition-wins. Applications remain unaware of startup policy and run
+synchronously through the existing app manager. Interactive shell syntax is
+unchanged; only the boot value is split on semicolons. No relative paths,
+completion, history, quoting, scripting or application-setting migration.
+
+The new loader uses a 1,024-byte automatic input buffer; parsed state is 1,028
+bytes (1,024-byte startup storage and brightness). There is no new permanent
+settings buffer, heap allocation, or task-stack-size change. The loader frame
+returns before startup apps execute; boot settings state returns before the
+interactive loop. Display mapping is guarded by readiness and valid range.
+
 ### Local tests run
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R 'resident_|linux_startup|alias|adv_webfs|adv_display|adv_console'
+# PASS: 13/13
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Initial run: 121/122; unchanged linux_serial_unit PTY timeout assertion at line 67 failed.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R '^linux_serial_unit$'
+# PASS: immediate focused rerun, 1/1.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: final full rerun 122/122 (59.75 seconds).
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real firmware 0x152440 bytes; 78% app partition free. No flashing.
+git diff --check
+# PASS
+```
+
+The initial serial failure was its full-PTY write timeout/zero-byte assertion,
+while the ADV build was also running. That test links unchanged services and
+Linux serial/common sources, not T069 code. It passed immediately when rerun;
+no serial code or assertion was changed. ADV compilation retained existing SDK
+`#include_next` and ELF-loader pedantic warnings.
+
+Focused coverage includes all brightness values, malformed decimals, independent
+last-valid definitions, CRLF, empty startup, NUL-invalid startup, exact 1,024-byte
+EOF, 1,025-byte rejection, partial reads, every partial-read failure position,
+failed EOF probe and close failure. Runtime tests assert settings load only once,
+brightness before apps, closed settings handles before app entry, app end before
+the next command, live alias changes between commands, failed launch/nonzero app
+return/not-found/alias overflow continuation, startup exit followed by later
+commands and prompt, and no interactive semicolon splitting. Real Linux tests
+verify startup copy/read ordering and no startup replay at interactive prompts.
 
 ### Manual/hardware validation still required
 
+No device was flashed. On ADV verify `startup=ft8;b`: FT8 starts during boot,
+exits through its ordinary lifecycle, then `b` runs and the prompt appears.
+Verify `startup=missing;b` diagnostic/continuation, a low brightness and 100
+across reboots, and WebFS with the combined settings file. Runtime stack
+high-water and physical display brightness remain unmeasured.
+
 ### Known limitations / risks
 
+The shared resident file must remain at most 1,024 bytes; larger files disable
+boot settings, as they already disable configured WebFS credentials. Startup
+segments retain the existing 255-byte command and 16-argument bounds. Overlong
+segments are diagnosed and skipped, never truncated. Boot commands intentionally
+have no timeout/bypass: a foreground app must return before later commands and
+the prompt. Brightness/startup edits take effect next boot/session, whereas
+WebFS credentials retain next-WebFS-launch timing. Hardware acceptance is pending.
+
 ### Commit
+
+One implementation commit titled `T069: add resident startup and brightness settings`,
+parent `6d9b0aa4b8d7c80daf5cef94361ee2a0bc41931e`, on
+`codex/T069-resident-startup-brightness`. Exact pushed SHA is returned in the
+handoff. No merge or PR.
 
 ## Supervisor review
 

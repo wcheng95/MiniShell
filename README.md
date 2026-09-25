@@ -250,7 +250,24 @@ Documented configuration contract:
 /flash/<app>/setting.txt       application-owned settings
 ```
 
-`/flash/minishell/setting.txt` currently holds WebFS SoftAP settings. Future
+`/flash/minishell/setting.txt` holds WebFS SoftAP credentials and resident boot
+settings, for example:
+
+```text
+SSID=MiniShell
+PW=<your passphrase>
+brightness=100
+startup=ft8;b
+```
+
+`brightness` accepts 1..100 and is applied before startup on ADV (ignored on
+Linux). `startup` runs semicolon-separated commands once before the first
+prompt, using normal aliases and waiting for each foreground app to return.
+Failures do not stop later commands. Empty/missing startup runs nothing.
+Boot settings are bounded to a 1,024-byte file; edits take effect next boot.
+See [configuration rules](docs/architecture/configuration.md) for details.
+
+Future
 operator-facing MiniShell settings, such as an exposed GPS baud setting, belong
 in this same resident settings file rather than creating additional public
 configuration files.
