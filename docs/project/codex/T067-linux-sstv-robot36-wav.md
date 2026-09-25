@@ -1,6 +1,6 @@
 # T067 — Linux SSTV Robot 36 WAV decoder
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -259,6 +259,21 @@ After the truncated-WAV fix, the architect reran the full Linux suite on pc-1:
 
 The focused `sstv_wav` regression and the full repository CTest both pass.
 
-Automated acceptance is complete. Remaining architect validation is the manual
-generation/decode/view of `test.wav -> test.bmp` to confirm the expected Robot 36
-color bars and gray ramp visually before T067 is marked COMPLETE and merged.
+Automated acceptance is complete. Architect manual validation also passed: the generated Robot 36 `test.wav` decoded through MiniShell and the resulting 320x240 BMP displayed the expected color-bar image.
+
+
+### Manual image acceptance — PASS
+
+Architect generated the deterministic Robot 36 WAV, decoded it through the actual
+MiniShell runtime using the normal `/flash` path, and visually inspected the output
+BMP.
+
+Result:
+
+```text
+Robot 36 color-bar image decoded correctly
+```
+
+T067 is COMPLETE. The accepted baseline is the portable Linux
+`12 kHz WAV -> Robot 36 -> 320x240 BMP` receive path. Live WebSDR capture is the
+next SSTV milestone.
