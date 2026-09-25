@@ -14,7 +14,7 @@ import wave
 
 
 DEFAULT_STATION = (
-    b"# MiniFT8-V3 station.txt\ncallsign=\ngrid=\nprofile=0\nband=3\n"
+    b"# MiniFT8-V3 setting.txt\ncallsign=\ngrid=\nprofile=0\nband=3\n"
     b"skip_tx1=0\nmax_retry=3\ncq_type=0\ncq_ft=\nfree_text=\nfd_exchange=\nrxtx_log=1\noffset_src=0\noffset=1500\n"
 )
 
@@ -44,13 +44,13 @@ def read_until(fd, needle):
 
 def run_case(minishell, app_dir, name, original):
     with tempfile.TemporaryDirectory(prefix="minishell-ft8-config-") as root:
-        station = Path(root) / "flash" / "ft8" / "station.txt"
-        station.parent.mkdir(parents=True)
+        setting = Path(root) / "flash" / "ft8" / "setting.txt"
+        setting.parent.mkdir(parents=True)
         with wave.open(str(Path(root) / "flash" / "ui.wav"), "wb") as fixture:
             fixture.setparams((2, 2, 12000, 0, "NONE", "not compressed"))
             fixture.writeframes(b"\0" * 4)
         if original is not None:
-            station.write_bytes(original)
+            setting.write_bytes(original)
         master, slave = pty.openpty()
         process = None
         try:
@@ -71,8 +71,8 @@ def run_case(minishell, app_dir, name, original):
                 response = read_until(master, b"M$> ")
                 assert b"ft8: failed to initialize storage/configuration" in response, response
                 assert b"app: ft8 returned 3" in response, response
-            assert station.read_bytes() == (DEFAULT_STATION if original is None else original), name
-            assert not station.with_suffix(".txt.tmp").exists(), name
+            assert setting.read_bytes() == (DEFAULT_STATION if original is None else original), name
+            assert not setting.with_suffix(".txt.tmp").exists(), name
             # A fresh shell command proves control returned after app teardown.
             os.write(master, b"help\n")
             response = read_until(master, b"M$> ")
