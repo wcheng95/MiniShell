@@ -310,19 +310,35 @@ This deliberately avoids timing-sensitive terminal semantics.
 
 ## Errors
 
-`dir_open`, `dir_read`, or `dir_close` failure during candidate listing is a
-silent no-op from the operator's perspective:
+Use a two-pass bounded listing strategy.
 
-- do not print partial candidates;
-- do not corrupt/redraw the prompt as a listing;
-- preserve the editor.
+### Validation pass
 
-Because a late read/close failure must suppress partial output, do **not** stream
-candidate lines directly to the console during the first/only directory pass if
-that would make rollback impossible.
+The first pass determines that the request is valid and that at least two matching
+choices exist. If `dir_open`, `dir_read`, or `dir_close` fails during this pass:
 
-Use a bounded strategy without heap. Acceptable approaches include a validation
-pass followed by a second enumeration/output pass, or equivalent bounded logic.
+- print nothing;
+- preserve the editor;
+- return to normal editing unchanged.
+
+### Output pass
+
+After a successful validation pass, reopen the directory and stream matching
+choices directly to the console.
+
+If `dir_open` fails before any output, print nothing and restore the editor.
+
+If `dir_read` or `dir_close` fails after one or more choices have already been
+printed:
+
+- stop listing immediately;
+- do not print a completion-specific error diagnostic;
+- leave already printed choices visible as ordinary console output;
+- restore the unchanged prompt/editor/cursor cleanly.
+
+This partial-output behavior is accepted because T079 deliberately has no
+candidate-count cap and no unbounded candidate buffer. The editor state remains
+authoritative and must never be partially modified.
 
 Do not retain directory handles across input events.
 
@@ -388,7 +404,8 @@ Do not implement:
 - [ ] Candidate output enters normal ADV 50-row console scrollback.
 - [ ] Ctrl+`;` / Ctrl+`.` can review candidate output afterward.
 - [ ] Repeated Tab may list again without state corruption.
-- [ ] Candidate-list FS failure prints no partial listing and preserves editor.
+- [ ] Validation-pass FS failure prints no choices and preserves editor.
+- [ ] Output-pass failure stops immediately, may leave already printed choices visible, and restores the unchanged editor.
 - [ ] No directory-handle leaks.
 - [ ] Typing and paste remain literal.
 - [ ] T078 expansion behavior remains unchanged.
@@ -412,11 +429,12 @@ mutation:
 9. known bare-path command positions;
 10. invalid command/bare argument context;
 11. mid-token cursor;
-12. read failure;
-13. close failure;
-14. enumeration order;
-15. all handles closed;
-16. editor byte-for-byte unchanged after list query.
+12. validation-pass read/close failure -> no output;
+13. output-pass open failure -> no output;
+14. output-pass mid-read/close failure -> already printed choices may remain, then editor restores;
+15. enumeration order;
+16. all handles closed;
+17. editor byte-for-byte unchanged after list query.
 
 Linux PTY integration must cover:
 
@@ -443,7 +461,8 @@ ADV host console test must cover physical and USB Tab paths, including:
 - Ctrl scrollback interaction;
 - repeated listing;
 - no USB duplicate/replay;
-- failure produces no partial listing.
+- validation-pass failure produces no listing;
+- output-pass failure stops safely and may leave already printed choices visible.
 
 Run at minimum:
 
