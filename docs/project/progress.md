@@ -33,6 +33,9 @@
 - T072 is COMPLETE: MiniShell now has a service-owned session CWD with resident `cd`/`pwd`; relative paths work through the portable Filesystem API and are inherited by foreground apps. ADV hardware validation passed, including relative `ls`/nano and CWD persistence after app exit.
 - T073 is COMPLETE: shell defaults now match the CWD model — bare `ls` means `ls .`, bare `cd` means `cd /`, and explicit `ls /` retains its established root presentation. ADV hardware validation passed.
 - T074 is COMPLETE: portable `cp`/`mv` now accept existing directory destinations (`DIR`, `DIR/`, `DIR/.`) and target `DIR/<source-basename>`, including relative operands under the session CWD. ADV hardware validation passed; `mv` remains rename-only with no cross-filesystem copy/delete fallback.
+- T075 is TESTING: the shared 10-command RAM-only editable resident history is implemented and ADV-accepted; startup/redirected input are excluded, draft restoration works, and Linux uses Up/Down with normal cursor editing. Remaining gate is pc-1 interactive sanity validation.
+- T076 is COMPLETE: ADV resident controls are hardware accepted as Ctrl+`;`/Ctrl+`.` for five-row console scrollback, Fn+`;`/Fn+`.` for history previous/next, and Fn+`,`/Fn+`/` for cursor left/right.
+- T077 is COMPLETE: ADV resident command editing now has a hardware-accepted blinking inverse-cell cursor that follows wrapped/long commands without mutating retained console history.
 - T036 is BREAK / NOT ACCEPTED: the one-shot ADV MiniFT8 web mirror passed software/build review but prevented FT8 RX startup on hardware under concurrent Wi-Fi/HTTP + QMX preflight. The experimental mirror code was removed from main; T033-T035 remain the accepted WebFS/Wi-Fi baseline.
 - T037 is COMPLETE: UI-first ADV FT8 startup is hardware validated. MiniFT8 remains fully usable with QMX absent, late attachment transitions through existing CAT sync into RX without restarting the app, and already-connected startup/cleanup behavior remains intact.
 - ADV is a validated embedded MiniFT8 RX/TX deployment target. Physical QMX CAT TX, RX recovery, the red TX-status separator, RX message colors, and RX/TX paging shortcuts have been exercised on real ADV/QMX hardware.
@@ -133,7 +136,7 @@ T036         BREAK — mirrored web front panel not accepted; code reverted from
 T037         COMPLETE — UI-first FT8 startup with late QMX attach, hardware validated
 T049         COMPLETE — ADV color status: TX separator red/white; CQ green; reply-to-me red path software-proven
 T050         COMPLETE — bare `;` / `.` RX/TX page shortcuts on ADV
-T051         COMPLETE — 50-row ADV resident console scrollback, 5-row Fn+Up/Down steps
+T051         COMPLETE — 50-row ADV resident console scrollback foundation; current 5-row trigger is Ctrl+;/Ctrl+. via T076
 First QSO    COMPLETE — real two-way Linux/QMX contact on 2026-09-18 UTC
 WinBook      RX/TX PASS — pc-1 binaries run; QMX ALSA decode + CAT TX validated (user must be in dialout)
 rpi3-2       RX/TX PASS — native AArch64 build; QMX ALSA decode + CDC CAT + physical TX validated
@@ -324,4 +327,4 @@ T047 Mini-CW color UI            COMPLETE — V1.2 white/green/cyan text and 2-p
 T048 Mini-CW transcript log      COMPLETE — compact daily transcript, whitespace-aware truncation, dual-quote **note** mode and clean audio all accepted on ADV
 T049 MiniFT8 color status         COMPLETE — ADV red/white TX separator and green CQ rows hardware validated; reply-to-me red software-proven and pending only opportunistic on-air observation
 T050 MiniFT8 RX/TX page keys     COMPLETE — ADV bare ; previous-page and . next-page shortcuts accepted on RX/TX
-T051 ADV console scrollback       COMPLETE — 50-row resident history and five-row Fn+Up/Down scrollback hardware accepted on ADV
+T051 ADV console scrollback       COMPLETE — 50-row resident history hardware accepted; current five-row trigger is Ctrl+;/Ctrl+. via T076
