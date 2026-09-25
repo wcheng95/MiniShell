@@ -232,6 +232,14 @@ use `ls /` for the explicit root listing.
 receives the source file under its basename. Both commands remain single-file
 operations; `mv` uses rename without a cross-volume copy fallback. CWD is not persisted.
 
+Interactive prompts keep the last ten nonblank commands in RAM. Linux uses
+Up/Down for history, Left/Right and Home/End for cursor movement, and
+Backspace/Delete for editing. On ADV, Fn+`,` recalls the previous command and
+Fn+`/` the next; Fn+`;` / Fn+`.` still scroll console output. Bare punctuation
+remains text. Returning past the newest entry restores the original draft.
+History survives app return, resets with the session, and excludes startup and
+redirected input. Recalled edits are stored as new commands when submitted.
+
 Aliases are loaded from:
 
 ```text

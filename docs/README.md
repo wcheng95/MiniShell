@@ -70,6 +70,10 @@ Applications inherit CWD for relative Filesystem paths.
 Backends continue receiving normalized absolute paths. See the Filesystem API
 contract for bounds and lifecycle details.
 
+The resident shell also owns a RAM-only ten-command editable history. Linux
+Up/Down and ADV Fn+`,` / Fn+`/` navigate it; ADV Fn+`;` / Fn+`.` remain console
+scrollback. History is private shell state, separate from public Input/Console.
+
 ## Architecture
 
 Canonical architecture rules:

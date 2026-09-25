@@ -158,47 +158,46 @@ void adv_console_debug_write(const char *text)
     _lock_release_recursive(&s_output_lock);
 }
 
+static bool s_line_start = true;
+
 void minishell_platform_console_write(const char *text)
 {
     if (text == NULL) return;
+    for (const char *p = text; *p; ++p) s_line_start = *p == '\n';
     adv_console_debug_write(text);
     adv_display_console_write(text);
 }
 
-static int accept_character(int ch, char *buffer, size_t capacity, size_t *length)
+void minishell_platform_console_prompt(void)
 {
-    if (ch == 0x04 && *length == 0u) return -1;
+    if (!s_line_start) minishell_platform_console_write("\n");
+    minishell_platform_console_write("M$> ");
+}
 
-    if (ch == '\r' || ch == '\n') {
-        buffer[*length] = '\0';
-        minishell_platform_console_write("\n");
-        return 1;
-    }
+static void redraw_line(const shell_editor_t *editor)
+{
+    adv_display_console_edit_line(editor->line);
+    /* The USB mirror uses a single 79-column ANSI row while editing. TFT has
+     * its own wrapped 20-column region; escape bytes never reach its renderer. */
+    size_t start = editor->length > 74u ? editor->length - 74u : 0u;
+    adv_console_debug_write("\r\033[4C\033[K");
+    adv_console_debug_write(editor->line + start);
+}
 
-    if (ch == '\b' || ch == 0x7f) {
-        if (*length != 0u) {
-            --(*length);
-            buffer[*length] = '\0';
-            minishell_platform_console_write("\b \b");
-        }
-        return 0;
-    }
-
-    if (ch >= 0x20 && ch <= 0x7e && *length + 1u < capacity) {
-        char echo[2] = {(char)ch, '\0'};
-        buffer[(*length)++] = (char)ch;
-        buffer[*length] = '\0';
-        minishell_platform_console_write(echo);
-    }
+static int accept_character(int ch, shell_editor_t *editor)
+{
+    if (ch == 0x04 && editor->length == 0u) return -1;
+    if (ch == '\r' || ch == '\n') return 1;
+    shell_edit_action_t action = ch == '\b' || ch == 0x7f
+                                 ? SHELL_EDIT_BACKSPACE : SHELL_EDIT_CHAR;
+    if (shell_editor_edit(editor, action, (unsigned)ch)) redraw_line(editor);
     return 0;
 }
 
-static int accept_key_event(const mini_key_event_t *event, char *buffer, size_t capacity,
-                            size_t *length)
+static int accept_key_event(const mini_key_event_t *event, shell_editor_t *editor)
 {
-    if (event->type == MINI_KEY_EVENT_CHAR && event->codepoint <= 0x7fu) {
-        return accept_character((int)event->codepoint, buffer, capacity, length);
-    }
+    if (event->type == MINI_KEY_EVENT_CHAR && event->codepoint <= 0x7fu)
+        return accept_character((int)event->codepoint, editor);
     if (event->type != MINI_KEY_EVENT_SPECIAL) return 0;
 
     if ((event->modifiers & MINI_MOD_FN) != 0u &&
@@ -206,38 +205,39 @@ static int accept_key_event(const mini_key_event_t *event, char *buffer, size_t 
         adv_display_console_scroll(event->key == MINI_KEY_UP ? 5 : -5);
         return 0;
     }
-
-    if (event->key == MINI_KEY_ENTER) return accept_character('\n', buffer, capacity, length);
-    if (event->key == MINI_KEY_BACKSPACE || event->key == MINI_KEY_DELETE) {
-        return accept_character('\b', buffer, capacity, length);
-    }
+    shell_edit_action_t action;
+    if ((event->modifiers & MINI_MOD_FN) != 0u && event->key == MINI_KEY_LEFT)
+        action = SHELL_EDIT_PREVIOUS;
+    else if ((event->modifiers & MINI_MOD_FN) != 0u && event->key == MINI_KEY_RIGHT)
+        action = SHELL_EDIT_NEXT;
+    else if (event->key == MINI_KEY_ENTER) return 1;
+    else if (event->key == MINI_KEY_BACKSPACE) action = SHELL_EDIT_BACKSPACE;
+    else if (event->key == MINI_KEY_DELETE) action = SHELL_EDIT_DELETE;
+    else return 0;
+    if (shell_editor_edit(editor, action, 0u)) redraw_line(editor);
     return 0;
 }
 
-int minishell_platform_console_read_line(char *buffer, size_t capacity)
+int minishell_platform_console_read_line(shell_editor_t *editor)
 {
-    if (buffer == NULL || capacity == 0u) return -1;
-
-    size_t length = 0u;
-    buffer[0] = '\0';
-
+    adv_display_console_edit_begin();
     for (;;) {
+        int accepted = 0;
         mini_key_event_t event = {.struct_size = sizeof(event)};
-        if (adv_keyboard_read_event(&event) == MINI_OK) {
-            int accepted = accept_key_event(&event, buffer, capacity, &length);
-            if (accepted > 0) return 1;
-            if (accepted < 0) return 0;
+        if (adv_keyboard_read_event(&event) == MINI_OK)
+            accepted = accept_key_event(&event, editor);
+        if (accepted == 0) {
+            int ch = s_host_console.suspended ? EOF : fgetc(stdin);
+            if (ch != EOF) accepted = accept_character(ch, editor);
+            else clearerr(stdin);
         }
-
-        int ch = s_host_console.suspended ? EOF : fgetc(stdin);
-        if (ch != EOF) {
-            int accepted = accept_character(ch, buffer, capacity, &length);
-            if (accepted > 0) return 1;
-            if (accepted < 0) return 0;
-        } else {
-            clearerr(stdin);
+        if (accepted > 0) {
+            adv_console_debug_write("\r\033[4C\033[K");
+            adv_console_debug_write(editor->line);
+            minishell_platform_console_write("\n");
+            return 2;
         }
-
+        if (accepted < 0) return 0;
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }

@@ -78,6 +78,21 @@ diagnostics are excluded. This is private ADV resident-console behavior, not
 part of the application Console API; applications still write only to Console.
 Linux scrollback remains owned by the host terminal.
 
+Command history is separate: the resident core retains ten nonblank submitted
+interactive commands in RAM, including duplicates and unexpanded aliases.
+Linux Up/Down and ADV Fn+Left/Right (Fn+`,` / Fn+`/`) navigate it. Moving past the
+newest command restores the original draft; edits do not mutate stored entries.
+Startup and redirected input are excluded, and a new session resets history.
+Linux cursor keys/Home/End and Backspace/Delete edit recalled lines. ADV uses
+ordinary typing/Backspace and forward Delete; its Fn+Up/Down scrollback bindings
+are unchanged. This adds no public Console or Input capability.
+
+During ADV editing, the prompt region is redrawn in place across 20-column rows.
+The USB mirror uses an ANSI single-row tail preview (up to 74 command characters)
+and prints the full submitted line before newline; use a terminal at least 80
+columns wide for this preview. Linux pans long editable lines horizontally to
+fit the terminal width. Redirected Linux stdin keeps its existing line reader.
+
 ## Ownership rule
 
 Applications must choose the output surface according to intent:

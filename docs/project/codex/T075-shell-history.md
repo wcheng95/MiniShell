@@ -1,6 +1,6 @@
 # T075 — 10-command editable resident shell history
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -319,26 +319,26 @@ Do not implement in T075:
 
 ## Acceptance criteria
 
-- [ ] History stores at most 10 non-empty interactive submitted commands.
-- [ ] 11th command evicts the oldest.
-- [ ] Duplicate commands are retained.
-- [ ] Startup commands do not enter history.
-- [ ] History survives foreground app return but not reboot/new session.
-- [ ] Previous/Next navigation order is correct.
-- [ ] Next past newest restores the original draft.
-- [ ] Editing a recalled command does not mutate the old entry.
-- [ ] Executing an edited recalled command stores the edited line as a new entry.
-- [ ] ADV `Fn+,` navigates previous history.
-- [ ] ADV `Fn+/` navigates next history.
-- [ ] ADV `Fn+;` / `Fn+.` scrollback behavior is unchanged.
-- [ ] Bare `,`, `/`, `;`, `.` remain printable input.
-- [ ] ADV recall/redraw works for wrapped command lines.
-- [ ] Linux Up/Down navigates history on a real TTY.
-- [ ] Linux Left/Right and Backspace/Delete remain usable while editing.
-- [ ] Non-TTY Linux stdin remains line-oriented and regression-free.
-- [ ] Public MiniShell API is unchanged.
-- [ ] Full Linux CTest passes.
-- [ ] ADV firmware builds successfully.
+- [x] History stores at most 10 non-empty interactive submitted commands.
+- [x] 11th command evicts the oldest.
+- [x] Duplicate commands are retained.
+- [x] Startup commands do not enter history.
+- [x] History survives foreground app return but not reboot/new session.
+- [x] Previous/Next navigation order is correct.
+- [x] Next past newest restores the original draft.
+- [x] Editing a recalled command does not mutate the old entry.
+- [x] Executing an edited recalled command stores the edited line as a new entry.
+- [x] ADV `Fn+,` navigates previous history.
+- [x] ADV `Fn+/` navigates next history.
+- [x] ADV `Fn+;` / `Fn+.` scrollback behavior is unchanged.
+- [x] Bare `,`, `/`, `;`, `.` remain printable input.
+- [x] ADV recall/redraw works for wrapped command lines.
+- [x] Linux Up/Down navigates history on a real TTY.
+- [x] Linux Left/Right and Backspace/Delete remain usable while editing.
+- [x] Non-TTY Linux stdin remains line-oriented and regression-free.
+- [x] Public MiniShell API is unchanged.
+- [x] Full Linux CTest passes.
+- [x] ADV firmware builds successfully.
 
 ## Automated tests
 
@@ -447,17 +447,155 @@ do not open a PR unless asked.
 
 ### Implementation summary
 
+Implemented from current `origin/main` at
+`6354464cdf6d33f1ba840b316d1c286a43a6a3b4` on the requested branch.
+No architecture deviations: one core-owned fixed editor/history instance serves
+both backends. The private line reader takes that instance and reports whether
+input was interactive. Only the shell stores submissions, before alias expansion
+or argument splitting; startup and redirected input never store entries.
+
+The editor retains ten commands with FIFO eviction, duplicates, clamped
+Previous/Next navigation, original draft/cursor restoration, and independent
+editable recall. Printable ASCII insertion, cursor movement, Backspace and
+forward Delete retain a maximum 255-character payload. New prompts reset only
+the draft/navigation; a new shell session initializes the complete instance.
+
+Linux TTY input uses the existing terminal parser with its own callback and
+reuses the exclusive terminal-mode lease. One-byte reads avoid consuming the
+next app's input. Raw state is released before returning on submission, EOF or
+error; Ctrl-C cancels the draft locally instead of terminating in raw mode.
+Non-TTY input retains `fgets()`. Long interactive lines pan horizontally within
+a single terminal row; Enter commits the full line to terminal scrollback.
+
+ADV consumes existing Fn+Left/Right as Previous/Next, leaving Fn+Up/Down output
+scrollback and keyboard normalization unchanged. A fixed snapshot of the retained
+prompt rows lets the TFT redraw the complete editable region, including wrapped
+255-character lines. Shrinking a draft restores temporarily displaced output
+rows; repeated navigation does not append prompts or consume output history.
+USB redraw escapes go only to the mirror, never the TFT parser. Forward Delete
+now removes at the edit cursor as specified (at the ADV end cursor it is a no-op;
+Backspace remains the normal trailing-character erase).
+
+A private prompt operation puts interactive prompts on a new row after output
+without a final newline. Linux Display writes invalidate the known cursor row so
+full-screen app return also gets a correctly positioned prompt. Redirected Linux
+prompt/output behavior remains unchanged.
+
 ### Files changed
+
+- `core/shell_editor.c`, `shell_editor.h`: pure bounded editor and ten-entry ring.
+- `core/shell.c`, `platform_backend.h`: core session ownership, pre-expansion
+  submission recording and private prompt/line-reader contract.
+- `platform/linux/linux_console.c`, `linux_terminal.c`, `linux_internal.h`:
+  parser-backed interactive editor, raw-mode lease reuse, cursor redraw and
+  prompt positioning; retain redirected input and application Input lifecycle.
+- `platform/adv/adv_console.c`, `adv_display.cpp`, `adv_internal.h`: Fn event
+  mapping, shared editor calls, wrapped prompt snapshot/redraw and USB preview.
+- Root `CMakeLists.txt`, `platform/adv/main/CMakeLists.txt`,
+  `tests/unit/CMakeLists.txt`: compile the shared engine and register tests.
+- `tests/shell_editor_test.c`: pure navigation, storage and editing bounds.
+- `tests/linux_shell_history.py`: real ANSI/PTY navigation, editing, app return,
+  narrow-terminal behavior, prompt placement, mode restoration and pipe input.
+- `tests/adv_console_scrollback_test.py`: actual ADV renderer/event/reader paths
+  with hardware stubs, wrapped recall, history keys, draft restoration and USB.
+- `tests/shell_alias_test.c`, `resident_boot_test.c`: private reader adaptations;
+  alias tests also prove history is unexpanded, startup/noninteractive exclusion,
+  edited recall storage, foreground return and new-session reset.
+- `README.md`, `docs/README.md`, `docs/api/console-api.md`,
+  `platform/adv/README.md`: controls, lifecycle, editing and redraw behavior.
+- This task packet: implementation and validation evidence.
 
 ### Invariants preserved
 
+`include/minishell/api.h`, API v3, all Filesystem/CWD service code, all portable
+applications and `adv_keyboard.cpp` are byte-for-byte unchanged from the base.
+No persisted state, heap allocation, worker task, public capability or app access
+to history. The existing dispatcher still executes exactly the submitted line;
+aliases, startup-only semicolons, cd/pwd, bare defaults, cp/mv and foreground
+synchronization are preserved. ADV output history remains 50 physical rows with
+five-row Fn+Up/Down steps and independent foreground Display ownership. The ADV
+input polling interval remains 5 ms. Linux PageUp/PageDown do not navigate history.
+
+On 32-bit ADV, the editor instance occupies 3,096 bytes of static storage;
+the prompt snapshot is 1,000 bytes plus 12 bytes of bookkeeping. Prompt placement
+adds one boolean. These are fixed allocations (plus linker alignment), not an
+extra task stack or heap usage. The former stack-local shell input line is now
+part of the resident editor instance.
+
 ### Local tests run
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R 'shell|linux_input|linux_nano|resident_boot|adv_console'
+# PASS: final focused run 7/7.
+cmake -S tests/unit -B /tmp/T075-unit
+cmake --build /tmp/T075-unit -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T075-unit --output-on-failure
+# PASS: 28/28.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: initial full run 125/125 (59.42 seconds).
+# Two post-fix full runs: 124/125 each, unchanged linux_serial_unit assertion.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R '^linux_serial_unit$'
+# PASS: focused retry between those runs, 1/1.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure --repeat until-pass:3
+# PASS: 125/125 (60.11 seconds); every test passed on its first attempt.
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: final firmware 0x153010 bytes; app partition 78% free. No flashing.
+git diff --check
+# PASS
+```
+
+Also ran the ADV host renderer test and Linux PTY history test directly while
+implementing. Early PTY fixture assertions were corrected to reflect existing
+behavior: names containing `/` fail app-name validation, and `hello` waits for
+user input. The completed PTY fixture explicitly exits hello and retains its
+Display-return regression. No existing product test was weakened. ADV builds
+retain existing SDK/FreeRTOS/ELF-loader pedantic warnings.
+
+The post-fix full runs encountered the previously recorded Serial PTY assertion
+at `tests/linux_serial_test.c:67` (write timeout and zero bytes). Its focused retry
+passed. The final full run allowed up to three attempts per failing test to bound
+this existing flake. All 125 tests passed on their first attempt in that final
+run (125 test starts, no failed attempts), so no per-test repeats were needed.
+Serial code/tests are unchanged, and no test assertion was relaxed.
+
+The full suite covers existing aliases/startup, CWD, cp/mv, Linux Input and nano,
+ADV output scrollback/Display handoff, public exports and application regressions.
+New tests cover the specified pure history/editor cases and real ANSI controls,
+unexpanded aliases, ten-entry eviction, maximum payload, Ctrl-C/EOF, a forced
+stdout error, and exact terminal-attribute restoration after exit/error and after
+foreground Input use. They also verify prompt alignment after non-newline Console
+output and foreground Display return. ADV tests exercise both scrollback Fn keys,
+both history Fn keys, bare punctuation, USB input, 255-character wrapped redraw,
+repeated grow/shrink at the 50-row capacity, and draft restoration without newlines.
 
 ### Manual/hardware validation still required
 
+After supervisor review, run the ADV and pc-1 checklists above. Verify physical
+Fn+`,` / Fn+`/` navigation, recalled edits, eviction, wrapped TFT redraw, and
+unchanged Fn+`;` / Fn+`.` output scrollback. Check the USB mirror on an ANSI host
+terminal. No device was flashed or operated here; no QMX/RF validation required.
+
 ### Known limitations / risks
 
+History is bounded to ten commands and 255 characters, uses printable ASCII
+editing, and is not persisted. Linux long input pans within the terminal width.
+The ADV USB mirror has no host-size negotiation: its single-row preview shows
+up to 74 trailing command characters and assumes an ANSI terminal at least 80
+columns wide; Enter prints the full submitted line. The TFT always retains the
+complete wrapped command. Raw-mode restoration is tested for normal submission,
+app handoff, EOF and I/O failure; abrupt external process termination is not a
+new signal-cleanup feature. Physical key delivery, TFT usability and USB display
+still require hardware acceptance.
+
 ### Commit
+
+One implementation commit titled `T075: add editable resident shell history`,
+parent `6354464cdf6d33f1ba840b316d1c286a43a6a3b4`, on
+`codex/T075-shell-history`. Exact pushed SHA is returned in the handoff.
+No merge or PR.
 
 ## Supervisor review
 

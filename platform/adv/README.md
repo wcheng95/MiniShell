@@ -199,6 +199,16 @@ console output returns to the live prompt. History survives full-screen app
 launch/exit, and scrolling does not replay USB output. This shell-only behavior
 does not change application key mappings.
 
+Command history is a separate ten-entry RAM ring owned by the resident core.
+Fn+`,` (Fn+Left) recalls older commands; Fn+`/` (Fn+Right) advances toward newer
+commands and then restores the draft. Edit recalled text with typing/Backspace;
+Delete removes the character at the cursor. Bare `,`, `/`, `;`, `.` remain text.
+Recalled commands replace the current input region, including wrapped lines,
+without adding prompts. History survives app return but resets on reboot; it
+excludes startup commands and is never persisted. The USB mirror uses an ANSI
+single-row tail preview on an 80-column-or-wider host terminal while editing and
+prints the full submitted command on Enter.
+
 ## Storage
 
 Canonical ADV storage policy:

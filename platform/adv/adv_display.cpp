@@ -26,6 +26,10 @@ uint32_t s_history_first = 0u;
 uint32_t s_history_count = 1u;
 uint32_t s_console_offset = 0u;
 uint32_t s_console_column = 0u;
+// Snapshot the committed prompt tail while editing. Restoring it also recovers
+// rows temporarily displaced by a longer draft, without growing scrollback.
+char s_edit_history[kHistoryRows][kColumns];
+uint32_t s_edit_first, s_edit_count, s_edit_column;
 
 int32_t row_y(uint32_t row)
 {
@@ -167,6 +171,23 @@ extern "C" void adv_display_console_write(const char *text)
     }
     restore_console_view();
     render_all();
+}
+
+extern "C" void adv_display_console_edit_begin(void)
+{
+    std::memcpy(s_edit_history, s_history, sizeof(s_history));
+    s_edit_first = s_history_first;
+    s_edit_count = s_history_count;
+    s_edit_column = s_console_column;
+}
+
+extern "C" void adv_display_console_edit_line(const char *line)
+{
+    std::memcpy(s_history, s_edit_history, sizeof(s_history));
+    s_history_first = s_edit_first;
+    s_history_count = s_edit_count;
+    s_console_column = s_edit_column;
+    adv_display_console_write(line);
 }
 
 extern "C" void adv_display_console_scroll(int delta)

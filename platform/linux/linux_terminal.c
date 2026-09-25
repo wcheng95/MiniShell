@@ -60,6 +60,7 @@ static mini_result_t display_get_info(void *ctx, uint32_t *out_columns,
 static mini_result_t display_clear(void *ctx)
 {
     (void)ctx;
+    linux_console_line_unknown();
     fputs("\033[2J\033[H", stdout);
     return ferror(stdout) ? MINI_ERR_IO : MINI_OK;
 }
@@ -69,6 +70,7 @@ static mini_result_t display_clear_at(void *ctx, uint32_t row,
                                       uint32_t columns)
 {
     (void)ctx;
+    linux_console_line_unknown();
     for (uint32_t r = 0; r < rows; ++r) {
         if (fprintf(stdout, "\033[%u;%uH", (unsigned)(row + r + 1u),
                     (unsigned)(column + 1u)) < 0) {
@@ -86,6 +88,7 @@ static mini_result_t display_write_at(void *ctx, uint32_t row,
                                       uint32_t byte_count)
 {
     (void)ctx;
+    linux_console_line_unknown();
     if (fprintf(stdout, "\033[%u;%uH", (unsigned)(row + 1u),
                 (unsigned)(column + 1u)) < 0) {
         return MINI_ERR_IO;
@@ -104,6 +107,7 @@ static mini_result_t display_write_at_attr(void *ctx, uint32_t row,
     }
 
     (void)ctx;
+    linux_console_line_unknown();
     if (fprintf(stdout, "\033[%u;%uH\033[7m", (unsigned)(row + 1u),
                 (unsigned)(column + 1u)) < 0) {
         return MINI_ERR_IO;
@@ -260,13 +264,15 @@ static void input_flush(void *ctx)
     if (isatty(STDIN_FILENO)) (void)tcflush(STDIN_FILENO, TCIFLUSH);
 }
 
-int linux_terminal_app_begin(void)
+static int terminal_mode_begin(bool shell)
 {
+    if (s_terminal.app_mode_active) return -EBUSY;
     if (!isatty(STDIN_FILENO)) return 0;
     if (tcgetattr(STDIN_FILENO, &s_terminal.saved_termios) != 0) return -errno;
 
     struct termios mode = s_terminal.saved_termios;
     mode.c_lflag &= (tcflag_t)~(ICANON | ECHO);
+    if (shell) mode.c_lflag &= (tcflag_t)~ISIG;
     mode.c_iflag &= (tcflag_t)~(IXON | IXOFF);
     mode.c_cc[VMIN] = 0;
     mode.c_cc[VTIME] = 0;
@@ -275,6 +281,9 @@ int linux_terminal_app_begin(void)
     s_terminal.app_mode_active = true;
     return 0;
 }
+
+int linux_terminal_app_begin(void) { return terminal_mode_begin(false); }
+int linux_terminal_shell_begin(void) { return terminal_mode_begin(true); }
 
 void linux_terminal_app_end(void)
 {

@@ -24,6 +24,8 @@ mini_result_t adv_battery_read(int *out_voltage_mv, int *out_percent);
 mini_result_t adv_enter_deep_sleep(void);
 void adv_display_console_write(const char *text);
 void adv_display_console_scroll(int delta);
+void adv_display_console_edit_begin(void);
+void adv_display_console_edit_line(const char *line);
 mini_result_t adv_display_text_get_info(void *ctx, uint32_t *out_columns, uint32_t *out_rows);
 mini_result_t adv_display_text_clear(void *ctx);
 mini_result_t adv_display_text_clear_at(void *ctx, uint32_t row, uint32_t column,

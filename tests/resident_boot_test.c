@@ -48,12 +48,13 @@ void minishell_platform_console_write(const char *text)
     assert(strlen(output)+strlen(text)<sizeof(output));strcat(output,text);
     if(!strcmp(text,"M$> ")) { assert(!app_active && !active_file);++prompts;event("prompt;"); }
 }
-int minishell_platform_console_read_line(char *buffer,size_t capacity)
+void minishell_platform_console_prompt(void) { minishell_platform_console_write("M$> "); }
+int minishell_platform_console_read_line(shell_editor_t *editor)
 {
     assert(prompts==input_index+1 && !app_active);
     const char *text=interactive[input_index++];
     if(!text)return 0;
-    assert(strlen(text)<capacity);strcpy(buffer,text);return (int)strlen(text);
+    assert(strlen(text)<sizeof(editor->line));strcpy(editor->line,text);return 1;
 }
 /* CWD semantics are exercised by the real Filesystem unit/Linux tests. */
 mini_result_t minishell_filesystem_cwd_set(const char *path)

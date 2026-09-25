@@ -9,7 +9,8 @@ static size_t position;
 static unsigned read_size=7;
 static mini_result_t open_result, close_result;
 static unsigned fail_read;
-static bool absent_service;
+static bool absent_service, interactive_mode;
+static size_t seen_history_count;
 static char output[4096], launched[256];
 static mini_result_t fs_open(const char *path, uint32_t flags, mini_file_t *file)
 {
@@ -34,11 +35,23 @@ void minishell_platform_console_write(const char *text)
     assert(strlen(output)+strlen(text)<sizeof(output)); strcat(output,text);
     if (strstr(text,"alias: cannot read")) ++diagnostics;
 }
-int minishell_platform_console_read_line(char *buffer, size_t capacity)
+void minishell_platform_console_prompt(void) { minishell_platform_console_write("M$> "); }
+int minishell_platform_console_read_line(shell_editor_t *editor)
 {
+    if (command_index == 0 || !interactive_mode) assert(editor->count == 0);
+    seen_history_count = editor->count;
     const char *text=commands[command_index++];
     if (!text) return 0;
-    assert(strlen(text)<capacity); strcpy(buffer,text); return (int)strlen(text);
+    if (!strcmp(text,"__recall__")) {
+        assert(editor->count == 1 && !strcmp(editor->history[0],"x arg"));
+        shell_editor_edit(editor, SHELL_EDIT_PREVIOUS, 0);
+        shell_editor_edit(editor, SHELL_EDIT_CHAR, '!');
+        assert(!strcmp(editor->history[0],"x arg"));
+    } else {
+        assert(strlen(text)<sizeof(editor->line)); strcpy(editor->line,text);
+    }
+    if (editor->count == 2) assert(!strcmp(editor->history[1],"x arg!"));
+    return interactive_mode ? 2 : 1;
 }
 /* CWD semantics are exercised by the real Filesystem unit/Linux tests. */
 mini_result_t minishell_filesystem_cwd_set(const char *path)
@@ -58,7 +71,7 @@ static void reset(void)
     data="x=changed\n"; memset(commands,0,sizeof(commands)); commands[0]="x"; commands[1]="exit";
     opens=closes=reads=launches=diagnostics=command_index=0; position=0;
     open_result=close_result=MINI_OK; fail_read=0; read_size=7; absent_service=false;
-    output[0]=launched[0]=0;
+    output[0]=launched[0]=0; interactive_mode=false; seen_history_count=0;
 }
 static void parser(void)
 {
@@ -124,6 +137,17 @@ static void failures(void)
 int main(void)
 {
     parser(); lookup(); failures();
+    reset();
+    char startup[] = "x startup;pwd";
+    minishell_shell_startup(startup);
+    interactive_mode=true;
+    commands[0]="x arg"; commands[1]="__recall__"; commands[2]="exit";
+    assert(minishell_shell_run()==0 && seen_history_count==2 && launches==3);
+    assert(!strcmp(launched,"changed")); // Stored input stays unexpanded.
+    command_index=0; commands[0]="exit";
+    assert(minishell_shell_run()==0 && seen_history_count==0); // New session.
+    reset();
+    assert(minishell_shell_run()==0 && seen_history_count==0); // Redirected input.
     puts("shell aliases: parser, boundaries, streaming, reload, FS failure fallback PASS");
     return 0;
 }

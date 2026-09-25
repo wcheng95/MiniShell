@@ -8,6 +8,7 @@
 mini_result_t linux_result_from_errno(int error);
 
 void linux_console_prepare(void);
+void linux_console_line_unknown(void);
 
 int linux_paths_init(void);
 int linux_prepare_logical_root(void);
@@ -22,6 +23,8 @@ void linux_digital_io_configure(minishell_services_port_t *port);
 void linux_serial_configure(minishell_services_port_t *port);
 
 int linux_terminal_app_begin(void);
+/* Same exclusive raw-mode lease, with Ctrl-C delivered to the shell editor. */
+int linux_terminal_shell_begin(void);
 void linux_terminal_app_end(void);
 
 minishell_platform_result_t linux_loader_apps_list(minishell_app_emit_fn emit,

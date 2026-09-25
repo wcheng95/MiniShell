@@ -53,3 +53,8 @@ include(../minicw_tests.cmake)
 
 add_test(NAME minishell_unit_tests COMMAND minishell_unit_tests)
 include(../js8_tests.cmake)
+
+add_executable(shell_editor_unit ../../tests/shell_editor_test.c ../../core/shell_editor.c)
+target_include_directories(shell_editor_unit PRIVATE ../../core)
+target_compile_options(shell_editor_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME shell_editor_unit COMMAND shell_editor_unit)

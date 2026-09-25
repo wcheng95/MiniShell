@@ -8,7 +8,6 @@
 #include "platform_backend.h"
 #include "shell.h"
 
-#define SHELL_LINE_MAX 256
 #define SHELL_ARG_MAX 16
 #define SHELL_OUTPUT_MAX 512
 
@@ -260,13 +259,17 @@ void minishell_shell_startup(char *commands)
 
 int minishell_shell_run(void)
 {
-    char line[SHELL_LINE_MAX];
+    static shell_editor_t editor;
+    shell_editor_init(&editor);
     for (;;) {
-        shell_write("M$> ");
-        if (minishell_platform_console_read_line(line, sizeof(line)) <= 0) {
+        shell_editor_begin(&editor);
+        minishell_platform_console_prompt();
+        int input = minishell_platform_console_read_line(&editor);
+        if (input <= 0) {
             shell_write("\n");
             return 0;
         }
-        if (execute_line(line)) return 0;
+        if (input == 2) shell_editor_remember(&editor);
+        if (execute_line(editor.line)) return 0;
     }
 }

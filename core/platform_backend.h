@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "minishell_services.h"
+#include "shell_editor.h"
 
 typedef void (*minishell_app_emit_fn)(const char *name, void *ctx);
 
@@ -25,7 +26,10 @@ int minishell_platform_resource_limits(minishell_resource_limits_t *out_limits);
 /* Private resident-shell console. Applications must use MiniShell public
  * Display/Input/System APIs instead of this interface. */
 void minishell_platform_console_write(const char *text);
-int minishell_platform_console_read_line(char *buffer, size_t capacity);
+void minishell_platform_console_prompt(void);
+/* 2: interactive submit, 1: redirected line, 0: EOF, negative: failure.
+ * Edit state is core-owned; platform must restore input mode before returning. */
+int minishell_platform_console_read_line(shell_editor_t *editor);
 
 const minishell_services_port_t *minishell_platform_services_port(void);
 void minishell_platform_services_prepare(minishell_services_port_t *out_port);

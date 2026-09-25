@@ -52,6 +52,7 @@ set(MINISHELL_LINUX_SOURCES
 add_executable(minishell
     core/minishell_runtime.c
     core/shell.c
+    core/shell_editor.c
     core/alias.c
     core/resident_settings.c
     core/app_manager.c
@@ -795,12 +796,12 @@ add_test(NAME linux_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/te
     $<TARGET_FILE:minishell> $<TARGET_FILE_DIR:hello>)
 
 add_executable(resident_boot_unit tests/resident_boot_test.c core/minishell_runtime.c
-    core/resident_settings.c core/shell.c core/alias.c core/app_manager.c)
+    core/resident_settings.c core/shell.c core/shell_editor.c core/alias.c core/app_manager.c)
 target_include_directories(resident_boot_unit PRIVATE include core core/minishell_services)
 target_compile_options(resident_boot_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME resident_boot_unit COMMAND resident_boot_unit)
 
-add_executable(shell_alias_unit tests/shell_alias_test.c core/alias.c)
+add_executable(shell_alias_unit tests/shell_alias_test.c core/alias.c core/shell_editor.c)
 target_include_directories(shell_alias_unit PRIVATE include core core/minishell_services)
 target_compile_options(shell_alias_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME shell_alias_unit COMMAND shell_alias_unit)
@@ -980,3 +981,11 @@ add_test(NAME sstv_wav COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/sstv_wav_test.py
     $<TARGET_FILE:sstv_unit> $<TARGET_FILE:minishell>
     ${CMAKE_BINARY_DIR}/runtime/apps ${CMAKE_SOURCE_DIR})
+
+add_executable(shell_editor_unit tests/shell_editor_test.c core/shell_editor.c)
+target_include_directories(shell_editor_unit PRIVATE core)
+target_compile_options(shell_editor_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME shell_editor_unit COMMAND shell_editor_unit)
+add_test(NAME linux_shell_history COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_SOURCE_DIR}/tests/linux_shell_history.py
+    $<TARGET_FILE:minishell> $<TARGET_FILE:input_probe> $<TARGET_FILE:hello> $<TARGET_FILE:cat>)

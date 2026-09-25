@@ -9,7 +9,7 @@ display = display.replace('#include "adv_internal.h"', '#include "minishell/api.
 console = (root / 'platform/adv/adv_console.c').read_text()
 # Compile the unchanged output routing, character editor, physical event handling,
 # and complete polling loop; only ESP-IDF bring-up/diagnostic transport is stubbed.
-console = console[console.index('void minishell_platform_console_write('):]
+console = console[console.index('static bool s_line_start'):]
 with tempfile.TemporaryDirectory() as tmp:
     d = pathlib.Path(tmp)
     (d / 'M5Unified.h').write_text('''
@@ -28,6 +28,7 @@ struct Display {
 struct Board { struct Display Display; } M5;
 ''')
     (d / 'test.cpp').write_text(display + r'''
+#include "shell_editor.h"
 #include <cassert>
 #include <cstdio>
 #include <string>
@@ -161,40 +162,77 @@ static void handoff_tests() {
  adv_display_console_scroll(100);assert_view(0);
 }
 static void input_tests() {
+ reset();
+ minishell_platform_console_write("unterminated");minishell_platform_console_prompt();
+ assert(row(0)==padded("unterminated") && row(1)==padded("M$> "));
  reset();fill(30);
- char buffer[32]="draft";size_t length=5;
+ shell_editor_t editor; shell_editor_init(&editor);
  const std::string bytes=usb_output;
  auto up=special(MINI_KEY_UP,MINI_MOD_FN),down=special(MINI_KEY_DOWN,MINI_MOD_FN);
- assert(accept_key_event(&up,buffer,sizeof(buffer),&length)==0);
+ assert(accept_key_event(&up,&editor)==0);
  assert(s_console_offset==5);assert_view(18);
- assert(accept_key_event(&up,buffer,sizeof(buffer),&length)==0);
+ assert(accept_key_event(&up,&editor)==0);
  assert(s_console_offset==10);assert_view(13);
- assert(accept_key_event(&down,buffer,sizeof(buffer),&length)==0);
+ assert(accept_key_event(&down,&editor)==0);
  assert(s_console_offset==5);
- assert(!strcmp(buffer,"draft") && length==5 && usb_output==bytes);
- for(auto key : {MINI_KEY_UP,MINI_KEY_DOWN,MINI_KEY_FN}) {
-  auto e=special(key);assert(accept_key_event(&e,buffer,sizeof(buffer),&length)==0);
+ for(auto key : {MINI_KEY_UP,MINI_KEY_DOWN,MINI_KEY_LEFT,MINI_KEY_RIGHT,MINI_KEY_FN}) {
+  auto e=special(key);assert(accept_key_event(&e,&editor)==0);
  }
- assert(!strcmp(buffer,"draft") && length==5 && usb_output==bytes && s_console_offset==5);
+ assert(editor.length==0 && usb_output==bytes && s_console_offset==5);
+ minishell_platform_console_write("\nM$> ");
  keys={character('a'),up,down,special(MINI_KEY_FN),character('b'),
        special(MINI_KEY_BACKSPACE),character('c'),special(MINI_KEY_DELETE),
        character('d'),special(MINI_KEY_ENTER)};
- assert(minishell_platform_console_read_line(buffer,sizeof(buffer))==1);
- assert(!strcmp(buffer,"ad") && usb_output==bytes+"ab\b \bc\b \bd\n");
- assert(s_console_offset==0);
- const std::string before=usb_output;
+ assert(minishell_platform_console_read_line(&editor)==2);
+ assert(!strcmp(editor.line,"acd") && s_console_offset==0);
+ assert(usb_output.find("acd\n")!=std::string::npos);
+ shell_editor_begin(&editor);minishell_platform_console_write("M$> ");
  usb_input={'u','v',0x7f,'w','\r'};
- assert(minishell_platform_console_read_line(buffer,sizeof(buffer))==1);
- assert(!strcmp(buffer,"uw") && usb_output==before+"uv\b \bw\n");
- usb_input={4};assert(minishell_platform_console_read_line(buffer,sizeof(buffer))==0);
- // Bounded edit buffer and ignored non-ASCII input retain existing semantics.
- usb_input={'a','b','c',0x80,'\n'};
- assert(minishell_platform_console_read_line(buffer,3)==1 && !strcmp(buffer,"ab"));
+ assert(minishell_platform_console_read_line(&editor)==2);
+ assert(!strcmp(editor.line,"uw"));
+ shell_editor_begin(&editor);minishell_platform_console_write("M$> ");
+ usb_input={4};assert(minishell_platform_console_read_line(&editor)==0);
+ shell_editor_begin(&editor);
+ usb_input={',','/',';','.',0x80,'\n'};
+ assert(minishell_platform_console_read_line(&editor)==2 && !strcmp(editor.line,",/;."));
+
+ // Full wrapped recall at ring capacity, with no new prompt/newline or lost
+ // output rows on repeated grow/shrink. Navigation uses the existing Fn events.
+ reset();fill(50);minishell_platform_console_write("\nM$> ");
+ shell_editor_init(&editor);
+ memset(editor.line,'x',255);editor.line[255]=0;shell_editor_remember(&editor);
+ shell_editor_begin(&editor);adv_display_console_edit_begin();
+ char baseline[50][20];memcpy(baseline,s_history,sizeof(baseline));
+ unsigned first=s_history_first,count=s_history_count;
+ auto previous=special(MINI_KEY_LEFT,MINI_MOD_FN),next=special(MINI_KEY_RIGHT,MINI_MOD_FN);
+ auto newlines=std::count(usb_output.begin(),usb_output.end(),'\n');
+ for(unsigned i=0;i<20;++i) {
+  accept_key_event(&previous,&editor);
+  assert(editor.length==255 && s_history_count==50 && s_console_column==19);
+  for(unsigned r=0;r<6;++r) assert(row(r)==std::string(20,'x'));
+  assert(row(6)==padded(std::string(19,'x')));
+  accept_key_event(&up,&editor);assert(s_console_offset==5);
+  assert(editor.length==255);
+  accept_key_event(&next,&editor);
+  assert(editor.length==0 && s_console_offset==0);
+  assert(s_history_first==first && s_history_count==count);
+  assert(!memcmp(baseline,s_history,sizeof(baseline)));
+ }
+ assert(std::count(usb_output.begin(),usb_output.end(),'\n')==newlines);
+ for(char c : std::string("draft")) { auto e=character(c);accept_key_event(&e,&editor); }
+ accept_key_event(&previous,&editor);accept_key_event(&next,&editor);
+ assert(!strcmp(editor.line,"draft") && row(6)==padded("M$> draft"));
+ // Backspace can shrink across physical row boundaries.
+ accept_key_event(&previous,&editor);
+ auto backspace=special(MINI_KEY_BACKSPACE);
+ for(unsigned i=0;i<240;++i) accept_key_event(&backspace,&editor);
+ assert(editor.length==15 && row(6)==padded("M$> "+std::string(15,'x')));
 }
 int main(){history_tests();handoff_tests();input_tests();}
 ''')
     subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Wno-missing-field-initializers',
-                    '-I'+str(d), '-I'+str(root/'include'), str(d/'test.cpp'),
+                    '-I'+str(d), '-I'+str(root/'include'), '-I'+str(root/'core'),
+                    str(d/'test.cpp'), str(root/'core/shell_editor.c'),
                     '-o', str(d/'test')], check=True)
     subprocess.run([str(d/'test')], check=True)
 print('ADV console history, Display handoff, physical and USB line input: PASS')
