@@ -686,4 +686,23 @@ T078 branch and return a new review SHA.
 
 ## Architect test result
 
-Record ADV/pc-1 pathname auto-expansion validation here.
+ADV hardware validation passed on 2026-09-24 for the implemented eager pathname
+behavior itself.
+
+Verified on real Cardputer ADV:
+
+- absolute pathname expansion;
+- relative pathname expansion;
+- longest-common-prefix behavior;
+- T076 history/cursor controls remain usable;
+- T077 blinking cursor lands correctly after expanded text;
+- Ctrl scrollback remains usable.
+
+Result for ADV typed-entry behavior: **PASS**.
+
+T078 remains **BLOCKED** overall because supervisor review found the separate
+interactive paste-safety issue: a pasted full pathname can duplicate a suffix
+after an earlier eager expansion. That issue must be corrected before merge.
+
+After the paste-safe fix, re-run the pc-1 interactive check and, if the fix
+touches ADV input timing, a short ADV regression check.
