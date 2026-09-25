@@ -162,7 +162,7 @@ Field Day Cabrillo:
 
 AutoSeq owns pure log eligibility/events and per-format ACK state. `app_controller` coordinates TX-start ordering and passes station/QSO facts to `log_service`, which owns ADIF/Cabrillo serialization, date/frequency/path policy and copy-on-write persistence through injected MiniShell Filesystem and Time/Location APIs (T006/T007). Sync/close precede rename as the commit point; the controller ACKs only successful persistence.
 
-V2-compatible `RTYYMMDD.txt` RxTxLog is implemented and hardware validated through T022-T026; `rxtx_log` defaults ON and is configurable in `station.txt`. It captured the first completed two-way QSO and the responder RR73 regression evidence.
+V2-compatible `RTYYMMDD.txt` RxTxLog is implemented and hardware validated through T022-T026; `rxtx_log` defaults ON and is configurable in `setting.txt`. It captured the first completed two-way QSO and the responder RR73 regression evidence.
 
 ## CW application baseline
 
@@ -214,10 +214,10 @@ configuration paths.
 MiniFT8 currently retains its established path:
 
 ```text
-/flash/ft8/station.txt
+/flash/ft8/setting.txt
 ```
 
-Any future rename to `/flash/ft8/setting.txt` is a separate migration.
+MiniFT8 uses `/flash/ft8/setting.txt` as its application-owned configuration file.
 
 ## Public architecture
 
