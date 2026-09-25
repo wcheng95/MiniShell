@@ -282,7 +282,7 @@ V2 behavior retained:
 mode             FT8
 UTC date/time    MiniShell Time/Location API
 frequency        selected FT8 dial frequency
-station call     station.txt callsign
+station call     setting.txt callsign
 my grid          first four grid characters
 unknown -99 RST  omitted
 write ACK         only after successful filesystem write
@@ -314,7 +314,7 @@ New QSO records are inserted before `END-OF-LOG:` and acknowledged independently
 ### RX/TX trace log
 
 V2-compatible `RTYYMMDD.txt` traffic logging is implemented in V3 and controlled
-by `rxtx_log` in `station.txt`; it is part of the accepted physical-TX baseline.
+by `rxtx_log` in `setting.txt`; it is part of the accepted physical-TX baseline.
 
 ## UI
 
@@ -346,12 +346,12 @@ See `ui.md` for the canonical UI contract. T049 color status and T050 bare
 MiniFT8 owns:
 
 ```text
-/flash/ft8/station.txt
+/flash/ft8/setting.txt
 ```
 
 Current fields include station callsign/grid, profile, band, Skip TX1, retry count, CQ type/free text, general free text, and Field Day exchange.
 
-The grid stored in `station.txt` remains the persistent station grid. A live MiniShell location may override the controller's runtime effective grid for AutoSeq/logging during the session, but it does not mutate or persist over the configured grid.
+The grid stored in `setting.txt` remains the persistent station grid. A live MiniShell location may override the controller's runtime effective grid for AutoSeq/logging during the session, but it does not mutate or persist over the configured grid.
 
 MiniShell owns platform configuration separately under `/flash/config.txt`.
 
