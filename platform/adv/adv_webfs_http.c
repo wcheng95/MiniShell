@@ -170,7 +170,13 @@ static esp_err_t handle_request(httpd_req_t *req)
         return api_error(req, MINI_ERR_INVALID);
 
     bool listing = strncmp(req->uri, "/api/list?", 10) == 0;
-    response_t response = {.req = req, .download = !listing};
+    /* Editor fetches share the streaming reader without attachment semantics.
+     * All ordinary GETs retain the existing download behavior. */
+    char read_mode[2];
+    bool editor_read = httpd_req_get_hdr_value_str(req, "X-WebFS-Read",
+                                                  read_mode, sizeof(read_mode)) == ESP_OK &&
+                       !strcmp(read_mode, "1");
+    response_t response = {.req = req, .download = !listing && !editor_read};
     const mini_api_t *api = mini_api_get();
     httpd_resp_set_type(req, listing ? "application/json; charset=utf-8" : "application/octet-stream");
     mini_result_t rc;
@@ -185,7 +191,7 @@ static esp_err_t handle_request(httpd_req_t *req)
         return api_error(req, rc);
     }
     if (atomic_load(&http->stopping)) return ESP_FAIL;
-    if (!listing && !response.sent)
+    if (response.download && !response.sent)
         httpd_resp_set_hdr(req, "Content-Disposition", "attachment");
     return httpd_resp_send_chunk(req, NULL, 0);
 }

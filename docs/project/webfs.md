@@ -158,9 +158,28 @@ remember the network. Missing/invalid settings fall back to the current generate
 SSID/password pair. Settings are read at WebFS launch and changes take effect on
 the next launch.
 
+### T068 — inline configuration editor
+
+Every regular file has explicit **Download**, **Rename**, and **Delete** actions.
+Only the exact basenames `setting.txt` and `alias.txt`, at most 64 KiB, have
+clickable filenames that open a plain textarea with the full path, Save and
+Cancel. Other filenames, including oversized configuration files, are plain
+text. Directory navigation and actions are unchanged.
+
+The browser reads through `GET /api/file` with `X-WebFS-Read: 1` to omit attachment
+headers; ordinary GETs still stream attachments for explicit Download. Save
+uses the existing safe complete-replacement `PUT /api/file` path. Cancel writes
+nothing. Read/save errors are visible, failed saves retain the edits, and a
+successful save returns to the listing even if refreshing that listing fails.
+The browser checks both downloaded size and UTF-8 save size against 64 KiB;
+ADV retains its existing bounded streaming buffers and Filesystem ownership.
+
+This is a UTF-8 configuration convenience editor using normal textarea newline
+handling, not a byte-preserving binary editor or general text editor. Resident
+WebFS credential edits take effect on the next WebFS launch as before.
+
 Later convenience work remains separate:
 
-- browser text edit/save;
 - optional STA-mode profiles;
 - mDNS such as `minishell.local`;
 - captive-portal convenience;

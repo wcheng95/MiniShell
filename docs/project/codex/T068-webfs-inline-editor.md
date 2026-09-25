@@ -1,6 +1,6 @@
 # T068 — WebFS explicit download and inline configuration editor
 
-Status: READY
+Status: REVIEW
 
 ## Purpose
 
@@ -153,3 +153,101 @@ Commit reference
 ```
 
 Push one reviewable implementation commit. Do not merge to `main` and do not open a PR unless asked.
+
+## Codex implementation notes
+
+### Implementation summary
+
+Recreated `codex/T068-webfs-inline-editor` from current `origin/main`,
+`81d1ed8d35c28a73befd6010dfbd40f5c14bacbb`. Prior experimental commits are
+excluded. No scope deviations.
+
+Regular files now have explicit Download/Rename/Delete actions. Exact
+`setting.txt` and `alias.txt` basenames up to 65,536 bytes open the inline
+textarea; other regular filenames are plain text. Save sends the complete
+UTF-8 text through the existing safe PUT replacement. Cancel clears browser
+edits without a request. Failed opens show the server/network error; failed
+saves retain the editor and its contents. A listing failure after a successful
+save is reported separately in the directory view.
+
+Editor GETs carry `X-WebFS-Read: 1`, suppressing attachment headers in the
+existing streaming HTTP reader. All ordinary file GETs retain attachment
+semantics, including empty files. No additional route or file-reading logic.
+The browser checks actual downloaded bytes and encoded save bytes against the
+limit; controls and textarea are disabled during requests.
+
+### Files changed
+
+- `platform/adv/adv_webfs_page.h`: listing actions, inline editor, errors and bounds.
+- `platform/adv/adv_webfs_http.c`: distinguish editor reads from attachment GETs.
+- `tests/adv_webfs_page_test.py`: DOM tags/hidden state/selectors from page IDs,
+  asynchronous file-fetch stub, editor and existing mutation regression coverage.
+- `tests/adv_webfs_http_test.py`: execute production read adapter and streaming
+  logic as well as existing mutation adapter tests; check attachment behavior
+  for empty/multichunk files and missing/valid/invalid editor headers.
+- `docs/project/webfs.md`: document the T068 design.
+- This task packet: implementation and validation evidence.
+
+### Behavior/invariants preserved
+
+No public API, configuration format, Filesystem logic, safe replacement protocol,
+path/query validation, Wi-Fi, USB ownership or Q/Esc lifecycle changes. ADV
+continues to stream using its existing bounded buffers, routes, socket count
+and stack settings. Browser uploads/mkdir/rename/delete remain covered. No
+external browser dependency or application settings migration.
+
+### Tests run and results
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R adv_webfs
+# PASS: 6/6, including node --check and page/HTTP regressions
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 119/119 (58.58 seconds)
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: firmware 0x1520f0 bytes; app partition 78% free. No flashing.
+git diff --check
+# PASS
+```
+
+The first HTTP harness run exposed the ISO minimum 4,095-character string
+warning after including the firmware page (already larger than that limit at
+baseline). The harness now disables only `-Woverlength-strings`, retaining
+`-Wall -Wextra -Werror -Wpedantic`; the final focused run passes. ADV build
+emitted SDK `#include_next` pedantic warnings but completed successfully.
+
+Tests include both editable names at 0/65,536/65,537 bytes, similar names,
+explicit actions on oversized files, exact UTF-8 text loading and complete PUT
+bodies, empty saves, Cancel with no request, failed read/save, byte rather than
+character limits, duplicate-save/Cancel guards during a pending save, directory
+navigation, and post-save listing failure. DOM rows are reacquired after every
+listing rebuild. Existing mutation assertions are preserved; the old filename
+Download assertion is replaced by the required explicit-action assertion.
+
+### Hardware/manual validation still required
+
+On ADV with phone/desktop browser: verify Download attachment behavior, editing
+both configuration filenames under `/flash` and `/sd`, Save and Cancel,
+interrupted save with retained edits, oversized-file actions, and existing
+upload/rename/delete/mkdir. Confirm Q/Esc shutdown and same-boot FT8/QMX startup.
+Configured SoftAP edits still take effect only on the next WebFS launch.
+No hardware was flashed or exercised here.
+
+### Known limitations or risks
+
+This is a UTF-8 text editor with normal textarea newline normalization, not a
+byte-preserving editor for arbitrary encodings. The 64 KiB check is browser-side;
+ordinary streamed downloads/uploads retain their prior size behavior. A lost
+response after a committed PUT can leave save status uncertain, as with existing
+uploads; browser edits remain available for retry. Existing FAT replacement is
+safe against ordinary pre-commit failures, not arbitrary power loss. Real mobile
+browser rendering and device runtime memory have not been measured.
+
+### Commit reference
+
+One implementation commit titled `T068: add WebFS inline configuration editor`
+on `codex/T068-webfs-inline-editor`, parent
+`81d1ed8d35c28a73befd6010dfbd40f5c14bacbb`. Exact pushed SHA is provided in the
+handoff. No merge or PR.
