@@ -209,6 +209,7 @@ status
 apps
 cd [path]
 pwd
+clear
 run <app> [...]
 <app> [...]
 exit
@@ -241,6 +242,11 @@ remains text. Returning past the newest entry restores the original draft.
 History survives app return, resets with the session, and excludes startup and
 redirected input. Recalled edits are stored as new commands when submitted.
 
+`clear` clears the resident console and output history, then starts a fresh
+prompt. Command history, CWD, aliases and settings are preserved. On Linux it
+clears the screen and terminal scrollback only when stdout is a TTY; redirected
+output receives no clear escape sequence. Extra arguments print `usage: clear`.
+
 Aliases are loaded from:
 
 ```text
@@ -248,7 +254,8 @@ Aliases are loaded from:
 ```
 
 The first `=` separates alias name and replacement. Built-ins take precedence;
-duplicate aliases use the last definition; expansion happens once.
+duplicate aliases use the last definition; expansion happens once. An optional
+user-defined `c=clear` entry provides a short form; `c` is not built in.
 
 Portable utility applications include:
 

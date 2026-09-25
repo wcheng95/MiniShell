@@ -36,7 +36,7 @@ static int is_shell_space(char ch)
 
 static bool is_builtin(const char *name, size_t length)
 {
-    static const char *const names[] = {"exit", "help", "status", "apps", "run", "cd", "pwd"};
+    static const char *const names[] = {"exit", "help", "status", "apps", "run", "cd", "pwd", "clear"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
         if (strlen(names[i]) == length && memcmp(names[i], name, length) == 0) return true;
     return false;
@@ -135,6 +135,7 @@ static void cmd_help(void)
         "help              show this help\n"
         "cd [path]         change directory (default /)\n"
         "pwd               show session working directory\n"
+        "clear             clear resident console and output history\n"
         "status            show minishell platform/service status\n"
         "apps              list installed applications\n"
         "run <app> [...]   run an application\n"
@@ -203,6 +204,11 @@ static bool execute_line(char *line)
     if (argc == 0) return false;
 
     if (strcmp(argv[0], "exit") == 0) return true;
+    if (strcmp(argv[0], "clear") == 0) {
+        if (argc != 1) shell_write("usage: clear\n");
+        else minishell_platform_console_clear();
+        return false;
+    }
     if (strcmp(argv[0], "cd") == 0) {
         if (argc > 2) shell_write("usage: cd [path]\n");
         else {

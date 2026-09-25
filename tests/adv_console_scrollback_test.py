@@ -30,6 +30,9 @@ struct Board { struct Display Display; } M5;
     (d / 'test.cpp').write_text(display + r'''
 #include "shell_editor.h"
 #include "shell_completion.h"
+#include "shell.h"
+#include "platform_backend.h"
+#include "app_manager.h"
 #include <cassert>
 #include <cstdio>
 #include <string>
@@ -65,6 +68,11 @@ const mini_api_t *mini_api_get(void) {
  fs.dir_open=completion_open;fs.dir_read=completion_read;fs.dir_close=completion_close;
  api.fs=&fs;return &api;
 }
+mini_result_t minishell_filesystem_cwd_set(const char*) { return MINI_ERR_UNSUPPORTED; }
+mini_result_t minishell_filesystem_cwd_get(char *out,size_t capacity) { assert(capacity>=2);strcpy(out,"/");return MINI_OK; }
+const char *minishell_platform_name(void) { return "host-adv"; }
+minishell_platform_result_t minishell_app_list(minishell_app_emit_fn,void*) { return MINISHELL_PLATFORM_OK; }
+minishell_platform_result_t minishell_app_run(const char*,int,char**,int*) { return MINISHELL_PLATFORM_ERR_NOT_FOUND; }
 static std::string usb_output;
 static std::deque<mini_key_event_t> keys;
 static std::deque<int> usb_input;
@@ -589,12 +597,49 @@ static void listing_tests() {
  assert(s_history_count==50 && cursor_cell(&r));cursor_at(r,15,' ');
  completion_enabled=false;monitor_choices=false;
 }
-int main(){history_tests();handoff_tests();input_tests();cursor_tests();cursor_loop_tests();completion_tests();listing_tests();}
+static void clear_tests() {
+ reset();completion_enabled=true;fill(55);minishell_platform_console_write("\n");
+ shell_editor_t e;start_edit(&e);
+ for(char ch:std::string("cat RT")) accept_character(ch,&e);
+ auto tab=special(MINI_KEY_TAB),up=character(';',MINI_MOD_CTRL);
+ accept_key_event(&tab,&e);accept_key_event(&tab,&e);
+ assert(retained().find("RT260925.txt")!=std::string::npos);
+ shell_editor_remember(&e);shell_editor_begin(&e);
+ for(char ch:std::string("clear")) shell_editor_edit(&e,SHELL_EDIT_CHAR,ch);
+ shell_editor_remember(&e);redraw_line(&e);
+ accept_key_event(&up,&e);assert(s_console_offset>0);
+ const auto before=e;usb_output.clear();
+ // Normal shell dispatch calls the real ADV console/display clear operation.
+ char command[]="clear";minishell_shell_startup(command);
+ assert(usb_output=="\033[2J\033[3J\033[H");
+ assert(!memcmp(&e,&before,sizeof(e)) && s_history_count==1 && s_history_first==0);
+ assert(s_console_offset==0 && s_console_column==0 && s_console_mode);
+ assert(!s_edit_active && !s_edit_visible && !s_edit_scrollback && !s_cursor_editing);
+ for(auto &row:s_history) for(char ch:row) assert(ch==' ');
+ for(auto &row:s_edit_history) for(char ch:row) assert(ch==' ');
+ no_cursor();assert(row(0)==padded(""));
+ adv_display_console_scroll(5);assert(s_console_offset==0 && row(0)==padded(""));
+ minishell_platform_console_prompt();shell_editor_begin(&e);
+ adv_display_console_edit_begin();s_cursor_editing=true;cursor_restart();
+ assert(row(0)==padded("M$> ") && s_history_count==1);cursor_at(0,4,' ');
+ auto previous=special(MINI_KEY_UP,MINI_MOD_FN),next=special(MINI_KEY_DOWN,MINI_MOD_FN);
+ accept_key_event(&previous,&e);assert(!strcmp(e.line,"clear"));
+ accept_key_event(&previous,&e);assert(!strcmp(e.line,"cat RT26092"));
+ accept_key_event(&next,&e);accept_key_event(&next,&e);assert(e.length==0);
+ for(char ch:std::string("cat RT")) accept_character(ch,&e);
+ accept_key_event(&tab,&e);accept_key_event(&tab,&e);
+ assert(occurrences(retained(),"RT260925.txt")==1);
+ assert(occurrences(usb_output,"\033[2J\033[3J\033[H")==1);
+ assert(occurrences(retained(),"row")==0);
+ fill(10);accept_key_event(&up,&e);assert(s_console_offset>0);
+ completion_enabled=false;
+}
+int main(){history_tests();handoff_tests();input_tests();cursor_tests();cursor_loop_tests();completion_tests();listing_tests();clear_tests();}
 
 ''')
     subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Wno-missing-field-initializers',
-                    '-I'+str(d), '-I'+str(root/'include'), '-I'+str(root/'core'),
-                    str(d/'test.cpp'), str(root/'core/shell_editor.c'), str(root/'core/shell_completion.c'),
+                    '-I'+str(d), '-I'+str(root/'include'), '-I'+str(root/'core'), '-I'+str(root/'core/minishell_services'),
+                    str(d/'test.cpp'), str(root/'core/shell_editor.c'), str(root/'core/shell_completion.c'), str(root/'core/shell.c'), str(root/'core/alias.c'),
                     '-o', str(d/'test')], check=True)
     subprocess.run([str(d/'test')], check=True)
 print('ADV console history, Display handoff, physical and USB line input: PASS')

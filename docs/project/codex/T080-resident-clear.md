@@ -1,6 +1,6 @@
 # T080 — Resident `clear` built-in
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -239,27 +239,27 @@ Do not implement:
 
 ## Acceptance criteria
 
-- [ ] `clear` is a resident built-in.
-- [ ] Built-in precedence prevents an alias from overriding `clear`.
-- [ ] `clear` with arguments prints `usage: clear` and does not clear.
-- [ ] Linux interactive `clear` clears screen + scrollback and homes cursor.
-- [ ] Linux redirected/non-TTY `clear` emits no ANSI escapes.
-- [ ] ADV `clear` removes all retained 50-row console output.
-- [ ] ADV console offset resets to live tail/zero.
-- [ ] ADV edit/cursor overlay state is clean after clear.
-- [ ] Next ADV prompt starts at a fresh top-left console.
-- [ ] USB mirror receives clear/home behavior.
-- [ ] T075 command history survives clear.
-- [ ] Previous/Up can recall commands after clear.
-- [ ] CWD survives clear.
-- [ ] aliases/settings survive clear.
-- [ ] T076 scrollback controls remain functional after new output appears.
-- [ ] T077 cursor remains normal at the new prompt.
-- [ ] T078/T079 Tab completion/listing still work after clear.
-- [ ] startup `clear` uses the normal built-in path.
-- [ ] Public API and protected service/editor/keymap boundaries remain unchanged.
-- [ ] Full Linux CTest passes except any explicitly documented unrelated known flake.
-- [ ] ADV firmware builds successfully.
+- [x] `clear` is a resident built-in.
+- [x] Built-in precedence prevents an alias from overriding `clear`.
+- [x] `clear` with arguments prints `usage: clear` and does not clear.
+- [x] Linux interactive `clear` clears screen + scrollback and homes cursor.
+- [x] Linux redirected/non-TTY `clear` emits no ANSI escapes.
+- [x] ADV `clear` removes all retained 50-row console output.
+- [x] ADV console offset resets to live tail/zero.
+- [x] ADV edit/cursor overlay state is clean after clear.
+- [x] Next ADV prompt starts at a fresh top-left console.
+- [x] USB mirror receives clear/home behavior.
+- [x] T075 command history survives clear.
+- [x] Previous/Up can recall commands after clear.
+- [x] CWD survives clear.
+- [x] aliases/settings survive clear.
+- [x] T076 scrollback controls remain functional after new output appears.
+- [x] T077 cursor remains normal at the new prompt.
+- [x] T078/T079 Tab completion/listing still work after clear.
+- [x] startup `clear` uses the normal built-in path.
+- [x] Public API and protected service/editor/keymap boundaries remain unchanged.
+- [x] Full Linux CTest passes except any explicitly documented unrelated known flake.
+- [x] ADV firmware builds successfully.
 
 ## Automated tests
 
@@ -367,17 +367,101 @@ do not open a PR unless asked.
 
 ### Implementation summary
 
+Added `clear` to the resident built-in table, normal dispatch and help. Extra
+arguments print `usage: clear` without invoking the platform operation. Built-in
+precedence prevents an alias named `clear` from overriding it; `c` remains an
+ordinary optional user alias. Startup uses the same dispatch path.
+
+Added one private platform clear operation. Linux checks stdout TTY status, then
+emits screen-clear, scrollback-clear and cursor-home once and resets prompt line
+tracking; redirected output is untouched. ADV removes its edit overlay, clears
+retained console cells and the edit snapshot, resets history to one blank row and
+zero column/offset, redraws the TFT, and sends clear/home once to the USB mirror.
+The next normal prompt starts at the top-left. No deviations from the task.
+
 ### Files changed
+
+- `core/shell.c`: built-in precedence, argument validation, dispatch and help.
+- `core/platform_backend.h`: private console-clear declaration.
+- `platform/linux/linux_console.c`: TTY-only terminal clear and prompt tracking.
+- `platform/adv/adv_console.c`: cursor cleanup, resident clear and USB clear/home.
+- `platform/adv/adv_display.cpp`, `platform/adv/adv_internal.h`: private resident
+  history/snapshot reset and blank redraw, without public Display calls.
+- `tests/shell_alias_test.c`: dispatch, usage, built-in precedence, optional alias,
+  absence of a compiled `c` alias, and startup dispatch.
+- `tests/resident_boot_test.c`: private clear stub for the existing runtime test.
+- `tests/linux_shell_history.py`: real PTY clear sequence, fresh prompt, history,
+  CWD/aliases, argument rejection, choice listing after clear, redirected and
+  startup clear; corrected Ctrl-C submission helper.
+- `tests/adv_console_scrollback_test.py`: links actual shell/alias code so clear
+  dispatch reaches the real ADV console/display path; checks full retained-ring
+  reset, overlay/snapshot cleanup, USB output, history recall and fresh choices.
+- `README.md`, `docs/api/console-api.md`, `platform/adv/README.md`: clear semantics
+  and optional user alias example.
+- This packet: implementation and validation evidence.
 
 ### Invariants preserved
 
+Public API/version, Filesystem/CWD implementation, editor/history primitives,
+ADV keyboard mapping and T078/T079 completion core are unchanged. No runtime
+resource, application lifecycle, alias/settings or command-history reset occurs.
+The normal cursor and Tab paths remain. No Ctrl+L, compiled `c`, heap allocation,
+worker/task/timer or persistence. Public application Display behavior is unchanged.
+
 ### Local tests run
+
+- `cmake -S . -B build-linux`: passed.
+- `cmake --build build-linux -j8`: passed after adding the new private operation
+  stub required by the existing resident boot fixture.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R
+  'shell_alias_unit|resident_boot_unit|linux_shell_history|adv_console_scrollback'
+  --output-on-failure`: final run passed 4/4.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure`:
+  passed 125/126. The documented unrelated `linux_serial_unit` PTY saturation
+  assertion at line 67 failed (`MINI_ERR_TIMEOUT && n == 0`).
+- Focused `ctest --test-dir build-linux -R '^linux_serial_unit$' --output-on-failure`:
+  failed at the same assertion. No serial test/implementation
+  changes were made; this known failure remains the full-suite exception.
+- `cmake -S tests/unit -B /tmp/T080-unit` and
+  `cmake --build /tmp/T080-unit -j8`: passed.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T080-unit --output-on-failure`:
+  passed 29/29.
+- `source /home/wei/projects/esp-idf/export.sh` then
+  `idf.py -C platform/adv build`: passed. Firmware size `0x1539a0` bytes;
+  78% application partition free. Existing SDK/dependency warnings remain.
+- `git diff --check`: passed.
+- Protected-boundary diff against `origin/main` for public API, Filesystem/CWD,
+  editor/history, completion core and ADV keyboard: passed.
+- Serial target inputs (test, serial/common platform code, platform header,
+  service sources, public headers and CMake definition) unchanged from main.
+
+The initial PTY test exposed an existing helper assumption: appending Enter after
+Ctrl-C queued an extra empty command and could desynchronize prompt reads. The
+helper now sends Ctrl-C without an additional newline; the shell implementation
+and assertions remain intact. Focused Linux rerun passed afterward. Acceptance
+checkboxes reflect software evidence, with the documented serial-test exception;
+physical acceptance remains pending.
 
 ### Manual/hardware validation still required
 
+Architect to check ADV and pc-1: visible screen/scrollback clearing, fresh prompt,
+no pre-clear rows via Ctrl scrollback, preserved command recall/CWD, normal cursor,
+and Tab expansion/listing afterward. No device was flashed. Optional `c=clear`
+operator setup is not shipped or written by this task. No QMX/RF test required.
+
 ### Known limitations / risks
 
+Linux clearing relies on the existing ANSI terminal assumption; actual scrollback
+behavior should be checked on pc-1. ADV TFT readability and connected USB terminal
+behavior still need hardware validation. The known Linux serial PTY assertion
+remains intermittent and failed in this run, as detailed above.
+
 ### Commit
+
+One review commit on `codex/T080-resident-clear`, titled
+`T080: add resident clear built-in`, based on current main
+`41e1eee7136a934446e0546f65cc67e79afaa4fe`. Exact implementation SHA is supplied
+in the Codex handoff; this packet is included in that commit.
 
 ## Supervisor review
 

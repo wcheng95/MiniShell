@@ -223,6 +223,12 @@ then restores the same draft and cursor. Directory choices display `/` without
 inserting it into the command. Choices remain in normal console scrollback;
 typing and pasting remain literal.
 
+The resident `clear` command erases retained console output and Tab choices,
+resets scrollback and the edit overlay, clears the USB terminal mirror, and
+starts the next prompt at the top-left. Command history, CWD, aliases and settings
+survive. `clear` accepts no arguments. The optional alias `c=clear` belongs in
+`/flash/minishell/alias.txt`; there is no built-in `c` or Ctrl+L binding.
+
 ## Storage
 
 Canonical ADV storage policy:

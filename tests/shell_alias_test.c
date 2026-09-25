@@ -4,6 +4,7 @@
 #include "../core/shell.c"
 
 static const char *data, *commands[8];
+static unsigned clears;
 static unsigned command_index, opens, closes, reads, launches, diagnostics;
 static size_t position;
 static unsigned read_size=7;
@@ -35,6 +36,7 @@ void minishell_platform_console_write(const char *text)
     assert(strlen(output)+strlen(text)<sizeof(output)); strcat(output,text);
     if (strstr(text,"alias: cannot read")) ++diagnostics;
 }
+void minishell_platform_console_clear(void) { ++clears; }
 void minishell_platform_console_prompt(void) { minishell_platform_console_write("M$> "); }
 int minishell_platform_console_read_line(shell_editor_t *editor)
 {
@@ -68,6 +70,7 @@ minishell_platform_result_t minishell_app_run(const char *name, int argc, char *
 }
 static void reset(void)
 {
+    clears=0;
     data="x=changed\n"; memset(commands,0,sizeof(commands)); commands[0]="x"; commands[1]="exit";
     opens=closes=reads=launches=diagnostics=command_index=0; position=0;
     open_result=close_result=MINI_OK; fail_read=0; read_size=7; absent_service=false;
@@ -137,6 +140,15 @@ static void failures(void)
 int main(void)
 {
     parser(); lookup(); failures();
+    reset();data="clear=wrong\nc=clear\n";
+    char clear_line[]="clear", extra[]="clear anything", short_alias[]="c";
+    execute_line(clear_line);assert(clears==1 && opens==0 && launches==0);
+    execute_line(extra);assert(clears==1 && strstr(output,"usage: clear\n"));
+    execute_line(short_alias);assert(clears==2 && launches==0);
+    char clear_startup[]="clear;pwd";minishell_shell_startup(clear_startup);
+    assert(clears==3 && strstr(output,"/\n"));
+    reset();char no_alias[]="c";execute_line(no_alias);
+    assert(clears==0 && launches==1 && !strcmp(launched,"c"));
     reset();
     char startup[] = "x startup;pwd";
     minishell_shell_startup(startup);

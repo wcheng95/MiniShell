@@ -27,6 +27,7 @@ int minishell_platform_resource_limits(minishell_resource_limits_t *out_limits);
  * Display/Input/System APIs instead of this interface. */
 void minishell_platform_console_write(const char *text);
 void minishell_platform_console_prompt(void);
+void minishell_platform_console_clear(void);
 /* 2: interactive submit, 1: redirected line, 0: EOF, negative: failure.
  * Edit state is core-owned; platform must restore input mode before returning. */
 int minishell_platform_console_read_line(shell_editor_t *editor);

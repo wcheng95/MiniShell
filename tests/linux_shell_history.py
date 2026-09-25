@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
     config = Path(temporary) / "flash/minishell"
     config.mkdir(parents=True)
     (config / "setting.txt").write_text("startup=startup-only\n")
-    (config / "alias.txt").write_text("h=pwd\n")
+    (config / "alias.txt").write_text("h=pwd\nc=clear\nclear=wrong\n")
     app_dir = Path(temporary) / "apps"
     app_dir.mkdir()
     (app_dir / "input_probe.so").symlink_to(input_probe)
@@ -43,7 +43,8 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
         read_until(master, b"M$> ", 3)
 
         def submit(keys, expected=None):
-            os.write(master, keys + b"\n")
+            # Ctrl-C already finishes the draft; do not queue a second empty command.
+            os.write(master, keys + (b"" if keys.endswith(b"\x03") else b"\n"))
             output = read_until(master, b"M$> ", 3)
             if expected is not None:
                 assert expected in output, output
@@ -133,6 +134,19 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
         visible(UP, b"cat setting.txt")
         quiet()
         submit(b"\x03")
+        # Clearing output keeps CWD, aliases and submitted command history.
+        clear_sequence = b"\x1b[2J\x1b[3J\x1b[H"
+        submit(b"status", b"platform")
+        out = submit(b"clear", clear_sequence + b"M$> ")
+        assert out.count(clear_sequence) == 1
+        visible(UP, b"clear")
+        visible(UP, b"status")
+        submit(b"\x03")
+        submit(b"pwd", b"/flash/ft8\r\n")
+        submit(b"h", b"/flash/ft8\r\n")
+        out = submit(b"clear extra", b"usage: clear")
+        assert clear_sequence not in out
+        submit(b"c", clear_sequence + b"M$> ")
         visible(b"cat RT", b"cat RT")
         quiet()
         first = visible(b"\t", b"cat RT26092")
@@ -175,6 +189,12 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
         listed = visible(b"\t", b"unknown ./foo")
         assert b"foo/\r\n" in listed and b"foobar\r\n" in listed
         submit(b"\x03")
+        # Candidate output is cleared too; listing and editor continue to work.
+        submit(b"clear", clear_sequence + b"M$> ")
+        visible(b"cat RT", b"cat RT")
+        visible(b"\t", b"cat RT26092")
+        assert b"RT260925.txt\r\n" in visible(b"\t", b"cat RT26092")
+        submit(b"\x03")
         submit(b"cd")
         literal(b"cd /flash")
         submit(b"pwd", b"/flash\r\n")
@@ -213,9 +233,13 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
             os.close(master)
             os.close(slave)
 
-    result = subprocess.run([executable], input="pwd\nh\ncd /f\npwd\nexit\n", text=True,
+    result = subprocess.run([executable], input="clear\npwd\nh\ncd /f\npwd\nexit\n", text=True,
                             capture_output=True, env=env, timeout=3)
     assert result.returncode == 0 and "M$> /\n" in result.stdout
     assert "cd: cannot change directory" in result.stdout
     assert "\x1b" not in result.stdout
+    (config / "setting.txt").write_text("startup=clear;pwd\n")
+    result = subprocess.run([executable], input="exit\n", text=True,
+                            capture_output=True, env=env, timeout=3)
+    assert result.returncode == 0 and "/\n" in result.stdout and "\x1b" not in result.stdout
 print("Linux shell history, editing, terminal leases and redirected input: PASS")

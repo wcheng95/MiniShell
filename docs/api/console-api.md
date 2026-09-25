@@ -134,6 +134,22 @@ candidate cache or count limit. Validation failures print nothing. A later
 output-pass failure stops the list without diagnostics; choices already printed
 remain visible and the unchanged editor is restored.
 
+The resident `clear` built-in erases console output history and displays the next
+normal prompt at the top-left. It preserves command history (including `clear`),
+CWD, aliases, settings and runtime resources. `clear extra` prints `usage: clear`
+without clearing. Startup sequences may use `clear` through normal dispatch.
+An optional `c=clear` user alias supplies a short form; built-in `clear` takes
+precedence over any alias named `clear`.
+
+Linux emits screen-clear, scrollback-clear and cursor-home ANSI sequences only
+when stdout is a TTY. With redirected stdout it is a silent no-op. ADV resets its
+50-row retained console and edit snapshot to one blank row, removes the cursor
+overlay, redraws the TFT and sends clear/home to the USB mirror once. Earlier
+output and pathname choices cannot be reached by scrolling after clear; new
+output and Tab choices populate the fresh history normally. This operation is
+private resident infrastructure and does not change the application Console or
+Display API. No Ctrl+L binding is added.
+
 ## Ownership rule
 
 Applications must choose the output surface according to intent:

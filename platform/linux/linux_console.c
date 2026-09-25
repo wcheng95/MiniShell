@@ -33,6 +33,14 @@ void minishell_platform_console_prompt(void)
     minishell_platform_console_write("M$> ");
 }
 
+void minishell_platform_console_clear(void)
+{
+    if (!isatty(STDOUT_FILENO)) return;
+    fputs("\033[2J\033[3J\033[H", stdout);
+    fflush(stdout);
+    s_line_start = true;
+}
+
 static void redraw(const shell_editor_t *e)
 {
     struct winsize size = {0};

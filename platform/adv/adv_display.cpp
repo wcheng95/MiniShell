@@ -187,6 +187,20 @@ extern "C" bool adv_display_ready(void)
     return s_ready;
 }
 
+extern "C" void adv_display_console_clear(void)
+{
+    clear_buffers();
+    std::memset(s_history, ' ', sizeof(s_history));
+    std::memset(s_edit_history, ' ', sizeof(s_edit_history));
+    s_history_first = s_console_offset = s_console_column = 0u;
+    s_history_count = 1u;
+    s_edit_first = s_edit_column = s_edit_cursor_row = s_edit_cursor_column = 0u;
+    s_edit_count = 1u;
+    s_console_mode = true;
+    s_edit_active = s_edit_visible = s_edit_scrollback = false;
+    render_all();
+}
+
 extern "C" void adv_display_console_write(const char *text)
 {
     if (!s_ready || text == nullptr) return;

@@ -23,6 +23,7 @@ bool adv_display_ready(void);
 mini_result_t adv_battery_read(int *out_voltage_mv, int *out_percent);
 mini_result_t adv_enter_deep_sleep(void);
 void adv_display_console_write(const char *text);
+void adv_display_console_clear(void);
 void adv_display_console_scroll(int delta);
 void adv_display_console_edit_begin(void);
 void adv_display_console_edit_discard(void);

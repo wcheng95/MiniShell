@@ -48,6 +48,7 @@ void minishell_platform_console_write(const char *text)
     assert(strlen(output)+strlen(text)<sizeof(output));strcat(output,text);
     if(!strcmp(text,"M$> ")) { assert(!app_active && !active_file);++prompts;event("prompt;"); }
 }
+void minishell_platform_console_clear(void) {}
 void minishell_platform_console_prompt(void) { minishell_platform_console_write("M$> "); }
 int minishell_platform_console_read_line(shell_editor_t *editor)
 {

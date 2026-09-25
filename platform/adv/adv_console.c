@@ -201,6 +201,16 @@ static void cursor_end(void)
     adv_display_console_edit_end();
 }
 
+void minishell_platform_console_clear(void)
+{
+    cursor_end();
+    s_cursor_visible = false;
+    s_cursor_deadline = 0u;
+    adv_display_console_clear();
+    adv_console_debug_write("\033[2J\033[3J\033[H");
+    s_line_start = true;
+}
+
 static void redraw_line(const shell_editor_t *editor)
 {
     adv_display_console_edit_line(editor->line, editor->cursor);
