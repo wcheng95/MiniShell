@@ -1,6 +1,6 @@
 # T075 — 10-command editable resident shell history
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -599,7 +599,61 @@ No merge or PR.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and local test evidence.
+Reviewed `main..8029950648c0230a84aecb12abc3a56681960637` against T075,
+`AGENTS.md`, the T051 scrollback behavior, and the current resident/private
+console boundaries.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- exactly one bounded implementation commit, one commit ahead of the T075 task baseline;
+- history/edit semantics are centralized in one core-owned fixed-size
+  `shell_editor_t`; Linux and ADV do not maintain independent history rings;
+- history is initialized only when the interactive shell begins, so boot
+  `startup=` commands are excluded by construction;
+- only interactive submissions (`read_line == 2`) are remembered; redirected
+  non-TTY lines preserve the old line-oriented behavior and are not stored;
+- the ring retains ten non-empty lines, allows duplicates, evicts FIFO, preserves
+  the pre-navigation draft/cursor, and never mutates old history entries in place;
+- Linux reuses the existing terminal parser rather than introducing a second CSI
+  decoder; Up/Down navigate history and Left/Right/Home/End/Backspace/Delete edit;
+- the Linux shell raw-mode lease is released before `execute_line()`, so a
+  foreground app acquires its normal independent Input terminal lease; EOF/error/
+  Ctrl-C paths also restore termios;
+- ADV consumes the already-normalized Fn+Left/Fn+Right events as history
+  Previous/Next, while existing Fn+Up/Fn+Down output scrollback remains unchanged;
+- `adv_keyboard.cpp` is byte-for-byte unchanged (blob
+  `5afceeb97b3fee479b2a30238286dc0083607b44`);
+- ADV edit redraw uses a snapshot of the committed console history, so wrapped
+  recalled lines can grow/shrink without appending prompts or corrupting the
+  retained 50-row output history;
+- ordinary `,`, `/`, `;`, and `.` remain printable; interactive semicolon
+  parsing is unchanged;
+- the public API is byte-for-byte unchanged (blob
+  `13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0`).
+
+Accepted local evidence:
+
+```text
+Linux CTest: 125/125 PASS
+portable unit tests: 28/28 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+The documented serial PTY failures are the existing intermittent
+`linux_serial_unit` flake; serial implementation/assertions were not changed and
+the final full suite passed.
+
+No blocking review finding. `main` was fast-forwarded to
+`8029950648c0230a84aecb12abc3a56681960637`.
+
+Remaining gate: architect manual validation on ADV and pc-1. On ADV verify
+Fn+,/Fn+/ history navigation, draft restoration, edited recall, >10-command
+eviction, printable punctuation, and unchanged Fn+;/Fn+. scrollback. On pc-1
+verify Up/Down plus ordinary cursor editing and terminal restoration around a
+foreground app. No QMX/RF validation is required.
 
 ## Architect test result
 
