@@ -104,6 +104,7 @@ idf_component_register(
         "${MINISHELL_ROOT}/core/minishell_runtime.c"
         "${MINISHELL_ROOT}/core/shell.c"
         "${MINISHELL_ROOT}/core/shell_editor.c"
+        "${MINISHELL_ROOT}/core/shell_completion.c"
         "${MINISHELL_ROOT}/core/alias.c"
         "${MINISHELL_ROOT}/core/resident_settings.c"
         "${MINISHELL_ROOT}/core/app_manager.c"

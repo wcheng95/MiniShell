@@ -53,6 +53,7 @@ add_executable(minishell
     core/minishell_runtime.c
     core/shell.c
     core/shell_editor.c
+    core/shell_completion.c
     core/alias.c
     core/resident_settings.c
     core/app_manager.c
@@ -989,3 +990,8 @@ add_test(NAME shell_editor_unit COMMAND shell_editor_unit)
 add_test(NAME linux_shell_history COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/linux_shell_history.py
     $<TARGET_FILE:minishell> $<TARGET_FILE:input_probe> $<TARGET_FILE:hello> $<TARGET_FILE:cat>)
+
+add_executable(shell_completion_unit tests/shell_completion_test.c core/shell_completion.c core/shell_editor.c)
+target_include_directories(shell_completion_unit PRIVATE core include)
+target_compile_options(shell_completion_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME shell_completion_unit COMMAND shell_completion_unit)

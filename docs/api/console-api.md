@@ -100,6 +100,29 @@ and prints the full submitted line before newline; use a terminal at least 80
 columns wide for this preview. Linux pans long editable lines horizontally to
 fit the terminal width. Redirected Linux stdin keeps its existing line reader.
 
+Interactive Linux and ADV perform eager pathname auto-expansion after a printable
+character is inserted at the end of a token and input is idle for 25 ms. Each
+new byte cancels the pending lookup; a successful printable insertion restarts
+the deadline. Pasted bursts therefore settle before matching, and Enter submits
+the visible text without waiting for expansion. Only the final path component grows,
+to the case-sensitive longest common prefix of matching files and directories.
+For example, `cd /f` becomes `cd /flash` when unambiguous. Directories receive no
+automatic trailing slash; type `/` to start another component. Relative parents
+use the session CWD through the public Filesystem service.
+
+The command token never expands. Later tokens containing `/` are eligible under
+any command. Bare tokens are eligible only at operand 1 of literal `cd`, `ls`,
+`cat`, `df`, `nano`, `mkdir`, `rm`, `rmdir`, and operands 1–2 of `cp`/`mv`.
+Aliases are not resolved to infer these positions. Hidden entries match only a
+component beginning `.`, and names containing shell whitespace are skipped.
+Empty components, filesystem failures and expansions exceeding 255 payload bytes
+leave the typed text unchanged. There is no partial expansion or error output.
+
+History recall, cursor movement, Backspace/Delete and Tab do not trigger pathname
+expansion. Expanded text is ordinary editable text and is stored in history on
+submission. Startup commands and redirected input stay literal. Tab choice
+display is deferred to T079; command/alias/app-name completion is not provided.
+
 ## Ownership rule
 
 Applications must choose the output surface according to intent:
