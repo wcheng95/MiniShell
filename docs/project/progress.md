@@ -29,6 +29,7 @@
 - T033 is COMPLETE: ADV WebFS read-only SoftAP/browser file management is hardware validated. `/flash` and `/sd` browsing plus downloads work without cable handoff; FT8/QMX works before and after WebFS in the same boot using CPU1-owned USB Host lifetime.
 - T034 is COMPLETE: safe WebFS mutations are hardware validated — streamed upload/replace with temp-file commit, mkdir, same-directory regular-file rename, file delete, empty-directory delete, interrupted replacement safety, `/sd` operation, and same-boot FT8/QMX all pass.
 - T035 is COMPLETE: WebFS uses stable SoftAP credentials from `/flash/minishell/setting.txt`; iPhone reconnects without re-entering a generated password, invalid/missing settings fall back safely, T034 file operations remain intact, and same-boot FT8/QMX still works.
+- T069/T071 are COMPLETE: `/flash/minishell/setting.txt` now supports hardware-accepted `startup=cmd1;cmd2` sequencing through the normal shell/alias path before the first prompt. Foreground apps block later startup commands until exit, failures continue, and the prompt returns normally afterward. The attempted resident `brightness=` feature was dropped and removed; legacy lines are ignored.
 - T036 is BREAK / NOT ACCEPTED: the one-shot ADV MiniFT8 web mirror passed software/build review but prevented FT8 RX startup on hardware under concurrent Wi-Fi/HTTP + QMX preflight. The experimental mirror code was removed from main; T033-T035 remain the accepted WebFS/Wi-Fi baseline.
 - T037 is COMPLETE: UI-first ADV FT8 startup is hardware validated. MiniFT8 remains fully usable with QMX absent, late attachment transitions through existing CAT sync into RX without restarting the app, and already-connected startup/cleanup behavior remains intact.
 - ADV is a validated embedded MiniFT8 RX/TX deployment target. Physical QMX CAT TX, RX recovery, the red TX-status separator, RX message colors, and RX/TX paging shortcuts have been exercised on real ADV/QMX hardware.
@@ -207,9 +208,9 @@ Historical T038/T040 task packets remain under `docs/project/codex/`; the old `d
 /flash/<app>/setting.txt      application-owned configuration/deployment settings
 ```
 
-WebFS currently uses the resident `setting.txt`. Future operator-facing
+WebFS uses the resident `setting.txt`, which also supports `startup=cmd1;cmd2` for one-shot boot sequencing through the normal shell/alias path. Future operator-facing
 MiniShell settings should share that file rather than grow separate documented
-configuration paths.
+configuration paths. Resident brightness control was explicitly dropped after hardware testing.
 
 MiniFT8 currently retains its established path:
 
