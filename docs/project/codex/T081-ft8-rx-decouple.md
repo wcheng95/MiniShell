@@ -1,0 +1,488 @@
+# T081 — MiniFT8 live RX capture/decode decoupling
+
+Status: READY
+
+## Architect intent
+
+Fix the remaining MiniFT8-V3 live-RX lifecycle coupling without changing the
+FT8 DSP.
+
+The receive design is intentionally simple:
+
+```text
+every slot at UTC - 1.60 s
+    reset the slot-local waterfall writer to block 0
+    start/fill that slot's waterfall
+
+every slot at UTC + 12.64 s
+    start decoding that slot
+
+repeat forever while live RX is active
+```
+
+Capture and decode are separate paths. Capture may provide a slot snapshot/view
+to the decoder, but capture timing must never wait for, inspect, cancel, or be
+rescheduled by decoder progress or result publication.
+
+A slot that decodes zero messages is valid. A receive slot that disappears
+because lifecycle state prevented its decode trigger is a bug.
+
+## Problem in the current V3 implementation
+
+The current ADV implementation runs capture and decode on separate execution
+paths, but their control lifecycles are still coupled.
+
+Current coupling includes:
+
+1. `RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW` checks
+   `decode_async_state != IDLE` and silently returns `skip-busy`. This can
+   discard a slot because the previous decoder/result state was not cleared.
+
+2. Decoder execution and result delivery share one state progression:
+
+   ```text
+   IDLE -> RUNNING -> RESULT -> IDLE
+   ```
+
+   A completed decode remains non-IDLE until the main application consumes and
+   publishes the result. Result-publication latency therefore affects the next
+   slot's decode eligibility.
+
+3. Live Audio discontinuity handling sets `timing_pending`, requests decoder
+   cancellation, and can refuse fresh RX processing/reset work while the
+   decoder is RUNNING/CANCEL_REQUESTED.
+
+4. `ft8_engine_reset_stream()` resets both producer-side monitor/timing state
+   and decoder-job state, making an RX transport reset inherently a decode
+   lifecycle operation.
+
+These are lifecycle/ownership issues. They are not reasons to change candidate
+search, LDPC, FFT geometry, or FT8 timing.
+
+## Required live-RX timing contract
+
+UTC remains the authority for every live slot. Do not derive the next slot from
+completion of the previous slot.
+
+For slot N:
+
+```text
+N UTC - 1.60 s    CAPTURE_RESET
+                  reset writer/FFT slot-local state
+                  begin filling slot N
+
+N UTC + 12.64 s   DECODE_START(N)
+                  submit the current slot-N decode view/job
+
+N+1 UTC - 1.60 s  CAPTURE_RESET
+                  happens regardless of decode-N state/result publication
+
+N+1 UTC + 12.64 s DECODE_START(N+1)
+                  happens on the normal schedule
+```
+
+The next capture reset is never delayed by decoding.
+
+The next decode trigger is never intentionally omitted because a previous job
+or result is late. If the decoder/result buffer is unexpectedly unavailable at
+the next trigger, that is an invariant violation to diagnose, not supported
+backpressure behavior.
+
+## Capture-path invariant
+
+After live RX startup, the capture path owns only:
+
+- current UTC-derived slot scheduling;
+- frontend sample conversion;
+- slot-local block framing;
+- producer-side FFT/waterfall writing;
+- the recurring `-1.60 s` capture reset;
+- the recurring `+12.64 s` decode submission.
+
+Capture must not:
+
+- read decoder RUNNING/RESULT state to decide whether a slot exists;
+- wait for decoder completion;
+- wait for result publication;
+- cancel decoding because Audio reports a discontinuity;
+- re-acquire the FT8 timeline through a decoder-dependent `timing_pending`
+  state;
+- silently skip a decode opportunity.
+
+Remove `skip-busy` as accepted/normal RX behavior.
+
+## Decode-path invariant
+
+ADV keeps one core-1 decode worker.
+
+The decoder owns:
+
+- candidate search;
+- candidate storage;
+- noise estimate;
+- LDPC / CRC;
+- message decoding;
+- callsign hash mutation needed by decode;
+- one active slot decode job.
+
+Observed ADV decode time is normally much shorter than one FT8 slot and has
+been about 4 seconds at the longest in current hardware use. There is therefore
+ample time to complete and consume a result before the next `+12.64 s`
+decode trigger.
+
+A decoder still RUNNING at the next slot decode trigger is an invariant
+failure, not an expected busy-band condition.
+
+## Result ownership: keep one buffer
+
+Do **not** add a second completed-result message buffer, result queue, or deep
+copy.
+
+Keep the existing single:
+
+```text
+protocol_messages[50]
+```
+
+ownership model.
+
+Normal lifecycle:
+
+```text
+decode N writes protocol_messages[]
+        |
+        v
+decode N completes
+        |
+        v
+main/controller consumes result N promptly
+        |
+        v
+RxBatch N built/published
+        |
+        v
+protocol_messages[] free long before decode N+1
+```
+
+The current `Ft8ProtocolSlot` result may continue to refer to
+`protocol_messages[]` while the result is pending.
+
+The implementation may separate execution state from result-ready state if
+that simplifies correctness, for example:
+
+```text
+decoder execution:
+    IDLE / RUNNING
+
+result ownership:
+    NONE / READY
+```
+
+but do not add storage merely to tolerate an unconsumed result.
+
+Starting the next decode requires the single result storage to have been
+consumed. Under correct operation this is always true well before the next
+trigger. If it is not true, emit explicit diagnostics and treat it as a bug.
+
+Required diagnostic distinction at a violated next-slot trigger:
+
+```text
+decoder still RUNNING
+    -> report prior decode slot + elapsed time
+
+decoder IDLE but previous result still READY
+    -> report previous result slot + result age
+```
+
+Do not collapse either condition into a benign `skip-busy` message.
+
+## Live Audio discontinuity policy
+
+A live transport imperfection damages receive data; it does not redefine FT8
+time.
+
+For live RX, remove the current discontinuity lifecycle:
+
+```text
+discontinuity
+    -> timing_pending
+    -> cancel decode
+    -> wait for decoder/cancel state
+    -> stream reset / timing reacquisition
+```
+
+A discontinuity may still reset frontend conversion state if that is required
+to keep the channel/decimation implementation sane, and backend/provider code
+may pad known missing samples where already supported.
+
+But the FT8 application must not:
+
+- cancel an already-running slot decode because of a later Audio discontinuity;
+- block capture while cancellation completes;
+- make the next UTC capture reset depend on a reset handshake;
+- make the next slot depend on the damaged slot.
+
+The next UTC `-1.60 s` reset is the recovery mechanism. A damaged current slot
+may produce fewer messages or zero messages.
+
+Do not redesign QMX device disappearance/re-enumeration in T081. Device
+availability remains an Audio/provider/platform concern.
+
+## Ft8Engine ownership cleanup
+
+Keep this task local. Do not rewrite the complete FT8 engine.
+
+Separate producer-side reset semantics from decoder-job semantics enough that a
+capture reset does not cancel or clear a decode job.
+
+The intended ownership is:
+
+```text
+capture / producer:
+    monitor writer
+    slot-local FFT/waterfall producer state
+    UTC slot anchor metadata
+
+decode worker:
+    active decode job
+    candidates
+    LDPC/CRC/message-decode state
+    decode-side hash state
+
+intentional shared input:
+    read-only slot waterfall/view supplied to the decode job
+```
+
+It is acceptable that the next slot's producer eventually overwrites waterfall
+data still referenced by an unusually late decoder. That may reduce decode
+yield. It must not affect capture scheduling or the next slot lifecycle.
+
+Review callsign-hash aging as part of this split. Capture/UTC anchoring must not
+mutate decoder-owned hash state while core 1 is decoding. Base any required
+aging on accepted decode slot progression inside decoder ownership rather than
+on producer reset events.
+
+## Zero-message slot behavior
+
+Preserve existing correct behavior:
+
+```text
+decode completes with 0 messages
+    -> build/publish RxBatch for that slot
+    -> batch generation advances
+    -> RX display count becomes 0
+```
+
+Zero messages and no slot result are different states.
+
+## Physical TX boundary
+
+T081 is an RX lifecycle fix. Preserve the existing physical-QMX TX pause/resume
+behavior and AutoSeq/TX policy unless a minimal call-site adaptation is required
+by the RX state cleanup.
+
+Do not redesign TX scheduling, CAT, tone generation, or TX/RX recovery in this
+task.
+
+## Non-goals
+
+Do not change:
+
+- FT8 `-1.60 s` capture reset timing;
+- FT8 `+12.64 s` decode timing;
+- 6 kHz engine sample rate;
+- 960-sample / 160-ms block geometry;
+- ADV `time_osr=2, freq_osr=1`;
+- 50-candidate policy;
+- candidate score/search mathematics;
+- LDPC iteration policy;
+- SNR estimation;
+- UAC task priority/ring sizing;
+- UI layout;
+- AutoSeq policy;
+- physical TX behavior;
+- early/partial result delivery;
+- deep decoding;
+- retained candidate-local FFT data.
+
+Future early result delivery and deep decoding must build on this decoupled
+lifecycle, not be implemented as part of T081.
+
+## Required tests
+
+Add focused regression coverage for the lifecycle, not only DSP output.
+
+### 1. Consecutive-slot schedule
+
+Drive enough live timed samples for several slots and prove, for every slot:
+
+```text
+CAPTURE_RESET(N)
+DECODE_START(N)
+CAPTURE_RESET(N+1)
+DECODE_START(N+1)
+...
+```
+
+No slot may be omitted because of result/publication bookkeeping.
+
+### 2. Decode crossing the next capture reset
+
+Hold a decode job active across the following slot's `-1.60 s`
+`CAPTURE_RESET`.
+
+Verify:
+
+- capture reset still occurs;
+- producer state starts the new slot;
+- the decoder is not canceled solely because producer reset occurred;
+- capture does not wait for decode.
+
+This is intentionally different from holding decode through the next
+`+12.64 s` trigger, which is an invariant failure.
+
+### 3. Result-ready independence from capture
+
+Fault-inject or hold a completed result READY long enough to cross the next
+capture reset.
+
+Verify:
+
+- the next capture reset still occurs normally;
+- capture does not inspect or wait on result publication.
+
+At the next decode trigger, the still-READY single result buffer must produce an
+explicit invariant diagnostic/failure rather than a silent normal `skip-busy`
+path.
+
+### 4. Decoder-overrun diagnostic
+
+Fault-inject a decoder still RUNNING at the next decode trigger.
+
+Verify:
+
+- prior slot ID and elapsed time are reported;
+- this is classified as an invariant fault;
+- no benign `skip-busy` policy remains;
+- no capture reset was delayed or canceled.
+
+### 5. Live discontinuity during decode
+
+Inject an Audio discontinuity while a decode is active.
+
+Verify:
+
+- no decoder cancel is requested solely for the discontinuity;
+- capture does not enter a decoder-dependent wait state;
+- the next UTC capture reset occurs;
+- later slots remain correctly scheduled.
+
+### 6. Silent slot
+
+Preserve/extend the existing silent-window regression:
+
+- decode completes;
+- batch generation advances;
+- display generation advances;
+- display count becomes zero;
+- no previous RX rows are retained as if the slot never occurred.
+
+### 7. Existing regressions
+
+Preserve existing MiniFT8 golden/reference behavior and Linux/ADV builds.
+
+Run at minimum:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T081-unit
+cmake --build /tmp/T081-unit -j"$(nproc)"
+ctest --test-dir /tmp/T081-unit --output-on-failure
+
+python3 tests/app_dependency_boundary.py . ft8
+python3 tests/app_platform_boundary.py . ft8
+python3 tests/ft8_platform_boundary.py .
+python3 tests/architecture_rules.py .
+
+source ~/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+
+git diff --check
+```
+
+## Manual / hardware acceptance
+
+Use ADV + QMX on a reasonably active FT8 band.
+
+Enable bounded diagnostics sufficient to identify:
+
+```text
+CAPTURE_RESET slot=N
+DECODE_START  slot=N
+DECODE_DONE   slot=N
+RESULT_PUBLISH slot=N
+```
+
+Run long enough to cover quiet and busy slots.
+
+Acceptance:
+
+- consecutive receive slot IDs are never missing from capture reset/decode
+  start because of decoder/result lifecycle;
+- zero-message slots are allowed and still complete;
+- RX screen never remains on an older slot merely because a later slot was
+  silently dropped;
+- observed decode may cross a UTC boundary or the next `-1.60 s` reset without
+  disturbing capture;
+- no normal `skip-busy` records exist;
+- no discontinuity event cancels decode or redefines the FT8 slot schedule;
+- QMX RX/TX behavior remains otherwise unchanged.
+
+If an invariant diagnostic occurs, stop acceptance and debug that fault. Do not
+add buffering or slot dropping to make the test pass.
+
+## Expected production files
+
+Likely focused changes:
+
+```text
+apps/ft8/src/app_controller/app_controller.c
+apps/ft8/src/ft8_engine/ft8_engine.[ch]
+platform/adv/adv_ft8_decode.c       # only if worker state handoff needs cleanup
+tests/ft8_rx_discontinuity_test.c
+focused/new RX lifecycle tests
+```
+
+Update current MiniFT8 documentation as required by the implementation.
+
+No MiniShell public API change is expected.
+
+## Codex branch / handoff
+
+Work on:
+
+```text
+codex/T081-ft8-rx-decouple
+```
+
+Start from current `main`.
+
+Read:
+
+```text
+AGENTS.md
+docs/MiniFT8/README.md
+docs/MiniFT8/development.md
+docs/MiniFT8/architecture.md
+docs/project/codex/I001-continuous-waterfall-rx.md
+this task packet
+```
+
+Keep T081 to the lifecycle correction described here. Do not implement early
+message delivery or deep decoding.
+
+Use one reviewable implementation commit. Do not merge to `main` and do not
+open a PR unless asked.
