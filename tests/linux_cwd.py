@@ -58,6 +58,60 @@ with tempfile.TemporaryDirectory(prefix="minishell-cwd-") as temporary:
     assert output.count("usage: cd [path]") == 1, output
     assert "missing: command not found" not in output, output  # cd alias cannot win.
 
+    # Directory destinations through the actual dynamically loaded cp/mv apps.
+    for destination in ("/sd", "/sd/", "/sd/."):
+        (root / "sd/setting.txt").write_text("replace me")
+        output = run(["cd /flash/ft8", f"cp setting.txt {destination}", "exit"])
+        assert "cp:" not in output, output
+        assert (root / "sd/setting.txt").read_text() == "CWD-CONTENT\n"
+    (root / "sd/setting.txt").unlink()
+    output = run(["cd /flash/ft8", "cp setting.txt /sd", "cp setting.txt .",
+                  "mkdir archive", "cp setting.txt archive", "cp setting.txt copy.txt",
+                  "mv copy.txt archive", "pwd", "exit"])
+    assert output.count("cp:") == 1 and "mv:" not in output, output
+    assert "/flash/ft8\n" in output, output
+    for target in (directory / "setting.txt", root / "sd/setting.txt",
+                   directory / "archive/setting.txt", directory / "archive/copy.txt"):
+        assert target.read_text() == "CWD-CONTENT\n", target
+    assert not (directory / "copy.txt").exists()
+
+    for command in ("cp", "mv"):
+        for source in ("./item.txt", "unused/../item.txt", "item.txt/", "item.txt/.",
+                       "/flash//ft8//item.txt"):
+            for destination in ("archive", "archive/", "archive/.", "../ft8/archive"):
+                (directory / "item.txt").write_text("NEW-CONTENT")
+                (directory / "archive/item.txt").write_text("old longer content")
+                output = run(["cd /flash/ft8", f"{command} {source} {destination}", "exit"])
+                assert f"{command}:" not in output, output
+                assert (directory / "archive/item.txt").read_text() == "NEW-CONTENT"
+                assert (directory / "item.txt").exists() == (command == "cp")
+        (directory / "item.txt").write_text("preserve")
+        (directory / "archive/item.txt").unlink()
+        (directory / "archive/item.txt").mkdir()
+        output = run(["cd /flash/ft8", f"{command} item.txt archive",
+                      f"{command} subdir archive", "exit"])
+        assert output.count(f"{command}:") == 2, output
+        assert (directory / "item.txt").read_text() == "preserve"
+        assert (directory / "archive/item.txt").is_dir()
+        assert not (directory / "archive/subdir").exists()
+        (directory / "archive/item.txt").rmdir()
+        # Explicit filenames still create and replace regular destinations.
+        output = run(["cd /flash/ft8", f"{command} item.txt explicit.txt", "exit"])
+        assert f"{command}:" not in output, output
+        assert (directory / "explicit.txt").read_text() == "preserve"
+        (directory / "item.txt").write_text("replacement")
+        output = run(["cd /flash/ft8", f"{command} item.txt explicit.txt", "exit"])
+        assert f"{command}:" not in output, output
+        assert (directory / "explicit.txt").read_text() == "replacement"
+
+    for destination in (".", "./", "/flash/ft8", "/flash/ft8/."):
+        output = run(["cd /flash/ft8", f"cp setting.txt {destination}", "exit"])
+        assert "cp:" in output, output
+        assert (directory / "setting.txt").read_text() == "CWD-CONTENT\n"
+    output = run(["cd /flash/ft8", "mv setting.txt .", "exit"])
+    assert "mv:" not in output, output
+    assert (directory / "setting.txt").read_text() == "CWD-CONTENT\n"
+
     (config / "setting.txt").write_text("startup=cd /flash/ft8;cat setting.txt;pwd\n")
     output = run(["pwd", "cat ./setting.txt", "pwd", "exit"])
     startup, *prompts = output.split("M$> ")

@@ -65,7 +65,10 @@ Null/empty paths and attempts to escape logical `/` return `MINI_ERR_INVALID`.
 The existing normalized-path bound is 511 bytes plus a terminator; overlong
 paths fail with `MINI_ERR_NAME_TOO_LONG`, never truncation. Platform component
 limits still apply. No HOME/tilde expansion, globbing or per-app CWD is added.
-`cp` and `mv` keep their existing explicit destination-path semantics.
+The portable `cp` and `mv` apps expand an existing directory destination to
+`directory/source-basename` before calling the API. This is app policy;
+Filesystem paths and `rename()` destinations remain literal. `mv` does not
+fall back to copy-and-delete when a backend cannot rename across volumes.
 
 Linux maps this namespace under a private host root (normally `~/.local/share/minishell/fs`) but applications never see that path.
 

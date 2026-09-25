@@ -36,6 +36,7 @@ add_executable(minishell_unit_tests
     test_serial.c
     test_nano_buffer.c
     test_cp_copy.c
+    test_mv.c
     test_main.c
 )
 

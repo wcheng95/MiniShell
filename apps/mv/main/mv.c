@@ -1,6 +1,7 @@
 #include <stddef.h>
 
 #include "minishell/api.h"
+#include "../../common/file_destination.h"
 
 #define FIELD_END(type, field) \
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
@@ -47,8 +48,26 @@ int main(int argc, char **argv)
         return 4;
     }
 
-    result = fs->rename(argv[1], argv[2]);
+    char joined[FILE_DESTINATION_CAP];
+    const char *destination;
+    result = file_destination_resolve(fs, argv[1], argv[2], joined, &destination);
+    if (result != MINI_OK) {
+        if (result == MINI_ERR_NAME_TOO_LONG) {
+            say(console, "mv: destination path too long\n");
+        } else if (result == MINI_ERR_INVALID) {
+            say(console, "mv: invalid destination or source basename\n");
+        } else {
+            say(console, "mv: cannot stat destination\n");
+        }
+        return 10;
+    }
+
+    result = fs->rename(argv[1], destination);
     if (result == MINI_OK) return 0;
+    if (result == MINI_ERR_IS_DIR) {
+        say(console, "mv: destination is not a regular file path\n");
+        return 10;
+    }
     if (result == MINI_ERR_EXISTS) {
         say(console, "mv: destination already exists\n");
         return 5;

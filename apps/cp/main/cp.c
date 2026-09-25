@@ -29,6 +29,9 @@ static void report_result(const mini_console_api_t *console, cp_copy_result_t re
     case CP_COPY_ERR_DEST_STAT:
         say(console, "cp: cannot stat destination\n");
         return;
+    case CP_COPY_ERR_DEST_TOO_LONG:
+        say(console, "cp: destination path too long\n");
+        return;
     case CP_COPY_ERR_DEST_IS_DIR:
         say(console, "cp: destination is not a regular file path\n");
         return;

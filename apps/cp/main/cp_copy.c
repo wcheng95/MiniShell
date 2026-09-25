@@ -1,4 +1,5 @@
 #include "cp_copy.h"
+#include "../../common/file_destination.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -36,6 +37,14 @@ cp_copy_result_t cp_copy_file(const mini_fs_api_t *fs,
     mini_result_t result = fs->stat(source_path, &source_stat);
     if (result != MINI_OK) return CP_COPY_ERR_SOURCE_STAT;
     if (source_stat.type != MINI_FS_TYPE_FILE) return CP_COPY_ERR_SOURCE_IS_DIR;
+
+    char joined[FILE_DESTINATION_CAP];
+    result = file_destination_resolve(fs, source_path, destination_path,
+                                      joined, &destination_path);
+    if (result == MINI_ERR_NAME_TOO_LONG) return CP_COPY_ERR_DEST_TOO_LONG;
+    if (result == MINI_ERR_INVALID) return CP_COPY_ERR_INVALID;
+    if (result != MINI_OK) return CP_COPY_ERR_DEST_STAT;
+    if (same_path_text(source_path, destination_path)) return CP_COPY_ERR_SAME_PATH;
 
     mini_fs_stat_t destination_stat;
     destination_stat.struct_size = sizeof(destination_stat);

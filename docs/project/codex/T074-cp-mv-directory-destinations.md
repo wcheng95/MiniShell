@@ -1,6 +1,6 @@
 # T074 — Unix-style cp/mv directory destinations
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -262,21 +262,21 @@ Do not implement:
 
 ## Acceptance criteria
 
-- [ ] `cp file /existing/dir` creates/replaces `/existing/dir/file`.
-- [ ] `cp file /existing/dir/` has the same result.
-- [ ] `cp file /existing/dir/.` has the same result.
-- [ ] `mv file /existing/dir` renames to `/existing/dir/file` on the same filesystem.
-- [ ] Relative source and directory destinations work under a non-root CWD.
-- [ ] Existing explicit missing destination path behavior is unchanged.
-- [ ] Existing explicit regular-file destination replacement is unchanged.
-- [ ] Existing destination child regular file is replaceable for both `cp` and `mv`.
-- [ ] Destination child directory is rejected.
-- [ ] Source directory is rejected.
-- [ ] Self-copy through a directory operand cannot truncate/modify the source.
-- [ ] Cross-filesystem `mv` does not silently become copy+delete.
-- [ ] Public Filesystem API and T072 CWD implementation are unchanged.
-- [ ] Full Linux CTest passes.
-- [ ] ADV firmware builds successfully.
+- [x] `cp file /existing/dir` creates/replaces `/existing/dir/file`.
+- [x] `cp file /existing/dir/` has the same result.
+- [x] `cp file /existing/dir/.` has the same result.
+- [x] `mv file /existing/dir` renames to `/existing/dir/file` on the same filesystem.
+- [x] Relative source and directory destinations work under a non-root CWD.
+- [x] Existing explicit missing destination path behavior is unchanged.
+- [x] Existing explicit regular-file destination replacement is unchanged.
+- [x] Existing destination child regular file is replaceable for both `cp` and `mv`.
+- [x] Destination child directory is rejected.
+- [x] Source directory is rejected.
+- [x] Self-copy through a directory operand cannot truncate/modify the source.
+- [x] Cross-filesystem `mv` does not silently become copy+delete.
+- [x] Public Filesystem API and T072 CWD implementation are unchanged.
+- [x] Full Linux CTest passes.
+- [x] ADV firmware builds successfully.
 
 ## Automated tests
 
@@ -382,17 +382,120 @@ do not open a PR unless asked.
 
 ### Implementation summary
 
+Implemented from current `origin/main` at
+`170a8d3800131aade3c4a1c445e74c6e96a3df8e` on the requested branch.
+No task or architecture deviations.
+
+Both commands use the same app-private header-only destination helper. After
+source regular-file validation, it stats the destination, preserves missing/file
+operands, and expands directory operands with the source basename. The reverse
+component scan ignores separators/dots and cancels parent components without
+querying CWD or constructing a canonical path. Joining uses a 512-byte stack
+buffer and rejects overflow before writing anything.
+
+`cp_copy_file()` validates the effective child path and retains its original
+read-before-write ordering, 1 KiB copy buffer, partial-I/O loop and cleanup.
+Exact textual self-copies retain their existing diagnostic; other normalized
+self-aliases are blocked by existing Filesystem writer exclusion before truncate.
+`mv` passes the effective destination to the existing rename API, with no fallback.
+
 ### Files changed
+
+- `apps/common/file_destination.h`: shared portable bounded destination helper.
+- `apps/cp/main/cp_copy.c`, `cp_copy.h`, `cp.c`: destination expansion and path
+  length diagnostic while retaining existing copy/error handling.
+- `apps/mv/main/mv.c`: destination expansion, stat/path and child-directory errors.
+- `tests/unit/test_cp_copy.c`: helper cases/bounds and actual service-backed copy
+  replacement, source/child directory rejection and self-copy protection.
+- `tests/unit/test_mv.c`: actual portable command with fake backend; same-volume
+  moves, replacement, self-rename, directory rejection and cross-volume failure.
+- `tests/unit/CMakeLists.txt`, `test_main.c`, `test_support.h`: register mv coverage.
+- `tests/linux_cwd.py`: actual Linux app/CWD integration, spelling variants,
+  create/replace, explicit filename regressions and self-copy preservation.
+- `README.md`, `docs/api/filesystem-api.md`: replace stale explicit-destination
+  notes with directory operand semantics and the unchanged rename boundary.
+- This task packet: implementation and validation evidence.
 
 ### Invariants preserved
 
+Public API v3, `include/minishell/api.h`, all Filesystem service/CWD code, resident
+shell and ADV packaging are byte-for-byte unchanged from the base. The shared
+header is compiled through the existing Linux `.so` and ADV static app sources;
+no additional build-source wiring is needed. Apps use only public Filesystem
+calls, with no private CWD access, backend calls, heap allocation, recursive
+operations, multiple sources, or cross-volume copy/delete fallback. Source and
+child directories remain unsupported. Usage text remains unchanged.
+
 ### Local tests run
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R 'linux_cwd|linux_file|linux_directory|linux_utility'
+# PASS: 2/2 matching tests (linux_directory, linux_cwd).
+cmake -S tests/unit -B /tmp/T074-unit
+cmake --build /tmp/T074-unit -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T074-unit --output-on-failure
+# PASS: final unit run 27/27, including new mv group.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# First full run: 122/123; unchanged linux_serial_unit PTY assertion failed.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R '^linux_serial_unit$'
+# First focused rerun PASS 1/1.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Second full run: 122/123, same serial assertion.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R '^linux_serial_unit$'
+# Second focused rerun failed at the same assertion.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: final full run 123/123 (59.00 seconds).
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: firmware 0x152c80 bytes; app partition 78% free. No flashing.
+git diff --check
+# PASS
+```
+
+The first unit run exposed an incomplete new mv fixture: `fake_full_port()` has
+no Console callback and its default namespace lacks `/flash`. The test now
+supplies both; production API validation was retained. The old cp assertion
+rejecting a directory operand was narrowly replaced with child creation and
+replacement checks; child-directory rejection is separately verified.
+
+The first two full Linux runs hit `tests/linux_serial_test.c:67`, the existing
+PTY write timeout/zero-byte assertion also recorded in earlier tasks. The first
+focused rerun passed; the second failed at the same assertion. Serial
+implementation/tests are unchanged; no assertion was weakened. The third full
+run passed all 123 tests.
+
+Helper tests cover absolute/relative basenames, repeated/trailing slashes and
+dots, parent cancellation, unusable basenames, missing/file operands unchanged,
+directory variants including root, a 511-byte joined path and overflow, and stat
+failure propagation. Service-backed tests check copy content, self-copy survival,
+rename replacement and an injected cross-volume unsupported result with no file
+opens/deletion and unchanged destination content. Linux integration exercises
+real portable apps under non-root CWD, including `/sd`, `/sd/`, `/sd/.`, relative
+archive variants, explicit filenames and source/child directory rejection.
 
 ### Manual/hardware validation still required
 
+After supervisor review, run the ADV examples above for cp into an existing
+directory and same-filesystem mv, then the `/sd` spelling variants. Actual ADV
+cross-volume rename failure remains a hardware check; unit tests inject that
+backend result. No device was flashed or tested here. No QMX/RF validation needed.
+
 ### Known limitations / risks
 
+The private 512-byte bound applies to the joined operand text, so a very long
+redundant spelling can fail even if service normalization could shorten it.
+Relative paths still must fit the service bound after CWD resolution. Both are
+intentional bounded failures, with no truncation. Cross-volume moves remain
+backend-dependent rename operations. Hardware acceptance remains pending.
+
 ### Commit
+
+One implementation commit titled `T074: support cp and mv directory destinations`,
+parent `170a8d3800131aade3c4a1c445e74c6e96a3df8e`, on
+`codex/T074-cp-mv-directory-destinations`. Exact pushed SHA is returned in the
+handoff. No merge or PR.
 
 ## Supervisor review
 

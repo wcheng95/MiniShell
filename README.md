@@ -228,7 +228,9 @@ cp setting.txt /sd/backup.txt
 `cd` without a path returns to `/`; an explicit path must name an existing
 directory, and a failed change leaves CWD unchanged. Bare `ls` behaves as `ls .`;
 use `ls /` for the explicit root listing.
-`cp`/`mv` still require explicit destination paths. CWD is not persisted.
+`cp`/`mv` accept a destination filename or an existing directory; a directory
+receives the source file under its basename. Both commands remain single-file
+operations; `mv` uses rename without a cross-volume copy fallback. CWD is not persisted.
 
 Aliases are loaded from:
 

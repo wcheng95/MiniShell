@@ -1,6 +1,72 @@
 #include "test_support.h"
 
 #include "cp_copy.h"
+#include "../../apps/common/file_destination.h"
+
+static mini_result_t destination_stat_result;
+static uint32_t destination_type;
+
+static mini_result_t destination_stat(const char *path, mini_fs_stat_t *st)
+{
+    (void)path;
+    st->type = destination_type;
+    return destination_stat_result;
+}
+
+static bool test_destination_helper(void)
+{
+    mini_fs_api_t fs = {.stat = destination_stat};
+    char joined[FILE_DESTINATION_CAP];
+    const char *effective = NULL;
+    destination_stat_result = MINI_OK;
+    destination_type = MINI_FS_TYPE_DIRECTORY;
+    const char *sources[] = {"/flash/a.txt", "a.txt", "./a.txt", "/flash//a.txt",
+        "dir/../a.txt", "a.txt/", "a.txt/.", "a.txt//./", "a.txt/child/.."};
+    const char *directories[] = {"/dir", "/dir/", "/dir/.", ".", "../dir", "/"};
+    const char *expected[] = {"/dir/a.txt", "/dir/a.txt", "/dir/./a.txt",
+        "./a.txt", "../dir/a.txt", "/a.txt"};
+    for (size_t i = 0; i < sizeof(sources) / sizeof(sources[0]); ++i) {
+        for (size_t j = 0; j < sizeof(directories) / sizeof(directories[0]); ++j) {
+            TEST_EQ(file_destination_resolve(&fs, sources[i], directories[j], joined,
+                                             &effective), MINI_OK);
+            TEST_CHECK(strcmp(effective, expected[j]) == 0);
+        }
+    }
+    const char *unusable[] = {"", "/", ".", "..", "a/..", "./../"};
+    for (size_t i = 0; i < sizeof(unusable) / sizeof(unusable[0]); ++i) {
+        TEST_EQ(file_destination_resolve(&fs, unusable[i], "/dir", joined,
+                                         &effective), MINI_ERR_INVALID);
+    }
+    char directory[FILE_DESTINATION_CAP + 1u];
+    memset(directory, 'd', sizeof(directory));
+    directory[FILE_DESTINATION_CAP - 3u] = '\0';
+    TEST_EQ(file_destination_resolve(&fs, "a", directory, joined, &effective), MINI_OK);
+    TEST_EQ(strlen(effective), FILE_DESTINATION_CAP - 1u);
+    directory[FILE_DESTINATION_CAP - 3u] = 'd';
+    directory[FILE_DESTINATION_CAP - 2u] = '\0';
+    TEST_EQ(file_destination_resolve(&fs, "a", directory, joined, &effective),
+            MINI_ERR_NAME_TOO_LONG);
+    directory[FILE_DESTINATION_CAP - 2u] = 'd';
+    directory[FILE_DESTINATION_CAP] = '\0';
+    TEST_EQ(file_destination_resolve(&fs, "a", directory, joined, &effective),
+            MINI_ERR_NAME_TOO_LONG);
+    char filename[FILE_DESTINATION_CAP];
+    memset(filename, 'a', sizeof(filename) - 1u);
+    filename[sizeof(filename) - 1u] = '\0';
+    TEST_EQ(file_destination_resolve(&fs, filename, ".", joined, &effective),
+            MINI_ERR_NAME_TOO_LONG);
+
+    const char *literal = "../literal";
+    destination_type = MINI_FS_TYPE_FILE;
+    TEST_EQ(file_destination_resolve(&fs, "a", literal, joined, &effective), MINI_OK);
+    TEST_CHECK(effective == literal);
+    destination_stat_result = MINI_ERR_NOT_FOUND;
+    TEST_EQ(file_destination_resolve(&fs, "a", literal, joined, &effective), MINI_OK);
+    TEST_CHECK(effective == literal);
+    destination_stat_result = MINI_ERR_ACCESS;
+    TEST_EQ(file_destination_resolve(&fs, "a", literal, joined, &effective), MINI_ERR_ACCESS);
+    return true;
+}
 
 static fake_fs_node_t *find_fake_node(const char *path)
 {
@@ -15,6 +81,7 @@ static fake_fs_node_t *find_fake_node(const char *path)
 
 bool test_cp_copy(void)
 {
+    TEST_CHECK(test_destination_helper());
     fake_reset();
     fake_fs_add_file("/sd/source.bin", "seed");
 
@@ -73,7 +140,21 @@ bool test_cp_copy(void)
     TEST_EQ(cp_copy_file(fs, "/sd/source-dir", "/sd/x.bin"), CP_COPY_ERR_SOURCE_IS_DIR);
 
     fake_fs_add_dir("/sd/destination-dir");
-    TEST_EQ(cp_copy_file(fs, "/sd/source.bin", "/sd/destination-dir"), CP_COPY_ERR_DEST_IS_DIR);
+    TEST_EQ(cp_copy_file(fs, "/sd/source.bin", "/sd/destination-dir"), CP_COPY_OK);
+    copy = find_fake_node("/sd/destination-dir/source.bin");
+    TEST_CHECK(copy != NULL && copy->size == 3u && memcmp(copy->data, "new", 3u) == 0);
+    source->data[0] = 'N';
+    TEST_EQ(cp_copy_file(fs, "/sd/source.bin/.", "/sd/destination-dir/."), CP_COPY_OK);
+    TEST_CHECK(copy->size == 3u && memcmp(copy->data, "New", 3u) == 0);
+
+    fake_fs_add_dir("/sd/blocked");
+    fake_fs_add_dir("/sd/blocked/source.bin");
+    TEST_EQ(cp_copy_file(fs, "/sd/source.bin", "/sd/blocked"), CP_COPY_ERR_DEST_IS_DIR);
+    TEST_EQ(minishell_filesystem_cwd_set("/sd"), MINI_OK);
+    TEST_EQ(cp_copy_file(fs, "source.bin", "."), CP_COPY_ERR_OPEN_DEST);
+    TEST_EQ(cp_copy_file(fs, "/sd/source.bin", "/sd"), CP_COPY_ERR_SAME_PATH);
+    TEST_CHECK(source->size == 3u && memcmp(source->data, "New", 3u) == 0);
+    TEST_EQ(cp_copy_file(fs, "source-dir", "destination-dir"), CP_COPY_ERR_SOURCE_IS_DIR);
 
     minishell_services_app_end();
     return true;

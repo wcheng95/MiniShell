@@ -17,6 +17,7 @@ typedef enum {
     CP_COPY_ERR_SYNC,
     CP_COPY_ERR_CLOSE_DEST,
     CP_COPY_ERR_CLOSE_SOURCE,
+    CP_COPY_ERR_DEST_TOO_LONG,
 } cp_copy_result_t;
 
 cp_copy_result_t cp_copy_file(const mini_fs_api_t *fs,

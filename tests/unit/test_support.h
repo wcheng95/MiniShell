@@ -100,3 +100,4 @@ bool test_input(void);
 bool test_audio(void);
 bool test_nano_buffer(void);
 bool test_cp_copy(void);
+bool test_mv(void);
