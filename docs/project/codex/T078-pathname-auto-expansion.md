@@ -1,6 +1,6 @@
 # T078 — Eager pathname longest-prefix expansion
 
-Status: READY
+Status: BLOCKED
 
 ## Architect intent
 
@@ -593,7 +593,96 @@ do not open a PR unless asked.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and test evidence.
+Reviewed `main..20c58587c5a45c1a102d9af4fd0d1896b1d0fabf` against T078.
+
+Result: **BLOCKED — paste-safety correction required before merge.**
+
+The implementation architecture is otherwise clean:
+
+- one shared core pathname matcher;
+- public Filesystem `dir_open/dir_read/dir_close` only;
+- no command/alias/app-name completion;
+- bounded streaming longest-common-prefix algorithm;
+- no heap allocation;
+- Linux/ADV use the same matcher;
+- public API, T072 CWD service, shared editor/history, ADV keyboard mapping and
+  T077 renderer are byte-for-byte unchanged.
+
+Blocking issue:
+
+Interactive pasted text is currently processed one character at a time, and
+completion runs immediately after every printable insertion. Therefore pasting a
+full pathname can duplicate a suffix that was eagerly inserted earlier.
+
+Example:
+
+```text
+paste:  cd /flash
+
+processing:
+  typed /f
+  auto-expands to /flash
+  remaining pasted "lash" is then inserted literally
+
+result:
+  cd /flashlash
+```
+
+That behavior is too surprising for pc-1 and the ADV USB console and is not
+accepted as a T078 limitation.
+
+### Required correction
+
+Make eager expansion **paste-safe** while keeping normal human typing effectively
+instant.
+
+Preferred solution: use a short input-idle debounce (approximately 20–30 ms):
+
+1. after a successful eligible printable insertion, mark completion pending;
+2. do not enumerate the filesystem immediately;
+3. each subsequent printable byte before the deadline refreshes the deadline;
+4. when the input stream is idle for the short interval, run the existing shared
+   `shell_completion_expand()` once;
+5. redraw only if expansion changed the line.
+
+This preserves the intended behavior for human typing while allowing a pasted
+full path to arrive as one burst before completion is attempted.
+
+Constraints:
+
+- no new task/thread/timer;
+- Linux should fold the pending-completion deadline into its existing `poll()`
+  timeout;
+- ADV should use the existing 5 ms input loop and monotonic clock;
+- completion matching/policy remains in shared core;
+- redirected/non-TTY Linux input remains literal;
+- history/cursor/Backspace/Delete semantics remain unchanged;
+- T076/T077 behavior remains unchanged;
+- no public API change.
+
+An equivalent bounded solution is acceptable if it is shared in behavior and
+does not rely on a platform-specific paste protocol.
+
+### Required regression tests
+
+Add real interactive tests for at least:
+
+```text
+paste "cd /flash"
+    -> exactly "cd /flash"
+paste "cat /flash/ft8/setting.txt"
+    -> exact pasted path, no duplicated suffix
+paste relative "cat setting.txt"
+    -> exact pasted text
+human-style delayed "cd /f"
+    -> still eagerly expands to "cd /flash"
+```
+
+Cover both Linux PTY and ADV USB-input host fixtures. Also verify that completion
+still fires after the debounce with the expected longest-prefix result.
+
+Do not merge `20c58587c5a45c1a102d9af4fd0d1896b1d0fabf` as-is. Amend/fix the
+T078 branch and return a new review SHA.
 
 ## Architect test result
 
