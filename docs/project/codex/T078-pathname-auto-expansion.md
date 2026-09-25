@@ -1,6 +1,114 @@
-# T078 — Eager pathname longest-prefix expansion
+# T078 — Tab-gated pathname longest-prefix expansion
 
-Status: TESTING
+Status: READY
+
+## Architect revision — Tab guard (2026-09-24)
+
+The eager/idle-triggered design is **not accepted**. Even with the 25 ms paste
+debounce, automatic pathname rewriting has undesirable side effects because
+typing alone can change the command line.
+
+Final T078 trigger contract:
+
+```text
+typing                    literal only
+Tab                       request pathname longest-prefix expansion
+history/cursor/editing     never auto-expand
+paste                      literal only
+```
+
+Examples:
+
+```text
+type:  cd /f
+line:  cd /f
+Tab
+line:  cd /flash
+
+type:  cat RT
+line:  cat RT
+Tab
+line:  cat RT26092        # longest common prefix only
+```
+
+The existing pathname eligibility/matching policy remains valid:
+
+- command token never completes;
+- explicit path-looking arguments may complete under any command;
+- bare tokens complete only in the known filesystem-command operand positions;
+- case-sensitive, component-wise, hidden-name and whitespace rules unchanged;
+- no automatic trailing `/`;
+- no command/alias/app-name completion.
+
+### Required implementation correction
+
+Remove the 25 ms idle/debounce mechanism completely:
+
+- remove `shell_completion_pending_t`;
+- remove completion deadline/defer/timeout/poll helpers;
+- remove Linux completion timing from `poll()`;
+- remove ADV completion pending state and idle polling;
+- printable characters must only edit/redraw literal text.
+
+`MINI_KEY_TAB` is the **only** T078 trigger on both Linux and ADV:
+
+1. receive Tab;
+2. call the existing shared `shell_completion_expand(editor)` once;
+3. if the line changed, redraw through the normal platform editor path;
+4. if no additional common prefix exists, do nothing in T078.
+
+Tab must not insert a literal tab character into the shell line.
+
+The current matcher requirement that the cursor be at the end of the active token
+remains. Tab in the middle of a token is therefore a no-op.
+
+On ADV, a successful Tab expansion must use the ordinary T077 redraw path so the
+blinking cursor moves to the new insertion point and restarts normally.
+
+### T079 remains separate
+
+T078 does **not** list ambiguous candidates.
+
+After T078, T079 will extend Tab behavior so that when a Tab request cannot grow
+the pathname further because multiple candidates remain, the remaining pathname
+choices can be shown. Do not implement candidate listing in this correction.
+
+### Revised acceptance additions
+
+- Typing `cd /f` alone leaves exactly `cd /f`.
+- Pressing Tab changes it to `cd /flash` when that is the longest extension.
+- Typing/pasting a complete pathname is always literal and needs no timing rule.
+- No monotonic clock or idle timeout is involved in completion.
+- Tab with no match or no longer common prefix is a silent no-op.
+- Tab on the command token is a silent no-op.
+- Tab in an arbitrary bare non-path argument is a silent no-op.
+- T075 history, T076 controls and T077 cursor remain unchanged.
+
+### Revised tests
+
+Replace debounce/paste-timing tests with direct Tab-event tests on Linux PTY and
+ADV host fixtures:
+
+```text
+type/paste `cd /f`        -> remains `cd /f`
+Tab                       -> `cd /flash`
+
+type/paste full path      -> remains exact indefinitely
+
+type `cat RT`             -> remains `cat RT`
+Tab                       -> longest common prefix
+
+type `unknown se` + Tab   -> unchanged
+type `unknown ./s` + Tab  -> pathname expansion allowed
+```
+
+Delete tests whose only purpose is 25 ms deadline refresh, slow-redraw debounce,
+or paste burst timing.
+
+Codex should make this correction from current `main` on the existing branch
+`codex/T078-pathname-auto-expansion` and return one new review commit. Do not
+merge or open a PR.
+
 
 ## Architect intent
 
