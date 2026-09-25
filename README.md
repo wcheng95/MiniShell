@@ -97,7 +97,7 @@ The ADV field baseline includes:
 
 - 20x7 resident text console with USB mirror;
 - 50 physical rows of resident console scrollback;
-- Fn+Up / Fn+Down scroll by five rows;
+- Ctrl+`;` / Ctrl+`.` scroll by five rows;
 - FATFS `/flash` and optional `/sd`;
 - WebFS browser file management;
 - `usbmsc` storage handoff/remount;
@@ -234,8 +234,9 @@ operations; `mv` uses rename without a cross-volume copy fallback. CWD is not pe
 
 Interactive prompts keep the last ten nonblank commands in RAM. Linux uses
 Up/Down for history, Left/Right and Home/End for cursor movement, and
-Backspace/Delete for editing. On ADV, Fn+`,` recalls the previous command and
-Fn+`/` the next; Fn+`;` / Fn+`.` still scroll console output. Bare punctuation
+Backspace/Delete for editing. On ADV, Fn+`;` / Fn+`.` recall previous/next
+commands, Fn+`,` / Fn+`/` move the cursor left/right, and Ctrl+`;` / Ctrl+`.`
+scroll console output by five rows. Bare punctuation
 remains text. Returning past the newest entry restores the original draft.
 History survives app return, resets with the session, and excludes startup and
 redirected input. Recalled edits are stored as new commands when submitted.

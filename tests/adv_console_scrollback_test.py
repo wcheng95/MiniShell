@@ -60,7 +60,7 @@ static std::string numbered(unsigned n) {
  char s[20]; snprintf(s,sizeof(s),"row%02u",n); return s;
 }
 static void reset() {
- assert(adv_display_prepare()==0); usb_output.clear();
+ assert(adv_display_prepare()==0); usb_output.clear(); s_line_start=true;
  keys.clear(); usb_input.clear(); polls=0;
 }
 static void fill(unsigned rows) {
@@ -72,8 +72,8 @@ static void fill(unsigned rows) {
 static mini_key_event_t special(uint32_t key, unsigned mods=0) {
  mini_key_event_t e={};e.type=MINI_KEY_EVENT_SPECIAL;e.key=key;e.modifiers=mods;return e;
 }
-static mini_key_event_t character(char c) {
- mini_key_event_t e={};e.type=MINI_KEY_EVENT_CHAR;e.codepoint=c;return e;
+static mini_key_event_t character(char c, unsigned mods=0) {
+ mini_key_event_t e={};e.type=MINI_KEY_EVENT_CHAR;e.codepoint=c;e.modifiers=mods;return e;
 }
 static void assert_view(unsigned first) {
  for(unsigned r=0;r<7;++r) assert(row(r)==padded(numbered(first+r)));
@@ -167,8 +167,10 @@ static void input_tests() {
  assert(row(0)==padded("unterminated") && row(1)==padded("M$> "));
  reset();fill(30);
  shell_editor_t editor; shell_editor_init(&editor);
+ strcpy(editor.line,"draft");editor.length=editor.cursor=5;
+ const shell_editor_t before_scroll=editor;
  const std::string bytes=usb_output;
- auto up=special(MINI_KEY_UP,MINI_MOD_FN),down=special(MINI_KEY_DOWN,MINI_MOD_FN);
+ auto up=character(';',MINI_MOD_CTRL),down=character('.',MINI_MOD_CTRL);
  assert(accept_key_event(&up,&editor)==0);
  assert(s_console_offset==5);assert_view(18);
  assert(accept_key_event(&up,&editor)==0);
@@ -178,7 +180,8 @@ static void input_tests() {
  for(auto key : {MINI_KEY_UP,MINI_KEY_DOWN,MINI_KEY_LEFT,MINI_KEY_RIGHT,MINI_KEY_FN}) {
   auto e=special(key);assert(accept_key_event(&e,&editor)==0);
  }
- assert(editor.length==0 && usb_output==bytes && s_console_offset==5);
+ assert(!memcmp(&editor,&before_scroll,sizeof(editor)) && usb_output==bytes && s_console_offset==5);
+ shell_editor_begin(&editor);
  minishell_platform_console_write("\nM$> ");
  keys={character('a'),up,down,special(MINI_KEY_FN),character('b'),
        special(MINI_KEY_BACKSPACE),character('c'),special(MINI_KEY_DELETE),
@@ -196,6 +199,52 @@ static void input_tests() {
  usb_input={',','/',';','.',0x80,'\n'};
  assert(minishell_platform_console_read_line(&editor)==2 && !strcmp(editor.line,",/;."));
 
+ shell_editor_begin(&editor);minishell_platform_console_prompt();adv_display_console_edit_begin();
+ for(char c : std::string(",/;.")) { auto e=character(c);accept_key_event(&e,&editor); }
+ assert(!strcmp(editor.line,",/;."));
+
+ // Recall, move into the filename, edit, move right and submit through the
+ // physical event path. Cursor keys must preserve navigation and stored text.
+ reset();minishell_platform_console_prompt();
+ shell_editor_init(&editor);
+ strcpy(editor.line,"cp foo.txt /sd");shell_editor_remember(&editor);
+ shell_editor_begin(&editor);adv_display_console_edit_begin();
+ auto prev=special(MINI_KEY_UP,MINI_MOD_FN),nxt=special(MINI_KEY_DOWN,MINI_MOD_FN);
+ auto left=special(MINI_KEY_LEFT,MINI_MOD_FN),right=special(MINI_KEY_RIGHT,MINI_MOD_FN);
+ accept_key_event(&prev,&editor);
+ assert(!strcmp(editor.line,"cp foo.txt /sd") && editor.navigation==0);
+ char recalled[50][20];memcpy(recalled,s_history,sizeof(recalled));
+ for(unsigned i=0;i<8;++i) accept_key_event(&left,&editor);
+ assert(editor.cursor==6 && editor.navigation==0);
+ assert(!memcmp(recalled,s_history,sizeof(recalled)));
+ auto back=special(MINI_KEY_BACKSPACE),del=special(MINI_KEY_DELETE);
+ accept_key_event(&back,&editor);
+ auto insert=character('r');accept_key_event(&insert,&editor);
+ accept_key_event(&right,&editor);accept_key_event(&del,&editor);
+ insert=character('T');accept_key_event(&insert,&editor);
+ assert(!strcmp(editor.line,"cp for.Txt /sd") && editor.cursor==8);
+ assert(row(0)==padded("M$> cp for.Txt /sd"));
+ assert(!strcmp(editor.history[0],"cp foo.txt /sd"));
+ keys={special(MINI_KEY_ENTER)};
+ assert(minishell_platform_console_read_line(&editor)==2);
+ assert(!strcmp(editor.line,"cp for.Txt /sd"));
+ shell_editor_remember(&editor);assert(editor.count==2);
+ shell_editor_begin(&editor);minishell_platform_console_prompt();adv_display_console_edit_begin();
+ for(char c : std::string("draft")) { auto e=character(c);accept_key_event(&e,&editor); }
+ accept_key_event(&left,&editor);
+ accept_key_event(&prev,&editor);accept_key_event(&nxt,&editor);
+ assert(!strcmp(editor.line,"draft") && editor.cursor==4 && editor.navigation==2);
+ // Other Ctrl characters retain the previous behavior, including comma/slash.
+ for(char c : std::string(",/x")) { auto e=character(c,MINI_MOD_CTRL);accept_key_event(&e,&editor); }
+ assert(!strcmp(editor.line,"draf,/xt"));
+ // Cursor boundaries are no-ops, with no redraw/USB output or history lookup.
+ for(unsigned i=0;i<20;++i) accept_key_event(&left,&editor);
+ auto unchanged=usb_output;accept_key_event(&left,&editor);
+ assert(editor.cursor==0 && editor.navigation==2 && usb_output==unchanged);
+ for(unsigned i=0;i<20;++i) accept_key_event(&right,&editor);
+ unchanged=usb_output;accept_key_event(&right,&editor);
+ assert(editor.cursor==editor.length && editor.navigation==2 && usb_output==unchanged);
+
  // Full wrapped recall at ring capacity, with no new prompt/newline or lost
  // output rows on repeated grow/shrink. Navigation uses the existing Fn events.
  reset();fill(50);minishell_platform_console_write("\nM$> ");
@@ -204,13 +253,19 @@ static void input_tests() {
  shell_editor_begin(&editor);adv_display_console_edit_begin();
  char baseline[50][20];memcpy(baseline,s_history,sizeof(baseline));
  unsigned first=s_history_first,count=s_history_count;
- auto previous=special(MINI_KEY_LEFT,MINI_MOD_FN),next=special(MINI_KEY_RIGHT,MINI_MOD_FN);
+ auto previous=special(MINI_KEY_UP,MINI_MOD_FN),next=special(MINI_KEY_DOWN,MINI_MOD_FN);
  auto newlines=std::count(usb_output.begin(),usb_output.end(),'\n');
  for(unsigned i=0;i<20;++i) {
   accept_key_event(&previous,&editor);
   assert(editor.length==255 && s_history_count==50 && s_console_column==19);
   for(unsigned r=0;r<6;++r) assert(row(r)==std::string(20,'x'));
   assert(row(6)==padded(std::string(19,'x')));
+  char before_cursor[50][20];memcpy(before_cursor,s_history,sizeof(before_cursor));
+  for(unsigned step=0;step<30;++step) accept_key_event(&left,&editor);
+  assert(editor.cursor==225 && editor.navigation==0);
+  assert(!memcmp(before_cursor,s_history,sizeof(before_cursor)));
+  for(unsigned step=0;step<30;++step) accept_key_event(&right,&editor);
+  assert(editor.cursor==255 && editor.navigation==0);
   accept_key_event(&up,&editor);assert(s_console_offset==5);
   assert(editor.length==255);
   accept_key_event(&next,&editor);

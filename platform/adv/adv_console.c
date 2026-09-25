@@ -196,20 +196,25 @@ static int accept_character(int ch, shell_editor_t *editor)
 
 static int accept_key_event(const mini_key_event_t *event, shell_editor_t *editor)
 {
-    if (event->type == MINI_KEY_EVENT_CHAR && event->codepoint <= 0x7fu)
+    if (event->type == MINI_KEY_EVENT_CHAR && event->codepoint <= 0x7fu) {
+        if ((event->modifiers & MINI_MOD_CTRL) != 0u &&
+            (event->codepoint == ';' || event->codepoint == '.')) {
+            adv_display_console_scroll(event->codepoint == ';' ? 5 : -5);
+            return 0;
+        }
         return accept_character((int)event->codepoint, editor);
+    }
     if (event->type != MINI_KEY_EVENT_SPECIAL) return 0;
 
-    if ((event->modifiers & MINI_MOD_FN) != 0u &&
-        (event->key == MINI_KEY_UP || event->key == MINI_KEY_DOWN)) {
-        adv_display_console_scroll(event->key == MINI_KEY_UP ? 5 : -5);
-        return 0;
-    }
     shell_edit_action_t action;
-    if ((event->modifiers & MINI_MOD_FN) != 0u && event->key == MINI_KEY_LEFT)
+    if ((event->modifiers & MINI_MOD_FN) != 0u && event->key == MINI_KEY_UP)
         action = SHELL_EDIT_PREVIOUS;
-    else if ((event->modifiers & MINI_MOD_FN) != 0u && event->key == MINI_KEY_RIGHT)
+    else if ((event->modifiers & MINI_MOD_FN) != 0u && event->key == MINI_KEY_DOWN)
         action = SHELL_EDIT_NEXT;
+    else if ((event->modifiers & MINI_MOD_FN) != 0u && event->key == MINI_KEY_LEFT)
+        action = SHELL_EDIT_LEFT;
+    else if ((event->modifiers & MINI_MOD_FN) != 0u && event->key == MINI_KEY_RIGHT)
+        action = SHELL_EDIT_RIGHT;
     else if (event->key == MINI_KEY_ENTER) return 1;
     else if (event->key == MINI_KEY_BACKSPACE) action = SHELL_EDIT_BACKSPACE;
     else if (event->key == MINI_KEY_DELETE) action = SHELL_EDIT_DELETE;

@@ -193,15 +193,16 @@ matrix    7 x 8
 ```
 
 The resident `M$>` console retains 50 physical 20-column rows. While entering a
-shell command, Fn+Up (Fn+`;`) reviews five rows older; Fn+Down (Fn+`.`) moves
+shell command, Ctrl+`;` reviews five rows older; Ctrl+`.` moves
 five rows newer. The seven-row viewport clamps at both ends. Typing or any new
 console output returns to the live prompt. History survives full-screen app
 launch/exit, and scrolling does not replay USB output. This shell-only behavior
 does not change application key mappings.
 
 Command history is a separate ten-entry RAM ring owned by the resident core.
-Fn+`,` (Fn+Left) recalls older commands; Fn+`/` (Fn+Right) advances toward newer
-commands and then restores the draft. Edit recalled text with typing/Backspace;
+Fn+`;` (Fn+Up) recalls older commands; Fn+`.` (Fn+Down) advances toward newer
+commands and then restores the draft. Fn+`,` (Fn+Left) moves the cursor left;
+Fn+`/` (Fn+Right) moves it right. Edit recalled text with typing/Backspace;
 Delete removes the character at the cursor. Bare `,`, `/`, `;`, `.` remain text.
 Recalled commands replace the current input region, including wrapped lines,
 without adding prompts. History survives app return but resets on reboot; it

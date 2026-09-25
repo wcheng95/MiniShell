@@ -1,6 +1,6 @@
 # T076 — ADV shell history/cursor/scrollback key remap
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -163,24 +163,24 @@ Do not implement:
 
 ## Acceptance criteria
 
-- [ ] Ctrl+; scrolls ADV console output up by five rows.
-- [ ] Ctrl+. scrolls ADV console output down by five rows.
-- [ ] Ctrl+;/Ctrl+. do not insert punctuation into the command.
-- [ ] Fn+; recalls the previous history entry.
-- [ ] Fn+. recalls the next history entry/draft.
-- [ ] Fn+, moves the edit cursor left.
-- [ ] Fn+/ moves the edit cursor right.
-- [ ] Fn+,/Fn+/ do not navigate history.
-- [ ] Bare `,`, `/`, `;`, `.` remain printable.
-- [ ] Recalled commands can be edited in the middle on ADV.
-- [ ] Draft restoration still works.
-- [ ] 10-entry history behavior is unchanged.
-- [ ] ADV wrapped-line redraw remains correct.
-- [ ] Linux history/edit behavior is unchanged.
-- [ ] `adv_keyboard.cpp` remains unchanged.
-- [ ] Public MiniShell API remains unchanged.
-- [ ] Full Linux CTest passes.
-- [ ] ADV firmware builds successfully.
+- [x] Ctrl+; scrolls ADV console output up by five rows.
+- [x] Ctrl+. scrolls ADV console output down by five rows.
+- [x] Ctrl+;/Ctrl+. do not insert punctuation into the command.
+- [x] Fn+; recalls the previous history entry.
+- [x] Fn+. recalls the next history entry/draft.
+- [x] Fn+, moves the edit cursor left.
+- [x] Fn+/ moves the edit cursor right.
+- [x] Fn+,/Fn+/ do not navigate history.
+- [x] Bare `,`, `/`, `;`, `.` remain printable.
+- [x] Recalled commands can be edited in the middle on ADV.
+- [x] Draft restoration still works.
+- [x] 10-entry history behavior is unchanged.
+- [x] ADV wrapped-line redraw remains correct.
+- [x] Linux history/edit behavior is unchanged.
+- [x] `adv_keyboard.cpp` remains unchanged.
+- [x] Public MiniShell API remains unchanged.
+- [x] Full Linux CTest passes.
+- [x] ADV firmware builds successfully.
 
 ## Automated tests
 
@@ -262,17 +262,98 @@ Do not merge to `main` and do not open a PR unless asked.
 
 ### Implementation summary
 
+Implemented from current `origin/main` at
+`9239ab171f397343461bda52ccf8ccf3cee14603` on the requested branch.
+No scope or architecture deviations.
+
+Only the ADV resident event consumer changes: Ctrl character events for `;` and
+`.` call the existing scroll function with +5/-5 and are consumed before text
+insertion. Other Ctrl characters retain their existing handling. Existing Fn
+Up/Down events invoke shared Previous/Next actions; Fn Left/Right invoke shared
+cursor Left/Right actions. Redraw remains gated by the shared editor's change
+result, so movement at a cursor boundary does not redraw or emit USB output.
+
 ### Files changed
+
+- `platform/adv/adv_console.c`: remap only `accept_key_event()`.
+- `tests/adv_console_scrollback_test.py`: exact Ctrl character and Fn special
+  event coverage, recalled middle editing/submission, cursor boundaries and
+  unchanged navigation/history, draft cursor restoration, and wrapped movement.
+- `README.md`, `docs/README.md`, `docs/api/console-api.md`,
+  `platform/adv/README.md`: update current control descriptions.
+- This packet: implementation and validation evidence.
 
 ### Invariants preserved
 
+The shared editor, ten-entry storage/eviction/draft behavior, shell dispatcher,
+Linux backend, public API v3, ADV keyboard normalization, and ADV display/output
+history renderer are unchanged. The 50-row ring and five-row scroll operation
+are unchanged; only scroll triggers move to Ctrl punctuation. No heap allocation,
+persistence, new key chord, shell syntax, task or service changes.
+
+Source-boundary check against the base returned no differences:
+
+```bash
+git diff --exit-code origin/main -- platform/adv/adv_keyboard.cpp \
+  core/shell_editor.c core/shell_editor.h platform/linux \
+  include/minishell/api.h platform/adv/adv_display.cpp
+```
+
 ### Local tests run
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R 'adv_console_scrollback|shell_editor|linux_shell_history'
+# PASS: 3/3.
+cmake -S tests/unit -B /tmp/T076-unit
+cmake --build /tmp/T076-unit -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T076-unit --output-on-failure
+# PASS: 28/28.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: 125/125 (59.30 seconds), without retries.
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: firmware 0x153040 bytes; app partition 78% free. No flashing.
+git diff --check
+# PASS
+```
+
+ADV host tests retain the original output ring, scroll clamping, Display handoff,
+USB input, 255-character wrapped recall and draft restoration assertions. The
+old chord expectations are replaced narrowly by the architect-approved mapping.
+The host fixture now resets the console prompt-position flag along with display
+state; the added bare-key case exposed that missing fixture reset. No product
+reset or rendering behavior changed. The new event test transforms `cp foo.txt /sd` into `cp for.Txt /sd` using
+Fn history/cursor keys, Backspace, Delete and typing, then submits it through
+the real line reader. It verifies the original stored command is unchanged.
+Bare punctuation is checked through both physical character events and USB
+input. Ctrl scrollback preserves the entire editor state and emits no USB text; other
+Ctrl characters retain text behavior. Cursor movement across wrapped rows leaves
+retained text and history navigation unchanged. Existing pure editor tests retain
+ten-entry eviction and duplicate coverage, and the unchanged Linux PTY suite
+checks history, cursor editing and terminal handoffs.
 
 ### Manual/hardware validation still required
 
+After review, run the ADV checklist above: Fn+`;` / Fn+`.` history, Fn+`,` /
+Fn+`/` movement inside a recall, middle edits/Enter, Ctrl+`;` / Ctrl+`.` output
+scrollback, and bare punctuation. Confirm wrapped-line usability and Linux keys
+on the actual hosts. No device flashed or operated; no QMX/RF validation needed.
+
 ### Known limitations / risks
 
+This task changes event consumption only. It retains T075's redraw/presentation
+and USB preview behavior; no new cursor indicator or renderer behavior is added.
+Host tests use actual event/edit/render code with hardware transport stubs, so
+physical modifier delivery and operator usability still require ADV acceptance.
+
 ### Commit
+
+One implementation commit titled `T076: remap ADV shell history and cursor keys`,
+parent `9239ab171f397343461bda52ccf8ccf3cee14603`, on
+`codex/T076-adv-shell-key-remap`. Exact pushed SHA is returned in the handoff.
+No merge or PR.
 
 ## Supervisor review
 
