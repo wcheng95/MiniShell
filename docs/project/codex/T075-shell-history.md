@@ -1,6 +1,6 @@
 # T075 — 10-command editable resident shell history
 
-Status: TESTING
+Status: BLOCKED
 
 ## Architect intent
 
@@ -657,4 +657,29 @@ foreground app. No QMX/RF validation is required.
 
 ## Architect test result
 
-Record ADV/Linux command-history validation here.
+Initial ADV validation on 2026-09-24 confirmed that the history engine works, but
+exposed an architect/specification bug in the ADV key assignment.
+
+The T075 mapping consumed all four Fn punctuation-derived directions:
+
+```text
+Fn+, / Fn+/   history
+Fn+; / Fn+.   scrollback
+```
+
+leaving no practical way to move the edit cursor left/right inside a recalled
+command on ADV.
+
+Architect correction:
+
+```text
+Ctrl+; / Ctrl+.   console scroll up/down
+Fn+;   / Fn+.     history previous/next
+Fn+,   / Fn+/     edit cursor left/right
+```
+
+Bare `,`, `/`, `;`, and `.` remain printable.
+
+The shared ten-command history/editor itself is accepted so far; final T075
+acceptance is blocked only on the ADV keymap correction tracked by T076.
+pc-1/Linux behavior remains unchanged.
