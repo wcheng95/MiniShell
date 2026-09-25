@@ -233,6 +233,9 @@ static bool test_space_modes(void)
     mini_fs_space_t result={.struct_size=sizeof(result)};
     TEST_EQ(fs->space("/flash/./ft8", &result), MINI_OK);
     TEST_EQ(result.total_bytes,100u); TEST_EQ(result.used_bytes,30u); TEST_EQ(result.free_bytes,70u);
+    TEST_EQ(minishell_filesystem_cwd_set("/flash"), MINI_OK);
+    TEST_EQ(fs->space("./ft8", &result), MINI_OK);
+    TEST_EQ(result.used_bytes,30u); TEST_EQ(result.free_bytes,70u);
     TEST_EQ(fs->space("/sd/foo/bar", &result), MINI_OK);
     TEST_EQ(result.used_bytes,30u); TEST_EQ(space_calls,0u);
     space_file_size=120;
@@ -253,14 +256,17 @@ static bool test_space_modes(void)
         TEST_EQ(result.reserved0,0u);
     }
     TEST_EQ(space_calls,4u);
-    TEST_EQ(fs->space("relative",&result),MINI_ERR_INVALID);
+    TEST_EQ(fs->space("../sd/foo/./bar", &result), MINI_OK);
+    TEST_CHECK(!strcmp(space_last_path,"/sd/foo/bar"));
+    TEST_EQ(result.used_bytes,200u);
+    TEST_EQ(fs->space("relative",&result),MINI_ERR_NOT_FOUND);
     TEST_EQ(fs->space("/missing",&result),MINI_ERR_NOT_FOUND);
     space_sd_available=false;
     TEST_EQ(fs->space("/sd/foo/bar",&result),MINI_ERR_NOT_FOUND);
-    TEST_EQ(space_calls,4u);
+    TEST_EQ(space_calls,5u);
     space_stat_error=MINI_ERR_NOT_READY;
     TEST_EQ(fs->space("/flash",&result),MINI_ERR_NOT_READY);
-    TEST_EQ(space_calls,4u); space_stat_error=MINI_OK;
+    TEST_EQ(space_calls,5u); space_stat_error=MINI_OK;
     const mini_result_t errors[]={MINI_ERR_IO,MINI_ERR_NOT_READY,MINI_ERR_NOT_FOUND,MINI_ERR_UNSUPPORTED};
     for (unsigned i=0;i<4;++i) {
         space_backend_error=errors[i];
@@ -283,6 +289,130 @@ static bool test_space_modes(void)
     return true;
 }
 
+static bool cwd_is(const char *expected)
+{
+    char cwd[MINISHELL_FILESYSTEM_PATH_CAP];
+    TEST_EQ(minishell_filesystem_cwd_get(cwd, sizeof(cwd)), MINI_OK);
+    TEST_CHECK(!strcmp(cwd, expected));
+    return true;
+}
+
+static char cwd_boundary_path[MINISHELL_FILESYSTEM_PATH_CAP];
+static mini_result_t cwd_boundary_stat(void *ctx, const char *path, uint32_t *type, uint64_t *size)
+{
+    (void)ctx;
+    if (path[0] != '/' || strlen(path) >= sizeof(cwd_boundary_path)) return MINI_ERR_INVALID;
+    strcpy(cwd_boundary_path, path);
+    *type = MINI_FS_TYPE_DIRECTORY; *size = 0;
+    return MINI_OK;
+}
+
+static bool test_cwd(void)
+{
+    fake_reset();
+    fake_fs_add_dir("/sd/first");
+    fake_fs_add_dir("/sd/second");
+    fake_fs_add_file("/sd/first/read.txt", "data");
+    minishell_services_port_t port = fake_full_port();
+    port.fs_dir_open = lifetime_dir_open;
+    port.fs_dir_read = lifetime_dir_read;
+    port.fs_dir_close = lifetime_dir_close;
+    s_test_dir = MINISHELL_BACKEND_DIR_INVALID;
+    minishell_services_configure(&port);
+    const mini_fs_api_t *fs = mini_api_get()->fs;
+    TEST_CHECK(cwd_is("/"));
+    char tiny[2] = "!";
+    TEST_EQ(minishell_filesystem_cwd_get(NULL, 0), MINI_ERR_INVALID);
+    TEST_EQ(minishell_filesystem_cwd_get(tiny, 0), MINI_ERR_INVALID);
+    TEST_EQ(minishell_filesystem_cwd_get(tiny, 1), MINI_ERR_NAME_TOO_LONG);
+    TEST_CHECK(!strcmp(tiny, "!"));
+    TEST_EQ(minishell_filesystem_cwd_get(tiny, 2), MINI_OK);
+    TEST_EQ(minishell_filesystem_cwd_set("/sd//./first"), MINI_OK);
+    TEST_CHECK(cwd_is("/sd/first"));
+    TEST_EQ(minishell_filesystem_cwd_set("."), MINI_OK);
+    TEST_EQ(minishell_filesystem_cwd_set(".."), MINI_OK);
+    TEST_CHECK(cwd_is("/sd"));
+    TEST_EQ(minishell_filesystem_cwd_set("first"), MINI_OK);
+    TEST_EQ(minishell_filesystem_cwd_set("missing"), MINI_ERR_NOT_FOUND);
+    TEST_EQ(minishell_filesystem_cwd_set("read.txt"), MINI_ERR_NOT_DIR);
+    TEST_EQ(minishell_filesystem_cwd_set("../../.."), MINI_ERR_INVALID);
+    TEST_EQ(minishell_filesystem_cwd_set(""), MINI_ERR_INVALID);
+    TEST_EQ(minishell_filesystem_cwd_set(NULL), MINI_ERR_INVALID);
+    TEST_CHECK(cwd_is("/sd/first"));
+    minishell_services_app_begin();
+    TEST_CHECK(cwd_is("/sd/first"));
+    mini_file_t file, writer;
+    TEST_EQ(fs->open("./read.txt", MINI_FS_READ, &file), MINI_OK);
+    TEST_CHECK(!strcmp(g_fake.fs_last_path, "/sd/first/read.txt"));
+    TEST_EQ(fs->open("/sd/first/read.txt", MINI_FS_WRITE, &writer), MINI_ERR_ACCESS);
+    TEST_EQ(fs->close(file), MINI_OK);
+    TEST_EQ(fs->open("/sd/first/read.txt", MINI_FS_READ, &file), MINI_OK);
+    TEST_EQ(fs->open("read.txt", MINI_FS_WRITE, &writer), MINI_ERR_ACCESS);
+    TEST_EQ(fs->close(file), MINI_OK);
+    TEST_EQ(fs->open("read.txt", MINI_FS_WRITE, &writer), MINI_OK);
+    TEST_EQ(fs->rename("./read.txt", "../second/moved.txt"), MINI_ERR_ACCESS);
+    TEST_EQ(fs->close(writer), MINI_OK);
+    mini_fs_stat_t info = {.struct_size=sizeof(info)};
+    TEST_EQ(fs->stat("../first/read.txt", &info), MINI_OK);
+    TEST_CHECK(!strcmp(g_fake.fs_last_path, "/sd/first/read.txt"));
+    TEST_EQ(fs->rename("read.txt", "../second/moved.txt"), MINI_OK);
+    TEST_EQ(fs->stat("/sd/second/moved.txt", &info), MINI_OK);
+    TEST_EQ(fs->remove_file("../second/moved.txt"), MINI_OK);
+    TEST_EQ(fs->stat("/sd/second/moved.txt", &info), MINI_ERR_NOT_FOUND);
+    TEST_EQ(fs->mkdir("tmp"), MINI_OK);
+    TEST_EQ(fs->stat("/sd/first/tmp", &info), MINI_OK);
+    TEST_EQ(fs->rmdir("./tmp"), MINI_OK);
+    mini_dir_t dir;
+    TEST_EQ(fs->dir_open(".", &dir), MINI_OK);
+    TEST_EQ(fs->dir_close(dir), MINI_OK);
+    TEST_EQ(fs->remove_file("../.."), MINI_ERR_IS_DIR);
+    TEST_EQ(fs->mkdir("../.."), MINI_ERR_EXISTS);
+    TEST_EQ(fs->rmdir("../.."), MINI_ERR_ACCESS);
+    TEST_EQ(fs->rename("../..", "anything"), MINI_ERR_ACCESS);
+    TEST_EQ(fs->rename("anything", "../.."), MINI_ERR_ACCESS);
+    TEST_EQ(fs->stat("../../..", &info), MINI_ERR_INVALID);
+    TEST_EQ(fs->open("", MINI_FS_READ, &file), MINI_ERR_INVALID);
+    TEST_EQ(fs->dir_open(".", &dir), MINI_OK);
+    minishell_services_app_end();
+    minishell_services_app_begin();
+    TEST_CHECK(cwd_is("/sd/first"));
+    TEST_EQ(fs->dir_close(dir), MINI_ERR_BAD_HANDLE);
+    minishell_services_configure(&port);
+    TEST_CHECK(cwd_is("/"));
+
+    /* Exercise the service's real 511-byte path bound without the small fake
+     * filesystem's 128-byte node-name storage truncating the test fixture. */
+    port.fs_stat = cwd_boundary_stat;
+    minishell_services_configure(&port);
+    char path[MINISHELL_FILESYSTEM_PATH_CAP + 1];
+    memset(path, 'a', sizeof(path)); path[0] = '/'; path[511] = 0;
+    TEST_EQ(minishell_filesystem_cwd_set(path), MINI_OK);
+    TEST_CHECK(cwd_is(path));
+    TEST_EQ(fs->stat(".", &info), MINI_OK);
+    TEST_CHECK(!strcmp(cwd_boundary_path, path));
+    TEST_EQ(fs->stat("x", &info), MINI_ERR_NAME_TOO_LONG);
+    TEST_EQ(minishell_filesystem_cwd_set("x"), MINI_ERR_NAME_TOO_LONG);
+    TEST_CHECK(cwd_is(path));
+    TEST_EQ(minishell_filesystem_cwd_set("../sd"), MINI_OK);
+    TEST_CHECK(cwd_is("/sd"));
+    memset(path, 'b', sizeof(path)); path[507] = 0;
+    TEST_EQ(fs->stat(path, &info), MINI_OK); /* /sd/ + 507 = 511 */
+    TEST_EQ(strlen(cwd_boundary_path), 511u);
+    path[507] = 'b'; path[508] = 0;
+    TEST_EQ(fs->stat(path, &info), MINI_ERR_NAME_TOO_LONG);
+    path[0] = '/'; path[511] = 'b'; path[512] = 0;
+    /* Fill all bytes again so an earlier terminator cannot shorten the path. */
+    memset(path+1, 'b', 511); path[512] = 0;
+    TEST_EQ(fs->stat(path, &info), MINI_ERR_NAME_TOO_LONG);
+    memset(path, '/', sizeof(path)); path[512] = 0;
+    TEST_EQ(fs->stat(path, &info), MINI_OK); /* Raw length is not normalized length. */
+    TEST_CHECK(!strcmp(cwd_boundary_path, "/"));
+    minishell_services_configure(NULL);
+    TEST_CHECK(cwd_is("/"));
+    TEST_EQ(minishell_filesystem_cwd_set("/sd"), MINI_ERR_UNSUPPORTED);
+    return true;
+}
+
 bool test_filesystem(void)
 {
     fake_reset();
@@ -295,7 +425,7 @@ bool test_filesystem(void)
     TEST_CHECK(fs != NULL);
 
     mini_file_t f = MINI_FILE_INVALID;
-    TEST_EQ(fs->open("relative", MINI_FS_READ, &f), MINI_ERR_INVALID);
+    TEST_EQ(fs->open("relative", MINI_FS_READ, &f), MINI_ERR_NOT_FOUND);
     TEST_EQ(fs->open("/sd/read.txt", 0, &f), MINI_ERR_INVALID);
     TEST_EQ(fs->open("/sd/read.txt", MINI_FS_CREATE | MINI_FS_READ, &f), MINI_ERR_INVALID);
     TEST_EQ(fs->open("/sd/read.txt", MINI_FS_EXCL | MINI_FS_WRITE, &f), MINI_ERR_INVALID);
@@ -476,5 +606,6 @@ bool test_filesystem(void)
 
     TEST_CHECK(test_handle_reuse());
     TEST_CHECK(test_space_modes());
+    TEST_CHECK(test_cwd());
     return true;
 }

@@ -40,6 +40,11 @@ int minishell_platform_console_read_line(char *buffer, size_t capacity)
     if (!text) return 0;
     assert(strlen(text)<capacity); strcpy(buffer,text); return (int)strlen(text);
 }
+/* CWD semantics are exercised by the real Filesystem unit/Linux tests. */
+mini_result_t minishell_filesystem_cwd_set(const char *path)
+{ (void)path; return MINI_ERR_UNSUPPORTED; }
+mini_result_t minishell_filesystem_cwd_get(char *out, size_t capacity)
+{ assert(capacity >= 2); strcpy(out, "/"); return MINI_OK; }
 const char *minishell_platform_name(void) { return "mock"; }
 minishell_platform_result_t minishell_app_list(minishell_app_emit_fn emit, void *ctx)
 { emit("listed",ctx); return MINISHELL_PLATFORM_OK; }

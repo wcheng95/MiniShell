@@ -265,8 +265,8 @@ int main(int argc, char **argv)
     const mini_api_t *api = mini_api_get();
     if (!api_ready(api)) return 2;
 
-    if (argc != 2 || argv[1] == NULL || argv[1][0] != '/') {
-        say(api->system, "usage: nano <absolute-path>\n");
+    if (argc != 2 || argv[1] == NULL || argv[1][0] == '\0') {
+        say(api->system, "usage: nano <path>\n");
         return 1;
     }
 

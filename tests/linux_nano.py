@@ -39,7 +39,7 @@ def read_until(fd: int, needle: bytes, timeout: float) -> bytes:
     return bytes(data)
 
 
-def main() -> int:
+def main(relative=False) -> int:
     if len(sys.argv) != 3:
         print("usage: linux_nano.py <minishell> <app-dir>", file=sys.stderr)
         return 2
@@ -68,7 +68,10 @@ def main() -> int:
             transcript = bytearray()
             try:
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
-                os.write(master_fd, b"nano /sd/note.txt\n")
+                if relative:
+                    os.write(master_fd, b"cd /sd\n")
+                    transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+                os.write(master_fd, b"nano note.txt\n" if relative else b"nano /sd/note.txt\n")
                 transcript.extend(read_until(master_fd, b"New file", 3.0))
 
                 os.write(master_fd, b"abc")
@@ -78,6 +81,11 @@ def main() -> int:
 
                 os.write(master_fd, b"\x18")  # Ctrl-X: exit
                 transcript.extend(read_until(master_fd, b"M$> ", 3.0))
+                if relative:
+                    os.write(master_fd, b"pwd\n")
+                    result = read_until(master_fd, b"M$> ", 3.0)
+                    assert b"/sd\r\n" in result, result
+                    transcript.extend(result)
                 os.write(master_fd, b"exit\n")
 
                 return_code = process.wait(timeout=3.0)
@@ -107,4 +115,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main() or main(relative=True))

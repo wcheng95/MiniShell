@@ -788,6 +788,9 @@ target_include_directories(resident_settings_unit PRIVATE include core)
 target_compile_options(resident_settings_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME resident_settings_unit COMMAND resident_settings_unit)
 
+add_test(NAME linux_cwd COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/linux_cwd.py
+    $<TARGET_FILE:minishell> $<TARGET_FILE_DIR:hello>)
+
 add_test(NAME linux_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/linux_startup.py
     $<TARGET_FILE:minishell> $<TARGET_FILE_DIR:hello>)
 

@@ -167,6 +167,11 @@ typedef struct {
 void minishell_services_set_resource_limits(const minishell_resource_limits_t *limits);
 void minishell_services_configure(const minishell_services_port_t *port);
 
+/* Private resident Filesystem session interface; not part of mini_fs_api_t. */
+#define MINISHELL_FILESYSTEM_PATH_CAP 512u
+mini_result_t minishell_filesystem_cwd_set(const char *path);
+mini_result_t minishell_filesystem_cwd_get(char *out, size_t capacity);
+
 /* Foreground application lifecycle hooks used by the app manager. */
 void minishell_services_app_begin(void);
 void minishell_services_app_end(void);

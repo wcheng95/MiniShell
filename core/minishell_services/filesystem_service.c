@@ -6,6 +6,32 @@
                              MINI_FS_EXCL | MINI_FS_TRUNC | MINI_FS_APPEND)
 
 static bool s_available;
+static char s_cwd[MINI_FS_NORMALIZED_PATH_MAX] = "/";
+
+mini_result_t minishell_filesystem_cwd_get(char *out, size_t capacity)
+{
+    if (out == NULL || capacity == 0u) return MINI_ERR_INVALID;
+    size_t length = strlen(s_cwd);
+    if (capacity <= length) return MINI_ERR_NAME_TOO_LONG;
+    memcpy(out, s_cwd, length + 1u);
+    return MINI_OK;
+}
+
+mini_result_t minishell_filesystem_cwd_set(const char *path)
+{
+    if (!s_available) return MINI_ERR_UNSUPPORTED;
+    char normalized[MINI_FS_NORMALIZED_PATH_MAX];
+    mini_result_t result = filesystem_path_resolve(s_cwd, path, normalized);
+    if (result != MINI_OK) return result;
+    const minishell_services_port_t *port = minishell_services_port();
+    uint32_t type = 0u;
+    uint64_t size = 0u;
+    result = port->fs_stat(port->ctx, normalized, &type, &size);
+    if (result != MINI_OK) return result;
+    if (type != MINI_FS_TYPE_DIRECTORY) return MINI_ERR_NOT_DIR;
+    strcpy(s_cwd, normalized);
+    return MINI_OK;
+}
 
 static mini_result_t validate_flags(uint32_t flags)
 {
@@ -29,7 +55,7 @@ static mini_result_t fs_open(const char *path, uint32_t flags, mini_file_t *out_
     if (result != MINI_OK) return result;
 
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    result = filesystem_path_normalize(path, normalized);
+    result = filesystem_path_resolve(s_cwd, path, normalized);
     if (result != MINI_OK) return result;
 
     uint64_t path_hash = filesystem_path_hash(normalized);
@@ -199,7 +225,7 @@ static mini_result_t fs_stat(const char *path, mini_fs_stat_t *out_stat)
     }
 
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    mini_result_t result = filesystem_path_normalize(path, normalized);
+    mini_result_t result = filesystem_path_resolve(s_cwd, path, normalized);
     if (result != MINI_OK) return result;
 
     uint32_t type = 0u;
@@ -219,9 +245,9 @@ static mini_result_t fs_rename(const char *old_path, const char *new_path)
 
     char old_normalized[MINI_FS_NORMALIZED_PATH_MAX];
     char new_normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    mini_result_t result = filesystem_path_normalize(old_path, old_normalized);
+    mini_result_t result = filesystem_path_resolve(s_cwd, old_path, old_normalized);
     if (result != MINI_OK) return result;
-    result = filesystem_path_normalize(new_path, new_normalized);
+    result = filesystem_path_resolve(s_cwd, new_path, new_normalized);
     if (result != MINI_OK) return result;
 
     if (strcmp(old_normalized, "/") == 0 || strcmp(new_normalized, "/") == 0) {
@@ -268,7 +294,7 @@ static mini_result_t fs_remove_file(const char *path)
     if (port->fs_remove_file == NULL) return MINI_ERR_UNSUPPORTED;
 
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    mini_result_t result = filesystem_path_normalize(path, normalized);
+    mini_result_t result = filesystem_path_resolve(s_cwd, path, normalized);
     if (result != MINI_OK) return result;
     if (strcmp(normalized, "/") == 0) return MINI_ERR_IS_DIR;
 
@@ -290,7 +316,7 @@ static mini_result_t fs_mkdir(const char *path)
     if (port->fs_mkdir == NULL) return MINI_ERR_UNSUPPORTED;
 
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    mini_result_t result = filesystem_path_normalize(path, normalized);
+    mini_result_t result = filesystem_path_resolve(s_cwd, path, normalized);
     if (result != MINI_OK) return result;
     if (strcmp(normalized, "/") == 0) return MINI_ERR_EXISTS;
     return port->fs_mkdir(port->ctx, normalized);
@@ -303,7 +329,7 @@ static mini_result_t fs_rmdir(const char *path)
     if (port->fs_rmdir == NULL) return MINI_ERR_UNSUPPORTED;
 
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    mini_result_t result = filesystem_path_normalize(path, normalized);
+    mini_result_t result = filesystem_path_resolve(s_cwd, path, normalized);
     if (result != MINI_OK) return result;
     if (strcmp(normalized, "/") == 0) return MINI_ERR_ACCESS;
 
@@ -326,7 +352,7 @@ static mini_result_t fs_dir_open(const char *path, mini_dir_t *out_dir)
     }
 
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    mini_result_t result = filesystem_path_normalize(path, normalized);
+    mini_result_t result = filesystem_path_resolve(s_cwd, path, normalized);
     if (result != MINI_OK) return result;
 
     uint32_t index = filesystem_handles_find_free_dir();
@@ -411,7 +437,7 @@ static mini_result_t fs_space(const char *path, mini_fs_space_t *out_space)
     uint64_t limit = minishell_storage_limit_bytes();
 
     char normalized[MINI_FS_NORMALIZED_PATH_MAX];
-    mini_result_t result = filesystem_path_normalize(path, normalized);
+    mini_result_t result = filesystem_path_resolve(s_cwd, path, normalized);
     if (result != MINI_OK) return result;
 
     uint32_t type = 0u;
@@ -466,6 +492,7 @@ void minishell_filesystem_service_configure(void)
     const minishell_services_port_t *port = minishell_services_port();
     filesystem_handles_reset();
     filesystem_quota_reset();
+    strcpy(s_cwd, "/");
 
     s_available = port->fs_open != NULL && port->fs_close != NULL &&
                   port->fs_read != NULL && port->fs_write != NULL &&

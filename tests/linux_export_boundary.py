@@ -31,7 +31,7 @@ def main():
     assert private_symbol not in exports, "private helper is exported"
     private_family = re.compile(
         r"^(filesystem_handles_|filesystem_path_|filesystem_quota_|"
-        r"minishell_services_|minishell_.*_service_|linux_)"
+        r"minishell_filesystem_cwd_|minishell_services_|minishell_.*_service_|linux_)"
     )
     leaked = sorted(symbol for symbol in exports if private_family.match(symbol))
     assert not leaked, f"private dynamic exports: {leaked}"

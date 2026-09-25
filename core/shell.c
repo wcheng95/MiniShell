@@ -37,7 +37,7 @@ static int is_shell_space(char ch)
 
 static bool is_builtin(const char *name, size_t length)
 {
-    static const char *const names[] = {"exit", "help", "status", "apps", "run"};
+    static const char *const names[] = {"exit", "help", "status", "apps", "run", "cd", "pwd"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
         if (strlen(names[i]) == length && memcmp(names[i], name, length) == 0) return true;
     return false;
@@ -134,6 +134,8 @@ static void cmd_help(void)
 {
     shell_write(
         "help              show this help\n"
+        "cd <path>         change session working directory\n"
+        "pwd               show session working directory\n"
         "status            show minishell platform/service status\n"
         "apps              list installed applications\n"
         "run <app> [...]   run an application\n"
@@ -202,6 +204,24 @@ static bool execute_line(char *line)
     if (argc == 0) return false;
 
     if (strcmp(argv[0], "exit") == 0) return true;
+    if (strcmp(argv[0], "cd") == 0) {
+        if (argc != 2) shell_write("usage: cd <path>\n");
+        else {
+            mini_result_t result = minishell_filesystem_cwd_set(argv[1]);
+            if (result != MINI_OK) shell_printf("cd: cannot change directory (%ld)\n", (long)result);
+        }
+        return false;
+    }
+    if (strcmp(argv[0], "pwd") == 0) {
+        if (argc != 1) shell_write("usage: pwd\n");
+        else {
+            char cwd[MINISHELL_FILESYSTEM_PATH_CAP];
+            mini_result_t result = minishell_filesystem_cwd_get(cwd, sizeof(cwd));
+            if (result != MINI_OK) shell_printf("pwd: failed (%ld)\n", (long)result);
+            else { shell_write(cwd); shell_write("\n"); }
+        }
+        return false;
+    }
     if (strcmp(argv[0], "help") == 0) {
         cmd_help();
         return false;

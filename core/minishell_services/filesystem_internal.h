@@ -7,7 +7,7 @@
 
 #define MINI_FS_MAX_OPEN_FILES 32u
 #define MINI_FS_MAX_OPEN_DIRS 16u
-#define MINI_FS_NORMALIZED_PATH_MAX 512u
+#define MINI_FS_NORMALIZED_PATH_MAX MINISHELL_FILESYSTEM_PATH_CAP
 
 typedef struct {
     minishell_backend_file_t backend;
@@ -26,6 +26,8 @@ typedef struct {
 /* Path helpers: pure MiniShell namespace mechanics. */
 uint64_t filesystem_path_hash(const char *text);
 mini_result_t filesystem_path_normalize(const char *path, char *out);
+/* cwd must already be canonical; outputs are always absolute. */
+mini_result_t filesystem_path_resolve(const char *cwd, const char *path, char *out);
 mini_result_t filesystem_path_join_child(const char *parent,
                                          const char *name,
                                          char *out);

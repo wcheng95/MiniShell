@@ -207,10 +207,26 @@ Built-in commands:
 help
 status
 apps
+cd <path>
+pwd
 run <app> [...]
 <app> [...]
 exit
 ```
+
+The session working directory starts at `/`. Use `cd <path>` and `pwd` to change
+or display it. Startup commands and foreground apps share it; returning from an
+app preserves it. Public Filesystem calls accept relative paths, for example:
+
+```text
+cd /flash/ft8
+ls .
+nano setting.txt
+cp setting.txt /sd/backup.txt
+```
+
+`cd` requires an existing directory; a failed change leaves CWD unchanged.
+`cp`/`mv` still require explicit destination paths. CWD is not persisted.
 
 Aliases are loaded from:
 

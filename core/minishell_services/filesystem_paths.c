@@ -12,20 +12,14 @@ uint64_t filesystem_path_hash(const char *text)
     return hash;
 }
 
-mini_result_t filesystem_path_normalize(const char *path, char *out)
+static mini_result_t normalize_tail(const char *path, char *out, size_t out_len)
 {
-    if (path == NULL || out == NULL || path[0] != '/') return MINI_ERR_INVALID;
-
-    uint32_t out_len = 1u;
-    out[0] = '/';
-    out[1] = '\0';
-
     const char *p = path;
     while (*p == '/') ++p;
     while (*p != '\0') {
         const char *start = p;
         while (*p != '\0' && *p != '/') ++p;
-        uint32_t len = (uint32_t)(p - start);
+        size_t len = (size_t)(p - start);
 
         if (len == 1u && start[0] == '.') {
             /* Ignore current-directory components. */
@@ -37,7 +31,7 @@ mini_result_t filesystem_path_normalize(const char *path, char *out)
             if (out_len == 0u) out_len = 1u;
             out[out_len] = '\0';
         } else if (len > 0u) {
-            uint32_t need = out_len + (out_len > 1u ? 1u : 0u) + len + 1u;
+            size_t need = out_len + (out_len > 1u ? 1u : 0u) + len + 1u;
             if (need > MINI_FS_NORMALIZED_PATH_MAX) return MINI_ERR_NAME_TOO_LONG;
             if (out_len > 1u) out[out_len++] = '/';
             memcpy(&out[out_len], start, len);
@@ -48,6 +42,25 @@ mini_result_t filesystem_path_normalize(const char *path, char *out)
         while (*p == '/') ++p;
     }
     return MINI_OK;
+}
+
+mini_result_t filesystem_path_normalize(const char *path, char *out)
+{
+    if (path == NULL || out == NULL || path[0] != '/') return MINI_ERR_INVALID;
+    out[0] = '/';
+    out[1] = '\0';
+    return normalize_tail(path, out, 1u);
+}
+
+mini_result_t filesystem_path_resolve(const char *cwd, const char *path, char *out)
+{
+    if (path == NULL || out == NULL || path[0] == '\0') return MINI_ERR_INVALID;
+    if (path[0] == '/') return filesystem_path_normalize(path, out);
+    /* Seed normalization with canonical CWD instead of concatenating raw input:
+     * a long spelling with repeated separators/dot components may still fit. */
+    size_t length = strlen(cwd);
+    memcpy(out, cwd, length + 1u);
+    return normalize_tail(path, out, length);
 }
 
 mini_result_t filesystem_path_join_child(const char *parent,

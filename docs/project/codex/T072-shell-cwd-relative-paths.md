@@ -1,6 +1,6 @@
 # T072 — Resident CWD, cd/pwd, and relative filesystem paths
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -386,17 +386,126 @@ do not open a PR unless asked.
 
 ### Implementation summary
 
+Implemented from current `origin/main` at
+`1070b389303839f707560fd1729cecdb71fbbf46` on the requested branch.
+
+The portable Filesystem service owns a canonical session CWD. It resets to `/`
+on configuration, survives foreground app begin/end, and is accessed by private
+core get/set functions. Set resolves its argument and validates an existing
+directory before replacing CWD. Every public path-taking operation uses the same
+resolver, including both rename paths, before backend access and path hashing.
+Absolute paths retain the existing normalization path; relative normalization is
+seeded with CWD without constructing an unbounded intermediate string.
+
+The shared shell dispatcher implements `cd <path>` and `pwd`, with exact argument
+counts, concise errors, help text and built-in alias precedence. Startup uses that
+same dispatcher. No shell argv rewriting or public API extension.
+
+One minimal application adjustment was necessary for the packet's explicit
+`nano setting.txt` requirement: nano previously rejected non-absolute arguments
+before calling FS. It now accepts a nonempty path and delegates all resolution to
+the Filesystem service. No application-specific CWD or path resolver was added.
+This implements the required scope example, not an architecture deviation.
+
 ### Files changed
+
+- `core/minishell_services/filesystem_paths.c`, `filesystem_internal.h`: common
+  absolute/relative normalization and shared private path bound.
+- `core/minishell_services/filesystem_service.c`, `minishell_services.h`: session
+  CWD state, private get/set and resolution in all path-taking operations.
+- `core/shell.c`: shared-dispatch `cd`/`pwd`, help and built-in precedence.
+- `apps/nano/main/nano.c`: allow nonempty relative path arguments; update usage.
+- `tests/unit/test_filesystem.c`: CWD operations/lifetime, relative operations,
+  ownership aliases, root protection and path bounds; update two obsolete
+  relative-path rejection expectations to normal backend not-found results.
+- `tests/linux_cwd.py`, root `CMakeLists.txt`: real runtime/app integration test.
+- `tests/linux_nano.py`: preserve absolute save test and additionally exercise
+  relative save and CWD after nano exit.
+- `tests/linux_export_boundary.py`: include private CWD symbols in export checks.
+- `tests/shell_alias_test.c`, `resident_boot_test.c`: private CWD stubs for existing
+  isolated shell/runtime tests; real semantics covered by FS and Linux tests.
+- `README.md`, `docs/README.md`, `docs/api/filesystem-api.md`: public semantic
+  extension, resident commands, lifecycle, examples and unchanged destination rules.
+- This task packet: implementation and handoff evidence.
 
 ### Invariants preserved
 
+`include/minishell/api.h` is unchanged: API v3 and table layouts are identical.
+Backend Filesystem callbacks continue to receive canonical absolute logical
+paths. The hash and quota layers still see resolved absolute paths; readers and
+writers cannot bypass ownership via relative/absolute spellings. Root destructive
+operation checks and root-escape rejection remain intact. The 512-byte path buffer
+includes the terminator; no truncation or heap allocation was added.
+
+CWD adds one 512-byte resident buffer. It is not app-owned, persisted, or exposed
+as a public application capability. Alias/settings files remain absolute. App
+handle cleanup remains unchanged. WebFS production code, startup sequencing,
+foreground blocking and alias expansion depth remain unchanged. No platform
+backend changes. `cp`/`mv` directory destinations, interactive shell parsing,
+HOME expansion, history and completion remain outside scope.
+
 ### Local tests run
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R 'linux_cwd|linux_nano|linux_export|alias|resident_|linux_startup|adv_webfs'
+# PASS: 14/14 focused tests.
+cmake -S tests/unit -B /tmp/T072-unit
+cmake --build /tmp/T072-unit -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T072-unit --output-on-failure
+# PASS: 27/27, including expanded Filesystem service unit tests.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Initial run: 122/123; serial PTY timeout assertion failed at linux_serial_test.c:67.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R '^linux_serial_unit$'
+# PASS: immediate focused rerun 1/1.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: final full run 123/123 (59.52 seconds).
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: real firmware 0x1527d0 bytes; app partition 78% free. No flashing.
+git diff --check
+# PASS
+```
+
+ADV compilation retained existing SDK/M5/ELF-loader pedantic warnings and
+completed successfully.
+
+The initial full suite hit the same PTY full-output-queue timeout/zero-byte
+assertion recorded during T069. Its focused rerun passed immediately. Serial
+implementation/test code is unchanged; no assertion was relaxed.
+
+Focused coverage checks default/reset/preserved CWD, failed changes, get-buffer
+bounds, every relative FS operation, both rename paths, quota and native space
+queries, 511-byte paths and overflow, dot/parent/root behavior, and writer alias
+collisions in both directions. Linux integration verifies built-in precedence,
+aliases targeting cd/pwd, startup CWD inheritance, portable cat/ls/cp/mv/mkdir/rm/
+rmdir, command usage errors, file/missing cd failure preservation, app returns and
+new-session reset. The nano PTY test covers actual relative editing/save/exit as
+well as its original absolute-path flow.
 
 ### Manual/hardware validation still required
 
+After supervisor review, on ADV verify initial `pwd`, `cd /flash/ft8`, `pwd`,
+`ls .`, and `nano setting.txt`; exit nano and confirm CWD remains `/flash/ft8`.
+Confirm failed cd leaves it unchanged. No hardware flashed or exercised here;
+no QMX/RF validation required.
+
 ### Known limitations / risks
 
+CWD is a single session path, not an open directory handle. Removing its directory
+or losing its volume can make subsequent relative operations fail until a valid
+absolute cd; no new volume/mount policy was added. Shell input remains limited to
+255 bytes even though the Filesystem path bound is 511 bytes. Apps with their own
+path policies may still choose absolute paths. `ls` without arguments retains
+its existing root default; use `ls .` for CWD. Hardware acceptance is pending.
+
 ### Commit
+
+One implementation commit titled `T072: add session CWD and relative filesystem paths`,
+parent `1070b389303839f707560fd1729cecdb71fbbf46`, on
+`codex/T072-shell-cwd-relative-paths`. Exact pushed SHA is returned in the handoff.
+No merge or PR.
 
 ## Supervisor review
 

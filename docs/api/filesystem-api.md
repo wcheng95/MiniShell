@@ -22,11 +22,14 @@ The Filesystem service owns application-visible paths, file/directory handles, n
 
 ## Logical namespace
 
-Paths are absolute MiniShell paths:
+Paths may be absolute MiniShell paths or relative to the session current working
+directory (CWD):
 
 ```text
 /sd/log.txt
 /flash/config.ini
+setting.txt
+../backup.txt
 ```
 
 Rules implemented by the portable service include:
@@ -37,6 +40,30 @@ Rules implemented by the portable service include:
 - `..` normalized but may not escape `/`;
 - no platform path syntax crosses the API;
 - root is protected from destructive namespace operations.
+
+The portable Filesystem service owns one RAM-only session CWD, initially `/`.
+Resident `cd <path>` changes it after resolving the path and verifying an existing
+directory; failures leave it unchanged. `pwd` prints its canonical absolute path.
+These are shell built-ins using private service functions, not public FS function
+pointers. The public API layout and version remain unchanged.
+
+Startup commands and the interactive shell share this CWD. Each foreground app
+inherits it through Filesystem calls; app entry/exit and handle cleanup do not
+reset it. Fresh service/session configuration resets it to `/`.
+
+All path-taking operations (`open`, `stat`, both `rename` paths, `remove_file`,
+`mkdir`, `rmdir`, `dir_open`, and `space`) resolve relative paths against CWD and
+normalize them before any backend call, path hash or accounting decision. With
+CWD `/flash/ft8`, `setting.txt` resolves to `/flash/ft8/setting.txt`, `.` resolves
+to `/flash/ft8`, and `../minishell` resolves to `/flash/minishell`. Absolute paths
+retain their prior semantics. Backends always receive normalized absolute logical
+paths, and relative/absolute aliases share the existing writer-exclusion rules.
+
+Null/empty paths and attempts to escape logical `/` return `MINI_ERR_INVALID`.
+The existing normalized-path bound is 511 bytes plus a terminator; overlong
+paths fail with `MINI_ERR_NAME_TOO_LONG`, never truncation. Platform component
+limits still apply. No HOME/tilde expansion, globbing or per-app CWD is added.
+`cp` and `mv` keep their existing explicit destination-path semantics.
 
 Linux maps this namespace under a private host root (normally `~/.local/share/minishell/fs`) but applications never see that path.
 
@@ -202,7 +229,7 @@ Linux and unit tests exercise:
 - replacement storage-quota accounting;
 - exclusive writable-open ownership of normalized paths, including read/write alias protection;
 - writable-handle protection around rename;
-- path normalization and root escape protection;
+- absolute/relative path normalization, CWD lifetime, and root escape protection;
 - handle lifecycle/cleanup;
 - directory open/read/close and file/directory classification;
 - portable `ls` including root `/sd` and `/flash` presentation;
@@ -213,7 +240,6 @@ Linux and unit tests exercise:
 No current portable requirement justifies:
 
 ```text
-working directory / cd
 wildcards/globbing
 permissions/ownership
 links
