@@ -1,6 +1,6 @@
 # T078 — Tab-gated pathname longest-prefix expansion
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect revision — Tab guard (2026-09-24)
 
@@ -1000,18 +1000,26 @@ this final interaction check.
 
 ## Architect test result
 
-Initial ADV typed-entry validation passed on 2026-09-24 before the debounce
-correction:
+Final Tab-gated T078 behavior passed manual validation on ADV and pc-1 on
+2026-09-24.
 
-- absolute pathname expansion;
-- relative pathname expansion;
-- longest-common-prefix behavior;
-- T076 history/cursor controls;
-- T077 blinking cursor placement;
-- Ctrl scrollback.
+Accepted behavior:
 
-That established the core expansion behavior on real ADV hardware.
+```text
+typing / paste     literal only
+Tab                pathname longest-prefix expansion
+```
 
-The corrected 25 ms paste-safe implementation changes the ADV input timing path,
-so final T078 acceptance still requires a short ADV regression check on the
-corrected build plus pc-1 interactive validation.
+Verified:
+
+- `cd /f` remains literal until Tab;
+- Tab expands to `/flash` when that is the longest unambiguous prefix;
+- relative pathname completion works;
+- ambiguous names expand only to their longest common prefix;
+- complete pasted paths remain unchanged;
+- command names and arbitrary bare non-path arguments are not completed;
+- ADV history/cursor/scrollback controls remain intact;
+- T077 blinking cursor follows the expanded insertion point;
+- pc-1 terminal editing remains normal.
+
+Result: **PASS. T078 COMPLETE.**
