@@ -1,6 +1,6 @@
 # T069 — MiniShell resident startup and brightness settings
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -470,8 +470,47 @@ handoff. No merge or PR.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and
-local test evidence.
+Reviewed `main..6be131b9784372b4639d9a48cd75fc6fb3c6801d` against T069, `AGENTS.md`,
+the resident configuration ownership rule, and the public API boundary.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- one bounded implementation commit, exactly one commit ahead of the T069 task
+  baseline and no unrelated feature work;
+- resident startup parsing is core-owned, bounded to 1,024 bytes, and introduces
+  no heap allocation or public Config service;
+- interactive and startup commands share the same normal dispatcher, preserving
+  alias semantics, built-ins, synchronous app lifecycle and normal diagnostics;
+- startup-only behavior is limited to literal `;` sequencing; interactive shell
+  syntax did not gain semicolon parsing or other scripting features;
+- foreground app return ordering, failure continuation, empty/repeated segments,
+  startup `exit` handling, alias live reload and overlong-command rejection are
+  covered by focused tests;
+- brightness remains a private platform boot policy; ADV performs the 1..100 to
+  native display mapping and Linux intentionally ignores it;
+- `include/minishell/api.h` has the identical blob SHA on the reviewed parent and
+  implementation commit (`13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0`);
+- WebFS production code is unchanged and its combined-settings regression test
+  passes;
+- the initial `linux_serial_unit` PTY timeout is not in a changed code path and
+  passed immediately on focused rerun; the final full suite passed 122/122.
+
+Accepted local evidence:
+
+```text
+focused tests: 13/13 PASS
+final Linux CTest: 122/122 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+No blocking review finding. `main` was fast-forwarded to
+`6be131b9784372b4639d9a48cd75fc6fb3c6801d`.
+
+Remaining gate: architect hardware validation on ADV exactly as specified in the
+Manual / hardware validation section.
 
 ## Architect test result
 
