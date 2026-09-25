@@ -1,6 +1,6 @@
 # T077 — ADV blinking resident edit cursor
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -459,7 +459,63 @@ in the Codex handoff (this packet is included in that commit).
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and test evidence.
+Reviewed `main..50874626a20cace05a516e2c2f8d2fbed40a872f` against T077,
+the accepted T075/T076 editor/keymap behavior, and the current ADV console
+retention/display ownership.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- exactly one bounded implementation commit, one commit ahead of the T077 task baseline;
+- blink timing is owned by the existing resident ADV input loop and uses
+  `adv_monotonic_us()`; no task, timer, worker or heap allocation was added;
+- the display owns only transient cursor presentation and cursor-follow viewport;
+  core history/editor state remains the single semantic cursor owner;
+- cursor rendering XORs the temporary overlay with the underlying inverse
+  attribute, so colored/inverse cells retain their original attribute state;
+- cursor blink toggles only the affected TFT cell and emits no USB traffic;
+- edit actions rebuild the line from the existing snapshot, force the cursor
+  visible, and restart the 500 ms phase;
+- end-of-line and exact 20-column boundary geometry are covered;
+- long-command viewport math accounts for temporary retained-ring eviction and
+  keeps every cursor position in the seven-row viewport without mutating the
+  50-row retained history;
+- manual output scrollback suppresses the overlay; the next edit restores a view
+  containing the insertion point;
+- Enter/EOF call the edit-end path before leaving resident input, so foreground
+  app Display ownership cannot inherit a stale cursor;
+- public API is byte-for-byte unchanged
+  (`13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0`);
+- shared editor/history is byte-for-byte unchanged:
+  - `shell_editor.c`: `b17fa770aa9c4bba2702b30a6eabbc1a5cf61cff`
+  - `shell_editor.h`: `a4f15ffc468eb5fc16942cd648588cfff99749b9`;
+- ADV keyboard/T076 mapping is byte-for-byte unchanged
+  (`5afceeb97b3fee479b2a30238286dc0083607b44`);
+- Linux resident editor path is byte-for-byte unchanged
+  (`5b2bb83337c8509009ee76ecc037f9b66caca1bf`).
+
+Accepted local evidence:
+
+```text
+ADV console/renderer host test: PASS
+final Linux CTest rerun: 125/125 PASS
+portable unit tests: 28/28 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+The initial `linux_serial_unit` PTY saturation failure is the previously
+documented intermittent serial flake; serial implementation/tests were unchanged
+and the focused retry plus final full rerun passed.
+
+No blocking review finding. `main` was fast-forwarded to
+`50874626a20cace05a516e2c2f8d2fbed40a872f`.
+
+Remaining gate: ADV hardware validation of cursor readability/blink timing,
+Fn-based middle editing, wrapped/long command following, Ctrl scrollback
+suppression, and clean cursor removal on Enter/app handoff. No QMX/RF validation
+is required.
 
 ## Architect test result
 
