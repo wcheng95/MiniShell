@@ -1,6 +1,6 @@
 # T079 — Tab shows ambiguous pathname choices
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -631,7 +631,65 @@ in the Codex handoff; this packet is part of that commit.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and test evidence.
+Reviewed `main..944dc0abae073707410e4f4144370512e81f302b` against the
+revised T079 contract, including the two-pass failure rule.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- first Tab still performs only T078 longest-prefix expansion;
+- listing occurs only when the current prefix cannot grow and 2+ valid matches remain;
+- shared context parsing/filtering is centralized in `core/shell_completion.*`;
+- validation pass emits nothing and suppresses all validation failures;
+- output pass streams choices in backend enumeration order without candidate buffering;
+- output-pass failures before the first emitted choice remain invisible;
+- output-pass failures after emitted choices stop listing and allow the already printed choices to remain visible, then restore the unchanged editor;
+- candidate directory names receive a display-only trailing `/`;
+- candidate listing preserves the full `shell_editor_t` byte-for-byte;
+- Linux remains in the same raw input session and redraws the same line/cursor;
+- ADV discards only the transient edit rendering before ordinary console output, then captures a fresh prompt snapshot and restores the original editor/cursor/blink;
+- candidate output enters the normal ADV 50-row retained console and USB route;
+- repeated Tab listing is stateless and may list again;
+- no sorting, cache, pager, cycling, timing state, heap, worker or public API change.
+
+Protected boundaries verified unchanged:
+
+```text
+include/minishell/api.h                  13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0
+core/shell_editor.c                      b17fa770aa9c4bba2702b30a6eabbc1a5cf61cff
+core/shell_editor.h                      a4f15ffc468eb5fc16942cd648588cfff99749b9
+core/minishell_services/filesystem_service.c
+                                         315854e9b7c73c5dead0542d084221ad5feeeb4b
+platform/adv/adv_keyboard.cpp            5afceeb97b3fee479b2a30238286dc0083607b44
+```
+
+`platform/adv/adv_display.cpp` intentionally gains only the private
+`adv_display_console_edit_discard()` operation required to restore the retained
+prompt snapshot before candidate output; application Display ownership is not changed.
+
+Accepted local evidence:
+
+```text
+focused T079 tests: 3/3 PASS
+Linux CTest: 126/126 PASS
+portable unit tests: 29/29 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+Additional useful automated coverage includes 100 streamed candidates, a
+255-byte ADV draft, repeated listing, Ctrl scrollback, USB non-replay, directory
+markers, middle-cursor restoration, and both validation/output-pass failures.
+
+`main` was fast-forwarded to:
+
+```text
+944dc0abae073707410e4f4144370512e81f302b
+```
+
+Remaining gate: manual ADV and pc-1 validation of candidate readability, prompt
+restoration, cursor/blink, scrollback, and Enter-after-listing behavior.
 
 ## Architect test result
 
