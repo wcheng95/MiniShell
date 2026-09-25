@@ -1,6 +1,6 @@
 # T078 — Eager pathname longest-prefix expansion
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -788,6 +788,81 @@ still fires after the debounce with the expected longest-prefix result.
 Do not merge `20c58587c5a45c1a102d9af4fd0d1896b1d0fabf` as-is. Amend/fix the
 T078 branch and return a new review SHA.
 
+## Supervisor correction review
+
+Reviewed corrected SHA `67c6a50ebfcc9a057af2f44b63334762c0f6bf23` against the
+paste-safety block above.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- 25 ms idle debounce is shared through `shell_completion_pending_t` helpers;
+- Linux integrates the deadline into its existing `poll()` timeout;
+- ADV uses the existing 5 ms loop and monotonic clock;
+- every incoming byte cancels pending work before decoding;
+- only a successful printable insertion rearms the deadline;
+- queued ADV USB bytes take priority even if redraw time exceeds 25 ms;
+- Enter/EOF/control/navigation/delete actions cannot leave stale completion work;
+- full absolute/nested/relative pasted paths remain exact in Linux PTY and ADV
+  USB host tests;
+- delayed human typing still triggers eager longest-prefix expansion;
+- the matcher policy remains one shared core implementation using public
+  Filesystem `dir_open/dir_read/dir_close` only;
+- no command/alias/app-name completion was added;
+- public API is unchanged
+  (`13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0`);
+- shared editor/history is unchanged:
+  - `shell_editor.c`: `b17fa770aa9c4bba2702b30a6eabbc1a5cf61cff`
+  - `shell_editor.h`: `a4f15ffc468eb5fc16942cd648588cfff99749b9`;
+- T072 filesystem/CWD service is unchanged
+  (`315854e9b7c73c5dead0542d084221ad5feeeb4b`);
+- ADV keyboard mapping is unchanged
+  (`5afceeb97b3fee479b2a30238286dc0083607b44`);
+- T077 ADV renderer is unchanged
+  (`e9098681919250d24d2a484dff08e148f84e5570`).
+
+Accepted local evidence:
+
+```text
+focused correction tests: PASS
+Linux CTest: 126/126 PASS
+portable unit tests: 29/29 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+The documented `linux_serial_unit` failure remains the pre-existing intermittent
+PTY saturation flake; serial code/tests were unchanged and the final full suite
+passed.
+
+`main` integrated the corrected implementation with merge commit:
+
+```text
+e3fa0a752b8277080f98508717ae892c6ffd8eac
+```
+
+The merge was required because the architect ADV validation note and the amended
+Codex implementation were sibling commits from the same blocked-review baseline.
+
+Remaining gate: corrected-build manual validation on pc-1 and a short ADV
+regression check because the paste-safe fix changes interactive input timing.
+
+
 ## Architect test result
 
-Record ADV/pc-1 pathname auto-expansion validation here.
+Initial ADV typed-entry validation passed on 2026-09-24 before the debounce
+correction:
+
+- absolute pathname expansion;
+- relative pathname expansion;
+- longest-common-prefix behavior;
+- T076 history/cursor controls;
+- T077 blinking cursor placement;
+- Ctrl scrollback.
+
+That established the core expansion behavior on real ADV hardware.
+
+The corrected 25 ms paste-safe implementation changes the ADV input timing path,
+so final T078 acceptance still requires a short ADV regression check on the
+corrected build plus pc-1 interactive validation.
