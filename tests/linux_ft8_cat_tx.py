@@ -15,7 +15,7 @@ from linux_ft8_config_load import read_until
 def main():
     minishell, apps = map(os.path.abspath, sys.argv[1:])
     with tempfile.TemporaryDirectory(prefix="ft8-cat-tx-") as temp:
-        station = Path(temp) / "flash/ft8/station.txt"
+        station = Path(temp) / "flash/ft8/setting.txt"
         station.parent.mkdir(parents=True)
         original = "callsign=AG6AQ\ngrid=CM97\nband=3\n"
         station.write_text(original)
