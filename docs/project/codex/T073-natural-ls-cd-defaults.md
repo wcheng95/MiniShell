@@ -1,6 +1,6 @@
 # T073 — Natural bare ls and cd defaults
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -321,7 +321,43 @@ No merge or PR.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and local test evidence.
+Reviewed `main..d792a920538f8c5d99852a88643a76e5450df8df` against T073,
+`AGENTS.md`, the completed T072 CWD design, and the current public API boundary.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- exactly one bounded implementation commit, one commit ahead of the T073 task baseline;
+- bare `ls` changes only its omitted-path default from `/` to `.`;
+- explicit `ls /` retains the established special root presentation;
+- bare `cd` maps only the omitted path to `/`; explicit `cd <path>` and
+  multi-argument usage behavior remain unchanged;
+- startup bare `cd` naturally reuses the same shell dispatcher;
+- alias precedence, app lifecycle, Filesystem semantics, relative-path resolution,
+  hidden filtering and directory suffix behavior are unchanged;
+- the T072 Filesystem/CWD implementation is byte-for-byte unchanged (blob
+  `315854e9b7c73c5dead0542d084221ad5feeeb4b`);
+- `include/minishell/api.h` is byte-for-byte unchanged (blob
+  `13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0`).
+
+Accepted local evidence:
+
+```text
+focused tests: 7/7 PASS
+final Linux CTest: 123/123 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+The intermittent `linux_serial_unit` PTY failure occurred in unchanged serial code,
+and the final full suite passed after rerun; no serial test or implementation was modified.
+
+No blocking review finding. `main` was fast-forwarded to
+`d792a920538f8c5d99852a88643a76e5450df8df`.
+
+Remaining gate: architect ADV validation that bare `ls` lists CWD, bare `cd`
+returns to `/`, and explicit `ls /` retains its root presentation.
 
 ## Architect test result
 
