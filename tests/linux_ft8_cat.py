@@ -17,7 +17,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="ft8-cat-") as temp:
         flash = Path(temp) / "flash"
         (flash / "ft8").mkdir(parents=True)
-        (flash / "ft8" / "station.txt").write_text("callsign=AG6AQ\ngrid=CM97\nband=1\n")
+        (flash / "ft8" / "setting.txt").write_text("callsign=AG6AQ\ngrid=CM97\nband=1\n")
         with wave.open(str(flash / "ui.wav"), "wb") as fixture:
             fixture.setparams((2, 2, 12000, 0, "NONE", "not compressed"))
             fixture.writeframes(b"\0" * 4)
