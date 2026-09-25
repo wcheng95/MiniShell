@@ -1,6 +1,6 @@
 # T075 — 10-command editable resident shell history
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -686,5 +686,13 @@ edit cursor.
 
 ADV side: **PASS**.
 
-Remaining T075 gate: pc-1/Linux interactive sanity validation of Up/Down history,
-Left/Right editing, and normal terminal restoration around a foreground app.
+pc-1/Linux interactive validation passed on 2026-09-24:
+
+- Up/Down command-history navigation works;
+- Left/Right editing works;
+- normal terminal behavior is restored around foreground application use.
+
+Together with T076/T077 ADV acceptance, the complete resident editable-history
+feature is now hardware/host accepted.
+
+Result: **PASS. T075 COMPLETE.**
