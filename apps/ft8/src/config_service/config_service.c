@@ -163,7 +163,7 @@ bool config_service_serialize(const ConfigService *config, char *out, size_t out
     if (config == NULL || out == NULL || out_size == 0u) return false;
 
     used = snprintf(out, out_size,
-                    "# MiniFT8-V3 station.txt\n"
+                    "# MiniFT8-V3 setting.txt\n"
                     "callsign=%s\n"
                     "grid=%s\n"
                     "profile=%d\n"
