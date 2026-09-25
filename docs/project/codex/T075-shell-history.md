@@ -1,6 +1,6 @@
 # T075 — 10-command editable resident shell history
 
-Status: BLOCKED
+Status: TESTING
 
 ## Architect intent
 
@@ -680,6 +680,11 @@ Fn+,   / Fn+/     edit cursor left/right
 
 Bare `,`, `/`, `;`, and `.` remain printable.
 
-The shared ten-command history/editor itself is accepted so far; final T075
-acceptance is blocked only on the ADV keymap correction tracked by T076.
-pc-1/Linux behavior remains unchanged.
+The shared ten-command history/editor itself is accepted on ADV. T076 and T077
+subsequently corrected and hardware-validated the ADV key mapping and visible
+edit cursor.
+
+ADV side: **PASS**.
+
+Remaining T075 gate: pc-1/Linux interactive sanity validation of Up/Down history,
+Left/Right editing, and normal terminal restoration around a foreground app.
