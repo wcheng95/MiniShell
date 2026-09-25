@@ -1,6 +1,6 @@
 # T077 — ADV blinking resident edit cursor
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -519,4 +519,13 @@ is required.
 
 ## Architect test result
 
-Record ADV cursor validation here.
+ADV hardware validation passed on 2026-09-24.
+
+Verified the blinking inverse-cell cursor on the real Cardputer display, including
+middle-of-command movement/editing with the T076 Fn cursor chords and normal
+resident-shell lifecycle.
+
+Result: **PASS. T077 COMPLETE.**
+
+The physical test also confirms the dependent ADV T076 control mapping remains
+usable with the cursor presentation enabled.
