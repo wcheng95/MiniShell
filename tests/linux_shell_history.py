@@ -3,6 +3,7 @@ import fcntl
 import os
 from pathlib import Path
 import pty
+import select
 import struct
 import subprocess
 import sys
@@ -98,58 +99,67 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
         read_until(master, b"\r\nM$> ", 3)
         submit(b"pwd", b"/\r\n")
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-        # Observe final editable text before submitting, using eager keystrokes.
-        def visible(keys, line):
+        def visible(keys, line, cursor=None):
             os.write(master, keys)
-            return read_until(master, b"\x1b[K" + line + b"\r", 3)
+            position = len(line) if cursor is None else cursor
+            return read_until(master, b"\x1b[K" + line + b"\r\x1b[" +
+                              str(4 + position).encode() + b"C", 3)
 
-        # Let each full paste sit beyond debounce before submission. The final
-        # committed line must match exactly, not just an intermediate redraw.
-        def pasted(line, output=None):
+        def quiet(keys=b""):
+            if keys:
+                os.write(master, keys)
+            # Silence beyond the old idle threshold also rules out automatic redraw.
+            assert not select.select([master], [], [], .1)[0]
+
+        def literal(line, output=None):
             visible(line, line)
-            time.sleep(.08)
+            quiet()
             result = submit(b"", b"\x1b[K" + line + b"\r\n")
             if output is not None:
                 assert output in result, result
 
-        pasted(b"cd /flash")
-        submit(b"pwd", b"/flash\r\n")
-        pasted(b"cat /flash/ft8/setting.txt", b"EXPANDED-FILE")
-        pasted(b"cd /flash/ft8")
-        pasted(b"cat setting.txt", b"EXPANDED-FILE")
-        submit(b"cd")
-        # Human typing pauses between characters; /f still expands while idle.
-        for byte in b"cd /f":
-            os.write(master, bytes([byte]))
-            time.sleep(.05)
-        read_until(master, b"\x1b[Kcd /flash\r", 3)
+        visible(b"cd /f", b"cd /f")
+        quiet()
+        visible(b"\t", b"cd /flash")
         submit(b"")
         submit(b"pwd", b"/flash\r\n")
-        visible(b"cd f", b"cd ft8")
-        submit(b"")
-        submit(b"pwd", b"/flash/ft8\r\n")
-        visible(b"cat s", b"cat setting.txt")
+        literal(b"cat /flash/ft8/setting.txt", b"EXPANDED-FILE")
+        literal(b"cd /flash/ft8")
+        literal(b"cat setting.txt", b"EXPANDED-FILE")
+        visible(b"cat s", b"cat s")
+        quiet()
+        visible(b"\t", b"cat setting.txt")
         submit(b"", b"EXPANDED-FILE")
-        visible(UP, b"cat setting.txt")  # History stores expanded text.
+        visible(UP, b"cat setting.txt")
+        quiet()
         submit(b"\x03")
-        # Pending work cannot expand after navigation, deletion, or Tab.
-        for keys in (b"cat RT" + LEFT + RIGHT, b"cat RTX\x7f",
-                     b"cat RTX" + LEFT + DELETE, b"cat RT\t"):
-            visible(keys, b"cat RT")
-            time.sleep(.08)
-            submit(b"", b"\x1b[Kcat RT\r\n")
-        visible(UP, b"cat RT")
-        time.sleep(.08)
-        submit(b"", b"\x1b[Kcat RT\r\n")
-        visible(b"cat RT", b"cat RT26092")
-        visible(b"\x7f", b"cat RT2609")  # Deleting does not re-expand.
+        visible(b"cat RT", b"cat RT")
+        quiet()
+        visible(b"\t", b"cat RT26092")
+        quiet(b"\t")  # No extra prefix and no candidate listing.
+        visible(b"\x7f", b"cat RT2609")
+        quiet()
         visible(LEFT + RIGHT, b"cat RT2609")
-        visible(b"\t" + b"\x7f", b"cat RT260")  # Tab cannot expand or list choices.
+        quiet()
         submit(b"\x03")
-        visible(b"unknown se", b"unknown se")
+        for line in (b"/f", b"unknown se", b"cat absent"):
+            visible(line, line)
+            quiet(b"\t")
+            submit(b"\x03")
+        visible(b"unknown ./s", b"unknown ./s")
+        quiet()
+        visible(b"\t", b"unknown ./setting.txt")
         submit(b"\x03")
-        visible(b"unknown ./s", b"unknown ./setting.txt")
+        visible(b"cat se", b"cat se")
+        visible(LEFT, b"cat se", 5)
+        quiet(b"\t")  # Mid-token Tab is a no-op.
+        visible(RIGHT, b"cat se")
+        quiet()
+        visible(b"\t", b"cat setting.txt")
         submit(b"\x03")
+        submit(b"cd")
+        literal(b"cd /flash")
+        submit(b"pwd", b"/flash\r\n")
         submit(b"cd")
         os.write(master, b"exit\n")
         assert process.wait(timeout=3) == 0

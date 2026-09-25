@@ -1,6 +1,6 @@
 # T078 — Tab-gated pathname longest-prefix expansion
 
-Status: READY
+Status: REVIEW
 
 ## Architect revision — Tab guard (2026-09-24)
 
@@ -110,7 +110,10 @@ Codex should make this correction from current `main` on the existing branch
 merge or open a PR.
 
 
-## Architect intent
+## Original architect intent (superseded trigger design)
+
+The original packet below is retained as design history. The Tab-guard revision
+above supersedes its eager/debounce trigger requirements.
 
 Add fast pathname entry to the resident MiniShell editor without turning MiniShell
 into a general command-completion shell.
@@ -690,118 +693,97 @@ do not open a PR unless asked.
 
 ### Implementation summary
 
-Added one bounded core pathname matcher using public Filesystem directory
-operations. It determines active token/literal command context, streams matching
-child names into a longest-prefix candidate, closes the handle, checks capacity,
-and inserts the entire suffix at the editor cursor. Errors silently preserve
-typed text. Relative directory spelling is passed unchanged to the public API.
+Implemented the architect's Tab-only revision from current main. Typing and
+pasting are literal; completion has no clock, idle timeout or pending state.
+Removed the shared pending struct/deadline helpers, Linux completion `poll()`
+timeouts, and ADV pending state/idle polling. The existing shared matcher and
+all pathname eligibility/filter/bounds/error rules are unchanged.
 
-Addressed the paste-safety review of `20c5858`: a shared pending deadline waits
-for 25 ms of input idle before matching once. Printable edits redraw immediately
-and arm/refresh the deadline. Any subsequent input cancels pending work; only a
-successful printable insertion rearms it. Navigation, deletion, control bytes,
-partial escape sequences and submission cannot leave an old lookup pending.
-Linux folds the deadline into its existing `poll()` timeout; ADV uses its existing
-5 ms loop and monotonic clock. ADV checks completion only on an input-free
-iteration, so slow redraws cannot expand ahead of queued paste bytes. Only a
-changed expansion causes another redraw,
-which uses the existing T077 cursor reset path.
-
-Full pathname pastes now remain exact. The original nano/FT8 PTY tests and the
-history test's full `cat /sd/partial` input are restored. No tests require
-abbreviating pasted paths to work around duplicated suffixes. The only timing
-change from the original task is the supervisor-requested 25 ms debounce.
+Linux handles `MINI_KEY_TAB` directly. ADV physical `MINI_KEY_TAB` and USB Tab
+byte use the same resident Tab path. Each Tab request invokes the matcher once,
+redrawing only when it changes the line. Tab never inserts whitespace or lists
+candidates. Successful ADV expansion uses the normal T077 redraw and cursor
+restart. No deviations from the revised task.
 
 ### Files changed
 
-- `core/shell_completion.c/.h`: shared pathname policy/matching and bounded
-  pending deadline helpers.
-- `platform/linux/linux_console.c`, `platform/adv/adv_console.c`: deferred
-  printable-input trigger, idle lookup, cancellation and existing redraw paths.
-- `CMakeLists.txt`, `platform/adv/main/CMakeLists.txt`, `tests/unit/CMakeLists.txt`:
-  source and focused test target registration.
-- `tests/shell_completion_test.c`: matching/context/filter/bounds/error coverage
-  plus deterministic deadline refresh, cancellation and one-shot execution.
-- `tests/linux_shell_history.py`: real PTY and Filesystem expansion; exact pasted
-  absolute/nested/relative paths after settling and on submission; delayed human
-  input, longest-prefix result, cancellation on navigation/delete/Tab/history,
-  expanded history and unchanged redirected input.
-- `tests/adv_console_scrollback_test.py`: shared matcher through physical/USB
-  input, exact pasted paths, delayed characters and idle longest-prefix expansion,
-  deterministic cursor/blink reset, cancellation, immediate Enter and output
-  slower than the debounce interval.
-- `docs/api/console-api.md`: pathname expansion and idle/paste semantics.
-- This packet: implementation and review correction evidence.
+- `core/shell_completion.c/.h`: removed debounce state/helpers; matcher unchanged.
+- `platform/linux/linux_console.c`: Tab event trigger; removed completion clock
+  and restored the original input polling behavior.
+- `platform/adv/adv_console.c`: physical/USB Tab trigger; removed idle completion
+  state and restored the original input loop and cursor lifecycle.
+- `tests/shell_completion_test.c`: removed deadline-only tests; retained all
+  matcher, error, resource, filtering and capacity tests.
+- `tests/linux_shell_history.py`: literal typing/full paths, direct Tab expansion,
+  longest prefix, silent no-op Tab, middle-token behavior and history tests.
+- `tests/adv_console_scrollback_test.py`: physical and USB Tab tests, literal input,
+  no lookup on idle/edit/navigation, silent no-op Tab and T077 cursor restart.
+  Removed debounce/slow-redraw tests.
+- `docs/api/console-api.md`: canonical Tab-only pathname behavior.
+- This packet: current implementation notes; prior reviews retained as history.
 
 ### Invariants preserved
 
-Public API/version, Filesystem/CWD service, shared editor/history primitives,
-ADV keyboard mapping and T077 renderer are unchanged. Existing line/history
-capacity, key translation, cursor lifecycle, terminal leases and foreground
-ownership remain. No heap allocation, backend directory calls, persistent cache,
-new task/thread/timer or retained directory handle. Matching policy exists once
-in core. Startup/non-TTY input remains literal. No command/alias/app-name
-completion, automatic slash, quoting or Tab choices.
+The matcher function is unchanged. Public API/version, Filesystem/CWD service,
+shared editor/history, ADV keyboard mapping and T077 renderer remain unchanged.
+History capacity, 255-byte payload, ordinary editing, cursor blink and terminal
+leases remain. Redirected input and startup stay literal. No new allocations,
+task/thread/timer, platform directory calls, candidate lists or command/alias/app
+completion. No pending completion can survive input or application handoff.
 
 ### Local tests run
-
-Corrected implementation validation:
 
 - `cmake -S . -B build-linux`: passed.
 - `cmake --build build-linux -j8`: passed.
 - `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R
-  'shell_completion_unit|adv_console_scrollback|linux_shell_history|^linux_nano$|^linux_ft8$'
-  --output-on-failure`: passed 5/5; nano and FT8 tests use original full paths.
-- Focused `linux_shell_history` rerun after adding settled-paste and pending-action
-  cancellation checks: passed 1/1.
+  'shell_completion_unit|linux_shell_history|adv_console_scrollback'
+  --output-on-failure`: passed 3/3.
 - `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure`:
-  passed 126/126. Rerun after the ADV slow-redraw guard passed 125/126;
-  the unrelated `linux_serial_unit` PTY saturation assertion at line 67 failed
-  (`MINI_ERR_TIMEOUT && n == 0`). A focused serial rerun also failed there.
-  Serial source/tests are unchanged.
-- Full CTest with `--repeat until-pass:3`: passed 126/126; no retries were actually
-  needed (126 test starts, including serial passing on its first attempt).
+  passed 125/126; the pre-existing `linux_serial_unit` PTY saturation assertion
+  at line 67 failed (`MINI_ERR_TIMEOUT && n == 0`). A focused serial rerun also
+  failed at the same assertion. Serial source/tests are unchanged.
+- Full Linux CTest with `--repeat until-pass:3`: passed 125/126; the same serial assertion
+  failed on all three attempts. All other tests passed. The full Linux suite is
+  not green in this run; this unchanged serial failure remains a review exception.
+- `git diff --exit-code origin/main -- CMakeLists.txt tests/linux_serial_test.c
+  platform/linux/linux_serial.c platform/linux/linux_common.c
+  platform/linux/linux_internal.h core/minishell_services include/minishell`:
+  passed, confirming serial target inputs are unchanged.
 - `cmake -S tests/unit -B /tmp/T078-unit` and
   `cmake --build /tmp/T078-unit -j8`: passed.
 - `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T078-unit --output-on-failure`:
   passed 29/29.
 - `source /home/wei/projects/esp-idf/export.sh` then
-  `idf.py -C platform/adv build`: passed both before and after the slow-redraw guard.
-  Final firmware size `0x153800` bytes; 78% application partition space free.
-  Existing SDK/dependency warnings remain.
+  `idf.py -C platform/adv build`: passed. Firmware size `0x153730` bytes, 78%
+  application partition space free; existing SDK/dependency warnings remain.
 - `git diff --check`: passed.
-- Unchanged-boundary check against `origin/main` for `include/minishell/api.h`,
-  `core/shell_editor.c/.h`, `core/minishell_services`, `adv_keyboard.cpp`,
-  `adv_display.cpp`, `tests/linux_nano.py`, `tests/linux_ft8.py`: passed.
-
-The earlier immediate-expansion implementation and its test-input workaround are
-superseded. A temporary generated C++ test quoting error during this correction
-was fixed before the focused tests passed. Acceptance boxes reflect automated
-software evidence; physical acceptance remains pending.
+- Unchanged-boundary check against `origin/main`: public API, Filesystem/CWD,
+  shared editor, ADV keyboard and renderer: passed.
+- Source inspection confirms no completion pending/defer/deadline/timeout/poll
+  helpers or state remain; the existing ADV monotonic clock is for cursor blink.
 
 ### Manual/hardware validation still required
 
-Architect to run the ADV/pc-1 checklist, including pasting full absolute and
-relative paths, delayed human typing, real-storage responsiveness, Fn editing,
-Ctrl scrollback and cursor blink after delayed expansion. No device was flashed;
-no QMX/RF test is required.
+Architect to validate the revised trigger on ADV and pc-1: literal `cd /f` while
+idle, Tab to `/flash`, full pathname pastes, longest-prefix Tab, silent no-op Tab,
+Fn history/cursor editing, Ctrl scrollback and cursor placement after expansion.
+Earlier eager/debounce hardware evidence does not establish acceptance of this
+Tab-only revision. No device was flashed; no QMX/RF test is required.
 
 ### Known limitations / risks
 
-One eligible settled edit synchronously enumerates a directory; slow-media or
-large-directory latency needs hardware validation. The 25 ms idle rule treats
-input arriving with longer pauses as separate typing bursts; no platform paste
-protocol or cache is introduced. The existing serial PTY test remains intermittent,
-as recorded above. An immediate Enter submits exactly the visible
-line and cancels pending expansion. These are the requested debounce semantics.
+Tab synchronously enumerates one eligible directory; physical responsiveness on
+slow or large directories remains a hardware check. Ambiguous choices are not
+listed until T079. No timing heuristic or paste protocol is used. The known
+Linux serial PTY test remains intermittent, as recorded above.
 
 ### Commit
 
-One amended implementation commit on `codex/T078-pathname-auto-expansion`, titled
-`T078: add eager resident pathname expansion`, based on current main
-`ca862fa8a6db1183ef07d4f8d279cb2d3a0116ba`. Supersedes rejected review SHA
-`20c58587c5a45c1a102d9af4fd0d1896b1d0fabf`; the exact new SHA is supplied in the
-Codex handoff. The supervisor review below records the earlier rejection.
+One new review commit on `codex/T078-pathname-auto-expansion`, titled
+`T078: require Tab for pathname expansion`, based on current main
+`2fb182b21ee4e1fc6ce4109a15238b6616c45a0b`. Exact new SHA is supplied in the Codex
+handoff; this packet is included in that commit. Prior reviews below concern the
+superseded eager/debounce versions.
 
 ## Supervisor review
 

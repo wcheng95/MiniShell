@@ -1,7 +1,6 @@
 #include <errno.h>
 #include <poll.h>
 #include <stdio.h>
-#include <time.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -51,16 +50,8 @@ static void redraw(const shell_editor_t *e)
     fflush(stdout);
 }
 
-static uint64_t completion_now(void)
-{
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0u;
-    return (uint64_t)ts.tv_sec * 1000000u + (uint64_t)ts.tv_nsec / 1000u;
-}
-
 typedef struct {
     shell_editor_t *editor;
-    shell_completion_pending_t completion;
     bool finished;
     int result;
 } shell_input_t;
@@ -86,6 +77,9 @@ static mini_result_t shell_event(void *ctx, const mini_key_event_t *event)
         action = SHELL_EDIT_CHAR;
     } else if (event->type == MINI_KEY_EVENT_SPECIAL) {
         switch (event->key) {
+        case MINI_KEY_TAB:
+            if (shell_completion_expand(e)) redraw(e);
+            return ferror(stdout) ? MINI_ERR_IO : MINI_OK;
         case MINI_KEY_ENTER: input->finished = true; return MINI_OK;
         case MINI_KEY_UP: action = SHELL_EDIT_PREVIOUS; break;
         case MINI_KEY_DOWN: action = SHELL_EDIT_NEXT; break;
@@ -98,11 +92,7 @@ static mini_result_t shell_event(void *ctx, const mini_key_event_t *event)
         default: return MINI_OK; /* PageUp/Down are not command history. */
         }
     } else return MINI_OK;
-    if (shell_editor_edit(e, action, event->codepoint)) {
-        if (action == SHELL_EDIT_CHAR)
-            shell_completion_defer(&input->completion, completion_now());
-        redraw(e);
-    }
+    if (shell_editor_edit(e, action, event->codepoint)) redraw(e);
     return ferror(stdout) ? MINI_ERR_IO : MINI_OK;
 }
 
@@ -119,25 +109,18 @@ int minishell_platform_console_read_line(shell_editor_t *editor)
     while (!input.finished) {
         struct pollfd fd = {.fd = STDIN_FILENO, .events = POLLIN};
         int timeout = linux_terminal_parser_has_pending_escape(&parser) ? 30 : -1;
-        int completion_timeout = shell_completion_timeout_ms(&input.completion, completion_now());
-        if (completion_timeout >= 0 && (timeout < 0 || completion_timeout < timeout))
-            timeout = completion_timeout;
         int ready = poll(&fd, 1u, timeout);
         if (ready < 0 && errno == EINTR) continue;
         if (ready < 0 || (fd.revents & (POLLERR | POLLNVAL))) { input.result = -1; break; }
         mini_result_t result;
         if (ready == 0) {
             result = linux_terminal_parser_flush_escape(&parser, NULL);
-            if (shell_completion_poll(&input.completion, editor, completion_now())) redraw(editor);
-            if (ferror(stdout)) result = MINI_ERR_IO;
         } else {
             /* One byte at a time avoids consuming the next app/prompt's input. */
             unsigned char byte;
             ssize_t count = read(STDIN_FILENO, &byte, 1u);
             if (count < 0 && (errno == EINTR || errno == EAGAIN)) continue;
             if (count <= 0) { input.result = count == 0 ? 0 : -1; break; }
-            /* Cancel even for a partial escape or ignored control byte. */
-            input.completion.pending = false;
             result = linux_terminal_parser_feed(&parser, &byte, 1u, NULL);
         }
         if (result != MINI_OK) { input.result = -1; break; }

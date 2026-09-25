@@ -118,22 +118,5 @@ int main(void)
     long_name[251] = 0;
     char full[256] = "cat "; strcat(full, long_name);
     check("cat s", 5, ".", full); // Exactly 255 payload bytes fits.
-    names[0] = "setting.txt";
-    shell_editor_t e;
-    shell_editor_init(&e); strcpy(e.line, "cat se"); e.cursor = e.length = 6;
-    shell_completion_pending_t pending = {0};
-    opens = closes = reads = 0; expected_parent = ".";
-    assert(shell_completion_timeout_ms(&pending, 0) == -1);
-    shell_completion_defer(&pending, 1000);
-    assert(shell_completion_timeout_ms(&pending, 1000) == 25);
-    assert(!shell_completion_poll(&pending, &e, 25999) && opens == 0);
-    shell_completion_defer(&pending, 25999); // Another byte refreshes the deadline.
-    assert(!shell_completion_poll(&pending, &e, 26000) && opens == 0);
-    assert(shell_completion_poll(&pending, &e, 50999));
-    assert(!strcmp(e.line, "cat setting.txt") && opens == 1 && closes == 1);
-    assert(!shell_completion_poll(&pending, &e, 100000) && opens == 1);
-    shell_completion_defer(&pending, 100000);
-    pending.pending = false; // Non-printable input cancels pending work.
-    assert(!shell_completion_poll(&pending, &e, 200000) && opens == 1);
     puts("shell pathname expansion: PASS");
 }

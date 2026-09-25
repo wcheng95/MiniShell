@@ -177,7 +177,6 @@ void minishell_platform_console_prompt(void)
 
 static bool s_cursor_editing, s_cursor_visible;
 static uint64_t s_cursor_deadline;
-static shell_completion_pending_t s_completion;
 
 static void cursor_restart(void)
 {
@@ -199,7 +198,6 @@ static void cursor_poll(void)
 static void cursor_end(void)
 {
     s_cursor_editing = false;
-    s_completion.pending = false;
     adv_display_console_edit_end();
 }
 
@@ -216,22 +214,20 @@ static void redraw_line(const shell_editor_t *editor)
 
 static int accept_character(int ch, shell_editor_t *editor)
 {
-    s_completion.pending = false;
+    if (ch == '\t') {
+        if (shell_completion_expand(editor)) redraw_line(editor);
+        return 0;
+    }
     if (ch == 0x04 && editor->length == 0u) return -1;
     if (ch == '\r' || ch == '\n') return 1;
     shell_edit_action_t action = ch == '\b' || ch == 0x7f
                                  ? SHELL_EDIT_BACKSPACE : SHELL_EDIT_CHAR;
-    if (shell_editor_edit(editor, action, (unsigned)ch)) {
-        if (action == SHELL_EDIT_CHAR)
-            shell_completion_defer(&s_completion, adv_monotonic_us(NULL));
-        redraw_line(editor);
-    }
+    if (shell_editor_edit(editor, action, (unsigned)ch)) redraw_line(editor);
     return 0;
 }
 
 static int accept_key_event(const mini_key_event_t *event, shell_editor_t *editor)
 {
-    s_completion.pending = false;
     if (event->type == MINI_KEY_EVENT_CHAR && event->codepoint <= 0x7fu) {
         if ((event->modifiers & MINI_MOD_CTRL) != 0u &&
             (event->codepoint == ';' || event->codepoint == '.')) {
@@ -251,6 +247,7 @@ static int accept_key_event(const mini_key_event_t *event, shell_editor_t *edito
         action = SHELL_EDIT_LEFT;
     else if ((event->modifiers & MINI_MOD_FN) != 0u && event->key == MINI_KEY_RIGHT)
         action = SHELL_EDIT_RIGHT;
+    else if (event->key == MINI_KEY_TAB) return accept_character('\t', editor);
     else if (event->key == MINI_KEY_ENTER) return 1;
     else if (event->key == MINI_KEY_BACKSPACE) action = SHELL_EDIT_BACKSPACE;
     else if (event->key == MINI_KEY_DELETE) action = SHELL_EDIT_DELETE;
@@ -261,24 +258,17 @@ static int accept_key_event(const mini_key_event_t *event, shell_editor_t *edito
 
 int minishell_platform_console_read_line(shell_editor_t *editor)
 {
-    s_completion.pending = false;
     adv_display_console_edit_begin();
     s_cursor_editing = true;
     cursor_restart();
     for (;;) {
         int accepted = 0;
-        bool input_received = false;
         mini_key_event_t event = {.struct_size = sizeof(event)};
-        if (adv_keyboard_read_event(&event) == MINI_OK) {
-            input_received = true;
+        if (adv_keyboard_read_event(&event) == MINI_OK)
             accepted = accept_key_event(&event, editor);
-        }
         if (accepted == 0) {
             int ch = s_host_console.suspended ? EOF : fgetc(stdin);
-            if (ch != EOF) {
-                input_received = true;
-                accepted = accept_character(ch, editor);
-            }
+            if (ch != EOF) accepted = accept_character(ch, editor);
             else clearerr(stdin);
         }
         if (accepted > 0) {
@@ -289,9 +279,6 @@ int minishell_platform_console_read_line(shell_editor_t *editor)
             return 2;
         }
         if (accepted < 0) { cursor_end(); return 0; }
-        /* A slow redraw must not expand while more pasted bytes are queued. */
-        if (!input_received && shell_completion_poll(&s_completion, editor, adv_monotonic_us(NULL)))
-            redraw_line(editor);
         cursor_poll();
         vTaskDelay(pdMS_TO_TICKS(5));
     }

@@ -66,10 +66,9 @@ static std::deque<int> usb_input;
 static struct { bool suspended; } s_host_console;
 static unsigned polls;
 static uint64_t fake_time;
-static bool slow_output;
 static void (*delay_hook)(void);
 static uint64_t adv_monotonic_us(void*) { return fake_time; }
-static void adv_console_debug_write(const char *s) { usb_output += s; if(slow_output) fake_time+=30000; }
+static void adv_console_debug_write(const char *s) { usb_output += s; }
 static mini_result_t adv_keyboard_read_event(mini_key_event_t *e) {
  if(keys.empty()) return MINI_ERR_NOT_READY;
  *e=keys.front(); keys.pop_front(); return MINI_OK;
@@ -92,7 +91,7 @@ static std::string numbered(unsigned n) {
 static void reset() {
  assert(adv_display_prepare()==0); usb_output.clear(); s_line_start=true;
  keys.clear(); usb_input.clear(); polls=0; fake_time=0; delay_hook=nullptr; s_cursor_editing=false;
- s_completion.pending=false;completion_opens=completion_closes=0;
+ completion_opens=completion_closes=0;
 }
 static void fill(unsigned rows) {
  for(unsigned i=0;i<rows;++i) {
@@ -449,71 +448,67 @@ static void cursor_loop_tests() {
  usb_input={4};assert(minishell_platform_console_read_line(&e)==0);
  no_cursor();assert(!s_edit_active && !s_cursor_editing);
 }
-static shell_editor_t *completion_editor;
-static std::string completion_expected, delayed_text;
-static uint64_t completion_check_time;
-static void completion_usb_hook() {
- if(!delayed_text.empty() && fake_time%50000==0) {
-  usb_input.push_back(delayed_text.front());delayed_text.erase(0,1);
+static void physical_completion_case(const std::string &typed, const std::string &expected) {
+ reset();shell_editor_t e;start_edit(&e);
+ for(char ch:typed) { auto key=character(ch);accept_key_event(&key,&e); }
+ assert(e.line==typed && completion_opens==0);
+ fake_time=2000000;cursor_poll(); // Idle never triggers pathname lookup.
+ assert(e.line==typed && completion_opens==0);
+ const auto before=usb_output;
+ const auto deadline=s_cursor_deadline;
+ auto tab=special(MINI_KEY_TAB);accept_key_event(&tab,&e);
+ assert(e.line==expected && e.cursor==expected.size());
+ if(typed==expected) assert(usb_output==before && s_cursor_deadline==deadline);
+ else {
+  unsigned r;assert(cursor_cell(&r));cursor_at(r,(4+e.cursor)%20,' ');
+  assert(s_cursor_deadline==fake_time+500000);
  }
- if(fake_time==completion_check_time) {
-  assert(completion_editor->line==completion_expected);
-  assert(completion_editor->cursor==completion_expected.size());
-  unsigned row;assert(cursor_cell(&row));
-  cursor_at(row,(4+completion_editor->cursor)%20,' ');
-  assert(completion_opens==1 && completion_closes==1);
-  usb_input.push_back(10);
- }
+ assert(completion_opens==completion_closes);
 }
-static void usb_completion_case(const std::string &typed, const std::string &expected, bool delayed=false) {
+static void usb_completion_case(const std::string &typed, const std::string &expected, bool tab) {
  reset();shell_editor_t e;shell_editor_init(&e);minishell_platform_console_prompt();
- completion_editor=&e;completion_expected=expected;delayed_text.clear();
- if(delayed) delayed_text=typed;
- else for(char ch:typed) usb_input.push_back(ch);
- completion_check_time=delayed?typed.size()*50000+40000:typed.size()*5000+40000;
- delay_hook=completion_usb_hook;
- assert(minishell_platform_console_read_line(&e)==2);
- assert(e.line==expected && !s_completion.pending);no_cursor();
+ for(char ch:typed) usb_input.push_back(ch);
+ if(tab) usb_input.push_back(9);
+ usb_input.push_back(10);
+ assert(minishell_platform_console_read_line(&e)==2 && e.line==expected);
+ assert(e.cursor==expected.size() && completion_opens==completion_closes);
+ if(!tab) assert(completion_opens==0);
+ no_cursor();
 }
 static void completion_tests() {
- reset();completion_enabled=true;shell_editor_t e;start_edit(&e);
- for(char ch:std::string("cd /")) { auto key=character(ch);accept_key_event(&key,&e); }
- fake_time=s_cursor_deadline;cursor_poll();no_cursor();
- auto key=character('f');accept_key_event(&key,&e);
- assert(!strcmp(e.line,"cd /f") && completion_opens==0);cursor_at(0,9,' ');
- fake_time+=24999;
- assert(!shell_completion_poll(&s_completion,&e,fake_time) && completion_opens==0);
- ++fake_time;
- assert(shell_completion_poll(&s_completion,&e,fake_time));redraw_line(&e);
- assert(!strcmp(e.line,"cd /flash") && e.cursor==9);cursor_at(0,13,' ');
- assert(s_cursor_deadline==fake_time+500000 && completion_opens==1 && completion_closes==1);
- shell_editor_remember(&e);shell_editor_begin(&e);redraw_line(&e);
- auto previous=special(MINI_KEY_UP,MINI_MOD_FN);accept_key_event(&previous,&e);
+ completion_enabled=true;
+ physical_completion_case("cd /f","cd /flash");
+ physical_completion_case("cat RT","cat RT26092");
+ physical_completion_case("cat RT26092","cat RT26092"); // No longer common prefix.
+ physical_completion_case("cat absent","cat absent");
+ physical_completion_case("/f","/f"); // Command token never completes.
+ physical_completion_case("unknown se","unknown se");
+ physical_completion_case("unknown ./s","unknown ./setting.txt");
+ usb_completion_case("cd /f","cd /f",false);
+ usb_completion_case("cd /f","cd /flash",true);
+ usb_completion_case("cd /flash","cd /flash",false);
+ usb_completion_case("cat /flash/ft8/setting.txt","cat /flash/ft8/setting.txt",false);
+ usb_completion_case("cat setting.txt","cat setting.txt",false);
+ usb_completion_case("cat RT","cat RT",false);
+ usb_completion_case("cat RT","cat RT26092",true);
+ usb_completion_case("unknown se","unknown se",true);
+ usb_completion_case("unknown ./s","unknown ./setting.txt",true);
+ reset();shell_editor_t e;start_edit(&e);
+ for(char ch:std::string("cd /f")) accept_character(ch,&e);
  auto left=special(MINI_KEY_LEFT,MINI_MOD_FN),right=special(MINI_KEY_RIGHT,MINI_MOD_FN);
- accept_key_event(&left,&e);accept_key_event(&right,&e);
+ auto tab=special(MINI_KEY_TAB),previous=special(MINI_KEY_UP,MINI_MOD_FN);
+ accept_key_event(&left,&e);
+ const auto before=usb_output;
+ accept_key_event(&tab,&e);assert(e.cursor==4 && !strcmp(e.line,"cd /f"));
+ assert(completion_opens==0 && usb_output==before);
+ accept_key_event(&right,&e);assert(completion_opens==0);
+ accept_key_event(&tab,&e);assert(!strcmp(e.line,"cd /flash"));
+ shell_editor_remember(&e);shell_editor_begin(&e);redraw_line(&e);
+ accept_key_event(&previous,&e);assert(!strcmp(e.line,"cd /flash"));
  auto back=special(MINI_KEY_BACKSPACE),del=special(MINI_KEY_DELETE);
  accept_key_event(&back,&e);accept_key_event(&del,&e);
  assert(completion_opens==1 && !strcmp(e.history[0],"cd /flash"));
- // An action cancels pending work even if it cannot change the editor.
- for(auto event:{left,right,back,del,previous,special(MINI_KEY_DOWN,MINI_MOD_FN),character(';',MINI_MOD_CTRL)}) {
-  shell_completion_defer(&s_completion,fake_time);
-  accept_key_event(&event,&e);fake_time+=30000;
-  assert(!shell_completion_poll(&s_completion,&e,fake_time));
- }
- cursor_end();
- usb_completion_case("cd /flash","cd /flash");
- usb_completion_case("cat /flash/ft8/setting.txt","cat /flash/ft8/setting.txt");
- usb_completion_case("cat setting.txt","cat setting.txt");
- usb_completion_case("cd /f","cd /flash",true);
- usb_completion_case("cat RT","cat RT26092");
- // A redraw slower than debounce cannot expand ahead of queued paste bytes.
- // Immediate Enter submits a burst literally and cancels the pending lookup.
- reset();shell_editor_init(&e);minishell_platform_console_prompt();
- slow_output=true;
- for(char ch:std::string("cd /flash\n")) usb_input.push_back(ch);
- assert(minishell_platform_console_read_line(&e)==2 && !strcmp(e.line,"cd /flash"));
- assert(completion_opens==0 && !s_completion.pending);no_cursor();
- slow_output=false;completion_enabled=false;
+ cursor_end();completion_enabled=false;
 }
 int main(){history_tests();handoff_tests();input_tests();cursor_tests();cursor_loop_tests();completion_tests();}
 

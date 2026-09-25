@@ -93,24 +93,3 @@ bool shell_completion_expand(shell_editor_t *e)
     e->length += extra;
     return true;
 }
-
-void shell_completion_defer(shell_completion_pending_t *state, uint64_t now_us)
-{
-    state->pending = true;
-    state->deadline_us = now_us + 25000u;
-}
-
-int shell_completion_timeout_ms(const shell_completion_pending_t *state, uint64_t now_us)
-{
-    if (!state->pending) return -1;
-    if (now_us >= state->deadline_us) return 0;
-    return (int)((state->deadline_us - now_us + 999u) / 1000u);
-}
-
-bool shell_completion_poll(shell_completion_pending_t *state, shell_editor_t *editor,
-                           uint64_t now_us)
-{
-    if (shell_completion_timeout_ms(state, now_us) != 0) return false;
-    state->pending = false;
-    return shell_completion_expand(editor);
-}
