@@ -1,6 +1,6 @@
 # T068 — WebFS explicit download and inline configuration editor
 
-Status: REVIEW
+Status: COMPLETE
 
 ## Purpose
 
@@ -251,3 +251,7 @@ One implementation commit titled `T068: add WebFS inline configuration editor`
 on `codex/T068-webfs-inline-editor`, parent
 `81d1ed8d35c28a73befd6010dfbd40f5c14bacbb`. Exact pushed SHA is provided in the
 handoff. No merge or PR.
+
+## Hardware acceptance
+
+Accepted by the architect on ADV on 2026-09-24. The WebFS inline editor works on real hardware/browser, including the intended editable configuration-file workflow. T068 is COMPLETE.
