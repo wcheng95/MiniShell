@@ -64,8 +64,9 @@ docs/api/digital-io-api.md
 docs/api/serial-api.md
 ```
 
-The Filesystem service owns one session CWD (default `/`). Resident `cd <path>`
-and `pwd` change/query it; applications inherit it for relative Filesystem paths.
+The Filesystem service owns one session CWD (default `/`). Resident `cd [path]`
+and `pwd` change/query it; bare `cd` returns to `/` and bare `ls` lists CWD.
+Applications inherit CWD for relative Filesystem paths.
 Backends continue receiving normalized absolute paths. See the Filesystem API
 contract for bounds and lifecycle details.
 

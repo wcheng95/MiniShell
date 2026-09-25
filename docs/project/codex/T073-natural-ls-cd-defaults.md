@@ -1,6 +1,6 @@
 # T073 — Natural bare ls and cd defaults
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -237,17 +237,87 @@ do not open a PR unless asked.
 
 ### Implementation summary
 
+Implemented from current `origin/main` at
+`1118bc2f0660912a8701c9764ed14e735d66c5ca` on the requested branch.
+No scope deviations.
+
+Bare `ls` now passes `.` to the public Filesystem API. Explicit `/` retains
+its existing root-presentation branch. Bare `cd` passes `/` to the existing
+private CWD setter; explicit paths and failure diagnostics are unchanged.
+More than one path argument remains a usage error. Help/usage now show `cd [path]`.
+
 ### Files changed
+
+- `apps/ls/main/ls.c`: change only the omitted-path default to `.`.
+- `core/shell.c`: omitted cd path defaults to `/`; update help and usage.
+- `tests/linux_cwd.py`: bare/explicit ls equivalence and presentation, hidden
+  filtering, directory suffixes, bare cd from child/root, excess arguments,
+  alias precedence and startup bare cd.
+- `tests/linux_directory.py`: preserve the established root-presentation check
+  by invoking explicit `ls /`, as required by the new default contract.
+- `README.md`, `docs/README.md`, `docs/api/filesystem-api.md`: document defaults.
+- This task packet: implementation and test evidence.
 
 ### Invariants preserved
 
+Filesystem service/CWD implementation, private service interface, public API v3
+and `include/minishell/api.h` are unchanged. No backend or application CWD query,
+argv rewriting, heap allocation, HOME/tilde behavior, or new shell parsing.
+Explicit paths, hidden filtering, directory suffixes, alias precedence, startup
+sequencing and app lifecycle retain their existing behavior. `cp`/`mv` destination
+semantics remain outside scope.
+
 ### Local tests run
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R 'linux_cwd|linux_directory|alias|resident_|linux_startup'
+# PASS: 7/7 focused tests.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# Initial full run: 122/123; linux_serial_unit failed its PTY timeout assertion.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R '^linux_serial_unit$'
+# First focused rerun failed; rerun after ADV build finished passed 1/1.
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+# PASS: final full run 123/123 (59.53 seconds).
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+# PASS: firmware 0x1527e0 bytes; app partition 78% free. No flashing.
+git diff --check
+# PASS
+```
+
+The unchanged serial test failed at `tests/linux_serial_test.c:67` (full-PTY
+write timeout with zero bytes), the intermittent assertion recorded in T069/T072.
+The first focused retry also failed while the ADV build was running; the retry
+after that build passed. Serial test/implementation and all Filesystem service
+code are unchanged. No test assertion was weakened. ADV build completed with
+existing SDK/ELF-loader pedantic warnings.
+
+The previous bare-cd usage assertion was replaced with the new root-reset
+checks; the multi-argument usage assertion remains. Existing relative-path
+operations, startup inheritance and failed explicit cd tests remain covered.
+Root-format expectations still apply to explicit `ls /`; bare root listing is
+now separately checked for ordinary `flash/` and `sd/` presentation.
 
 ### Manual/hardware validation still required
 
+On ADV after review: `cd /flash/ft8`, bare `ls`, bare `cd`, then `pwd` showing `/`.
+Confirm explicit `ls /` keeps its root listing format. No device flashed or
+hardware tested here; no QMX/RF validation required.
+
 ### Known limitations / risks
 
+Only omitted arguments change meaning. Bare ls at root intentionally uses the
+ordinary directory suffix presentation, unlike explicit `ls /`. No new known
+implementation limitation; ADV acceptance remains pending.
+
 ### Commit
+
+One implementation commit titled `T073: use natural bare ls and cd defaults`,
+parent `1118bc2f0660912a8701c9764ed14e735d66c5ca`, on
+`codex/T073-natural-ls-cd-defaults`. Exact pushed SHA is returned in the handoff.
+No merge or PR.
 
 ## Supervisor review
 

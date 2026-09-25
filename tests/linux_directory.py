@@ -56,7 +56,7 @@ def main() -> int:
             minishell,
             runtime_app_dir,
             root,
-            "ls\nexit\n",
+            "ls /\nexit\n",
         )
         root_output = root_listing.stdout + root_listing.stderr
         if (root_listing.returncode != 0 or

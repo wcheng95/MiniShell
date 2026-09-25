@@ -42,8 +42,10 @@ Rules implemented by the portable service include:
 - root is protected from destructive namespace operations.
 
 The portable Filesystem service owns one RAM-only session CWD, initially `/`.
-Resident `cd <path>` changes it after resolving the path and verifying an existing
-directory; failures leave it unchanged. `pwd` prints its canonical absolute path.
+Resident `cd [path]` changes it after resolving the path and verifying an existing
+directory; failures leave it unchanged. Omitted path means `/`. `pwd` prints its
+canonical absolute path. Bare `ls` is equivalent to `ls .`, including at root;
+explicit `ls /` retains its complete-path root-entry presentation.
 These are shell built-ins using private service functions, not public FS function
 pointers. The public API layout and version remain unchanged.
 

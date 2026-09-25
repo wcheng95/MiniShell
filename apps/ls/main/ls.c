@@ -27,7 +27,7 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    const char *path = argc == 2 ? argv[1] : "/";
+    const char *path = argc == 2 ? argv[1] : ".";
     const int root_listing = strcmp(path, "/") == 0;
     mini_dir_t dir = MINI_DIR_INVALID;
     mini_result_t result = api->fs->dir_open(path, &dir);

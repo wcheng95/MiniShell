@@ -134,7 +134,7 @@ static void cmd_help(void)
 {
     shell_write(
         "help              show this help\n"
-        "cd <path>         change session working directory\n"
+        "cd [path]         change directory (default /)\n"
         "pwd               show session working directory\n"
         "status            show minishell platform/service status\n"
         "apps              list installed applications\n"
@@ -205,9 +205,9 @@ static bool execute_line(char *line)
 
     if (strcmp(argv[0], "exit") == 0) return true;
     if (strcmp(argv[0], "cd") == 0) {
-        if (argc != 2) shell_write("usage: cd <path>\n");
+        if (argc > 2) shell_write("usage: cd [path]\n");
         else {
-            mini_result_t result = minishell_filesystem_cwd_set(argv[1]);
+            mini_result_t result = minishell_filesystem_cwd_set(argc == 1 ? "/" : argv[1]);
             if (result != MINI_OK) shell_printf("cd: cannot change directory (%ld)\n", (long)result);
         }
         return false;
