@@ -1,6 +1,6 @@
 # T079 — Tab shows ambiguous pathname choices
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -693,4 +693,27 @@ restoration, cursor/blink, scrollback, and Enter-after-listing behavior.
 
 ## Architect test result
 
-Record ADV/pc-1 candidate-list validation here.
+Final T079 candidate-list behavior passed manual validation on both ADV and pc-1
+on 2026-09-25.
+
+Accepted behavior:
+
+```text
+first Tab      expand pathname to longest common prefix
+next Tab       list remaining ambiguous pathname choices
+after listing  restore same editable line/cursor
+```
+
+Verified:
+
+- ambiguous choices list correctly after the prefix can no longer grow;
+- repeated listing works;
+- typing/paste remain literal;
+- directory candidates display `/` only in the list;
+- ADV prompt, editor state and blinking cursor restore correctly;
+- candidate output is available through normal ADV console scrollback;
+- Ctrl+`;` / Ctrl+`.` continue to review retained output;
+- pc-1 raw terminal editing remains normal;
+- Enter after listing submits only the editable command.
+
+Result: **PASS. T079 COMPLETE.**
