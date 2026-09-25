@@ -93,11 +93,11 @@ def main() -> int:
 
     try:
         with tempfile.TemporaryDirectory(prefix="minishell-ft8-") as root:
-            station = os.path.join(root, "flash", "ft8", "station.txt")
+            station = os.path.join(root, "flash", "ft8", "setting.txt")
             os.makedirs(os.path.dirname(station), exist_ok=True)
             with open(station, "w", encoding="utf-8") as handle:
                 handle.write(
-                    "# MiniFT8-V3 station.txt\n"
+                    "# MiniFT8-V3 setting.txt\n"
                     "callsign=ag6aq\n"
                     "grid=cm97\n"
                     "profile=0\n"
@@ -156,11 +156,11 @@ def main() -> int:
                     or "free_text=TNX 73\n" not in saved
                     or "fd_exchange=1B SCV\n" not in saved
                 ):
-                    raise RuntimeError(f"unexpected station.txt contents: {saved!r}")
+                    raise RuntimeError(f"unexpected setting.txt contents: {saved!r}")
                 if "mode=" in saved or "mode0_" in saved or "presentation=" in saved:
                     raise RuntimeError(f"unexpected persisted state: {saved!r}")
                 if os.path.exists(station + ".tmp"):
-                    raise RuntimeError("atomic save left station.txt.tmp behind")
+                    raise RuntimeError("atomic save left setting.txt.tmp behind")
 
                 os.write(master_fd, b"ft8 --profile desktop --rx /flash/ui.wav --rx-slot 12345\n")
                 transcript.extend(read_until(master_fd, b"R T O S V", 3.0))
