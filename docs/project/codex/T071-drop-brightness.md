@@ -1,6 +1,6 @@
 # T071 — Remove resident brightness; preserve startup
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -264,7 +264,46 @@ No merge or PR.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and local test evidence.
+Reviewed `main..5916fa61d841fcfd3c7ac7150b31188ea25a7c05` against T071,
+T069/T070 final-state decisions, `AGENTS.md`, and the resident configuration
+ownership boundary.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- exactly one bounded implementation commit, one commit ahead of the T071 task
+  baseline;
+- `core/shell.[ch]` is unchanged, so the accepted startup dispatcher, alias
+  semantics, foreground blocking, failure continuation and prompt behavior are
+  preserved directly;
+- resident settings remain bounded to 1,024 bytes, no-heap, exact-limit checked,
+  and now retain only startup state;
+- `brightness=` is treated as an ordinary unknown key and has no runtime effect;
+- the private brightness platform hook is removed from core, ADV and Linux;
+- ADV display brightness wrapper/mapping and brightness-only mocks/assertions are
+  removed;
+- WebFS production code and SSID/PW behavior are unchanged;
+- canonical docs no longer advertise brightness as supported;
+- T069 records startup as accepted with brightness superseded by T071, and T070
+  is correctly marked cancelled;
+- `include/minishell/api.h` is byte-for-byte unchanged (blob
+  `13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0` on both parent and implementation).
+
+Accepted local evidence:
+
+```text
+focused tests: 6/6 PASS
+Linux CTest: 122/122 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+No blocking review finding. `main` was fast-forwarded to
+`5916fa61d841fcfd3c7ac7150b31188ea25a7c05`.
+
+Remaining gate: architect re-confirms the already-accepted ADV startup path
+(`startup=ft8;b`). No brightness validation remains.
 
 ## Architect test result
 
