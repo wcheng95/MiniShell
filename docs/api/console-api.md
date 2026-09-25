@@ -70,8 +70,8 @@ shows the newest seven rows, top-aligned until seven rows exist.
 
 While the resident shell reads a command, Ctrl+`;` scrolls five rows older and
 Ctrl+`.` scrolls five rows newer, clamping at either end. Scrolling preserves the
-command edit buffer and does not replay output to USB. Any new Console output
-(including typed echo, Backspace, Enter and the prompt) returns to the live tail.
+command edit buffer and does not replay output to USB. New Console output returns
+to the live tail; editing restores the view containing the insertion point.
 
 History survives foreground Display use but not reboot/deep sleep. System
 diagnostics are excluded. This is private ADV resident-console behavior, not
@@ -89,6 +89,12 @@ and forward Delete. Ctrl+`;` / Ctrl+`.` operate output scrollback independently.
 This adds no public Console or Input capability.
 
 During ADV editing, the prompt region is redrawn in place across 20-column rows.
+A transient inverse block marks the character at the insertion point, or the
+following blank at command end. It blinks 500 ms on / 500 ms off; successful edits,
+cursor movement and history navigation show it immediately and restart the blink.
+The seven-row viewport follows the cursor through long commands. Output scrollback
+hides the cursor, and leaving line editing removes it. Blinking changes neither
+retained text nor USB output.
 The USB mirror uses an ANSI single-row tail preview (up to 74 command characters)
 and prints the full submitted line before newline; use a terminal at least 80
 columns wide for this preview. Linux pans long editable lines horizontally to

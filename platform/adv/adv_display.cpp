@@ -30,6 +30,19 @@ uint32_t s_console_column = 0u;
 // rows temporarily displaced by a longer draft, without growing scrollback.
 char s_edit_history[kHistoryRows][kColumns];
 uint32_t s_edit_first, s_edit_count, s_edit_column;
+bool s_edit_active = false, s_edit_visible = false, s_edit_scrollback = false;
+uint32_t s_edit_cursor_row, s_edit_cursor_column;
+
+uint32_t console_max_offset(void);
+
+bool cursor_cell(uint32_t *row)
+{
+    if (!s_edit_active || !s_console_mode || s_edit_scrollback) return false;
+    const uint32_t start = console_max_offset() - s_console_offset;
+    if (s_edit_cursor_row < start || s_edit_cursor_row >= start + kRows) return false;
+    *row = s_edit_cursor_row - start;
+    return true;
+}
 
 int32_t row_y(uint32_t row)
 {
@@ -53,28 +66,33 @@ void clear_buffers(void)
     std::memset(s_attrs, 0, sizeof(s_attrs));
 }
 
+void render_cell(uint32_t row, uint32_t column)
+{
+    auto &display = M5.Display;
+    const int32_t x = static_cast<int32_t>(column) * kCellWidth;
+    const int32_t y = row_y(row);
+    uint32_t cursor_row;
+    const bool overlay = s_edit_visible && cursor_cell(&cursor_row) &&
+                         row == cursor_row && column == s_edit_cursor_column;
+    const bool inverse = ((s_attrs[row][column] & MINI_TEXT_ATTR_INVERSE) != 0u) != overlay;
+    const uint32_t fg = inverse ? kBlack : foreground(s_attrs[row][column]);
+    const uint32_t bg = inverse ? foreground(s_attrs[row][column]) : kBlack;
+    display.fillRect(x, y, kCellWidth, kRowHeight, bg);
+    display.setTextColor(fg);
+    display.setCursor(x, y + 1);
+    display.write(static_cast<uint8_t>(s_cells[row][column]));
+}
+
 void render_all(void)
 {
     if (!s_ready) return;
-
     auto &display = M5.Display;
     display.fillRect(0, kGapY, 240, kGapHeight, s_separator ? foreground(s_separator) : kBlack);
     display.setTextFont(1);
     display.setTextSize(2);
-
-    for (uint32_t row = 0u; row < kRows; ++row) {
-        const int32_t y = row_y(row);
-        for (uint32_t column = 0u; column < kColumns; ++column) {
-            const int32_t x = static_cast<int32_t>(column) * kCellWidth;
-            const bool inverse = (s_attrs[row][column] & MINI_TEXT_ATTR_INVERSE) != 0u;
-            const uint32_t fg = inverse ? kBlack : foreground(s_attrs[row][column]);
-            const uint32_t bg = inverse ? foreground(s_attrs[row][column]) : kBlack;
-            display.fillRect(x, y, kCellWidth, kRowHeight, bg);
-            display.setTextColor(fg);
-            display.setCursor(x, y + 1);
-            display.write(static_cast<uint8_t>(s_cells[row][column]));
-        }
-    }
+    for (uint32_t row = 0u; row < kRows; ++row)
+        for (uint32_t column = 0u; column < kColumns; ++column)
+            render_cell(row, column);
 }
 
 uint32_t console_tail(void)
@@ -110,6 +128,30 @@ void restore_console_view(void)
     s_console_mode = true;
 }
 
+void console_append(const char *text)
+{
+    for (const unsigned char *p = reinterpret_cast<const unsigned char *>(text); *p != 0u; ++p) {
+        const unsigned char ch = *p;
+        if (ch == '\r') continue;
+        if (ch == '\n') {
+            console_newline();
+            continue;
+        }
+        if (ch == '\b') {
+            if (s_console_column > 0u) {
+                --s_console_column;
+                s_history[console_tail()][s_console_column] = ' ';
+            }
+            continue;
+        }
+        if (ch < 0x20u || ch > 0x7eu) continue;
+
+        s_history[console_tail()][s_console_column] = static_cast<char>(ch);
+        ++s_console_column;
+        if (s_console_column >= kColumns) console_newline();
+    }
+}
+
 char display_char(uint8_t ch)
 {
     return (ch >= 0x20u && ch <= 0x7eu) ? static_cast<char>(ch) : '?';
@@ -134,6 +176,7 @@ extern "C" int adv_display_prepare(void)
     s_console_offset = 0u;
     s_console_column = 0u;
     s_console_mode = true;
+    s_edit_active = s_edit_visible = s_edit_scrollback = false;
     s_ready = true;
     render_all();
     return 0;
@@ -148,27 +191,9 @@ extern "C" void adv_display_console_write(const char *text)
 {
     if (!s_ready || text == nullptr) return;
     s_console_offset = 0u;
+    s_edit_active = false;
 
-    for (const unsigned char *p = reinterpret_cast<const unsigned char *>(text); *p != 0u; ++p) {
-        const unsigned char ch = *p;
-        if (ch == '\r') continue;
-        if (ch == '\n') {
-            console_newline();
-            continue;
-        }
-        if (ch == '\b') {
-            if (s_console_column > 0u) {
-                --s_console_column;
-                s_history[console_tail()][s_console_column] = ' ';
-            }
-            continue;
-        }
-        if (ch < 0x20u || ch > 0x7eu) continue;
-
-        s_history[console_tail()][s_console_column] = static_cast<char>(ch);
-        ++s_console_column;
-        if (s_console_column >= kColumns) console_newline();
-    }
+    console_append(text);
     restore_console_view();
     render_all();
 }
@@ -179,15 +204,56 @@ extern "C" void adv_display_console_edit_begin(void)
     s_edit_first = s_history_first;
     s_edit_count = s_history_count;
     s_edit_column = s_console_column;
+    s_edit_cursor_row = s_history_count - 1u;
+    s_edit_cursor_column = s_console_column;
+    s_edit_active = s_edit_visible = true;
+    s_edit_scrollback = false;
+    s_console_offset = 0u;
+    restore_console_view();
+    render_all();
 }
 
-extern "C" void adv_display_console_edit_line(const char *line)
+extern "C" void adv_display_console_edit_line(const char *line, size_t cursor)
 {
+    const size_t length = std::strlen(line);
+    if (cursor > length) cursor = length;
+    uint32_t offset = s_edit_scrollback ? 0u : s_console_offset;
     std::memcpy(s_history, s_edit_history, sizeof(s_history));
     s_history_first = s_edit_first;
     s_history_count = s_edit_count;
     s_console_column = s_edit_column;
-    adv_display_console_write(line);
+    console_append(line);
+
+    // Cursor and viewport rows are relative to the retained ring's oldest row.
+    // Appending the draft may have temporarily displaced snapshot rows.
+    const size_t rows = s_edit_count + (s_edit_column + length) / kColumns;
+    const size_t evicted = rows > kHistoryRows ? rows - kHistoryRows : 0u;
+    s_edit_cursor_row = s_edit_count - 1u + (s_edit_column + cursor) / kColumns - evicted;
+    s_edit_cursor_column = (s_edit_column + cursor) % kColumns;
+    const uint32_t maximum = console_max_offset();
+    if (offset > maximum) offset = maximum;
+    uint32_t start = maximum - offset;
+    if (s_edit_cursor_row < start) start = s_edit_cursor_row;
+    else if (s_edit_cursor_row >= start + kRows) start = s_edit_cursor_row - kRows + 1u;
+    s_console_offset = maximum - start;
+    s_edit_active = s_edit_visible = true;
+    s_edit_scrollback = false;
+    restore_console_view();
+    render_all();
+}
+
+extern "C" void adv_display_console_edit_cursor(bool visible)
+{
+    if (!s_ready || !s_edit_active || s_edit_visible == visible) return;
+    s_edit_visible = visible;
+    uint32_t row;
+    if (cursor_cell(&row)) render_cell(row, s_edit_cursor_column);
+}
+
+extern "C" void adv_display_console_edit_end(void)
+{
+    adv_display_console_edit_cursor(false);
+    s_edit_active = false;
 }
 
 extern "C" void adv_display_console_scroll(int delta)
@@ -197,6 +263,7 @@ extern "C" void adv_display_console_scroll(int delta)
     const uint32_t maximum = console_max_offset();
     s_console_offset = offset < 0 ? 0u :
                        offset > maximum ? maximum : static_cast<uint32_t>(offset);
+    s_edit_scrollback = s_console_offset != 0u;
     restore_console_view();
     render_all();
 }

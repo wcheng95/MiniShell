@@ -1,6 +1,6 @@
 # T077 — ADV blinking resident edit cursor
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -276,27 +276,27 @@ Do not implement:
 
 ## Acceptance criteria
 
-- [ ] Empty prompt shows a blinking inverse blank cell after `M$> `.
-- [ ] Cursor inside text inverts the underlying character.
-- [ ] Cursor at end of text inverts the following blank cell.
-- [ ] Cursor position tracks Fn+, / Fn+/ movement.
-- [ ] History recall/draft restoration moves the cursor to the core editor position.
-- [ ] Any successful edit makes cursor immediately visible and restarts blink.
-- [ ] Cursor toggles roughly every 500 ms while idle.
-- [ ] Blink produces no retained-history mutation.
-- [ ] Blink produces no USB output.
-- [ ] Wrapped-line cursor coordinates are correct at 20-column boundaries.
-- [ ] Cursor remains visible while traversing commands longer than seven display rows.
-- [ ] Moving back toward command end returns to the live-tail edit view.
-- [ ] Ctrl scrollback hides cursor from historical output.
-- [ ] Cursor resumes on the live edit view.
-- [ ] Enter/app handoff leaves no stale cursor overlay.
-- [ ] T076 key mapping remains unchanged.
-- [ ] Shared editor/history remains unchanged.
-- [ ] Linux behavior remains unchanged.
-- [ ] Public API remains unchanged.
-- [ ] Full Linux CTest passes.
-- [ ] ADV firmware builds successfully.
+- [x] Empty prompt shows a blinking inverse blank cell after `M$> `.
+- [x] Cursor inside text inverts the underlying character.
+- [x] Cursor at end of text inverts the following blank cell.
+- [x] Cursor position tracks Fn+, / Fn+/ movement.
+- [x] History recall/draft restoration moves the cursor to the core editor position.
+- [x] Any successful edit makes cursor immediately visible and restarts blink.
+- [x] Cursor toggles roughly every 500 ms while idle.
+- [x] Blink produces no retained-history mutation.
+- [x] Blink produces no USB output.
+- [x] Wrapped-line cursor coordinates are correct at 20-column boundaries.
+- [x] Cursor remains visible while traversing commands longer than seven display rows.
+- [x] Moving back toward command end returns to the live-tail edit view.
+- [x] Ctrl scrollback hides cursor from historical output.
+- [x] Cursor resumes on the live edit view.
+- [x] Enter/app handoff leaves no stale cursor overlay.
+- [x] T076 key mapping remains unchanged.
+- [x] Shared editor/history remains unchanged.
+- [x] Linux behavior remains unchanged.
+- [x] Public API remains unchanged.
+- [x] Full Linux CTest passes.
+- [x] ADV firmware builds successfully.
 
 ## Automated tests
 
@@ -377,17 +377,85 @@ Do not merge to `main` and do not open a PR unless asked.
 
 ### Implementation summary
 
+Implemented the ADV resident inverse-cell cursor with a 500 ms visible / 500 ms
+hidden phase driven by the existing 5 ms input loop and `adv_monotonic_us()`.
+Successful editor actions immediately show it and restart the deadline. Enter
+and EOF remove it before leaving the reader. Ordinary console output invalidates
+an active overlay.
+
+The display derives cursor geometry from the prompt snapshot and shared editor
+position. It follows the cursor through wrapped commands while keeping the
+existing 50-row ring and snapshot model. Manual output scrollback suppresses the
+overlay; editing restores a viewport containing the cursor. Blink transitions
+redraw only the affected cell and preserve underlying glyphs and attributes.
+No task deviations.
+
 ### Files changed
+
+- `platform/adv/adv_console.c`: cursor timing, reset and reader lifecycle.
+- `platform/adv/adv_display.cpp`: transient inverse rendering, cursor geometry,
+  viewport following and scrollback suppression.
+- `platform/adv/adv_internal.h`: private edit position/visibility/end interface.
+- `tests/adv_console_scrollback_test.py`: deterministic clock, blink/lifecycle,
+  character/blank/attribute rendering, wrap and full-length cursor traversal tests.
+- `docs/api/console-api.md`, `platform/adv/README.md`: resident cursor behavior.
+- This packet: implementation and validation evidence.
 
 ### Invariants preserved
 
+Public API, shared editor, ADV keyboard backend and Linux sources are unchanged
+(`git diff --exit-code origin/main -- include/minishell/api.h core/shell_editor.c
+core/shell_editor.h platform/linux platform/adv/adv_keyboard.cpp` passed).
+T076 key translation is unchanged. Ten-entry RAM command history, 255-character
+payload and 50-row retained console history remain intact. No heap allocation,
+new task, timer or thread. Cursor overlay never writes retained text or attributes,
+and blink-only transitions emit no USB bytes. Foreground Display ownership and
+USB ANSI tail preview are preserved.
+
 ### Local tests run
+
+- `PYTHONDONTWRITEBYTECODE=1 python3 tests/adv_console_scrollback_test.py`: passed,
+  including existing T075/T076 regression cases.
+- `cmake -S . -B build-linux`: passed.
+- `cmake --build build-linux -j8`: passed.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure`:
+  first run passed 124/125. The previously observed unrelated `linux_serial_unit`
+  PTY saturation assertion at line 67 failed (`MINI_ERR_TIMEOUT && n == 0`).
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R '^linux_serial_unit$'
+  --output-on-failure`: passed 1/1 immediately afterward. No serial code or tests
+  were changed.
+- Full Linux CTest rerun with the same command: passed 125/125 without retries.
+- `cmake -S tests/unit -B /tmp/T077-unit`: passed.
+- `cmake --build /tmp/T077-unit -j8`: passed.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T077-unit --output-on-failure`:
+  passed 28/28.
+- `source /home/wei/projects/esp-idf/export.sh` followed by
+  `idf.py -C platform/adv build`: passed. Firmware size `0x153340` bytes;
+  application partition has 78% free. Existing SDK/dependency warnings remain.
+- `git diff --check`: passed.
+
+Acceptance boxes above reflect automated evidence; physical validation below
+remains pending.
 
 ### Manual/hardware validation still required
 
+Architect to run the ADV checklist above: physical blink readability/timing,
+Fn navigation and middle edits, row wrapping and long-command viewport following,
+Ctrl scrollback, and launch/return cleanup. No device was flashed. No QMX/RF
+validation is required.
+
 ### Known limitations / risks
 
+Hardware rendering and keyboard feel have only host-stub coverage until ADV
+validation. Blink timing inherits the resident polling loop's scheduling delay.
+The unrelated Linux PTY timeout test is intermittent, as recorded above.
+
 ### Commit
+
+One commit on `codex/T077-adv-edit-cursor`, titled
+`T077: show blinking ADV shell edit cursor`, based on current main
+`f146b21f226b43200ef1efce3458329d1edcbf82`. The exact implementation SHA is provided
+in the Codex handoff (this packet is included in that commit).
 
 ## Supervisor review
 

@@ -174,9 +174,36 @@ void minishell_platform_console_prompt(void)
     minishell_platform_console_write("M$> ");
 }
 
+static bool s_cursor_editing, s_cursor_visible;
+static uint64_t s_cursor_deadline;
+
+static void cursor_restart(void)
+{
+    s_cursor_visible = true;
+    s_cursor_deadline = adv_monotonic_us(NULL) + 500000u;
+    adv_display_console_edit_cursor(true);
+}
+
+static void cursor_poll(void)
+{
+    if (!s_cursor_editing) return;
+    uint64_t now = adv_monotonic_us(NULL);
+    if (now < s_cursor_deadline) return;
+    s_cursor_visible = !s_cursor_visible;
+    s_cursor_deadline = now + 500000u;
+    adv_display_console_edit_cursor(s_cursor_visible);
+}
+
+static void cursor_end(void)
+{
+    s_cursor_editing = false;
+    adv_display_console_edit_end();
+}
+
 static void redraw_line(const shell_editor_t *editor)
 {
-    adv_display_console_edit_line(editor->line);
+    adv_display_console_edit_line(editor->line, editor->cursor);
+    cursor_restart();
     /* The USB mirror uses a single 79-column ANSI row while editing. TFT has
      * its own wrapped 20-column region; escape bytes never reach its renderer. */
     size_t start = editor->length > 74u ? editor->length - 74u : 0u;
@@ -226,6 +253,8 @@ static int accept_key_event(const mini_key_event_t *event, shell_editor_t *edito
 int minishell_platform_console_read_line(shell_editor_t *editor)
 {
     adv_display_console_edit_begin();
+    s_cursor_editing = true;
+    cursor_restart();
     for (;;) {
         int accepted = 0;
         mini_key_event_t event = {.struct_size = sizeof(event)};
@@ -237,12 +266,14 @@ int minishell_platform_console_read_line(shell_editor_t *editor)
             else clearerr(stdin);
         }
         if (accepted > 0) {
+            cursor_end();
             adv_console_debug_write("\r\033[4C\033[K");
             adv_console_debug_write(editor->line);
             minishell_platform_console_write("\n");
             return 2;
         }
-        if (accepted < 0) return 0;
+        if (accepted < 0) { cursor_end(); return 0; }
+        cursor_poll();
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }

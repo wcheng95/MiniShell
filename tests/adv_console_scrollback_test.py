@@ -39,6 +39,9 @@ static std::deque<mini_key_event_t> keys;
 static std::deque<int> usb_input;
 static struct { bool suspended; } s_host_console;
 static unsigned polls;
+static uint64_t fake_time;
+static void (*delay_hook)(void);
+static uint64_t adv_monotonic_us(void*) { return fake_time; }
 static void adv_console_debug_write(const char *s) { usb_output += s; }
 static mini_result_t adv_keyboard_read_event(mini_key_event_t *e) {
  if(keys.empty()) return MINI_ERR_NOT_READY;
@@ -48,7 +51,7 @@ static int host_getc(FILE*) {
  if(usb_input.empty()) return EOF;
  int c=usb_input.front(); usb_input.pop_front(); return c;
 }
-static void vTaskDelay(unsigned) { assert(++polls < 1000); }
+static void vTaskDelay(unsigned ms) { assert(++polls < 1000); fake_time+=ms*1000u; if(delay_hook) delay_hook(); }
 #define pdMS_TO_TICKS(x) (x)
 #define fgetc host_getc
 ''' + console + r'''
@@ -61,7 +64,7 @@ static std::string numbered(unsigned n) {
 }
 static void reset() {
  assert(adv_display_prepare()==0); usb_output.clear(); s_line_start=true;
- keys.clear(); usb_input.clear(); polls=0;
+ keys.clear(); usb_input.clear(); polls=0; fake_time=0; delay_hook=nullptr; s_cursor_editing=false;
 }
 static void fill(unsigned rows) {
  for(unsigned i=0;i<rows;++i) {
@@ -283,7 +286,143 @@ static void input_tests() {
  for(unsigned i=0;i<240;++i) accept_key_event(&backspace,&editor);
  assert(editor.length==15 && row(6)==padded("M$> "+std::string(15,'x')));
 }
-int main(){history_tests();handoff_tests();input_tests();}
+
+static void cursor_at(unsigned r, unsigned c, char text) {
+ unsigned inverse_cells=0;
+ for(unsigned y=0;y<7;++y) for(unsigned x=0;x<20;++x) {
+  if(M5.Display.bg[y][x]==0xffffff && M5.Display.fg[y][x]==0) {
+   ++inverse_cells;assert(y==r && x==c);
+  }
+ }
+ assert(inverse_cells==1 && M5.Display.cells[r][c]==text);
+}
+static void no_cursor() {
+ for(unsigned y=0;y<7;++y) for(unsigned x=0;x<20;++x)
+  assert(M5.Display.bg[y][x]==0);
+}
+static void start_edit(shell_editor_t *e) {
+ shell_editor_init(e);minishell_platform_console_prompt();
+ adv_display_console_edit_begin();s_cursor_editing=true;cursor_restart();
+}
+static void cursor_tests() {
+ reset();shell_editor_t e;start_edit(&e);
+ cursor_at(0,4,' ');
+ auto left=special(MINI_KEY_LEFT,MINI_MOD_FN),right=special(MINI_KEY_RIGHT,MINI_MOD_FN);
+ auto previous=special(MINI_KEY_UP,MINI_MOD_FN),next=special(MINI_KEY_DOWN,MINI_MOD_FN);
+ auto up=character(';',MINI_MOD_CTRL),down=character('.',MINI_MOD_CTRL);
+ const std::string initial_usb=usb_output;
+ char history[50][20];memcpy(history,s_history,sizeof(history));
+ char cells[7][20];memcpy(cells,s_cells,sizeof(cells));
+ uint8_t attrs[7][20];memcpy(attrs,s_attrs,sizeof(attrs));
+ fake_time=499999;cursor_poll();cursor_at(0,4,' ');
+ fake_time=500000;cursor_poll();no_cursor();
+ fake_time=1000000;cursor_poll();cursor_at(0,4,' ');
+ assert(!memcmp(history,s_history,sizeof(history)) && usb_output==initial_usb);
+ assert(!memcmp(cells,s_cells,sizeof(cells)) && !memcmp(attrs,s_attrs,sizeof(attrs)));
+ fake_time=1500000;cursor_poll();no_cursor();
+ accept_key_event(&left,&e);assert(s_cursor_deadline==2000000);no_cursor(); // Boundary doesn't restart.
+ auto ch=character('a');accept_key_event(&ch,&e);cursor_at(0,5,' ');
+ assert(s_cursor_deadline==2000000);
+ ch=character('b');accept_key_event(&ch,&e);
+ ch=character('c');accept_key_event(&ch,&e);cursor_at(0,7,' ');
+ accept_key_event(&left,&e);cursor_at(0,6,'c');
+ fake_time=2000000;cursor_poll();no_cursor();
+ fake_time=2100000;accept_key_event(&left,&e);cursor_at(0,5,'b');
+ assert(s_cursor_deadline==2600000);
+ accept_key_event(&left,&e);cursor_at(0,4,'a');
+ accept_key_event(&right,&e);cursor_at(0,5,'b');
+ // Overlay inverts using the underlying attribute without modifying it.
+ s_attrs[0][5]=MINI_TEXT_ATTR_FG_GREEN;
+ adv_display_console_edit_cursor(false);adv_display_console_edit_cursor(true);
+ assert(M5.Display.fg[0][5]==0 && M5.Display.bg[0][5]==0x00ff00);
+ assert(s_attrs[0][5]==MINI_TEXT_ATTR_FG_GREEN);
+ s_attrs[0][5]=MINI_TEXT_ATTR_FG_GREEN|MINI_TEXT_ATTR_INVERSE;
+ adv_display_console_edit_cursor(false);adv_display_console_edit_cursor(true);
+ assert(M5.Display.fg[0][5]==0x00ff00 && M5.Display.bg[0][5]==0);
+ assert(s_attrs[0][5]==(MINI_TEXT_ATTR_FG_GREEN|MINI_TEXT_ATTR_INVERSE));
+ s_attrs[0][5]=0;render_all();
+ shell_editor_remember(&e);
+ shell_editor_begin(&e);redraw_line(&e);
+ ch=character('d');accept_key_event(&ch,&e);accept_key_event(&left,&e);
+ accept_key_event(&previous,&e);cursor_at(0,7,' ');
+ accept_key_event(&next,&e);assert(e.cursor==0 && !strcmp(e.line,"d"));cursor_at(0,4,'d');
+ // Each edit class restarts a hidden phase and shows its new insertion point.
+ auto back=special(MINI_KEY_BACKSPACE),del=special(MINI_KEY_DELETE);
+ fake_time=s_cursor_deadline;cursor_poll();no_cursor();
+ accept_key_event(&del,&e);cursor_at(0,4,' ');
+ accept_character('x',&e);
+ fake_time=s_cursor_deadline;cursor_poll();no_cursor();
+ accept_key_event(&back,&e);cursor_at(0,4,' ');
+ fake_time=s_cursor_deadline;cursor_poll();no_cursor();
+ accept_key_event(&previous,&e);cursor_at(0,7,' ');
+ fake_time=s_cursor_deadline;cursor_poll();no_cursor();
+ accept_key_event(&next,&e);cursor_at(0,4,' ');
+ cursor_end();no_cursor();assert(!s_edit_active && !s_cursor_editing);
+
+ // Geometry includes the actual prompt tail, not a baked-in four cells.
+ reset();minishell_platform_console_write("prefix M$> ");adv_display_console_edit_begin();
+ cursor_at(0,11,' ');adv_display_console_edit_line("123456789",9);cursor_at(1,0,' ');
+ adv_display_console_edit_line("123456789",8);cursor_at(0,19,'9');
+ adv_display_console_edit_end();no_cursor();
+ reset();start_edit(&e);
+ for(unsigned i=0;i<16;++i) accept_character('x',&e);
+ cursor_at(1,0,' ');accept_key_event(&left,&e);cursor_at(0,19,'x');
+ accept_key_event(&right,&e);cursor_at(1,0,' ');
+
+ // At capacity, all command positions survive ring wrapping and remain visible.
+ reset();fill(50);minishell_platform_console_write("\n");start_edit(&e);
+ for(unsigned i=0;i<255;++i) accept_character('a'+i%26,&e);
+ assert(s_history_count==50 && s_console_offset==0);cursor_at(6,19,' ');
+ memcpy(history,s_history,sizeof(history));
+ unsigned first=s_history_first,count=s_history_count;
+ for(unsigned i=255;i>0;--i) {
+  accept_key_event(&left,&e);
+  unsigned row;assert(cursor_cell(&row));
+  cursor_at(row,(4+e.cursor)%20,e.line[e.cursor]);
+  assert(!memcmp(history,s_history,sizeof(history)) && s_history_first==first && s_history_count==count);
+ }
+ assert(s_console_offset>0 && e.cursor==0);
+ const auto before_scroll=e;
+ const std::string before_scroll_usb=usb_output;
+ accept_key_event(&up,&e);no_cursor();
+ assert(!memcmp(&before_scroll,&e,sizeof(e)) && usb_output==before_scroll_usb);
+ fake_time=s_cursor_deadline;cursor_poll();no_cursor();
+ fake_time=s_cursor_deadline;cursor_poll();no_cursor();
+ // Return to editing from historical output, without jumping the cursor to EOF.
+ accept_key_event(&right,&e);unsigned visible_row;assert(cursor_cell(&visible_row));
+ cursor_at(visible_row,5,'b');
+ for(unsigned i=1;i<255;++i) {
+  accept_key_event(&right,&e);unsigned row;assert(cursor_cell(&row));
+  cursor_at(row,(4+e.cursor)%20,e.cursor==e.length?' ':e.line[e.cursor]);
+ }
+ assert(s_console_offset==0 && !memcmp(history,s_history,sizeof(history)));
+ accept_key_event(&up,&e);no_cursor();accept_key_event(&down,&e);cursor_at(6,19,' ');
+ // No transient inverse bits or glyphs persist, and app Display never gains the overlay.
+ for(auto &r:s_attrs) for(auto attr:r) assert(attr==0);
+ cursor_end();no_cursor();
+ adv_display_text_clear(nullptr);adv_display_text_write_at(nullptr,0,0,"APP",3);
+ adv_display_present(nullptr);adv_display_console_edit_cursor(true);cursor_poll();
+ assert(row(0)==padded("APP"));no_cursor();
+ minishell_platform_console_write("\n");start_edit(&e);cursor_at(6,4,' ');
+}
+static void idle_blink_hook() {
+ if(fake_time==505000) no_cursor();
+ if(fake_time==1005000) cursor_at(0,4,' ');
+ if(fake_time==1505000) { no_cursor();keys.push_back(special(MINI_KEY_ENTER)); }
+}
+static void cursor_loop_tests() {
+ reset();shell_editor_t e;shell_editor_init(&e);minishell_platform_console_prompt();
+ const std::string before=usb_output;
+ delay_hook=idle_blink_hook;
+ assert(minishell_platform_console_read_line(&e)==2);
+ assert(fake_time==1505000 && !s_edit_active && !s_cursor_editing);no_cursor();
+ assert(usb_output==before+"\r\033[4C\033[K\n"); // Only submission, never periodic USB output.
+ delay_hook=nullptr;minishell_platform_console_prompt();shell_editor_begin(&e);
+ usb_input={4};assert(minishell_platform_console_read_line(&e)==0);
+ no_cursor();assert(!s_edit_active && !s_cursor_editing);
+}
+int main(){history_tests();handoff_tests();input_tests();cursor_tests();cursor_loop_tests();}
+
 ''')
     subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Wno-missing-field-initializers',
                     '-I'+str(d), '-I'+str(root/'include'), '-I'+str(root/'core'),

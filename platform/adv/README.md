@@ -210,6 +210,13 @@ excludes startup commands and is never persisted. The USB mirror uses an ANSI
 single-row tail preview on an 80-column-or-wider host terminal while editing and
 prints the full submitted command on Enter.
 
+While editing, a blinking inverse block marks the insertion point, including a
+blank cell at command end. It is visible for 500 ms and hidden for 500 ms; an edit,
+cursor movement or history recall restarts the visible interval. The viewport
+follows the cursor through wrapped commands, including those longer than seven
+rows. Output scrollback hides the block until returning to the edit view; Enter
+and app handoff remove it. The block is a TFT overlay and emits no USB bytes.
+
 ## Storage
 
 Canonical ADV storage policy:
