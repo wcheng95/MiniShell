@@ -1,6 +1,6 @@
 # T072 — Resident CWD, cd/pwd, and relative filesystem paths
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -561,4 +561,23 @@ is required.
 
 ## Architect test result
 
-Record ADV CWD/relative-path validation here.
+ADV hardware validation passed on 2026-09-24.
+
+Verified:
+
+```text
+pwd
+cd /flash/ft8
+pwd
+ls .
+nano setting.txt
+```
+
+CWD remained `/flash/ft8` after nano exited, and a failed `cd` left the current
+directory unchanged.
+
+Result: **PASS. T072 COMPLETE.**
+
+Follow-up usability feedback: now that CWD exists, bare `ls` should behave as
+`ls .` rather than retaining its historical `ls /` default. That is handled
+separately by T073.
