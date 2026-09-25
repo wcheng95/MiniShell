@@ -7,7 +7,7 @@ Roles are defined in repository-root `AGENTS.md`.
 ## Active / next tasks
 
 ```text
-T067-linux-sstv-robot36-wav.md      IMPLEMENTING — Linux test.wav -> Robot 36 -> BMP
+T067-linux-sstv-robot36-wav.md      COMPLETE — Linux test.wav -> Robot 36 -> BMP accepted
 T066-js8-websdr-audio.md            COMPLETE — pc-1 KFS/browser Pulse monitor JS8 RX accepted
 ```
 
