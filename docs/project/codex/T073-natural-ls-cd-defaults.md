@@ -1,6 +1,6 @@
 # T073 — Natural bare ls and cd defaults
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -361,4 +361,23 @@ returns to `/`, and explicit `ls /` retains its root presentation.
 
 ## Architect test result
 
-Record ADV bare-ls/bare-cd validation here.
+ADV hardware validation passed on 2026-09-24.
+
+Verified:
+
+```text
+cd /flash/ft8
+ls
+cd
+pwd
+ls /
+```
+
+Results:
+
+- bare `ls` listed the current CWD;
+- bare `cd` returned CWD to `/`;
+- `pwd` reported `/`;
+- explicit `ls /` retained the established explicit-root presentation.
+
+Result: **PASS. T073 COMPLETE.**
