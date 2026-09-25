@@ -1,6 +1,6 @@
 # T074 — Unix-style cp/mv directory destinations
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -499,7 +499,54 @@ handoff. No merge or PR.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and local test evidence.
+Reviewed `main..138803ecc3df45dc86345a0bd6c54867671c63c8` against T074,
+`AGENTS.md`, the accepted T072/T073 CWD semantics, and the current Filesystem
+ownership boundary.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- exactly one bounded implementation commit, one commit ahead of the T074 task baseline;
+- directory-destination policy is implemented in portable app space through one
+  shared app-private helper; Filesystem semantics remain literal and unchanged;
+- the helper performs only public `stat()` calls, source-basename extraction,
+  bounded joining, and returns an effective operand without querying private CWD;
+- `cp` retains its 1 KiB buffered copy path, read-before-write order, partial-I/O
+  handling, sync/close behavior, and source-directory rejection;
+- normalized self-copy aliases remain safe: the source reader is acquired first,
+  then the Filesystem writer-exclusion rule rejects the alias before truncate;
+- `mv` continues to call only the existing Filesystem `rename()`; no copy/delete
+  fallback or cross-filesystem transfer engine was added;
+- existing destination-child regular files remain replaceable; destination-child
+  directories are rejected;
+- relative operands and `DIR`, `DIR/`, `DIR/.` variants are covered;
+- public API, T072 Filesystem/CWD implementation, resident shell, and ADV build
+  composition are byte-for-byte unchanged:
+  - `include/minishell/api.h`: `13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0`
+  - `filesystem_service.c`: `315854e9b7c73c5dead0542d084221ad5feeeb4b`
+  - `core/shell.c`: `57d8be184a22ad3d2dd8b5a09b2828572cc7db75`
+  - ADV main CMake: `8b4a982533c8908400bca9d6da74a70e8cddbd04`.
+
+Accepted local evidence:
+
+```text
+final Linux CTest: 123/123 PASS
+portable unit tests: 27/27 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+The intermittent `linux_serial_unit` PTY failure is in unchanged serial code and
+the final full suite passed; no serial implementation or assertion was modified.
+
+No blocking review finding. `main` was fast-forwarded to
+`138803ecc3df45dc86345a0bd6c54867671c63c8`.
+
+Remaining gate: architect ADV validation of cp into an existing directory,
+same-filesystem mv into a directory, and the `/sd`, `/sd/`, `/sd/.` spelling
+variants. Cross-volume mv should remain a rename failure; no QMX/RF testing is
+required.
 
 ## Architect test result
 
