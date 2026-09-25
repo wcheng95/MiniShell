@@ -1,6 +1,6 @@
 # T069 — MiniShell resident startup and brightness settings
 
-Status: TESTING
+Status: BLOCKED
 
 ## Architect intent
 
@@ -514,4 +514,13 @@ Manual / hardware validation section.
 
 ## Architect test result
 
-Record real ADV validation and final acceptance here.
+ADV hardware validation on 2026-09-24:
+
+- `startup=` sequencing: **PASS**. Startup commands execute during boot and the
+  normal prompt is reached afterward.
+- `brightness=`: **FAIL / not accepted**. Changing the configured value did not
+  produce an observable LCD backlight change on the real Cardputer ADV.
+
+T069 remains BLOCKED on the brightness hardware path. The startup portion is
+accepted. Do not mark T069 COMPLETE until the ADV brightness backend is fixed and
+revalidated on hardware.
