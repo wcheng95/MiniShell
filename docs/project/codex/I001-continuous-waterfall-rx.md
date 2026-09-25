@@ -2,6 +2,73 @@
 
 # Current architecture — slot-local linear waterfall
 
+## 2026-09-25 lifecycle correction — capture and decode are independent
+
+T081 supersedes the remaining I001 control-path coupling. The slot-local linear
+waterfall geometry below remains valid, but the live-RX lifecycle is now defined
+by two independent recurring UTC actions:
+
+```text
+every slot at UTC - 1.60 s
+    reset the slot-local waterfall writer to block 0
+    start/fill that slot
+
+every slot at UTC + 12.64 s
+    submit that slot for decoding
+
+repeat while live RX is active
+```
+
+Capture timing does not depend on decode progress, decode result publication,
+or an Audio discontinuity handshake. Decode may run across a UTC boundary or
+the next slot's `-1.60 s` waterfall reset. If later producer writes overwrite
+waterfall data still being read by an unusually late decoder, decode yield may
+degrade; capture scheduling does not change.
+
+The following older I001 rules are explicitly **superseded**:
+
+- a new slot may be silently dropped because the previous decoder/result state
+  is non-IDLE;
+- `skip-busy` is normal or accepted receive behavior;
+- a completed result may keep the decoder logically busy until publication and
+  thereby gate the next slot;
+- a live Audio discontinuity may cancel decode, set a decoder-dependent
+  `timing_pending` lifecycle, or delay the next capture reset while waiting
+  for decoder cancellation/reset.
+
+The production invariant is instead:
+
+```text
+slot N reset/start capture
+slot N decode trigger
+slot N result consumed promptly
+slot N+1 reset/start capture
+slot N+1 decode trigger
+...
+```
+
+The existing single `protocol_messages[50]` result storage is retained. No
+second result buffer, queue, or deep copy is added to tolerate late result
+consumption. Current ADV decoding has been observed to take about 4 seconds at
+the longest, leaving substantial time before the next slot decode trigger. If
+the decoder is still RUNNING, or a completed result is still unconsumed, when
+the next decode trigger arrives, that is an invariant failure to diagnose rather
+than a condition to accommodate by buffering or silently skipping a slot.
+
+A zero-message decode is still a completed slot and must publish an empty
+`RxBatch`, advancing the RX generation and clearing stale RX rows.
+
+Live transport imperfections may damage the current slot and reduce decode
+yield. The next UTC `-1.60 s` reset is the normal recovery point. Physical
+device availability and intentional physical-TX RX pause/resume remain separate
+concerns.
+
+Implementation and acceptance details are in:
+
+```text
+docs/project/codex/T081-ft8-rx-decouple.md
+```
+
 This section supersedes the earlier continuous circular-waterfall design below.
 
 The ADV profile keeps MiniFT8-V2 decoder geometry:
