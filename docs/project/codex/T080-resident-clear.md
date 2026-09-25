@@ -1,6 +1,6 @@
 # T080 — Resident `clear` built-in
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -465,7 +465,58 @@ in the Codex handoff; this packet is included in that commit.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and test evidence.
+Reviewed `main..9cea4380dc4a735e8dee1a244dd40a625ad2215e` against T080.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- `clear` is a true resident built-in and is protected from alias override;
+- `clear extra` prints `usage: clear` and does not invoke the platform clear;
+- optional `c=clear` remains an ordinary user alias; no compiled `c` exists;
+- Linux emits `CSI 2J`, `CSI 3J`, `CSI H` only when stdout is a TTY;
+- redirected/non-TTY Linux clear is a silent no-op with no ANSI bytes;
+- ADV clears retained resident output history, scroll offset, column, edit snapshot, and cursor overlay, then leaves the next normal prompt at a fresh top-left console;
+- ADV USB mirror receives the clear/home sequence exactly once;
+- T075 command history is independent and preserved;
+- CWD, aliases/settings, app lifecycle and runtime resources are preserved;
+- T078/T079 pathname completion/listing remains unchanged;
+- startup uses the normal `execute_line()` path.
+
+Protected boundaries verified unchanged:
+
+```text
+include/minishell/api.h                  13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0
+core/shell_editor.c                      b17fa770aa9c4bba2702b30a6eabbc1a5cf61cff
+core/shell_editor.h                      a4f15ffc468eb5fc16942cd648588cfff99749b9
+core/minishell_services/filesystem_service.c
+                                         315854e9b7c73c5dead0542d084221ad5feeeb4b
+core/shell_completion.c                  4ee514a14cc71530b6c4264ccab8affd01a0a2d8
+platform/adv/adv_keyboard.cpp            5afceeb97b3fee479b2a30238286dc0083607b44
+```
+
+Accepted local evidence:
+
+```text
+focused T080 tests: 4/4 PASS
+portable unit tests: 29/29 PASS
+ADV ESP-IDF build: PASS
+Linux full CTest: 125/126; linux_serial_unit timeout only
+git diff --check: PASS
+```
+
+The failing `linux_serial_unit` target is outside the T080 diff and matches the
+known PTY saturation timeout issue. Serial implementation/tests and their inputs
+are unchanged, so this does not block T080 manual validation.
+
+`main` was fast-forwarded to:
+
+```text
+9cea4380dc4a735e8dee1a244dd40a625ad2215e
+```
+
+Remaining gate: manual ADV and pc-1 validation of visible clear behavior,
+scrollback reset, preserved command history/CWD, and normal Tab behavior.
 
 ## Architect test result
 
