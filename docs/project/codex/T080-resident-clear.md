@@ -1,6 +1,6 @@
 # T080 — Resident `clear` built-in
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -520,4 +520,19 @@ scrollback reset, preserved command history/CWD, and normal Tab behavior.
 
 ## Architect test result
 
-Record ADV/pc-1 `clear` validation here.
+Final T080 `clear` behavior passed manual validation on both ADV and pc-1 on
+2026-09-25.
+
+Verified:
+
+- resident console output/history clears correctly;
+- ADV pre-clear rows are no longer reachable through scrollback;
+- the fresh prompt starts cleanly;
+- T075 command history survives and remains recallable;
+- CWD is preserved;
+- aliases/settings are preserved;
+- T077 cursor behavior remains normal;
+- T078/T079 Tab completion and ambiguous-choice listing still work;
+- pc-1 screen/scrollback clearing behaves correctly.
+
+Result: **PASS. T080 COMPLETE.**
