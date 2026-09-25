@@ -1,6 +1,6 @@
 # T076 — ADV shell history/cursor/scrollback key remap
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -407,4 +407,17 @@ validation is required.
 
 ## Architect test result
 
-Record ADV remap validation here.
+ADV hardware validation passed on 2026-09-24 as part of the T077 cursor test.
+
+Confirmed on real hardware:
+
+```text
+Ctrl+; / Ctrl+.   console scrollback
+Fn+;   / Fn+.     history previous/next
+Fn+,   / Fn+/     cursor left/right
+```
+
+The middle-of-command edit path is usable with the new blinking cursor, and bare
+punctuation remains available for normal command entry.
+
+Result: **PASS. T076 COMPLETE.**
