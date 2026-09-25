@@ -237,9 +237,20 @@ The deterministic generator, core chunk-invariance checks, PCM16/PCM24 mono/ster
 WAV adaptation, malformed-input cleanup, VIS parity/unsupported-mode handling, and
 actual MiniShell runtime-loader regression are present in the branch.
 
-Remaining evidence before merge is the full repository build/CTest and the architect's
-real pc-1 generation/decode/view of `test.wav -> test.bmp`.
+pc-1 full CTest exposed one WAV-container edge case in `sstv_wav`: the Robot 36
+decoder completed line 240 before the declared WAV data chunk ended, so truncating
+only the post-image tail was incorrectly accepted. The adapter was corrected in
+`19ae81268960dd1f84b7851eb049ec1f495744cb` to drain/validate the remainder of
+the declared data chunk after successful image decode and remove the completed BMP
+if that validation fails.
+
+Remaining evidence before merge is a clean full repository CTest rerun and the
+architect's real pc-1 generation/decode/view of `test.wav -> test.bmp`.
 
 ## Architect test result
 
-## Architect test result
+### pc-1 CTest attempt
+
+119 tests were run; 118 passed. `sstv_wav` failed only on the expected truncated-WAV
+rejection case because the decoder had already completed the image before reaching
+the removed tail bytes. Fix committed; rerun pending.
