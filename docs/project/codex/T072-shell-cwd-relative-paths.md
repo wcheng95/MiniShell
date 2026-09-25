@@ -1,6 +1,6 @@
 # T072 — Resident CWD, cd/pwd, and relative filesystem paths
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -509,7 +509,55 @@ No merge or PR.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and local test evidence.
+Reviewed `main..76995dcc790e3be7a564a83dd6221125f50f9bdf` against T072,
+`AGENTS.md`, the Filesystem ownership contract, and the current shell/runtime
+architecture.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- exactly one bounded implementation commit, one commit ahead of the T072 task
+  baseline;
+- CWD is owned by the portable Filesystem service, not by Linux/ADV backends or
+  individual applications;
+- one canonical 512-byte session CWD defaults to `/`, survives app begin/end,
+  and resets only on service/session reconfiguration;
+- every public path-taking Filesystem operation resolves relative paths before
+  backend access, including both sides of rename and `space()`;
+- backends continue receiving normalized absolute MiniShell logical paths only;
+- path hashing and writer-exclusion operate on the resolved absolute path, so
+  relative/absolute aliases cannot bypass ownership;
+- root-escape and destructive-root protections remain intact;
+- `cd` / `pwd` are resident built-ins, participate in the shared startup/
+  interactive dispatcher, and retain built-in precedence over aliases;
+- the nano change only removes its old absolute-path precondition and delegates
+  resolution to the Filesystem service; it does not implement a second CWD model;
+- existing `cp` / `mv` destination semantics are unchanged, as required;
+- no platform backend implementation changed;
+- `include/minishell/api.h` is byte-for-byte unchanged (blob
+  `13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0` on parent and implementation).
+
+Accepted local evidence:
+
+```text
+focused tests: 14/14 PASS
+portable unit tests: 27/27 PASS
+final Linux CTest: 123/123 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+The initial `linux_serial_unit` PTY timeout occurred in unchanged serial code
+and passed immediately on focused rerun and in the final full suite; no serial
+test or implementation was altered.
+
+No blocking review finding. `main` was fast-forwarded to
+`76995dcc790e3be7a564a83dd6221125f50f9bdf`.
+
+Remaining gate: architect ADV validation of `pwd`, `cd`, relative `ls`/nano,
+CWD persistence after app exit, and failed-`cd` preservation. No QMX/RF testing
+is required.
 
 ## Architect test result
 
