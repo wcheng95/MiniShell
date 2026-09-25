@@ -1,6 +1,6 @@
 # T078 — Eager pathname longest-prefix expansion
 
-Status: BLOCKED
+Status: REVIEW
 
 ## Architect intent
 
@@ -433,33 +433,36 @@ Do not implement in T078:
 
 ## Acceptance criteria
 
-- [ ] `cd /f` eagerly becomes `cd /flash` when `/flash` is the only matching root entry.
-- [ ] `cd /flash/f` expands the final component from `/flash`.
-- [ ] Relative CWD lookup works (`cat se` -> `setting.txt` when unambiguous).
-- [ ] Multiple matches expand only to longest common prefix.
-- [ ] Ambiguity with no longer common prefix makes no change.
-- [ ] Files and directories both match.
-- [ ] No automatic trailing slash is inserted.
-- [ ] Hidden entries are ignored unless component begins `.`.
-- [ ] Entry names containing shell whitespace are skipped.
-- [ ] Command token never expands.
-- [ ] Bare arbitrary app arguments never expand.
-- [ ] Explicit path-looking arguments may expand under arbitrary commands.
-- [ ] `cp`/`mv` both pathname operands support bare expansion.
-- [ ] Alias expansion is not consulted to infer bare-path context.
-- [ ] Mid-token insertion with text to the right does not auto-expand.
-- [ ] History recall/cursor movement alone does not auto-expand.
-- [ ] Backspace/Delete alone do not auto-expand.
-- [ ] Redirected Linux input does not auto-expand.
-- [ ] Overlong expansion is a no-op, never partial.
-- [ ] FS enumeration/close failure is a silent no-op.
-- [ ] Directory handles are always closed.
-- [ ] Expanded text is editable and stored normally in command history.
-- [ ] ADV cursor ends at the expanded insertion point and remains usable.
-- [ ] Linux and ADV produce the same expansion semantics.
-- [ ] Public API and T072 CWD implementation remain unchanged.
-- [ ] Full Linux CTest passes.
-- [ ] ADV firmware builds successfully.
+- [x] `cd /f` eagerly becomes `cd /flash` when `/flash` is the only matching root entry.
+- [x] `cd /flash/f` expands the final component from `/flash`.
+- [x] Relative CWD lookup works (`cat se` -> `setting.txt` when unambiguous).
+- [x] Multiple matches expand only to longest common prefix.
+- [x] Ambiguity with no longer common prefix makes no change.
+- [x] Files and directories both match.
+- [x] No automatic trailing slash is inserted.
+- [x] Hidden entries are ignored unless component begins `.`.
+- [x] Entry names containing shell whitespace are skipped.
+- [x] Command token never expands.
+- [x] Bare arbitrary app arguments never expand.
+- [x] Explicit path-looking arguments may expand under arbitrary commands.
+- [x] `cp`/`mv` both pathname operands support bare expansion.
+- [x] Alias expansion is not consulted to infer bare-path context.
+- [x] Mid-token insertion with text to the right does not auto-expand.
+- [x] History recall/cursor movement alone does not auto-expand.
+- [x] Backspace/Delete alone do not auto-expand.
+- [x] Redirected Linux input does not auto-expand.
+- [x] Overlong expansion is a no-op, never partial.
+- [x] FS enumeration/close failure is a silent no-op.
+- [x] Directory handles are always closed.
+- [x] Expanded text is editable and stored normally in command history.
+- [x] ADV cursor ends at the expanded insertion point and remains usable.
+- [x] Linux and ADV produce the same expansion semantics.
+- [x] Public API and T072 CWD implementation remain unchanged.
+- [x] Full absolute and relative pastes remain exact on Linux PTY and ADV USB.
+- [x] Delayed human typing and idle longest-prefix expansion still work.
+- [x] Queued paste bytes take priority even when ADV output is slow.
+- [x] Full Linux CTest passes.
+- [x] ADV firmware builds successfully.
 
 ## Automated tests
 
@@ -579,17 +582,118 @@ do not open a PR unless asked.
 
 ### Implementation summary
 
+Added one bounded core pathname matcher using public Filesystem directory
+operations. It determines active token/literal command context, streams matching
+child names into a longest-prefix candidate, closes the handle, checks capacity,
+and inserts the entire suffix at the editor cursor. Errors silently preserve
+typed text. Relative directory spelling is passed unchanged to the public API.
+
+Addressed the paste-safety review of `20c5858`: a shared pending deadline waits
+for 25 ms of input idle before matching once. Printable edits redraw immediately
+and arm/refresh the deadline. Any subsequent input cancels pending work; only a
+successful printable insertion rearms it. Navigation, deletion, control bytes,
+partial escape sequences and submission cannot leave an old lookup pending.
+Linux folds the deadline into its existing `poll()` timeout; ADV uses its existing
+5 ms loop and monotonic clock. ADV checks completion only on an input-free
+iteration, so slow redraws cannot expand ahead of queued paste bytes. Only a
+changed expansion causes another redraw,
+which uses the existing T077 cursor reset path.
+
+Full pathname pastes now remain exact. The original nano/FT8 PTY tests and the
+history test's full `cat /sd/partial` input are restored. No tests require
+abbreviating pasted paths to work around duplicated suffixes. The only timing
+change from the original task is the supervisor-requested 25 ms debounce.
+
 ### Files changed
+
+- `core/shell_completion.c/.h`: shared pathname policy/matching and bounded
+  pending deadline helpers.
+- `platform/linux/linux_console.c`, `platform/adv/adv_console.c`: deferred
+  printable-input trigger, idle lookup, cancellation and existing redraw paths.
+- `CMakeLists.txt`, `platform/adv/main/CMakeLists.txt`, `tests/unit/CMakeLists.txt`:
+  source and focused test target registration.
+- `tests/shell_completion_test.c`: matching/context/filter/bounds/error coverage
+  plus deterministic deadline refresh, cancellation and one-shot execution.
+- `tests/linux_shell_history.py`: real PTY and Filesystem expansion; exact pasted
+  absolute/nested/relative paths after settling and on submission; delayed human
+  input, longest-prefix result, cancellation on navigation/delete/Tab/history,
+  expanded history and unchanged redirected input.
+- `tests/adv_console_scrollback_test.py`: shared matcher through physical/USB
+  input, exact pasted paths, delayed characters and idle longest-prefix expansion,
+  deterministic cursor/blink reset, cancellation, immediate Enter and output
+  slower than the debounce interval.
+- `docs/api/console-api.md`: pathname expansion and idle/paste semantics.
+- This packet: implementation and review correction evidence.
 
 ### Invariants preserved
 
+Public API/version, Filesystem/CWD service, shared editor/history primitives,
+ADV keyboard mapping and T077 renderer are unchanged. Existing line/history
+capacity, key translation, cursor lifecycle, terminal leases and foreground
+ownership remain. No heap allocation, backend directory calls, persistent cache,
+new task/thread/timer or retained directory handle. Matching policy exists once
+in core. Startup/non-TTY input remains literal. No command/alias/app-name
+completion, automatic slash, quoting or Tab choices.
+
 ### Local tests run
+
+Corrected implementation validation:
+
+- `cmake -S . -B build-linux`: passed.
+- `cmake --build build-linux -j8`: passed.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R
+  'shell_completion_unit|adv_console_scrollback|linux_shell_history|^linux_nano$|^linux_ft8$'
+  --output-on-failure`: passed 5/5; nano and FT8 tests use original full paths.
+- Focused `linux_shell_history` rerun after adding settled-paste and pending-action
+  cancellation checks: passed 1/1.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure`:
+  passed 126/126. Rerun after the ADV slow-redraw guard passed 125/126;
+  the unrelated `linux_serial_unit` PTY saturation assertion at line 67 failed
+  (`MINI_ERR_TIMEOUT && n == 0`). A focused serial rerun also failed there.
+  Serial source/tests are unchanged.
+- Full CTest with `--repeat until-pass:3`: passed 126/126; no retries were actually
+  needed (126 test starts, including serial passing on its first attempt).
+- `cmake -S tests/unit -B /tmp/T078-unit` and
+  `cmake --build /tmp/T078-unit -j8`: passed.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T078-unit --output-on-failure`:
+  passed 29/29.
+- `source /home/wei/projects/esp-idf/export.sh` then
+  `idf.py -C platform/adv build`: passed both before and after the slow-redraw guard.
+  Final firmware size `0x153800` bytes; 78% application partition space free.
+  Existing SDK/dependency warnings remain.
+- `git diff --check`: passed.
+- Unchanged-boundary check against `origin/main` for `include/minishell/api.h`,
+  `core/shell_editor.c/.h`, `core/minishell_services`, `adv_keyboard.cpp`,
+  `adv_display.cpp`, `tests/linux_nano.py`, `tests/linux_ft8.py`: passed.
+
+The earlier immediate-expansion implementation and its test-input workaround are
+superseded. A temporary generated C++ test quoting error during this correction
+was fixed before the focused tests passed. Acceptance boxes reflect automated
+software evidence; physical acceptance remains pending.
 
 ### Manual/hardware validation still required
 
+Architect to run the ADV/pc-1 checklist, including pasting full absolute and
+relative paths, delayed human typing, real-storage responsiveness, Fn editing,
+Ctrl scrollback and cursor blink after delayed expansion. No device was flashed;
+no QMX/RF test is required.
+
 ### Known limitations / risks
 
+One eligible settled edit synchronously enumerates a directory; slow-media or
+large-directory latency needs hardware validation. The 25 ms idle rule treats
+input arriving with longer pauses as separate typing bursts; no platform paste
+protocol or cache is introduced. The existing serial PTY test remains intermittent,
+as recorded above. An immediate Enter submits exactly the visible
+line and cancels pending expansion. These are the requested debounce semantics.
+
 ### Commit
+
+One amended implementation commit on `codex/T078-pathname-auto-expansion`, titled
+`T078: add eager resident pathname expansion`, based on current main
+`ca862fa8a6db1183ef07d4f8d279cb2d3a0116ba`. Supersedes rejected review SHA
+`20c58587c5a45c1a102d9af4fd0d1896b1d0fabf`; the exact new SHA is supplied in the
+Codex handoff. The supervisor review below records the earlier rejection.
 
 ## Supervisor review
 

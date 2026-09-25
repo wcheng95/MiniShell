@@ -29,20 +29,47 @@ struct Board { struct Display Display; } M5;
 ''')
     (d / 'test.cpp').write_text(display + r'''
 #include "shell_editor.h"
+#include "shell_completion.h"
 #include <cassert>
 #include <cstdio>
 #include <string>
 #include <deque>
 #include <algorithm>
+static bool completion_enabled;
+static unsigned completion_reads, completion_opens, completion_closes;
+static const char *const root_names[]={"flash","sd",nullptr};
+static const char *const flash_names[]={"ft8",nullptr};
+static const char *const cwd_names[]={"setting.txt","RT260925.txt","RT260926.txt","RxTxLog.txt",nullptr};
+static const char *const *completion_names;
+static mini_result_t completion_open(const char *path, mini_dir_t *out) {
+ if(!completion_enabled) return MINI_ERR_NOT_FOUND;
+ if(!strcmp(path,"/")) completion_names=root_names;
+ else if(!strcmp(path,"/flash")) completion_names=flash_names;
+ else { assert(!strcmp(path,"/flash/ft8") || !strcmp(path,"."));completion_names=cwd_names; }
+ ++completion_opens;completion_reads=0;*out=1;return MINI_OK;
+}
+static mini_result_t completion_read(mini_dir_t, mini_fs_dir_entry_t *entry, uint32_t *has) {
+ const char *name=completion_names[completion_reads++];
+ *has=name!=nullptr;
+ if(*has) strcpy(entry->name,name);
+ return MINI_OK;
+}
+static mini_result_t completion_close(mini_dir_t) { ++completion_closes;return MINI_OK; }
+const mini_api_t *mini_api_get(void) {
+ static mini_fs_api_t fs={};static mini_api_t api={};
+ fs.dir_open=completion_open;fs.dir_read=completion_read;fs.dir_close=completion_close;
+ api.fs=&fs;return &api;
+}
 static std::string usb_output;
 static std::deque<mini_key_event_t> keys;
 static std::deque<int> usb_input;
 static struct { bool suspended; } s_host_console;
 static unsigned polls;
 static uint64_t fake_time;
+static bool slow_output;
 static void (*delay_hook)(void);
 static uint64_t adv_monotonic_us(void*) { return fake_time; }
-static void adv_console_debug_write(const char *s) { usb_output += s; }
+static void adv_console_debug_write(const char *s) { usb_output += s; if(slow_output) fake_time+=30000; }
 static mini_result_t adv_keyboard_read_event(mini_key_event_t *e) {
  if(keys.empty()) return MINI_ERR_NOT_READY;
  *e=keys.front(); keys.pop_front(); return MINI_OK;
@@ -65,6 +92,7 @@ static std::string numbered(unsigned n) {
 static void reset() {
  assert(adv_display_prepare()==0); usb_output.clear(); s_line_start=true;
  keys.clear(); usb_input.clear(); polls=0; fake_time=0; delay_hook=nullptr; s_cursor_editing=false;
+ s_completion.pending=false;completion_opens=completion_closes=0;
 }
 static void fill(unsigned rows) {
  for(unsigned i=0;i<rows;++i) {
@@ -421,12 +449,78 @@ static void cursor_loop_tests() {
  usb_input={4};assert(minishell_platform_console_read_line(&e)==0);
  no_cursor();assert(!s_edit_active && !s_cursor_editing);
 }
-int main(){history_tests();handoff_tests();input_tests();cursor_tests();cursor_loop_tests();}
+static shell_editor_t *completion_editor;
+static std::string completion_expected, delayed_text;
+static uint64_t completion_check_time;
+static void completion_usb_hook() {
+ if(!delayed_text.empty() && fake_time%50000==0) {
+  usb_input.push_back(delayed_text.front());delayed_text.erase(0,1);
+ }
+ if(fake_time==completion_check_time) {
+  assert(completion_editor->line==completion_expected);
+  assert(completion_editor->cursor==completion_expected.size());
+  unsigned row;assert(cursor_cell(&row));
+  cursor_at(row,(4+completion_editor->cursor)%20,' ');
+  assert(completion_opens==1 && completion_closes==1);
+  usb_input.push_back(10);
+ }
+}
+static void usb_completion_case(const std::string &typed, const std::string &expected, bool delayed=false) {
+ reset();shell_editor_t e;shell_editor_init(&e);minishell_platform_console_prompt();
+ completion_editor=&e;completion_expected=expected;delayed_text.clear();
+ if(delayed) delayed_text=typed;
+ else for(char ch:typed) usb_input.push_back(ch);
+ completion_check_time=delayed?typed.size()*50000+40000:typed.size()*5000+40000;
+ delay_hook=completion_usb_hook;
+ assert(minishell_platform_console_read_line(&e)==2);
+ assert(e.line==expected && !s_completion.pending);no_cursor();
+}
+static void completion_tests() {
+ reset();completion_enabled=true;shell_editor_t e;start_edit(&e);
+ for(char ch:std::string("cd /")) { auto key=character(ch);accept_key_event(&key,&e); }
+ fake_time=s_cursor_deadline;cursor_poll();no_cursor();
+ auto key=character('f');accept_key_event(&key,&e);
+ assert(!strcmp(e.line,"cd /f") && completion_opens==0);cursor_at(0,9,' ');
+ fake_time+=24999;
+ assert(!shell_completion_poll(&s_completion,&e,fake_time) && completion_opens==0);
+ ++fake_time;
+ assert(shell_completion_poll(&s_completion,&e,fake_time));redraw_line(&e);
+ assert(!strcmp(e.line,"cd /flash") && e.cursor==9);cursor_at(0,13,' ');
+ assert(s_cursor_deadline==fake_time+500000 && completion_opens==1 && completion_closes==1);
+ shell_editor_remember(&e);shell_editor_begin(&e);redraw_line(&e);
+ auto previous=special(MINI_KEY_UP,MINI_MOD_FN);accept_key_event(&previous,&e);
+ auto left=special(MINI_KEY_LEFT,MINI_MOD_FN),right=special(MINI_KEY_RIGHT,MINI_MOD_FN);
+ accept_key_event(&left,&e);accept_key_event(&right,&e);
+ auto back=special(MINI_KEY_BACKSPACE),del=special(MINI_KEY_DELETE);
+ accept_key_event(&back,&e);accept_key_event(&del,&e);
+ assert(completion_opens==1 && !strcmp(e.history[0],"cd /flash"));
+ // An action cancels pending work even if it cannot change the editor.
+ for(auto event:{left,right,back,del,previous,special(MINI_KEY_DOWN,MINI_MOD_FN),character(';',MINI_MOD_CTRL)}) {
+  shell_completion_defer(&s_completion,fake_time);
+  accept_key_event(&event,&e);fake_time+=30000;
+  assert(!shell_completion_poll(&s_completion,&e,fake_time));
+ }
+ cursor_end();
+ usb_completion_case("cd /flash","cd /flash");
+ usb_completion_case("cat /flash/ft8/setting.txt","cat /flash/ft8/setting.txt");
+ usb_completion_case("cat setting.txt","cat setting.txt");
+ usb_completion_case("cd /f","cd /flash",true);
+ usb_completion_case("cat RT","cat RT26092");
+ // A redraw slower than debounce cannot expand ahead of queued paste bytes.
+ // Immediate Enter submits a burst literally and cancels the pending lookup.
+ reset();shell_editor_init(&e);minishell_platform_console_prompt();
+ slow_output=true;
+ for(char ch:std::string("cd /flash\n")) usb_input.push_back(ch);
+ assert(minishell_platform_console_read_line(&e)==2 && !strcmp(e.line,"cd /flash"));
+ assert(completion_opens==0 && !s_completion.pending);no_cursor();
+ slow_output=false;completion_enabled=false;
+}
+int main(){history_tests();handoff_tests();input_tests();cursor_tests();cursor_loop_tests();completion_tests();}
 
 ''')
     subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Wno-missing-field-initializers',
                     '-I'+str(d), '-I'+str(root/'include'), '-I'+str(root/'core'),
-                    str(d/'test.cpp'), str(root/'core/shell_editor.c'),
+                    str(d/'test.cpp'), str(root/'core/shell_editor.c'), str(root/'core/shell_completion.c'),
                     '-o', str(d/'test')], check=True)
     subprocess.run([str(d/'test')], check=True)
 print('ADV console history, Display handoff, physical and USB line input: PASS')

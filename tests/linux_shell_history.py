@@ -27,6 +27,12 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
     (app_dir / "cat.so").symlink_to(cat)
     (Path(temporary) / "sd").mkdir()
     (Path(temporary) / "sd/partial").write_text("NO-NEWLINE")
+    fixtures = Path(temporary) / "flash/ft8"
+    fixtures.mkdir()
+    (fixtures / "setting.txt").write_text("EXPANDED-FILE\n")
+    (fixtures / "RT260925.txt").touch()
+    (fixtures / "RT260926.txt").touch()
+    (fixtures / "RxTxLog.txt").touch()
     env = dict(os.environ, MINISHELL_ROOT=temporary, MINISHELL_APP_DIR=str(app_dir))
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 20, 0, 0))
@@ -91,6 +97,60 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
         os.write(master, b"q")
         read_until(master, b"\r\nM$> ", 3)
         submit(b"pwd", b"/\r\n")
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+        # Observe final editable text before submitting, using eager keystrokes.
+        def visible(keys, line):
+            os.write(master, keys)
+            return read_until(master, b"\x1b[K" + line + b"\r", 3)
+
+        # Let each full paste sit beyond debounce before submission. The final
+        # committed line must match exactly, not just an intermediate redraw.
+        def pasted(line, output=None):
+            visible(line, line)
+            time.sleep(.08)
+            result = submit(b"", b"\x1b[K" + line + b"\r\n")
+            if output is not None:
+                assert output in result, result
+
+        pasted(b"cd /flash")
+        submit(b"pwd", b"/flash\r\n")
+        pasted(b"cat /flash/ft8/setting.txt", b"EXPANDED-FILE")
+        pasted(b"cd /flash/ft8")
+        pasted(b"cat setting.txt", b"EXPANDED-FILE")
+        submit(b"cd")
+        # Human typing pauses between characters; /f still expands while idle.
+        for byte in b"cd /f":
+            os.write(master, bytes([byte]))
+            time.sleep(.05)
+        read_until(master, b"\x1b[Kcd /flash\r", 3)
+        submit(b"")
+        submit(b"pwd", b"/flash\r\n")
+        visible(b"cd f", b"cd ft8")
+        submit(b"")
+        submit(b"pwd", b"/flash/ft8\r\n")
+        visible(b"cat s", b"cat setting.txt")
+        submit(b"", b"EXPANDED-FILE")
+        visible(UP, b"cat setting.txt")  # History stores expanded text.
+        submit(b"\x03")
+        # Pending work cannot expand after navigation, deletion, or Tab.
+        for keys in (b"cat RT" + LEFT + RIGHT, b"cat RTX\x7f",
+                     b"cat RTX" + LEFT + DELETE, b"cat RT\t"):
+            visible(keys, b"cat RT")
+            time.sleep(.08)
+            submit(b"", b"\x1b[Kcat RT\r\n")
+        visible(UP, b"cat RT")
+        time.sleep(.08)
+        submit(b"", b"\x1b[Kcat RT\r\n")
+        visible(b"cat RT", b"cat RT26092")
+        visible(b"\x7f", b"cat RT2609")  # Deleting does not re-expand.
+        visible(LEFT + RIGHT, b"cat RT2609")
+        visible(b"\t" + b"\x7f", b"cat RT260")  # Tab cannot expand or list choices.
+        submit(b"\x03")
+        visible(b"unknown se", b"unknown se")
+        submit(b"\x03")
+        visible(b"unknown ./s", b"unknown ./setting.txt")
+        submit(b"\x03")
+        submit(b"cd")
         os.write(master, b"exit\n")
         assert process.wait(timeout=3) == 0
         assert termios.tcgetattr(slave) == original
@@ -125,8 +185,9 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
             os.close(master)
             os.close(slave)
 
-    result = subprocess.run([executable], input="pwd\nh\nexit\n", text=True,
+    result = subprocess.run([executable], input="pwd\nh\ncd /f\npwd\nexit\n", text=True,
                             capture_output=True, env=env, timeout=3)
     assert result.returncode == 0 and "M$> /\n" in result.stdout
+    assert "cd: cannot change directory" in result.stdout
     assert "\x1b" not in result.stdout
 print("Linux shell history, editing, terminal leases and redirected input: PASS")
