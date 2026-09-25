@@ -135,12 +135,6 @@ extern "C" int adv_display_prepare(void)
     return 0;
 }
 
-extern "C" void adv_display_brightness(uint32_t percent)
-{
-    if (!s_ready || percent < 1u || percent > 100u) return;
-    M5.Display.setBrightness(static_cast<uint8_t>((percent * 255u + 50u) / 100u));
-}
-
 extern "C" bool adv_display_ready(void)
 {
     return s_ready;

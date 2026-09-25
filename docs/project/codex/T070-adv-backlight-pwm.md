@@ -1,10 +1,10 @@
 # T070 — ADV LCD backlight PWM hardware fix
 
-Status: BLOCKED
+Status: CANCELLED
 
 ## Architect decision — 2026-09-24
 
-The architect dropped the brightness feature after the first ADV hardware failure. **Do not implement T070.** T071 removes the merged T069 brightness code and documentation while preserving the accepted `startup=` behavior.
+The architect dropped the brightness feature after the first ADV hardware failure. **Do not implement T070. No implementation is required.** T071 removes the merged T069 brightness code and documentation while preserving the accepted `startup=` behavior.
 
 ## Original architect intent
 

@@ -10,7 +10,7 @@ static unsigned opens, closes, reads, fail_read;
 static mini_result_t open_result, close_result;
 static bool invalid_count;
 
-static void defaults(void) { assert(!settings.brightness && !settings.startup[0]); }
+static void defaults(void) { assert(!settings.startup[0]); }
 static void parse(const char *text)
 { minishell_resident_settings_parse(text, strlen(text), &settings); }
 static mini_result_t open_file(const char *path, uint32_t flags, mini_file_t *file)
@@ -34,7 +34,7 @@ static mini_result_t close_file(mini_file_t file)
 static const mini_fs_api_t fs = {.open=open_file, .read=read_file, .close=close_file};
 static void reset(void)
 {
-    strcpy(input, "brightness=50\nstartup=first;second\n"); length = strlen(input);
+    strcpy(input, "startup=first;second\n"); length = strlen(input);
     position = opens = closes = reads = fail_read = 0; chunk = MINISHELL_SETTINGS_CAP;
     open_result = close_result = MINI_OK; invalid_count = false;
     memset(&settings, 0x55, sizeof(settings));
@@ -47,25 +47,18 @@ static void load(bool expected)
 }
 int main(void)
 {
-    parse("SSID=MiniShell\r\nPW=a=b=cdef\r\nunknown=x\n #brightness=1\nbrightness=50\r\nstartup= d ;b");
-    assert(settings.brightness == 50 && !strcmp(settings.startup, " d ;b"));
-    parse("brightness=1\nbrightness=100\nbrightness=50\nstartup=first\nstartup=last=a=b");
-    assert(settings.brightness == 50 && !strcmp(settings.startup, "last=a=b"));
+    parse("SSID=MiniShell\r\nPW=a=b=cdef\r\nunknown=x\n #startup=ignored\nbrightness=50\r\nstartup= d ;b");
+    assert(!strcmp(settings.startup, " d ;b"));
+    parse("startup=first\nstartup=last=a=b");
+    assert(!strcmp(settings.startup, "last=a=b"));
     parse("startup=one\nstartup=\n"); assert(!settings.startup[0]);
-    const char *bad[] = {"", "0", "101", "-1", "+1", "1.0", "1x", " 50", "50 ", "0x32", "99999999999999999999999999999999"};
-    for (size_t i = 0; i < sizeof(bad)/sizeof(*bad); ++i) {
-        snprintf(input, sizeof(input), "brightness=%s", bad[i]); parse(input); defaults();
-        snprintf(input, sizeof(input), "brightness=50\nbrightness=%s", bad[i]); parse(input);
-        assert(settings.brightness == 50);
-    }
-    for (unsigned value = 1; value <= 100; ++value) {
-        snprintf(input, sizeof(input), "brightness=%u", value); parse(input);
-        assert(settings.brightness == value);
-    }
-    parse("Brightness=50\n brightness=1\nbrightness =100\nStartup=one"); defaults();
-    const char nul[] = "startup=one\nstartup=two\0hidden\nbrightness=50";
+    /* Retired settings are ordinary unknown keys, even with invalid values. */
+    parse("brightness=50\nbrightness=invalid"); defaults();
+    parse("startup=kept\nbrightness=100"); assert(!strcmp(settings.startup, "kept"));
+    parse("Startup=one\n startup=two\nstartup =three"); defaults();
+    const char nul[] = "startup=one\nstartup=two\0hidden";
     minishell_resident_settings_parse(nul, sizeof(nul)-1, &settings);
-    assert(!strcmp(settings.startup, "one") && settings.brightness == 50);
+    assert(!strcmp(settings.startup, "one"));
     minishell_resident_settings_parse(NULL, 0, &settings); defaults();
     reset(); memcpy(input, "startup=", 8); memset(input+8, 'a', MINISHELL_SETTINGS_CAP-8);
     minishell_resident_settings_parse(input, MINISHELL_SETTINGS_CAP, &settings);
@@ -73,7 +66,7 @@ int main(void)
     minishell_resident_settings_parse(input, MINISHELL_SETTINGS_CAP+1, &settings); defaults();
     for (unsigned size = 1; size <= 32; ++size) {
         reset(); chunk = size; load(true);
-        assert(settings.brightness == 50 && !strcmp(settings.startup, "first;second"));
+        assert(!strcmp(settings.startup, "first;second"));
     }
     reset(); chunk = 3; load(true); unsigned calls = reads;
     for (unsigned i = 1; i <= calls; ++i) { reset(); chunk = 3; fail_read = i; load(false); }

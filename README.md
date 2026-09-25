@@ -256,12 +256,10 @@ settings, for example:
 ```text
 SSID=MiniShell
 PW=<your passphrase>
-brightness=100
 startup=ft8;b
 ```
 
-`brightness` accepts 1..100 and is applied before startup on ADV (ignored on
-Linux). `startup` runs semicolon-separated commands once before the first
+`startup` runs semicolon-separated commands once before the first
 prompt, using normal aliases and waiting for each foreground app to return.
 Failures do not stop later commands. Empty/missing startup runs nothing.
 Boot settings are bounded to a 1,024-byte file; edits take effect next boot.

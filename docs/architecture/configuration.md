@@ -22,8 +22,8 @@ The documented resident configuration namespace is:
 ```
 
 `setting.txt` is the single operator-facing resident settings file. WebFS
-SoftAP credentials, boot commands and display brightness use it today. Future resident settings that become
-operator-configurable, including GPS baud policy if exposed, should be added to
+SoftAP credentials and boot commands use it today. Future resident settings
+that become operator-configurable, including GPS baud policy if exposed, should be added to
 this file rather than creating additional public configuration files.
 
 Backend-private persistence or cache files are implementation details and are
@@ -51,7 +51,6 @@ The same file also accepts these case-sensitive resident keys:
 ```text
 SSID=<stable SoftAP name>
 PW=<stable WPA2 passphrase>
-brightness=100
 startup=ft8;b
 ```
 
@@ -59,16 +58,10 @@ MiniShell reads at most 1,024 bytes once per boot/session after platform/service
 initialization. A missing, unreadable, incomplete or larger file leaves boot
 settings at their defaults. No valid prefix of a failed/oversized read runs.
 Records accept LF or CRLF (also bare CR); keys have no surrounding whitespace.
-Unknown keys and comment/blank lines are ignored. Duplicate `brightness` and
-`startup` records use the last valid definition; an empty `startup=` clears an
-earlier startup value. These rules do not change WebFS's credential validation
+Unknown keys and comment/blank lines are ignored. Duplicate `startup` records
+use the last valid definition; an empty `startup=` clears an earlier startup
+value. These rules do not change WebFS's credential validation
 or duplicate-key fallback rules.
-
-`brightness` is decimal digits only, 1 through 100 inclusive. Missing or invalid
-values leave the platform default unchanged (or preserve an earlier valid
-record). ADV applies the percentage once before startup commands, rounded to
-its native 0..255 range; 100 maps to 255. Linux ignores this private platform
-operation. It is not a public Display capability or an interactive command.
 
 `startup` is split only on literal semicolons. Non-empty segments execute in
 order through the normal shell dispatcher, with normal one-level live alias
@@ -82,7 +75,7 @@ overlong segments print `shell: command too long` and are skipped without
 truncation. A startup record containing NUL is invalid. No quoting, escaping,
 pipes, variables or additional scripting syntax is interpreted. Interactive
 lines do not gain semicolon parsing. Startup does not repeat on app return;
-changes to these two settings take effect on the next boot/session. WebFS
+changes to this setting take effect on the next boot/session. WebFS
 credentials continue to be loaded separately at each WebFS launch.
 
 ### Shell aliases

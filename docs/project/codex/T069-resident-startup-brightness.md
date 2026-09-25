@@ -1,6 +1,13 @@
 # T069 — MiniShell resident startup and brightness settings
 
-Status: BLOCKED
+Status: COMPLETE (startup accepted; brightness superseded by T071)
+
+## Final state — T071
+
+Startup is hardware-accepted and retained unchanged. The architect dropped
+brightness; T071 removes its implementation, tests and supported-setting docs.
+The brightness requirements and failure record below are historical and no
+longer require implementation or hardware validation.
 
 ## Architect intent
 
@@ -521,6 +528,6 @@ ADV hardware validation on 2026-09-24:
 - `brightness=`: **FAIL / not accepted**. Changing the configured value did not
   produce an observable LCD backlight change on the real Cardputer ADV.
 
-T069 remains BLOCKED on the brightness hardware path. The startup portion is
-accepted. Do not mark T069 COMPLETE until the ADV brightness backend is fixed and
-revalidated on hardware.
+The startup portion is accepted. The brightness failure originally blocked
+T069; the architect subsequently dropped brightness. T071 supersedes and removes
+that portion, so no brightness fix or revalidation remains required.

@@ -55,7 +55,7 @@ static void load(bool expected)
 }
 static void parser_tests(void)
 {
-    assert(parse("brightness=50\nstartup=ft8;b\nSSID=A\nPW=12345678\n"));
+    assert(parse("startup=ft8;b\nSSID=A\nPW=12345678\n"));
     assert(parse("SSID=A\nPW=12345678\n"));assert(!strcmp(credentials.ssid,"A"));
     assert(parse("PW=12345678\r\nSSID=A\r\n"));
     assert(parse("\n\r\n  #SSID=bad\r\n\t# PW=bad\nother=x\nssid=ignored\nPW=abc= 123 \nSSID= A=B \n"));

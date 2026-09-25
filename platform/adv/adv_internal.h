@@ -18,7 +18,6 @@ int adv_console_end_usb_host(bool usb_busy);
 void adv_console_debug_write(const char *text);
 
 int adv_display_prepare(void);
-void adv_display_brightness(uint32_t percent);
 bool adv_display_ready(void);
 
 mini_result_t adv_battery_read(int *out_voltage_mv, int *out_percent);

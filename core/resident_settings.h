@@ -7,7 +7,6 @@
 #define MINISHELL_SETTINGS_CAP 1024u
 
 typedef struct {
-    unsigned brightness; /* Zero leaves the platform default unchanged. */
     char startup[MINISHELL_SETTINGS_CAP];
 } minishell_resident_settings_t;
 

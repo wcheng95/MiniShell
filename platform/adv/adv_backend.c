@@ -140,8 +140,3 @@ void minishell_platform_services_stopping(void)
 {
     adv_gps_stop();
 }
-
-void minishell_platform_display_brightness(uint32_t percent)
-{
-    adv_display_brightness(percent);
-}

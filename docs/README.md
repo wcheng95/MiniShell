@@ -84,7 +84,7 @@ Configuration ownership:
 ```
 
 `setting.txt` is the public resident-settings location. It contains WebFS
-credentials plus boot-time `brightness=1..100` and `startup=cmd1;cmd2` settings;
+credentials plus the boot-time `startup=cmd1;cmd2` setting;
 future operator-facing resident settings should be added there rather than
 documented as separate configuration files.
 

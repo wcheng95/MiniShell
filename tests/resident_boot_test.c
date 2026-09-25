@@ -9,7 +9,7 @@ static const char *setting_text, *alias_text, *interactive[4];
 static const char *file_text;
 static size_t offset;
 static bool active_file, initialized, configured, started, app_active;
-static unsigned setting_opens, prompts, input_index, brightness, brightness_calls;
+static unsigned setting_opens, prompts, input_index;
 static unsigned begins, ends, wait_state;
 static char output[8192], events[1024];
 static void event(const char *text) { assert(strlen(events)+strlen(text)<sizeof(events)); strcat(events,text); }
@@ -43,8 +43,6 @@ void minishell_platform_services_prepare(minishell_services_port_t *out) { memse
 void minishell_services_configure(const minishell_services_port_t *port) { configured=port!=NULL; }
 void minishell_platform_services_started(void) { assert(configured);started=true; }
 void minishell_platform_services_stopping(void) { assert(started && !active_file);started=false; }
-void minishell_platform_display_brightness(uint32_t percent)
-{ assert(started && !active_file && !prompts && !begins);brightness=percent;++brightness_calls;event("brightness;"); }
 void minishell_platform_console_write(const char *text)
 {
     assert(strlen(output)+strlen(text)<sizeof(output));strcat(output,text);
@@ -81,21 +79,20 @@ static void reset(const char *settings)
     assert(!initialized && !active_file && !app_active);
     setting_text=settings;alias_text=NULL;
     memset(interactive,0,sizeof(interactive));interactive[0]="exit";
-    setting_opens=prompts=input_index=brightness=brightness_calls=begins=ends=wait_state=0;
+    setting_opens=prompts=input_index=begins=ends=wait_state=0;
     output[0]=events[0]=0;
 }
 static void run(void)
 { assert(minishell_run()==0 && setting_opens==1 && begins==ends && !initialized); }
 int main(void)
 {
-    reset(NULL);run();assert(!brightness_calls && !begins && prompts==1);
-    reset("startup=\nbrightness=invalid");run();assert(!brightness_calls && !begins);
+    reset(NULL);run();assert(!begins && prompts==1);
+    reset("startup=\nbrightness=invalid");run();assert(!begins);
     reset("startup=first");run();assert(!strcmp(events,"first;prompt;"));
     reset("brightness=50\nstartup= ;x;;b;missing;broken;nonzero;exit;last; \t;\n");
     alias_text="x=wait\nb=wrong\n";
     interactive[0]="interactive";interactive[1]="exit";run();
-    assert(brightness==50 && brightness_calls==1);
-    assert(!strcmp(events,"brightness;wait;app-return;after;missing;broken;nonzero;last;prompt;interactive;prompt;"));
+    assert(!strcmp(events,"wait;app-return;after;missing;broken;nonzero;last;prompt;interactive;prompt;"));
     assert(strstr(output,"missing: command not found\n"));
     assert(strstr(output,"app: broken launch failed (-3)\n"));
     assert(strstr(output,"app: nonzero returned 9\n"));

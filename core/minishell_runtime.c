@@ -10,7 +10,6 @@ static void apply_boot_settings(void)
     minishell_resident_settings_t settings;
     const mini_api_t *api = mini_api_get();
     if (!minishell_resident_settings_load(api ? api->fs : NULL, &settings)) return;
-    if (settings.brightness) minishell_platform_display_brightness(settings.brightness);
     minishell_shell_startup(settings.startup);
 }
 

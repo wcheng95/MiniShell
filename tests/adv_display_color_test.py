@@ -10,8 +10,6 @@ with tempfile.TemporaryDirectory() as tmp:
 struct Rect { int x,y,w,h; unsigned color; };
 struct Display {
  std::vector<Rect> rects; std::vector<unsigned> colors;
- unsigned brightness=0, brightness_calls=0;
- void setBrightness(unsigned n){brightness=n;++brightness_calls;}
  void begin(){} void setRotation(int){} int width(){return 240;} int height(){return 135;}
  void setTextFont(int){} void setTextSize(int){} void setTextWrap(bool){} void fillScreen(unsigned){}
  void fillRect(int x,int y,int w,int h,unsigned c){rects.push_back({x,y,w,h,c});}
@@ -22,19 +20,7 @@ struct Board { struct Display Display; } M5;
     (d/'test.cpp').write_text(source+'''
 #include <cassert>
 int main(){
- adv_display_brightness(50); assert(M5.Display.brightness_calls==0);
  assert(adv_display_prepare()==0);
- assert(M5.Display.brightness_calls==0);
- unsigned previous=0;
- for(unsigned percent=1;percent<=100;++percent){
-  adv_display_brightness(percent);
-  assert(M5.Display.brightness>previous && M5.Display.brightness<=255);
-  previous=M5.Display.brightness;
- }
- assert(M5.Display.brightness==255 && M5.Display.brightness_calls==100);
- adv_display_brightness(0); adv_display_brightness(101);
- assert(M5.Display.brightness==255 && M5.Display.brightness_calls==100);
- adv_display_brightness(50); assert(M5.Display.brightness==128);
  const unsigned attrs[]={MINI_TEXT_ATTR_FG_WHITE,MINI_TEXT_ATTR_FG_GREEN,MINI_TEXT_ATTR_FG_CYAN,MINI_TEXT_ATTR_FG_RED};
  const unsigned rgb[]={0xffffff,0x00ff00,0x00ffff,0xff0000};
  for(unsigned i=0;i<4;++i){
