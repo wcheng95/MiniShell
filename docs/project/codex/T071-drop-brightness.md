@@ -1,6 +1,6 @@
 # T071 — Remove resident brightness; preserve startup
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -307,4 +307,23 @@ Remaining gate: architect re-confirms the already-accepted ADV startup path
 
 ## Architect test result
 
-Record final ADV startup re-check here.
+ADV hardware re-check passed on 2026-09-24.
+
+With:
+
+```text
+startup=ft8;b
+```
+
+MiniShell booted into FT8, the foreground app exited through its normal lifecycle,
+`b` then executed through the normal shell/alias path, and MiniShell returned to
+the ordinary interactive `M$>` prompt.
+
+Result: **PASS. T071 COMPLETE.**
+
+Final accepted resident behavior:
+
+- `startup=` is retained and hardware-accepted;
+- brightness support is removed;
+- legacy `brightness=` lines are harmless unknown keys;
+- no further brightness work or validation is required.
