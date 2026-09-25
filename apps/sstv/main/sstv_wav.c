@@ -74,6 +74,22 @@ const char *sstv_wav_decode(const mini_fs_api_t *fs, const char *input_path, con
             }
             if(result==SSTV_RESULT_RUNNING) result=sstv_core_finish(&core);
             if(result!=SSTV_RESULT_COMPLETE) { sstv_bmp_abort(&bmp); error=result_error(result); goto done; }
+
+            /*
+             * The SSTV image may finish before the declared WAV data chunk does
+             * (the deterministic vector has a post-image tone).  Still consume
+             * the rest of the declared chunk so a physically truncated RIFF
+             * cannot be accepted merely because line 240 decoded successfully.
+             */
+            while(length) {
+                uint32_t n=length;
+                if(n>sizeof(bytes)) n=sizeof(bytes);
+                if(read_exact(fs,file,bytes,n)) {
+                    if(fs->remove_file) (void)fs->remove_file(output_path);
+                    goto done;
+                }
+                length-=n;
+            }
             error=NULL; goto done;
         }
         uint64_t actual=0;
