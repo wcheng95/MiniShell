@@ -1,6 +1,6 @@
 # T078 — Tab-gated pathname longest-prefix expansion
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect revision — Tab guard (2026-09-24)
 
@@ -938,6 +938,65 @@ Codex implementation were sibling commits from the same blocked-review baseline.
 Remaining gate: corrected-build manual validation on pc-1 and a short ADV
 regression check because the paste-safe fix changes interactive input timing.
 
+
+## Supervisor Tab-guard review
+
+Reviewed `main..46e304587bc611c53e03ba490a3fa9943c000625` against the
+2026-09-24 Tab-guard revision.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- the 25 ms pending/deadline/debounce mechanism is completely removed;
+- printable typing and paste only edit/redraw literal text;
+- Linux invokes `shell_completion_expand()` only for `MINI_KEY_TAB`;
+- ADV maps physical/USB Tab through `accept_character('\t')`, which intercepts
+  Tab before `shell_editor_edit()` and invokes the same shared matcher;
+- Tab never inserts a literal tab into the shell line;
+- a successful Tab expansion redraws through the existing platform editor path;
+- ADV therefore reuses the T077 cursor redraw/restart behavior;
+- Tab with no match, no longer common prefix, command-token position, arbitrary
+  bare non-path argument, or mid-token cursor is a silent no-op;
+- T079 candidate listing is not implemented;
+- the shared matcher itself is unchanged from the reviewed implementation
+  (`shell_completion.c` blob `1276c31933d5bebe5925621b1a28d3255af89fd9`);
+- public API is unchanged
+  (`13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0`);
+- shared editor/history is unchanged:
+  - `shell_editor.c`: `b17fa770aa9c4bba2702b30a6eabbc1a5cf61cff`
+  - `shell_editor.h`: `a4f15ffc468eb5fc16942cd648588cfff99749b9`;
+- T072 filesystem/CWD service is unchanged
+  (`315854e9b7c73c5dead0542d084221ad5feeeb4b`);
+- ADV keyboard mapping is unchanged
+  (`5afceeb97b3fee479b2a30238286dc0083607b44`);
+- T077 ADV renderer is unchanged
+  (`e9098681919250d24d2a484dff08e148f84e5570`).
+
+Accepted local evidence:
+
+```text
+focused T078 tests: PASS
+portable unit tests: 29/29 PASS
+ADV ESP-IDF build: PASS
+Linux full CTest: 125/126; linux_serial_unit timeout only
+```
+
+The failing `linux_serial_unit` is outside this diff: serial implementation and
+tests are unchanged. Its PTY timeout has been observed intermittently in earlier
+T075-T078 runs. It also failed the reported retries in this run, so this review
+does not count the full Linux suite as green; however the failure is not a T078
+pathname-completion regression and is not a blocker for manual T078 validation.
+
+`main` was fast-forwarded to:
+
+```text
+46e304587bc611c53e03ba490a3fa9943c000625
+```
+
+Remaining gate: fresh ADV and pc-1 manual validation of the final Tab-only user
+interaction. Prior eager-expansion hardware acceptance does not substitute for
+this final interaction check.
 
 ## Architect test result
 
