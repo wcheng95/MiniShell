@@ -1,6 +1,6 @@
 # T074 — Unix-style cp/mv directory destinations
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -550,4 +550,18 @@ required.
 
 ## Architect test result
 
-Record ADV cp/mv directory-destination validation here.
+ADV hardware validation passed on 2026-09-24.
+
+Verified real-storage directory-destination behavior for portable `cp` and
+same-filesystem `mv`, including the accepted directory operand spellings.
+
+Result: **PASS. T074 COMPLETE.**
+
+Final accepted behavior:
+
+- `cp file DIR` targets `DIR/file`;
+- `mv file DIR` targets `DIR/file` on a rename-capable same filesystem;
+- `DIR`, `DIR/`, and `DIR/.` are accepted directory operands;
+- relative operands inherit the T072 session CWD;
+- self-copy protection remains intact;
+- cross-filesystem `mv` remains rename-only with no copy/delete fallback.
