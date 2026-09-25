@@ -1,6 +1,6 @@
 # T079 — Tab shows ambiguous pathname choices
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -386,32 +386,32 @@ Do not implement:
 
 ## Acceptance criteria
 
-- [ ] First Tab that grows a pathname performs only T078 expansion.
-- [ ] A subsequent Tab at an ambiguous longest prefix lists 2+ matching choices.
-- [ ] Zero matches produces no listing.
-- [ ] One exact/remaining match produces no listing.
-- [ ] Command token Tab produces no listing.
-- [ ] Arbitrary bare non-path argument Tab produces no listing.
-- [ ] Explicit path-looking arbitrary argument can list matches.
-- [ ] Bare filesystem-command operands can list matches.
-- [ ] Candidate filtering exactly matches T078 rules.
-- [ ] Directories display with a visual trailing `/`; files do not.
-- [ ] Candidate order follows backend enumeration order; no sorting/cache.
-- [ ] All valid matches are listed.
-- [ ] Editor state is preserved byte-for-byte by listing.
-- [ ] Linux redraw restores same line and cursor.
-- [ ] ADV redraw restores same line and cursor with visible blinking cursor.
-- [ ] Candidate output enters normal ADV 50-row console scrollback.
-- [ ] Ctrl+`;` / Ctrl+`.` can review candidate output afterward.
-- [ ] Repeated Tab may list again without state corruption.
-- [ ] Validation-pass FS failure prints no choices and preserves editor.
-- [ ] Output-pass failure stops immediately, may leave already printed choices visible, and restores the unchanged editor.
-- [ ] No directory-handle leaks.
-- [ ] Typing and paste remain literal.
-- [ ] T078 expansion behavior remains unchanged.
-- [ ] Public API/CWD/history/keymap invariants remain unchanged.
-- [ ] Full Linux CTest passes except documented unrelated known flakes.
-- [ ] ADV firmware builds successfully.
+- [x] First Tab that grows a pathname performs only T078 expansion.
+- [x] A subsequent Tab at an ambiguous longest prefix lists 2+ matching choices.
+- [x] Zero matches produces no listing.
+- [x] One exact/remaining match produces no listing.
+- [x] Command token Tab produces no listing.
+- [x] Arbitrary bare non-path argument Tab produces no listing.
+- [x] Explicit path-looking arbitrary argument can list matches.
+- [x] Bare filesystem-command operands can list matches.
+- [x] Candidate filtering exactly matches T078 rules.
+- [x] Directories display with a visual trailing `/`; files do not.
+- [x] Candidate order follows backend enumeration order; no sorting/cache.
+- [x] All valid matches are listed.
+- [x] Editor state is preserved byte-for-byte by listing.
+- [x] Linux redraw restores same line and cursor.
+- [x] ADV redraw restores same line and cursor with visible blinking cursor.
+- [x] Candidate output enters normal ADV 50-row console scrollback.
+- [x] Ctrl+`;` / Ctrl+`.` can review candidate output afterward.
+- [x] Repeated Tab may list again without state corruption.
+- [x] Validation-pass FS failure prints no choices and preserves editor.
+- [x] Output-pass failure stops immediately, may leave already printed choices visible, and restores the unchanged editor.
+- [x] No directory-handle leaks.
+- [x] Typing and paste remain literal.
+- [x] T078 expansion behavior remains unchanged.
+- [x] Public API/CWD/history/keymap invariants remain unchanged.
+- [x] Full Linux CTest passes except documented unrelated known flakes.
+- [x] ADV firmware builds successfully.
 
 ## Automated tests
 
@@ -533,17 +533,101 @@ do not open a PR unless asked.
 
 ### Implementation summary
 
+Implemented one shared Tab operation that expands OR lists. The validation pass
+uses shared context parsing, filtering and public FS traversal, computes the
+longest prefix, and counts matches (saturating at two). A changed prefix expands
+and returns without listing. An unchanged line with multiple matches triggers a
+second streaming pass in backend order, including when an extension cannot fit
+the 255-byte payload. No candidate table, count cap or cache is used.
+
+Presentation begins only at the first emitted choice. Validation, output-open,
+and output-read-before-first-choice failures leave the screen/editor untouched.
+Later read/close failures preserve already printed choices and restore the editor,
+as authorized by task update `f3720ec`. Every acquired directory is closed.
+
+Linux keeps its raw input session and redraws the same prompt/line/cursor. ADV
+ends the transient cursor overlay and discards the draft back to the captured
+prompt snapshot before ordinary output. After listing it captures a fresh prompt
+snapshot and redraws the original editor with the normal visible blink restart.
+The draft is never committed as a submitted command by listing. No deviations.
+
 ### Files changed
+
+- `core/shell_completion.c/.h`: shared context/filter/walker, validation and
+  expansion-or-list result/callback; original expansion-only wrapper retained.
+- `platform/linux/linux_console.c`: lazy list presentation and prompt restoration.
+- `platform/adv/adv_console.c`: physical/USB Tab presentation and cursor lifecycle.
+- `platform/adv/adv_display.cpp`, `platform/adv/adv_internal.h`: private draft
+  discard operation restoring the prompt snapshot before retained console output.
+- `tests/shell_completion_test.c`: immutable listing, match contexts/filter/order,
+  display types, 100 streamed choices, full-line fallback, handle closure and
+  both-pass failures.
+- `tests/linux_shell_history.py`: expansion-only first Tab, repeated choice lists,
+  raw-mode retention, directory markers and cursor restoration before another token.
+- `tests/adv_console_scrollback_test.py`: physical/USB Tab, complete editor/draft/
+  history preservation, output cursor suppression, prompt/cursor restoration,
+  retained choices, scrollback, no USB replay, output failures and a 255-byte draft.
+- `docs/api/console-api.md`, `platform/adv/README.md`: current listing behavior.
+- This packet: implementation and validation notes.
 
 ### Invariants preserved
 
+Public API/version, T072 Filesystem/CWD, T075 editor/history, T076 keyboard mapping,
+normal T077 rendering/blink and application Display ownership are preserved.
+T078 matching rules and no-auto-slash behavior remain. Typing/paste are literal;
+only Tab requests completion. Listing preserves the complete editor byte-for-byte.
+No heap, task/thread/timer, persisted state, private backend directory access,
+candidate sorting/caching or pager. Only display-private snapshot restoration
+was added; candidate output uses the existing retained console and USB route.
+
 ### Local tests run
+
+- `cmake -S . -B build-linux`: passed.
+- `cmake --build build-linux -j8`: passed.
+- `build-linux/shell_completion_unit`: passed.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux -R
+  'shell_completion_unit|linux_shell_history|adv_console_scrollback'
+  --output-on-failure`: passed 3/3.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure`:
+  initial full run passed 126/126. Final rerun after the full-line fallback: passed 126/126 without retries.
+- `cmake -S tests/unit -B /tmp/T079-unit` and
+  `cmake --build /tmp/T079-unit -j8`: passed.
+- `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T079-unit --output-on-failure`:
+  initial run passed 29/29; final rerun: passed 29/29.
+- `source /home/wei/projects/esp-idf/export.sh` then
+  `idf.py -C platform/adv build`: passed initially and after the final core change.
+  Final firmware size `0x153890` bytes; 78% app partition space free.
+  Existing SDK/dependency warnings remain.
+- `git diff --check`: passed.
+- Public API, Filesystem/CWD, editor/history and keyboard boundary diff against
+  `origin/main`: passed.
+
+The prior T078 ambiguous-prefix no-op assertions were updated narrowly to expect
+T079 listings. Zero/one-match, invalid-context and mid-token no-op coverage remains.
+Acceptance checkboxes reflect automated evidence, not physical acceptance.
 
 ### Manual/hardware validation still required
 
+Architect to run the ADV/pc-1 checklist: first Tab expands, next Tab lists,
+repeated listing, visual directory slash, restored cursor and middle edits,
+Ctrl scrollback, literal pastes and Enter submitting only the command. No device
+was flashed. No QMX/RF test is required.
+
 ### Known limitations / risks
 
+Large directories are streamed synchronously with no pager; only the existing
+50 physical ADV rows remain in scrollback. Directory contents may change between
+validation and output; the second pass reflects the then-current enumeration.
+Late output failures may leave partial choices visible, as explicitly accepted;
+no completion-specific diagnostic is emitted. Real-device listing latency and
+readability still require manual validation.
+
 ### Commit
+
+One review commit on `codex/T079-tab-pathname-choices`, titled
+`T079: list ambiguous pathname choices on Tab`, based on current main
+`f3720ece5b443b18cb42a99c03045118fdc78880`. Exact implementation SHA is supplied
+in the Codex handoff; this packet is part of that commit.
 
 ## Supervisor review
 

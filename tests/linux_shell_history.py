@@ -135,8 +135,14 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
         submit(b"\x03")
         visible(b"cat RT", b"cat RT")
         quiet()
-        visible(b"\t", b"cat RT26092")
-        quiet(b"\t")  # No extra prefix and no candidate listing.
+        first = visible(b"\t", b"cat RT26092")
+        assert b"RT260925.txt" not in first and b"RT260926.txt" not in first
+        for _ in range(2):
+            listed = visible(b"\t", b"cat RT26092")
+            assert listed.count(b"RT260925.txt\r\n") == 1, listed
+            assert listed.count(b"RT260926.txt\r\n") == 1, listed
+            assert b"M$> " in listed
+            assert not termios.tcgetattr(slave)[3] & termios.ICANON
         visible(b"\x7f", b"cat RT2609")
         quiet()
         visible(LEFT + RIGHT, b"cat RT2609")
@@ -156,6 +162,18 @@ with tempfile.TemporaryDirectory(prefix="minishell-history-") as temporary:
         visible(RIGHT, b"cat se")
         quiet()
         visible(b"\t", b"cat setting.txt")
+        submit(b"\x03")
+        visible(b"cat RT26092 tail" + LEFT * 5, b"cat RT26092 tail", 11)
+        listed = visible(b"\t", b"cat RT26092 tail", 11)
+        assert b"RT260925.txt\r\n" in listed and b"RT260926.txt\r\n" in listed
+        visible(b"X", b"cat RT26092X tail", 12)
+        submit(b"\x03")
+        # Display-only slash for directories; exact+longer sibling is ambiguous.
+        (fixtures / "foo").mkdir()
+        (fixtures / "foobar").touch()
+        visible(b"unknown ./foo", b"unknown ./foo")
+        listed = visible(b"\t", b"unknown ./foo")
+        assert b"foo/\r\n" in listed and b"foobar\r\n" in listed
         submit(b"\x03")
         submit(b"cd")
         literal(b"cd /flash")

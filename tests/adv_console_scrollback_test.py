@@ -37,6 +37,8 @@ struct Board { struct Display Display; } M5;
 #include <algorithm>
 static bool completion_enabled;
 static unsigned completion_reads, completion_opens, completion_closes;
+static unsigned fail_open_pass, fail_read_pass, fail_read_at, fail_close_pass;
+static bool monitor_choices;
 static const char *const root_names[]={"flash","sd",nullptr};
 static const char *const flash_names[]={"ft8",nullptr};
 static const char *const cwd_names[]={"setting.txt","RT260925.txt","RT260926.txt","RxTxLog.txt",nullptr};
@@ -46,15 +48,18 @@ static mini_result_t completion_open(const char *path, mini_dir_t *out) {
  if(!strcmp(path,"/")) completion_names=root_names;
  else if(!strcmp(path,"/flash")) completion_names=flash_names;
  else { assert(!strcmp(path,"/flash/ft8") || !strcmp(path,"."));completion_names=cwd_names; }
- ++completion_opens;completion_reads=0;*out=1;return MINI_OK;
+ ++completion_opens;completion_reads=0;
+ if(completion_opens==fail_open_pass) return MINI_ERR_IO;
+ *out=1;return MINI_OK;
 }
 static mini_result_t completion_read(mini_dir_t, mini_fs_dir_entry_t *entry, uint32_t *has) {
+ if(completion_opens==fail_read_pass && completion_reads==fail_read_at) return MINI_ERR_IO;
  const char *name=completion_names[completion_reads++];
  *has=name!=nullptr;
  if(*has) strcpy(entry->name,name);
  return MINI_OK;
 }
-static mini_result_t completion_close(mini_dir_t) { ++completion_closes;return MINI_OK; }
+static mini_result_t completion_close(mini_dir_t) { ++completion_closes;return completion_opens==fail_close_pass?MINI_ERR_IO:MINI_OK; }
 const mini_api_t *mini_api_get(void) {
  static mini_fs_api_t fs={};static mini_api_t api={};
  fs.dir_open=completion_open;fs.dir_read=completion_read;fs.dir_close=completion_close;
@@ -68,7 +73,10 @@ static unsigned polls;
 static uint64_t fake_time;
 static void (*delay_hook)(void);
 static uint64_t adv_monotonic_us(void*) { return fake_time; }
-static void adv_console_debug_write(const char *s) { usb_output += s; }
+static void adv_console_debug_write(const char *s) {
+ if(monitor_choices && !strncmp(s,"RT2609",6)) assert(!s_edit_active && !s_edit_visible);
+ usb_output += s;
+}
 static mini_result_t adv_keyboard_read_event(mini_key_event_t *e) {
  if(keys.empty()) return MINI_ERR_NOT_READY;
  *e=keys.front(); keys.pop_front(); return MINI_OK;
@@ -92,6 +100,7 @@ static void reset() {
  assert(adv_display_prepare()==0); usb_output.clear(); s_line_start=true;
  keys.clear(); usb_input.clear(); polls=0; fake_time=0; delay_hook=nullptr; s_cursor_editing=false;
  completion_opens=completion_closes=0;
+ fail_open_pass=fail_read_pass=fail_read_at=fail_close_pass=0;monitor_choices=false;
 }
 static void fill(unsigned rows) {
  for(unsigned i=0;i<rows;++i) {
@@ -479,7 +488,7 @@ static void completion_tests() {
  completion_enabled=true;
  physical_completion_case("cd /f","cd /flash");
  physical_completion_case("cat RT","cat RT26092");
- physical_completion_case("cat RT26092","cat RT26092"); // No longer common prefix.
+ physical_completion_case("cat setting.txt","cat setting.txt"); // One exact match.
  physical_completion_case("cat absent","cat absent");
  physical_completion_case("/f","/f"); // Command token never completes.
  physical_completion_case("unknown se","unknown se");
@@ -510,7 +519,77 @@ static void completion_tests() {
  assert(completion_opens==1 && !strcmp(e.history[0],"cd /flash"));
  cursor_end();completion_enabled=false;
 }
-int main(){history_tests();handoff_tests();input_tests();cursor_tests();cursor_loop_tests();completion_tests();}
+static unsigned occurrences(const std::string &text,const std::string &needle) {
+ unsigned count=0;size_t pos=0;
+ while((pos=text.find(needle,pos))!=std::string::npos) { ++count;pos+=needle.size(); }
+ return count;
+}
+static std::string retained() {
+ std::string text;
+ for(unsigned i=0;i<s_history_count;++i) { text+=std::string(s_history[(s_history_first+i)%50],20);text+='\n'; }
+ return text;
+}
+static void listing_tests() {
+ reset();completion_enabled=true;monitor_choices=true;fill(48);
+ minishell_platform_console_write("\n");shell_editor_t e;start_edit(&e);
+ for(char ch:std::string("cat RT")) accept_character(ch,&e);
+ auto tab=special(MINI_KEY_TAB);
+ accept_key_event(&tab,&e);assert(!strcmp(e.line,"cat RT26092"));
+ assert(usb_output.find("RT260925.txt")==std::string::npos); // Expand OR list.
+ shell_editor_remember(&e);shell_editor_begin(&e);
+ strcpy(e.line,"draft");e.length=e.cursor=5;
+ shell_editor_edit(&e,SHELL_EDIT_PREVIOUS,0); // Preserve a real history navigation/draft state.
+ strcat(e.line," tail");e.length=strlen(e.line); // Cursor stays at token end, before another token.
+ redraw_line(&e);const auto before=e;
+ usb_output.clear();accept_key_event(&tab,&e);
+ const std::string expected="\r\033[4C\033[K\nRT260925.txt\nRT260926.txt\nM$> \r\033[4C\033[Kcat RT26092 tail";
+ assert(usb_output==expected && !memcmp(&e,&before,sizeof(e)));
+ unsigned r;assert(cursor_cell(&r));cursor_at(r,15,' ');
+ assert(s_cursor_deadline==fake_time+500000 && s_cursor_editing);
+ assert(occurrences(retained(),"RT260925.txt")==1 && occurrences(retained(),"cat RT26092")==1);
+ auto up=character(';',MINI_MOD_CTRL),down=character('.',MINI_MOD_CTRL);
+ accept_key_event(&up,&e);no_cursor();assert(usb_output==expected);
+ accept_key_event(&down,&e);cursor_at(r,15,' ');
+ accept_key_event(&tab,&e);assert(usb_output==expected+expected);
+ assert(occurrences(retained(),"RT260925.txt")==2 && occurrences(retained(),"cat RT26092")==1);
+ assert(!memcmp(&e,&before,sizeof(e)));
+ const auto output=usb_output;fake_time=s_cursor_deadline;cursor_poll();assert(usb_output==output);
+ auto x=character('X');accept_key_event(&x,&e);assert(!strcmp(e.line,"cat RT26092X tail"));
+ // USB Tab uses the real polling loop, preserving the command submitted on Enter.
+ reset();monitor_choices=true;shell_editor_init(&e);minishell_platform_console_prompt();
+ for(char ch:std::string("cat RT\t\t\n")) usb_input.push_back(ch);
+ assert(minishell_platform_console_read_line(&e)==2 && !strcmp(e.line,"cat RT26092"));
+ assert(occurrences(usb_output,"RT260925.txt")==1 && occurrences(retained(),"RT260925.txt")==1);
+ // Validation/open/early-read failures do not start presentation; output errors restore it.
+ for(unsigned scenario=0;scenario<6;++scenario) {
+  reset();monitor_choices=true;start_edit(&e);
+  for(char ch:std::string("cat RT26092")) accept_character(ch,&e);
+  const auto saved=e;const auto history=retained();const auto initial=usb_output;
+  if(scenario==0) {fail_read_pass=1;fail_read_at=3;}
+  if(scenario==1) fail_close_pass=1;
+  if(scenario==2) fail_open_pass=2;
+  if(scenario==3) {fail_read_pass=2;fail_read_at=0;}
+  if(scenario==4) {fail_read_pass=2;fail_read_at=2;}
+  if(scenario==5) fail_close_pass=2;
+  accept_key_event(&tab,&e);assert(!memcmp(&e,&saved,sizeof(e)));
+  if(scenario<4) assert(usb_output==initial && retained()==history);
+  else {
+   assert(occurrences(usb_output,"RT260925.txt")==1);
+   assert(occurrences(usb_output,"RT260926.txt")==unsigned(scenario==5));
+   unsigned row;assert(cursor_cell(&row));cursor_at(row,15,' ');
+   assert(usb_output.find("error")==std::string::npos);
+  }
+  assert(completion_closes==completion_opens-unsigned(scenario==2));
+ }
+ // A long draft temporarily evicts ring rows; listing must discard only that draft.
+ reset();fill(50);minishell_platform_console_write("\n");start_edit(&e);
+ strcpy(e.line,"cat RT26092 ");memset(e.line+12,'x',243);e.line[255]=0;e.length=255;e.cursor=11;
+ redraw_line(&e);const auto long_before=e;accept_key_event(&tab,&e);
+ assert(!memcmp(&e,&long_before,sizeof(e)) && occurrences(retained(),"RT260925.txt")==1);
+ assert(s_history_count==50 && cursor_cell(&r));cursor_at(r,15,' ');
+ completion_enabled=false;monitor_choices=false;
+}
+int main(){history_tests();handoff_tests();input_tests();cursor_tests();cursor_loop_tests();completion_tests();listing_tests();}
 
 ''')
     subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Wno-missing-field-initializers',

@@ -117,10 +117,22 @@ Empty components, filesystem failures and expansions exceeding 255 payload bytes
 leave the typed text unchanged. There is no partial expansion or error output.
 
 History recall, cursor movement and Backspace/Delete do not trigger pathname
-expansion. Tab never inserts a literal tab. Mid-token Tab, no matches and no
-longer common prefix are silent no-ops. Expanded text is ordinary editable text and is stored in history on
-submission. Startup commands and redirected input stay literal. Tab choice
-display is deferred to T079; command/alias/app-name completion is not provided.
+expansion. Tab never inserts a literal tab. Mid-token Tab, no matches and a single
+exact match are silent no-ops. Expanded text is ordinary editable text and is
+stored in history on submission. Startup commands and redirected input stay
+literal; command/alias/app-name completion is not provided.
+
+If Tab grows the pathname, it only expands. If it cannot grow and at least two
+matches remain, it lists their final component names, one per line in Filesystem
+enumeration order. Directory choices have a display-only trailing `/`. Repeated
+Tab may list again. The prompt, full editor state and cursor are restored without
+submitting the command. On ADV, choices enter the normal 50-row console history,
+the draft is not committed as submitted output, and the blinking cursor restarts.
+
+Listing validates the directory before streaming a second pass, without a
+candidate cache or count limit. Validation failures print nothing. A later
+output-pass failure stops the list without diagnostics; choices already printed
+remain visible and the unchanged editor is restored.
 
 ## Ownership rule
 

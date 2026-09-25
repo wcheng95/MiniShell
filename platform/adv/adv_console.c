@@ -212,10 +212,32 @@ static void redraw_line(const shell_editor_t *editor)
     adv_console_debug_write(editor->line + start);
 }
 
+static void list_choice(const mini_fs_dir_entry_t *entry, void *ctx)
+{
+    bool *started = (bool *)ctx;
+    if (!*started) {
+        cursor_end();
+        adv_display_console_edit_discard();
+        adv_console_debug_write("\r\033[4C\033[K");
+        minishell_platform_console_write("\n");
+        *started = true;
+    }
+    minishell_platform_console_write(entry->name);
+    if (entry->type == MINI_FS_TYPE_DIRECTORY) minishell_platform_console_write("/");
+    minishell_platform_console_write("\n");
+}
+
 static int accept_character(int ch, shell_editor_t *editor)
 {
     if (ch == '\t') {
-        if (shell_completion_expand(editor)) redraw_line(editor);
+        bool started = false;
+        shell_completion_result_t result = shell_completion_tab(editor, list_choice, &started);
+        if (started) {
+            minishell_platform_console_prompt();
+            adv_display_console_edit_begin();
+            s_cursor_editing = true;
+        }
+        if (result != SHELL_COMPLETION_NONE) redraw_line(editor);
         return 0;
     }
     if (ch == 0x04 && editor->length == 0u) return -1;

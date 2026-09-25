@@ -213,6 +213,19 @@ extern "C" void adv_display_console_edit_begin(void)
     render_all();
 }
 
+extern "C" void adv_display_console_edit_discard(void)
+{
+    // Remove the draft before ordinary output, recovering rows it displaced.
+    s_edit_active = s_edit_visible = false;
+    std::memcpy(s_history, s_edit_history, sizeof(s_history));
+    s_history_first = s_edit_first;
+    s_history_count = s_edit_count;
+    s_console_column = s_edit_column;
+    s_console_offset = 0u;
+    restore_console_view();
+    render_all();
+}
+
 extern "C" void adv_display_console_edit_line(const char *line, size_t cursor)
 {
     const size_t length = std::strlen(line);

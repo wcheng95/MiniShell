@@ -217,6 +217,12 @@ follows the cursor through wrapped commands, including those longer than seven
 rows. Output scrollback hides the block until returning to the edit view; Enter
 and app handoff remove it. The block is a TFT overlay and emits no USB bytes.
 
+Tab expands eligible pathnames to their longest common prefix. When no longer
+prefix exists and multiple matches remain, Tab lists each choice on its own line,
+then restores the same draft and cursor. Directory choices display `/` without
+inserting it into the command. Choices remain in normal console scrollback;
+typing and pasting remain literal.
+
 ## Storage
 
 Canonical ADV storage policy:

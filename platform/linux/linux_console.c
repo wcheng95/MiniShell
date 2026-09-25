@@ -50,6 +50,15 @@ static void redraw(const shell_editor_t *e)
     fflush(stdout);
 }
 
+static void list_choice(const mini_fs_dir_entry_t *entry, void *ctx)
+{
+    bool *started = (bool *)ctx;
+    if (!*started) { minishell_platform_console_write("\n"); *started = true; }
+    minishell_platform_console_write(entry->name);
+    if (entry->type == MINI_FS_TYPE_DIRECTORY) minishell_platform_console_write("/");
+    minishell_platform_console_write("\n");
+}
+
 typedef struct {
     shell_editor_t *editor;
     bool finished;
@@ -77,9 +86,13 @@ static mini_result_t shell_event(void *ctx, const mini_key_event_t *event)
         action = SHELL_EDIT_CHAR;
     } else if (event->type == MINI_KEY_EVENT_SPECIAL) {
         switch (event->key) {
-        case MINI_KEY_TAB:
-            if (shell_completion_expand(e)) redraw(e);
+        case MINI_KEY_TAB: {
+            bool started = false;
+            shell_completion_result_t result = shell_completion_tab(e, list_choice, &started);
+            if (started) minishell_platform_console_prompt();
+            if (result != SHELL_COMPLETION_NONE) redraw(e);
             return ferror(stdout) ? MINI_ERR_IO : MINI_OK;
+        }
         case MINI_KEY_ENTER: input->finished = true; return MINI_OK;
         case MINI_KEY_UP: action = SHELL_EDIT_PREVIOUS; break;
         case MINI_KEY_DOWN: action = SHELL_EDIT_NEXT; break;
