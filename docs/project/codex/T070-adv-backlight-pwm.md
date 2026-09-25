@@ -1,8 +1,12 @@
 # T070 — ADV LCD backlight PWM hardware fix
 
-Status: READY
+Status: BLOCKED
 
-## Architect intent
+## Architect decision — 2026-09-24
+
+The architect dropped the brightness feature after the first ADV hardware failure. **Do not implement T070.** T071 removes the merged T069 brightness code and documentation while preserving the accepted `startup=` behavior.
+
+## Original architect intent
 
 T069 startup sequencing is hardware-accepted, but `brightness=` did not change
 the real Cardputer ADV LCD backlight. Fix only the ADV brightness hardware path.
