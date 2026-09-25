@@ -1,6 +1,6 @@
 # T076 — ADV shell history/cursor/scrollback key remap
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -357,7 +357,53 @@ No merge or PR.
 
 ## Supervisor review
 
-Supervisor fills this after reviewing the actual `main..<commit>` diff and test evidence.
+Reviewed `main..72cecd6761ebccd11799be72a1f02479e4f26c6a` against T076
+and the blocked T075 hardware finding.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Findings:
+
+- exactly one bounded implementation commit, one commit ahead of the T076 task baseline;
+- product code changes are limited to ADV resident shell event consumption;
+- Ctrl+`;` / Ctrl+`.` are intercepted as character events and invoke the existing
+  five-row output scroll operation without mutating editor state;
+- Fn+Up / Fn+Down now map to shared Previous / Next history actions;
+- Fn+Left / Fn+Right now map to shared cursor Left / Right actions;
+- bare `,`, `/`, `;`, and `.` remain printable;
+- the recalled-command integration test proves mid-line editing while preserving
+  the original stored history entry;
+- draft restoration, wrapped-line editing, history capacity and scrollback
+  integrity remain covered;
+- `adv_keyboard.cpp` is byte-for-byte unchanged
+  (`5afceeb97b3fee479b2a30238286dc0083607b44`);
+- shared editor/history files are byte-for-byte unchanged:
+  - `shell_editor.c`: `b17fa770aa9c4bba2702b30a6eabbc1a5cf61cff`
+  - `shell_editor.h`: `a4f15ffc468eb5fc16942cd648588cfff99749b9`;
+- ADV renderer is unchanged
+  (`9761423ebee01c2ffbfb31f257df0e75923f529f`);
+- Linux resident editor path is unchanged
+  (`5b2bb83337c8509009ee76ecc037f9b66caca1bf`);
+- public API is unchanged
+  (`13ce3b15fb5b4e1b0047d9559eb9aca91e6312a0`).
+
+Accepted local evidence:
+
+```text
+focused tests: 3/3 PASS
+portable unit tests: 28/28 PASS
+Linux CTest: 125/125 PASS
+ADV ESP-IDF build: PASS
+git diff --check: PASS
+```
+
+No blocking review finding. `main` was fast-forwarded to
+`72cecd6761ebccd11799be72a1f02479e4f26c6a`.
+
+Remaining gate: ADV hardware validation of the four architect-approved chord
+pairs and a real mid-line recalled-command edit. Linux needs only a quick
+regression sanity check because its implementation is unchanged. No QMX/RF
+validation is required.
 
 ## Architect test result
 
