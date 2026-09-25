@@ -15,7 +15,7 @@
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
 
 #define FT8_DATA_DIR "/flash/ft8"
-#define FT8_STATION_PATH "/flash/ft8/station.txt"
+#define FT8_STATION_PATH "/flash/ft8/setting.txt"
 
 #ifndef FT8_DEFAULT_PRESENTATION
 #define FT8_DEFAULT_PRESENTATION FT8_PRESENTATION_DESKTOP
