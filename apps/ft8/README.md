@@ -51,7 +51,7 @@ ADV GPS hardware
        -> 4-character Maidenhead working grid
 ```
 
-A valid live GPS location temporarily replaces the working FT8 grid used by AutoSeq and outgoing messages. The configured grid loaded from `station.txt` remains the persistent/manual grid and is **not** overwritten by GPS. If live GPS location disappears, FT8 restores the manual grid.
+A valid live GPS location temporarily replaces the working FT8 grid used by AutoSeq and outgoing messages. The configured grid loaded from `setting.txt` remains the persistent/manual grid and is **not** overwritten by GPS. If live GPS location disappears, FT8 restores the manual grid.
 
 This preserves the useful Mini-FT8 V2 behavior while removing its hardware coupling: V3 never opens the GPS UART, parses NMEA, manages GPS baud, or writes an RTC directly.
 
