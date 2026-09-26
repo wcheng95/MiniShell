@@ -30,13 +30,14 @@ AutoSeq AS-0..AS-8              COMPLETE
 V2-style ADIF logging            COMPLETE
 V2-style Field Day Cabrillo      COMPLETE
 physical QMX CAT TX              COMPLETE — Linux/QMX and ADV/QMX hardware validated
+QMX CAT fault containment         COMPLETE — T083 sustained ADV/QMX validation
 live QMX band CAT sync           COMPLETE — 1 s debounce, hardware validated
 V -> 3 daily QSO view            COMPLETE — compact current-day ADIF list, validated
 first real two-way QSO           COMPLETE — 2026-09-18 UTC
 WinBook/TW700 QMX RX/CAT/TX      PASS
 ```
 
-Linux remains the deterministic regression/reference environment. Linux/pc-1 + QMX has completed a real two-way MiniFT8-V3 QSO; WinBook/TW700 and rpi3-2 also validate portable Linux RX/CAT/TX. Cardputer ADV is now an accepted embedded RX/TX deployment target: real QMX CAT transmission, RX recovery, band sync, color status, and compact RX/TX paging have been exercised on hardware. T031 and T032 remain the accepted live band-sync and current-day QSO-view baselines.
+Linux remains the deterministic regression/reference environment. Linux/pc-1 + QMX has completed a real two-way MiniFT8-V3 QSO; WinBook/TW700 and rpi3-2 also validate portable Linux RX/CAT/TX. Cardputer ADV is now an accepted embedded RX/TX deployment target: real QMX CAT transmission, RX recovery, band sync, color status, compact RX/TX paging, and T083 CAT-fault containment have been exercised on hardware. Transport faults no longer own the FT8 UI lifetime; unknown RF state blocks further TX instead. T031, T032, and T083 remain accepted live-operation baselines.
 
 ## Working live QMX path
 
