@@ -1,6 +1,6 @@
 # T081 — MiniFT8 live RX capture/decode decoupling
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -611,3 +611,72 @@ One implementation commit titled `T081: decouple FT8 live capture and decode`
 on `codex/T081-ft8-rx-decouple`, based on current main
 `4238191af6a2553f0feb7385317eb80942eb791d`. The pushed SHA is supplied in the
 Codex handoff; main is not merged and no PR is opened.
+
+
+## Supervisor review
+
+Reviewed `main..c1badcce2ebea226bde1dcfc775db2dfe420c9fe` against T081.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Key findings:
+
+- live capture reset and decode submission are now UTC-driven recurring actions;
+- the old normal `skip-busy` slot-drop path is removed;
+- a late RUNNING decoder or unconsumed READY result at the next decode trigger is
+  an explicit invariant failure with prior-slot and timing diagnostics;
+- live Audio discontinuity resets frontend conversion only and no longer
+  requests decoder cancellation or restarts the live slot schedule;
+- producer reset no longer clears/cancels decoder-job state;
+- callsign-hash aging moved out of producer/UTC anchoring and into decode
+  ownership;
+- the existing single `protocol_messages[50]` result storage is preserved;
+  no extra result buffer, queue, or deep copy was introduced;
+- zero-message results still advance batch/display generation and clear stale RX
+  rows;
+- physical-TX pause/resume retains its intentional cancel/re-anchor behavior;
+- DSP/search/LDPC/SNR geometry and policy are unchanged.
+
+The new lifecycle regression directly covers the important T081 failure modes:
+
+```text
+consecutive reset/decode/done/publish slots
+decode RUNNING across next capture reset
+READY result across next capture reset
+late RUNNING at next decode trigger -> invariant fault
+late READY at next decode trigger -> invariant fault
+live discontinuity during decode without cancellation
+producer reset retaining active decode
+zero-message batch/display completion
+prompt result publication before further Audio work
+```
+
+Accepted implementation evidence:
+
+```text
+focused FT8 lifecycle/regression tests: 4/4 PASS
+portable unit tests: 29/29 PASS
+ADV ESP-IDF build: PASS
+architecture boundary checks: PASS
+git diff --check: PASS
+Linux full CTest: initial 127/127 PASS;
+                   final 126/127 due known linux_serial_unit PTY flake,
+                   focused rerun 1/1 PASS
+```
+
+The serial failure is outside the T081 diff and does not block hardware
+validation.
+
+`main` was fast-forwarded to:
+
+```text
+c1badcce2ebea226bde1dcfc775db2dfe420c9fe
+```
+
+Remaining gate: ADV + QMX hardware validation on quiet and busy FT8 slots.
+Acceptance should confirm consecutive `CAPTURE_RESET` and `DECODE_START`
+slot IDs with no normal `INVARIANT` records, correct zero-message behavior,
+and normal physical RX/TX recovery.
+
+If any invariant diagnostic appears during hardware testing, stop and debug that
+condition. Do not add buffering, backpressure, or slot dropping to hide it.
