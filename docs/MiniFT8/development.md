@@ -565,6 +565,43 @@ ADV QMX USB-host reuse
     class drivers, and a second fresh QMX enumeration can fail until QMX is
     power-cycled. A future resident/reusable QMX session should preserve the
     existing AutoSeq/TX encoding boundary.
+
+Shelved n28a priority / speculative decode experiment
+    This is not current V3 work. Revisit only if field use demonstrates a
+    decode problem that justifies the added complexity.
+
+    The existing sync search still produces the normal 50 physical candidates.
+    Do not use signal strength as an LDPC scheduling priority. Instead, exploit
+    the systematic LDPC(174,91) layout: score the preserved n28a field of each
+    candidate against the known CQ encoding and the local mycall encoding.
+
+    A possible two-round policy is:
+
+        search -> 50 candidates
+        n28a semantic scoring -> highest 19 -> round 1
+        remaining 31 -> earliest time_sub first -> round 2
+
+    Round 1 first uses the ordinary LDPC/CRC/message path. Only when ordinary
+    LDPC fails and the mycall n28a score is at or above an experimental
+    threshold would a constrained/speculative reply-to-me decode be attempted.
+    The initial threshold discussed for an experiment is 18/28. The score only
+    nominates a recovery attempt; normal LDPC/CRC/protocol/QSO validity remains
+    authoritative. CQ participates in round-1 priority but does not trigger
+    speculative decoding.
+
+    If this experiment is ever promoted, keep the first implementation small:
+    CQ + mycall only; defer mycall_hash22/compound-call handling; keep the 19/31
+    split fixed; make only the speculative mycall threshold runtime-tunable in
+    /flash/ft8/setting.txt; and expose only a V-screen speculative_success
+    counter for initial evaluation. No message marker or RxTxLog format change
+    is required.
+
+    Tuning should be empirical. Start at 18/28; if useful field testing produces
+    no speculative_success, lower the threshold gradually until a genuine
+    recovery appears or the idea proves unhelpful. A success means ordinary
+    LDPC failed but the speculative path recovered a valid reply. If no
+    measurable recovery benefit appears, abandon the experiment rather than
+    preserve its complexity.
 ```
 
 Until one of these is promoted to a bounded task, the accepted production
