@@ -124,7 +124,7 @@ fault and keep the application responsive.
 
 ## CAT protocol is not the difference
 
-V2 and V3 both use:
+V2 and current V3 both currently use:
 
 ```text
 MD6;          200 ms
@@ -132,6 +132,29 @@ TX;           200 ms
 TAxxxx.xx;     10 ms
 RX;           200 ms
 ```
+
+T083 intentionally removes the redundant per-TX `MD6;`. QMX operating mode is
+session/band setup state, not per-transmission state. The accepted V3 ownership
+model has MiniFT8 as the only CAT policy owner while FT8 is active, so nothing
+inside a normal FT8 session should change QMX mode behind it.
+
+Required command ownership after T083:
+
+```text
+CAT initial/band setup:
+    MD6;
+    FR0;
+    FT0;
+    FA...........;
+
+each physical TX:
+    TX;
+    TA....;
+    ...
+    RX;
+```
+
+Do not re-send `MD6;` at every TX boundary.
 
 Both use Espressif:
 
@@ -143,8 +166,9 @@ CDC driver priority 4
 QMX USB FIFO 91/18/91
 ```
 
-Do not change CAT strings, timings, the CDC component version, or FIFO tuning in
-T083 unless hardware evidence proves one of those is wrong.
+Do not change CAT strings/timings other than the explicitly authorized removal
+of redundant per-TX `MD6;`. Do not change the CDC component version or FIFO
+tuning in T083 unless hardware evidence proves one of those is wrong.
 
 ## V2 transport path
 
@@ -456,7 +480,45 @@ report, keep the UI alive.
 
 ---
 
-# Required change E — bounded TX diagnostics
+# Required change E — remove redundant per-TX mode command
+
+QMX `MD6;` is part of CAT setup/synchronization, not per-slot key-up.
+
+Change the QMX TX begin sequence from:
+
+```text
+MD6;
+TX;
+```
+
+to:
+
+```text
+TX;
+```
+
+Keep `MD6;` in the initial/band CAT command sequence:
+
+```text
+MD6;
+FR0;
+FT0;
+FA...........;
+```
+
+Rationale under the four principles:
+
+- **Modularity:** setup owns persistent radio configuration; TX owns keying/tone.
+- **Ownership:** MiniFT8 is the sole CAT policy owner during its session.
+- **Decoupling:** a TX boundary should not rewrite unrelated persistent mode
+  state.
+- **KISS:** one fewer CDC transaction at every TX start.
+
+Do not add a readback requirement; ADV CAT remains WRITE-only.
+
+---
+
+# Required change F — bounded TX diagnostics
 
 Add small, bounded diagnostics sufficient to identify future TX stalls without
 logging all 79 tones.
@@ -650,7 +712,6 @@ MD6;
 FR0;
 FT0;
 FA...........;
-MD6;
 TX;
 TA....;
 ...
@@ -811,20 +872,23 @@ Do not start by adding recovery/watchdog machinery.
 T083 is accepted only when all of these are true:
 
 1. CAT failure cannot terminate MiniFT8's normal UI loop.
-2. Band CAT command-submission failure cannot terminate MiniFT8.
-3. Audio pause/resume failure cannot terminate MiniFT8.
-4. The ADV CDC task is the sole owner of the ESP-IDF CDC handle and driver calls.
-5. FT8/UI core does not call a potentially wedged CDC driver transfer directly.
-6. A simulated stuck CDC TX returns a bounded timeout to MiniFT8 and leaves UI
+2. QMX `MD6;` is issued only during CAT initial/band setup, not before every
+   physical TX.
+3. Band CAT command-submission failure cannot terminate MiniFT8.
+4. Audio pause/resume failure cannot terminate MiniFT8.
+5. The ADV CDC task is the sole owner of the ESP-IDF CDC handle and driver calls.
+6. FT8/UI core does not call a potentially wedged CDC driver transfer directly.
+7. A simulated stuck CDC TX returns a bounded timeout to MiniFT8 and leaves UI
    execution able to continue.
-7. No ambiguous CAT write is automatically retried.
-8. A failed RX restore leaves radio state uncertain/not-ready rather than faking
+8. No ambiguous CAT write is automatically retried.
+9. A failed RX restore leaves radio state uncertain/not-ready rather than faking
    success.
-9. Logical RX pause does not tear down physical UAC/CDC/USB Host.
-10. Normal successful QMX RX/TX behavior remains unchanged.
-11. T081/T082 behavior remains unchanged.
-12. Linux/unit/architecture/ADV build gates pass.
-13. Repeated ADV/QMX physical RX/TX does not freeze the FT8 UI.
+10. Logical RX pause does not tear down physical UAC/CDC/USB Host.
+11. Normal successful QMX RX/TX behavior remains unchanged except for removal
+    of the redundant per-TX `MD6;`.
+12. T081/T082 behavior remains unchanged.
+13. Linux/unit/architecture/ADV build gates pass.
+14. Repeated ADV/QMX physical RX/TX does not freeze the FT8 UI.
 
 ---
 
