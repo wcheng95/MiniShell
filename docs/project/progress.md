@@ -12,6 +12,7 @@
 - MiniFT8 AutoSeq AS-0..AS-8 is complete.
 - MiniFT8 live Linux/QMX RX is working continuously across consecutive FT8 slots. T018 makes bare Linux `ft8` the validated operator command: ADV presentation plus live `alsa:hw:2,0` QMX RX by default.
 - MiniFT8 live Cardputer ADV/QMX USB-host RX is fully hardware-validated at 240 MHz with the V2-compatible `time_osr=2, freq_osr=1` engine profile: live decode, consecutive slots, initial late attach, repeated FT8 lifecycle, provider continuity, and post-FT8 `usbmsc` all pass.
+- T081 is COMPLETE: MiniFT8 live RX capture and decode lifecycles are decoupled. UTC independently drives the `-1.60 s` slot-local waterfall reset and `+12.64 s` decode trigger; live Audio discontinuities no longer cancel decode or restart slot timing; late RUNNING/READY state is an invariant fault rather than a normal slot-drop path. ADV/QMX live validation passed on 2026-09-25, and the previous held-RX-slot symptom was no longer observed.
 - MiniFT8 V2-style ADIF and Field Day Cabrillo logging are implemented through MiniShell APIs.
 - Linux MiniShell Serial/CDC plus MiniFT8-owned receive-safe QMX CAT is hardware-validated on pc-1: mode/VFO/dial-frequency sync works with live RX and no transmit.
 - Linux/pc-1 + QMX now has a completed real two-way MiniFT8-V3 QSO. Physical CAT keying, immutable 79-tone plans, RX recovery, RxTxLog, CQ/POTA beacon operation, and V2-compatible Random/Fixed/RX offset selection are accepted production behavior.
