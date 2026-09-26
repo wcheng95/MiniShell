@@ -81,7 +81,7 @@ Do not change:
 Add a new MiniFT8 `setting.txt` field:
 
 ```text
-cqtype=POTA SOTA DX 250
+cqtypes=POTA SOTA DX 250
 ```
 
 The value is an ordered, space-separated list of CQ modifiers.
@@ -93,7 +93,7 @@ CQ
 ```
 
 is always available implicitly as the first choice and is not required in the
-`cqtype=` line.
+`cqtypes=` line.
 
 Therefore the example above produces this O -> 4 -> 1 cycle:
 
@@ -115,7 +115,7 @@ to the next choice, and navigation wraps.
 Use the FT8 standard-message CQ token rule already implemented by
 `ft8_message_codec`.
 
-A `cqtype=` token is valid after uppercase normalization when it is exactly:
+A `cqtypes=` token is valid after uppercase normalization when it is exactly:
 
 ```text
 1..4 letters A-Z
@@ -142,19 +142,19 @@ POTA/    invalid
 ```
 
 Ignore invalid tokens. Do not reject the whole `setting.txt` because one
-`cqtype` entry is invalid.
+`cqtypes` entry is invalid.
 
 Normalize alphabetic tokens to uppercase.
 
 Ignore duplicate valid tokens after the first occurrence, preserving first
 occurrence order.
 
-If `cqtype=` is absent, empty, or contains no valid tokens, plain `CQ`
+If `cqtypes=` is absent, empty, or contains no valid tokens, plain `CQ`
 remains available.
 
 ### Default compatibility
 
-Keep the old useful built-in choices available when no explicit `cqtype=` is
+Keep the old useful built-in choices available when no explicit `cqtypes=` is
 present by using a default modifier list compatible with the existing numeric
 CQ type ordering:
 
@@ -163,7 +163,7 @@ SOTA POTA QRP FD
 ```
 
 This preserves the established `cq_type=2` -> `CQ POTA` behavior for existing
-settings that have not added `cqtype=`.
+settings that have not added `cqtypes=`.
 
 ### Selected option persistence
 
@@ -179,7 +179,7 @@ Interpret it as:
 
 ```text
 0          plain CQ
-1..count   valid cqtype entries in configured order
+1..count   valid cqtypes entries in configured order
 ```
 
 Clamp an out-of-range selection to plain CQ.
@@ -187,7 +187,7 @@ Clamp an out-of-range selection to plain CQ.
 When the operator changes O -> 4 -> 1, persist the selected index through the
 existing save path.
 
-This intentionally means that editing/reordering `cqtype=` changes what a
+This intentionally means that editing/reordering `cqtypes=` changes what a
 stored nonzero index refers to. The list is operator-owned ordered
 configuration.
 
@@ -252,7 +252,7 @@ A valid generic modifier such as `DX` or `250` has ordinary CQ AutoSeq
 semantics; it changes the CQ token only.
 
 Existing free-text CQ support remains separate. `FREETEXT` is not a generic
-`cqtype` token.
+`cqtypes` token.
 
 Preserve the T027 non-standard-local-callsign rule: this task does not expand
 modified-CQ support for a non-standard local callsign beyond what the encoder
@@ -265,7 +265,7 @@ currently supports.
 Keep storage bounded and allocation-free.
 
 A compact fixed representation is preferred. The implementation may retain a
-canonical filtered `cqtype` string and provide indexed accessors, or store a
+canonical filtered `cqtypes` string and provide indexed accessors, or store a
 small fixed array of modifiers.
 
 Do not add heap allocation.
@@ -275,7 +275,7 @@ example:
 
 ```text
 cq_type=2
-cqtype=POTA SOTA DX 250
+cqtypes=POTA SOTA DX 250
 ```
 
 Invalid/duplicate input entries should not reappear after the file is saved.
@@ -300,7 +300,7 @@ Invalid/duplicate input entries should not reappear after the file is saved.
 Cover at minimum:
 
 ```text
-cqtype=POTA SOTA DX 250
+cqtypes=POTA SOTA DX 250
 ```
 
 and verify exact option order:
@@ -396,7 +396,7 @@ Software acceptance requires:
 
 - every new RX batch resets RX to page 1;
 - same-generation redraw does not reset user paging;
-- `cqtype=POTA SOTA DX 250` yields exactly
+- `cqtypes=POTA SOTA DX 250` yields exactly
   `CQ / CQ POTA / CQ SOTA / CQ DX / CQ 250`;
 - invalid CQ modifiers are silently ignored;
 - configured order is preserved;
@@ -411,7 +411,7 @@ Manual ADV acceptance:
 2. move to page 2;
 3. wait for a new RX batch;
 4. verify RX returns to page 1;
-5. set `cqtype=POTA SOTA DX 250`;
+5. set `cqtypes=POTA SOTA DX 250`;
 6. restart FT8;
 7. verify O -> 4 -> 1 cycles through
    `CQ, CQ POTA, CQ SOTA, CQ DX, CQ 250` in that order;
