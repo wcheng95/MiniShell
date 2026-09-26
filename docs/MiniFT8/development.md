@@ -160,8 +160,7 @@ aging runs in decoder ownership. Physical TX pause/resume is preserved.
 
 Bounded ADV diagnostics (`FT8_DECODE_DIAGNOSTICS`) identify `CAPTURE_RESET`,
 `DECODE_START`, `DECODE_DONE`, and `RESULT_PUBLISH` by slot. Invariant diagnostics
-are emitted regardless of that build flag. T081 software validation and pending
-ADV/QMX acceptance are recorded in its task packet.
+are emitted regardless of that build flag. T081 software and ADV/QMX hardware validation are recorded in its task packet.
 
 ## Stage status
 
@@ -545,7 +544,7 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 ## Deferred follow-up boundaries
 
 The first complete Linux/QMX QSO and the physical transmitter lifecycle are done.
-T027 non-standard/hash TX, T028 RX display ordering, T029 RX display lifetime, T031 live QMX band CAT synchronization, and T032 V -> 3 current-day QSO display are complete. T081 RX lifecycle decoupling is in software review; hardware acceptance remains pending.
+T027 non-standard/hash TX, T028 RX display ordering, T029 RX display lifetime, T031 live QMX band CAT synchronization, T032 V -> 3 current-day QSO display, and T081 RX lifecycle decoupling are complete.
 
 Deferred items:
 
