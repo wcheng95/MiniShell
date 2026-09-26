@@ -185,6 +185,7 @@ T020        COMPLETE — QMX CAT TX primitives; RF validated through T022-T024
 T021        COMPLETE — pure FT8 TX encoder + immutable 79-tone plan
 T022        COMPLETE — integrated physical QMX FT8 TX + RX recovery + RxTxLog
 T023        COMPLETE — CQ/CQ POTA + beacon OFF/EVEN/ODD
+T082        COMPLETE — RX page reset on new batch + configurable cqtypes list
 T024        COMPLETE — Random/Fixed/RX TX-offset source
 T026        COMPLETE — temporary GRID-coded RR73 -> TX4 compatibility fix
 T027        COMPLETE — V2-compatible non-standard/hash TX + type-4 plain CQ
