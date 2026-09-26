@@ -85,8 +85,8 @@ int main(void)
     CHECK(radio_control_set_tone_hz(&radio, 1500) == MINI_ERR_NOT_READY);
     CHECK(radio_control_end_tx(&radio) == MINI_OK && !writes);
     CHECK(radio_control_begin_tx(&radio) == MINI_OK && radio.tx_active && radio.rx_required);
-    CHECK(strcmp(transcript, "MD6;TX;") == 0);
-    CHECK(radio_control_begin_tx(&radio) == MINI_ERR_NOT_READY && writes == 2);
+    CHECK(strcmp(transcript, "TX;") == 0);
+    CHECK(radio_control_begin_tx(&radio) == MINI_ERR_NOT_READY && writes == 1);
     check_tone(&radio, 300, "TA0300.00;");
     check_tone(&radio, 1500, "TA1500.00;");
     check_tone(&radio, 1520.8333f, "TA1520.83;");
@@ -118,52 +118,52 @@ int main(void)
 
     for (unsigned mode = 0; mode < 2; ++mode) {
         mini_result_t error = mode ? MINI_ERR_IO : MINI_ERR_TIMEOUT;
-        for (unsigned command = 1; command <= 4; ++command) {
+        for (unsigned command = 1; command <= 3; ++command) {
             open_radio(&radio);
             short_write = mode != 0;
             fail_at = command;
             mini_result_t begun = radio_control_begin_tx(&radio);
-            CHECK(begun == (command <= 2 ? error : MINI_OK));
-            CHECK(radio.tx_active == (command > 2));
-            CHECK(radio.rx_required == (command > 1));
-            if (command == 2) {
+            CHECK(begun == (command <= 1 ? error : MINI_OK));
+            CHECK(radio.tx_active == (command > 1));
+            CHECK(radio.rx_required);
+            if (command == 1) {
                 before = writes;
                 CHECK(radio_control_begin_tx(&radio) == MINI_ERR_NOT_READY);
                 CHECK(radio_control_set_tone_hz(&radio, 1500) == MINI_ERR_NOT_READY);
                 CHECK(writes == before);
             }
-            if (command >= 3) {
-                CHECK(radio_control_set_tone_hz(&radio, 1500) == (command == 3 ? error : MINI_OK));
+            if (command >= 2) {
+                CHECK(radio_control_set_tone_hz(&radio, 1500) == (command == 2 ? error : MINI_OK));
                 CHECK(radio.tx_active && radio.rx_required);
             }
-            if (command == 4) {
+            if (command == 3) {
                 CHECK(radio_control_end_tx(&radio) == error);
                 CHECK(radio.tx_active && radio.rx_required);
             }
             CHECK(radio_control_close(&radio) == MINI_OK && closes == 1);
             CHECK(!radio.stream && !radio.tx_active && !radio.rx_required);
-            const char *expected[] = {"MD6;<close>", "MD6;TX;RX;<close>",
-                "MD6;TX;TA1500.00;RX;<close>", "MD6;TX;TA1500.00;RX;RX;<close>"};
+            const char *expected[] = {"TX;RX;<close>",
+                "TX;TA1500.00;RX;<close>", "TX;TA1500.00;RX;RX;<close>"};
             CHECK(strcmp(transcript, expected[command - 1]) == 0);
         }
         open_radio(&radio);
         CHECK(radio_control_begin_tx(&radio) == MINI_OK);
-        short_write = mode != 0; fail_at = 3;
+        short_write = mode != 0; fail_at = 2;
         CHECK(radio_control_close(&radio) == error && closes == 1 && !radio.stream);
-        CHECK(strcmp(transcript, "MD6;TX;RX;<close>") == 0);
+        CHECK(strcmp(transcript, "TX;RX;<close>") == 0);
         CHECK(radio_control_close(&radio) == MINI_OK && closes == 1);
     }
 
     /* Real controller diagnostic, mocked only below MiniShell; all other services absent. */
     for (unsigned mode = 0; mode < 2; ++mode) {
-        for (unsigned command = 0; command <= 8; ++command) {
+        for (unsigned command = 0; command <= 7; ++command) {
             reset(); fail_at = command; short_write = mode != 0;
             mini_result_t result = app_controller_cat_test(&api, "/flash/ft8/station.txt", "test:cat", 1500, 500);
             CHECK(result == (command ? (mode ? MINI_ERR_IO : MINI_ERR_TIMEOUT) : MINI_OK));
-            CHECK(closes == 1 && sleeps == (command == 0 || command == 8 ? 1u : 0u));
-            if (command >= 6 || command == 0) CHECK(strstr(transcript, "RX;<close>"));
+            CHECK(closes == 1 && sleeps == (command == 0 || command == 7 ? 1u : 0u));
+            if (command >= 5 || command == 0) CHECK(strstr(transcript, "RX;<close>"));
             else CHECK(!strstr(transcript, "TX;"));
-            if (!command) CHECK(strcmp(transcript, "MD6;FR0;FT0;FA00014074000;MD6;TX;TA1500.00;RX;<close>") == 0);
+            if (!command) CHECK(strcmp(transcript, "MD6;FR0;FT0;FA00014074000;TX;TA1500.00;RX;<close>") == 0);
         }
     }
     reset(); sleep_result = MINI_ERR_IO;

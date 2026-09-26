@@ -1577,6 +1577,7 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
             break;
 
         case APP_ACTION_SET_BAND:
+            app->cat_band_sync_failed = false;
             config_service_set_band(&app->config, action->value.index);
             app->cat_band_sync_pending = app->radio.stream != MINI_SERIAL_INVALID;
             if (app->cat_band_sync_pending) {

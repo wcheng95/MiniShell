@@ -26,7 +26,17 @@ portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 DMA_ATTR uint8_t native_data[2304];
 struct Connection { uint8_t address, interface; };
 QueueHandle_t connections;
-SemaphoreHandle_t capture_done, host_ready, host_done, cdc_done, cdc_mutex;
+SemaphoreHandle_t capture_done, host_ready, host_done, cdc_done;
+struct CdcRequest {
+    uint32_t generation, size;
+    int64_t deadline_us;
+    uint8_t data[64];
+};
+struct CdcCompletion { uint32_t generation; esp_err_t result; };
+QueueHandle_t cdc_requests, cdc_completions;
+std::atomic<bool> cdc_ready{false}, cdc_inflight{false};
+std::atomic<esp_err_t> cdc_error{ESP_OK};
+uint32_t cdc_generation; // Foreground only; completions are generation tagged.
 alignas(portBYTE_ALIGNMENT) StackType_t capture_stack[4096 / sizeof(StackType_t)];
 static_assert(sizeof(capture_stack) == 4096, "capture stack must remain 4096 bytes");
 StaticTask_t capture_tcb;
@@ -39,10 +49,10 @@ constexpr minishell_backend_serial_t serial_handle = 0x434443u;
 // Public owners are foreground-only; worker-visible RX state uses lock/atomics.
 bool serial_reserved, session_ready, session_dirty, discovery_held;
 uint32_t rx_generation;
+bool rx_pause_discontinuity; // Protected by lock; no physical reset for a logical pause.
 bool uac_installed, cdc_installed, capture_running, host_running, cdc_running;
 // Worker-owned until joined; retain failed closes for foreground cleanup retry.
 uac_host_device_handle_t capture_device;
-cdc_acm_dev_hdl_t cdc_device;
 std::atomic<unsigned> read_errors{0}, transfer_errors{0};
 
 // Audio alone allocates the ring. Serial-first startup needs no RX ring.
@@ -84,8 +94,9 @@ bool close_capture()
     capture_device = nullptr;
     return true;
 }
-bool close_cdc()
+bool close_cdc(cdc_acm_dev_hdl_t &cdc_device)
 {
+    cdc_ready = false;
     if (!cdc_device) return true;
     if (cdc_acm_host_close(cdc_device) != ESP_OK) {
         ESP_LOGE(tag, "CDC close incomplete; handle retained");
@@ -98,6 +109,7 @@ bool close_cdc()
 void loss()
 {
     portENTER_CRITICAL(&lock);
+    rx_pause_discontinuity = false;
     if (ring) adv_uac_loss(ring);
     portEXIT_CRITICAL(&lock);
 }
@@ -163,32 +175,56 @@ void host_task(void *)
 void cdc_event(const cdc_acm_host_dev_event_data_t *event, void *)
 {
     if (event->type == CDC_ACM_HOST_DEVICE_DISCONNECTED) cdc_unplugged = true;
-    if (event->type == CDC_ACM_HOST_ERROR) ESP_LOGW(tag, "CDC error %d", event->data.error);
+    if (event->type == CDC_ACM_HOST_ERROR) cdc_error = event->data.error;
 }
+
+// Called only by the CDC owner. The request (including bytes) is on its stack,
+// never on the caller's stack, even if the driver outlives the caller's wait.
+void cdc_execute(cdc_acm_dev_hdl_t device, const CdcRequest &request)
+{
+    int64_t remaining_us = request.deadline_us - esp_timer_get_time();
+    esp_err_t result = ESP_ERR_INVALID_STATE;
+    if (remaining_us <= 0) result = ESP_ERR_TIMEOUT;
+    else if (device && !cdc_unplugged && !quit)
+        result = cdc_acm_host_data_tx_blocking(device, request.data, request.size,
+                                              (uint32_t)((remaining_us + 999) / 1000));
+    CdcCompletion completion = {request.generation, result};
+    // Release before waking the caller: it may immediately submit the next
+    // command at higher priority. Late completions are matched by generation.
+    cdc_inflight = false;
+    xQueueOverwrite(cdc_completions, &completion);
+}
+
 void cdc_task(void *)
 {
-    cdc_acm_dev_hdl_t &device = cdc_device;
+    cdc_acm_dev_hdl_t cdc_device = nullptr;
     while (!quit) {
-        xSemaphoreTake(cdc_mutex, portMAX_DELAY);
-        if (cdc_unplugged.exchange(false) && device) {
-            if (close_cdc()) ESP_LOGI(tag, "CDC disconnected");
+        esp_err_t error = cdc_error.exchange(ESP_OK);
+        if (error != ESP_OK) ESP_LOGW(tag, "CDC error %d", error);
+        if (cdc_unplugged.exchange(false) && cdc_device) {
+            if (close_cdc(cdc_device)) ESP_LOGI(tag, "CDC disconnected");
             else cdc_unplugged = true;
         }
-        if (!device) {
+        if (!cdc_device) {
             cdc_acm_host_device_config_t config = {};
             config.connection_timeout_ms = 100;
             config.out_buffer_size = 64;
             config.event_cb = cdc_event;
             // QMX interface 0 only; no line-coding, DTR, or CAT policy writes.
-            if (cdc_acm_host_open(vid, pid, 0, &config, &device) == ESP_OK)
+            if (cdc_acm_host_open(vid, pid, 0, &config, &cdc_device) == ESP_OK) {
+                cdc_ready = true;
                 ESP_LOGI(tag, "CDC ready 0483:a34c interface 0 (no CAT commands)");
+            }
         }
-        xSemaphoreGive(cdc_mutex);
-        vTaskDelay(pdMS_TO_TICKS(100));
+        CdcRequest request;
+        // A queued command wakes this owner immediately, including 10 ms TA.
+        if (xQueueReceive(cdc_requests, &request, pdMS_TO_TICKS(100)) == pdTRUE)
+            cdc_execute(cdc_device, request);
     }
-    xSemaphoreTake(cdc_mutex, portMAX_DELAY);
-    close_cdc();
-    xSemaphoreGive(cdc_mutex);
+    cdc_ready = false;
+    // Keep failed/stuck closes in this owner. Foreground teardown has a bounded
+    // join and retains the session rather than touching the driver's handle.
+    while (!close_cdc(cdc_device)) vTaskDelay(pdMS_TO_TICKS(100));
     xSemaphoreGive(cdc_done);
     vTaskDelete(nullptr);
 }
@@ -315,10 +351,13 @@ bool release()
         capture_running = false;
     }
     if (cdc_running) {
-        if (xSemaphoreTake(cdc_done, pdMS_TO_TICKS(5000)) != pdTRUE) return false;
+        if (xSemaphoreTake(cdc_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
+            ESP_LOGE(tag, "CDC owner did not stop; USB session retained");
+            return false;
+        }
         cdc_running = false;
     }
-    if (!close_capture() || !close_cdc()) return false;
+    if (!close_capture()) return false;
     if (cdc_installed) {
         if (cdc_acm_host_uninstall() != ESP_OK) {
             ESP_LOGE(tag, "CDC uninstall incomplete; USB console remains suspended");
@@ -339,7 +378,8 @@ bool release()
         host_running = false;
     }
     if (host_installed) return false;
-    if (cdc_mutex) { vSemaphoreDelete(cdc_mutex); cdc_mutex = nullptr; }
+    if (cdc_requests) { vQueueDelete(cdc_requests); cdc_requests = nullptr; }
+    if (cdc_completions) { vQueueDelete(cdc_completions); cdc_completions = nullptr; }
     if (connections) { vQueueDelete(connections); connections = nullptr; }
     if (capture_done) { vSemaphoreDelete(capture_done); capture_done = nullptr; }
     if (cdc_done) { vSemaphoreDelete(cdc_done); cdc_done = nullptr; }
@@ -356,8 +396,11 @@ bool prepare()
     host_done = xSemaphoreCreateBinary();
     host_ready = xSemaphoreCreateBinary();
     cdc_done = xSemaphoreCreateBinary();
-    cdc_mutex = xSemaphoreCreateMutex();
-    if (!connections || !capture_done || !host_ready || !host_done || !cdc_done || !cdc_mutex) return false;
+    cdc_ready = cdc_inflight = false;
+    cdc_error = ESP_OK;
+    cdc_requests = xQueueCreate(1, sizeof(CdcRequest));
+    cdc_completions = xQueueCreate(1, sizeof(CdcCompletion));
+    if (!connections || !capture_done || !host_ready || !host_done || !cdc_done || !cdc_requests || !cdc_completions) return false;
     if (adv_console_begin_usb_host() != 0) return false;
     host_start_result = ESP_ERR_INVALID_STATE;
     host_running = xTaskCreatePinnedToCore(host_task, "uac_host", 4096, nullptr,
@@ -424,10 +467,7 @@ mini_result_t serial_open(void *, const char *endpoint, minishell_backend_serial
     if (!acquire_session()) return MINI_ERR_IO;
     if (discovery_held) {
         if (!cdc_running) return MINI_ERR_IO;
-        if (xSemaphoreTake(cdc_mutex, 0) != pdTRUE) return MINI_ERR_NOT_READY;
-        bool ready = cdc_device && !cdc_unplugged;
-        xSemaphoreGive(cdc_mutex);
-        if (!ready) return MINI_ERR_NOT_READY;
+        if (!cdc_ready || cdc_unplugged) return MINI_ERR_NOT_READY;
         serial_reserved = true;
         *out = serial_handle;
         return MINI_OK;
@@ -436,14 +476,10 @@ mini_result_t serial_open(void *, const char *endpoint, minishell_backend_serial
     // unbounded foreground open when the radio is absent.
     int64_t deadline = esp_timer_get_time() + 3000000;
     while (cdc_running && esp_timer_get_time() < deadline) {
-        if (xSemaphoreTake(cdc_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
-            bool ready = cdc_device && !cdc_unplugged;
-            xSemaphoreGive(cdc_mutex);
-            if (ready) {
-                serial_reserved = true;
-                *out = serial_handle;
-                return MINI_OK;
-            }
+        if (cdc_ready && !cdc_unplugged) {
+            serial_reserved = true;
+            *out = serial_handle;
+            return MINI_OK;
         }
         vTaskDelay(1);
     }
@@ -456,25 +492,44 @@ mini_result_t serial_write(void *, minishell_backend_serial_t serial, const void
     *out = 0;
     if (serial != serial_handle || !serial_reserved) return MINI_ERR_BAD_HANDLE;
     if (!size) return MINI_OK;
-    if (!data) return MINI_ERR_INVALID;
+    if (!data || size > sizeof(CdcRequest::data)) return MINI_ERR_INVALID;
+    TickType_t begin_tick = xTaskGetTickCount();
     int64_t begin = esp_timer_get_time();
-    // The pinned driver converts milliseconds with 32-bit multiplication.
-    // Its longest safe wait is a transport watchdog even for WAIT_FOREVER;
-    // never retry an ambiguous transfer (bytes may already have reached USB).
+    if (!cdc_ready || cdc_unplugged || quit) return MINI_ERR_NOT_READY;
+    // The pinned driver multiplies milliseconds in 32 bits. Keep its maximum
+    // safe timeout even for WAIT_FOREVER; never retry an ambiguous write.
     constexpr uint32_t max_wait = UINT32_MAX / configTICK_RATE_HZ;
     uint32_t budget = std::min(timeout, max_wait);
-    TickType_t ticks = timeout == MINI_WAIT_FOREVER ? portMAX_DELAY : pdMS_TO_TICKS(budget);
-    if (xSemaphoreTake(cdc_mutex, ticks) != pdTRUE) return MINI_ERR_TIMEOUT;
-    uint32_t elapsed = (uint32_t)((esp_timer_get_time() - begin) / 1000);
-    uint32_t remaining = timeout == MINI_WAIT_FOREVER ? max_wait :
-                         elapsed < budget ? budget - elapsed : 0;
-    esp_err_t result = ESP_ERR_INVALID_STATE;
-    if (cdc_device && !cdc_unplugged)
-        result = cdc_acm_host_data_tx_blocking(cdc_device, (const uint8_t *)data, size, remaining);
-    xSemaphoreGive(cdc_mutex);
-    if (result == ESP_OK) { *out = size; return MINI_OK; }
-    if (result == ESP_ERR_TIMEOUT && timeout != MINI_WAIT_FOREVER) return MINI_ERR_TIMEOUT;
-    return MINI_ERR_IO;
+    if (!budget) return MINI_ERR_TIMEOUT;
+    if (cdc_inflight.exchange(true)) return MINI_ERR_NOT_READY;
+    CdcCompletion completion;
+    (void)xQueueReceive(cdc_completions, &completion, 0); // Discard late prior result.
+    CdcRequest request = {};
+    request.generation = ++cdc_generation;
+    request.size = size;
+    request.deadline_us = begin + (int64_t)budget * 1000;
+    memcpy(request.data, data, size);
+    if (xQueueSend(cdc_requests, &request, 0) != pdTRUE) {
+        cdc_inflight = false;
+        return MINI_ERR_NOT_READY;
+    }
+    for (;;) {
+        int64_t remaining_us = request.deadline_us - esp_timer_get_time();
+        if (remaining_us <= 0) return MINI_ERR_TIMEOUT;
+        // Use one tick deadline: converting the fractional milliseconds left
+        // back to ticks would turn every 10 ms TA wait into zero at 100 Hz.
+        TickType_t elapsed = xTaskGetTickCount() - begin_tick;
+        TickType_t total = pdMS_TO_TICKS(budget);
+        TickType_t ticks = elapsed < total ? total - elapsed : 0;
+        if (xQueueReceive(cdc_completions, &completion, ticks) != pdTRUE)
+            return MINI_ERR_TIMEOUT;
+        if (completion.generation != request.generation) continue;
+        if (esp_timer_get_time() > request.deadline_us) return MINI_ERR_TIMEOUT;
+        if (completion.result == ESP_OK) { *out = size; return MINI_OK; }
+        if (completion.result == ESP_ERR_TIMEOUT && timeout != MINI_WAIT_FOREVER)
+            return MINI_ERR_TIMEOUT;
+        return MINI_ERR_IO;
+    }
 }
 mini_result_t serial_close(void *, minishell_backend_serial_t serial)
 {
@@ -530,6 +585,10 @@ mini_result_t rx_read(void *ctx, minishell_backend_audio_t audio, void *frames,
         portENTER_CRITICAL(&lock);
         bool discontinuity = adv_uac_ack(ring);
         if (discontinuity) {
+            // Logical pause already invalidated stale data and kept UAC drained.
+            // Real transport loss still requires the existing physical reset.
+            if (rx_pause_discontinuity) ring->reset_required = false;
+            rx_pause_discontinuity = false;
             high_water = ring->high_water;
             overflows = ring->overflows;
             losses = ring->losses;
@@ -561,7 +620,10 @@ mini_result_t rx_stop(void *ctx, minishell_backend_audio_t audio)
     if (!reserved) return MINI_ERR_BAD_HANDLE;
     portENTER_CRITICAL(&lock);
     bool was_started = started.exchange(false);
-    if (was_started) adv_uac_loss(ring);
+    if (was_started) {
+        rx_pause_discontinuity = rx_pause_discontinuity || (!ring->pending && !ring->reset_required);
+        adv_uac_loss(ring);
+    }
     uint32_t high_water = ring->high_water, overflows = ring->overflows, losses = ring->losses;
     portEXIT_CRITICAL(&lock);
     ESP_LOGI(tag, "high-water=%lu/%lu overflow=%lu discontinuity=%lu read-errors=%u transfer-errors=%u",

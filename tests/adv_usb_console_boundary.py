@@ -18,10 +18,13 @@ release = provider.split("bool release()", 1)[1].split("bool prepare()", 1)[0]
 ordered(prepare, "if (adv_console_begin_usb_host() != 0) return false;", "xTaskCreatePinnedToCore(host_task", "xSemaphoreTake(host_ready",
         "if (host_start_result != ESP_OK) return false;", "cdc_acm_host_install", "uac_host_install")
 ordered(release, "xSemaphoreTake(capture_done", "xSemaphoreTake(cdc_done",
-        "if (!close_capture() || !close_cdc()) return false;",
+        "if (!close_capture()) return false;",
         "cdc_acm_host_uninstall()", "uac_host_uninstall()",
         "xSemaphoreTake(host_done", "if (host_installed) return false;",
         "adv_console_end_usb_host(host_installed || uac_installed || cdc_installed)")
+cdc = provider.split("void cdc_task(void *)", 1)[1].split("void capture_task", 1)[0]
+ordered(cdc, "while (!close_cdc(cdc_device))", "xSemaphoreGive(cdc_done)")
+assert "close_cdc" not in release
 ordered(provider, "if (usb_host_uninstall() == ESP_OK)", "host_installed = false;")
 assert provider.count("adv_console_end_usb_host(") == 1
 assert provider.count("adv_console_begin_usb_host(") == 1

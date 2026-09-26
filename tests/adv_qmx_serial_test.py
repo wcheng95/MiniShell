@@ -12,11 +12,27 @@ def function(signature):
     start = provider.index(signature)
     return provider[start:provider.index('\n}\n', start) + 3]
 
-# Driver operations are excluded from the mock proof; lock ordering must cover
-# both worker-side close/open and foreground blocking transfer.
+# Only this task and its helpers own the handle/driver. Callbacks publish state.
 worker = function('void cdc_task(')
-assert worker.index('xSemaphoreTake(cdc_mutex') < worker.index('close_cdc()')
-assert worker.index('cdc_acm_host_open(') < worker.index('xSemaphoreGive(cdc_mutex)')
+execute = function('void cdc_execute(')
+assert 'cdc_acm_dev_hdl_t cdc_device = nullptr;' in worker
+assert 'cdc_mutex' not in provider
+assert provider.count('cdc_acm_host_open(') == worker.count('cdc_acm_host_open(') == 1
+assert provider.count('cdc_acm_host_data_tx_blocking(') == execute.count('cdc_acm_host_data_tx_blocking(') == 1
+assert provider.count('cdc_acm_host_close(') == function('bool close_cdc(').count('cdc_acm_host_close(') == 1
+assert provider.count('close_cdc(') == worker.count('close_cdc(') + 1
+assert provider.count('cdc_execute(') == worker.count('cdc_execute(') + 1
+callback = function('void cdc_event(')
+assert 'cdc_device' not in callback and 'ESP_LOG' not in callback
+for signature in ('mini_result_t serial_open(', 'mini_result_t serial_write(', 'mini_result_t serial_close(', 'bool release()'):
+    assert 'cdc_device' not in function(signature) and 'cdc_acm_host_data_tx_blocking' not in function(signature)
+assert 'xQueueReceive(cdc_requests, &request, pdMS_TO_TICKS(100))' in worker
+for signature in ('mini_result_t rx_stop(', 'mini_result_t rx_start('):
+    body = function(signature)
+    assert not any(op in body for op in ('cdc_', 'usb_host_', 'uac_host_device_', 'release(', 'prepare('))
+assert 'adv_uac_loss(ring)' in function('mini_result_t rx_stop(')
+assert '++rx_generation' in function('mini_result_t rx_start(')
+assert '(!streaming && !started)' in function('void capture_task(')
 assert 'if (ring && started && rx_generation == generation)' in function('void capture_task(')
 assert 'if (ring) adv_uac_loss(ring)' in function('void loss()')
 assert 'release(' not in function('mini_result_t rx_stop(')
@@ -31,6 +47,9 @@ assert 'port->serial_read =' not in configure
 harness = r'''
 #include <algorithm>
 #include <atomic>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <cstdlib>
 #include <string>
 #include "adv_audio_uac_buffer.h"
@@ -48,42 +67,92 @@ using TickType_t = uint32_t;
 #define pdMS_TO_TICKS(ms) ((ms) / 10)
 constexpr int pdTRUE = 1;
 using esp_err_t = int;
+using cdc_acm_dev_hdl_t = void *;
+thread_local bool in_owner;
 constexpr esp_err_t ESP_OK = 0, ESP_ERR_TIMEOUT = 1, ESP_ERR_INVALID_STATE = 2;
-int cdc_mutex;
-bool serial_reserved, cdc_running = true, cdc_unplugged;
-void *cdc_device = (void *)1;
+bool serial_reserved, cdc_running = true, cdc_unplugged, quit;
+bool cdc_ready = true;
+std::atomic<bool> cdc_inflight{false};
+uint32_t cdc_generation;
+struct CdcRequest { uint32_t generation, size; int64_t deadline_us; uint8_t data[64]; };
+struct CdcCompletion { uint32_t generation; esp_err_t result; };
+constexpr int cdc_requests = 1, cdc_completions = 2;
 bool session_ready, session_dirty, reserved, discovery_held;
-bool prepare_ok = true, release_ok = true, lock_ok = true, locked;
+bool prepare_ok = true, release_ok = true;
 int prepares, releases, writes;
 std::string transmitted;
-uint32_t driver_timeout, advance_ms, lock_wait;
+uint32_t driver_timeout, advance_ms;
 int64_t now;
 esp_err_t tx_result;
+std::mutex queue_lock;
+std::condition_variable driver_cv;
+std::thread owner;
+CdcRequest queued;
+CdcCompletion completed;
+bool request_queued, completion_queued, driver_entered, stuck, unblock, inject_stale;
 static int64_t esp_timer_get_time() { return now; }
+static TickType_t xTaskGetTickCount() { return (TickType_t)(now / 10000); }
 static void vTaskDelay(int) { now += 10000; }
 static bool prepare() { ++prepares; return prepare_ok; }
 static bool release() { ++releases; return release_ok; }
-static int xSemaphoreTake(int, TickType_t wait) {
-    lock_wait = wait;
-    now += (int64_t)advance_ms * 1000;
-    if (!lock_ok) return 0;
-    assert(!locked); locked = true; return pdTRUE;
+void cdc_execute(void *, const CdcRequest &);
+static void xQueueOverwrite(int queue, const CdcCompletion *completion) {
+    assert(queue == cdc_completions && !cdc_inflight);
+    std::lock_guard<std::mutex> guard(queue_lock);
+    completed = *completion; completion_queued = true;
 }
-static void xSemaphoreGive(int) { assert(locked); locked = false; }
+static int xQueueSend(int queue, const CdcRequest *request, TickType_t wait) {
+    assert(queue == cdc_requests && wait == 0 && !request_queued);
+    queued = *request; request_queued = true; return pdTRUE;
+}
+static int xQueueReceive(int queue, CdcCompletion *completion, TickType_t wait) {
+    assert(queue == cdc_completions);
+    if (request_queued) {
+        now += (int64_t)advance_ms * 1000;
+        request_queued = false; driver_entered = false; unblock = false;
+        CdcRequest request = queued;
+        assert(!owner.joinable());
+        owner = std::thread([request] { in_owner = true; cdc_execute((void *)1, request); });
+        if (stuck) {
+            std::unique_lock<std::mutex> guard(queue_lock);
+            driver_cv.wait(guard, [] { return driver_entered; });
+        } else owner.join();
+    }
+    std::lock_guard<std::mutex> guard(queue_lock);
+    if (inject_stale && wait) {
+        inject_stale = false;
+        *completion = {cdc_generation - 1, ESP_OK}; return pdTRUE;
+    }
+    if (completion_queued) {
+        *completion = completed; completion_queued = false; return pdTRUE;
+    }
+    if (wait) now = (now / 10000 + wait) * 10000;
+    return 0;
+}
 static esp_err_t cdc_acm_host_data_tx_blocking(void *device, const uint8_t *data,
                                              uint32_t size, uint32_t timeout) {
-    assert(locked && device == cdc_device && data && size);
+    assert(in_owner);
+    assert(device && data && size);
     ++writes; driver_timeout = timeout;
+    std::unique_lock<std::mutex> guard(queue_lock);
+    driver_entered = true; driver_cv.notify_one();
+    if (stuck) driver_cv.wait(guard, [] { return unblock; });
     if (tx_result == ESP_OK) transmitted.append((const char *)data, size);
     return tx_result;
 }
+static void finish_late() {
+    { std::lock_guard<std::mutex> guard(queue_lock); unblock = true; driver_cv.notify_one(); }
+    owner.join(); stuck = false;
+}
 '''
+harness += execute
 harness += r'''
 constexpr minishell_backend_audio_t handle = 0x554143u;
 minishell_services_port_t base = {};
 adv_uac_buffer_t *ring;
 std::atomic<bool> started{false};
 uint32_t rx_generation;
+bool rx_pause_discontinuity;
 std::atomic<unsigned> read_errors{0}, transfer_errors{0};
 const char *tag = "test";
 #define portENTER_CRITICAL(unused) ((void)0)
@@ -107,12 +176,12 @@ int main() {
     assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_ERR_IO);
     assert(serial == 0 && !serial_reserved && !session_dirty);
     prepare_ok = true;
-    cdc_device = nullptr;
+    cdc_ready = false;
     assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_ERR_NOT_READY);
     assert(now >= 3000000 && now <= 3020000 && !session_dirty);
     cdc_running = false;
     assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_ERR_NOT_READY);
-    cdc_running = true; cdc_device = (void *)1;
+    cdc_running = true; cdc_ready = true;
     assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_OK);
     assert(serial == serial_handle && serial_reserved);
     minishell_backend_serial_t second = 99;
@@ -127,28 +196,61 @@ int main() {
     assert(writes == 0);
     advance_ms = 30;
     assert(serial_write(nullptr, serial, bytes, 9, &count, 200) == MINI_OK);
-    assert(count == 9 && driver_timeout == 170 && !locked);
+    assert(count == 9 && driver_timeout == 170);
     advance_ms = 0;
     tx_result = ESP_ERR_TIMEOUT;
     assert(serial_write(nullptr, serial, bytes, 9, &count, 10) == MINI_ERR_TIMEOUT && count == 0);
     assert(serial_reserved);
     assert(serial_write(nullptr, serial, bytes, 9, &count, MINI_WAIT_NONE) == MINI_ERR_TIMEOUT);
-    assert(driver_timeout == 0);
+    assert(driver_timeout == 10); // Zero budget never submits a command.
     assert(serial_write(nullptr, serial, bytes, 9, &count, MINI_WAIT_FOREVER) == MINI_ERR_IO);
     assert(driver_timeout == UINT32_MAX / configTICK_RATE_HZ);
     tx_result = ESP_ERR_INVALID_STATE;
     assert(serial_write(nullptr, serial, bytes, 9, &count, 200) == MINI_ERR_IO && count == 0);
     int before = writes;
     cdc_unplugged = true;
-    assert(serial_write(nullptr, serial, bytes, 9, &count, 200) == MINI_ERR_IO && count == 0);
+    assert(serial_write(nullptr, serial, bytes, 9, &count, 200) == MINI_ERR_NOT_READY && count == 0);
     assert(writes == before && serial_reserved);
-    cdc_unplugged = false; cdc_device = nullptr;
-    assert(serial_write(nullptr, serial, bytes, 9, &count, 200) == MINI_ERR_IO);
-    cdc_device = (void *)1; tx_result = ESP_OK;
+    cdc_unplugged = false; cdc_ready = false;
+    assert(serial_write(nullptr, serial, bytes, 9, &count, 200) == MINI_ERR_NOT_READY);
+    cdc_ready = true; tx_result = ESP_OK;
     assert(serial_write(nullptr, serial, bytes, 9, &count, 200) == MINI_OK && count == 9);
-    lock_ok = false;
-    assert(serial_write(nullptr, serial, bytes, 9, &count, 200) == MINI_ERR_TIMEOUT && count == 0);
-    lock_ok = true;
+    char too_large[65] = {};
+    assert(serial_write(nullptr, serial, too_large, sizeof(too_large), &count, 200) == MINI_ERR_INVALID);
+    // Production owner execution blocks inside the fake driver. Foreground's
+    // clock/waits remain deterministic and do not depend on wall-clock sleeps.
+    transmitted.clear(); stuck = true;
+    int64_t begin = now; before = writes;
+    {
+        char caller[] = "TX;";
+        assert(serial_write(nullptr, serial, caller, 3, &count, 10) == MINI_ERR_TIMEOUT);
+        memset(caller, 'x', 3);
+    }
+    assert(now - begin == 10000 && count == 0 && writes == before + 1 && cdc_inflight);
+    begin = now;
+    assert(serial_write(nullptr, serial, "RX;", 3, &count, 200) == MINI_ERR_NOT_READY);
+    assert(now == begin && writes == before + 1);
+    finish_late();
+    assert(transmitted == "TX;" && !cdc_inflight); // Provider-owned copy survived caller.
+    // Old queued completion is drained; an injected stale ID cannot report
+    // success for a later request whose actual driver result is failure.
+    tx_result = ESP_ERR_INVALID_STATE; inject_stale = true;
+    assert(serial_write(nullptr, serial, "RX;", 3, &count, 200) == MINI_ERR_IO && count == 0);
+    tx_result = ESP_OK;
+    // Sub-millisecond queue/wakeup overhead still leaves one 100 Hz tick for TA.
+    now += 123;
+    assert(serial_write(nullptr, serial, "TA1500.00;", 10, &count, 10) == MINI_OK);
+    assert(driver_timeout == 10 && count == 10);
+    advance_ms = 20; before = writes;
+    assert(serial_write(nullptr, serial, bytes, 9, &count, 10) == MINI_ERR_TIMEOUT);
+    assert(writes == before); // Expired queued command never reaches driver.
+    advance_ms = 0;
+    // A queued/wedged write also consumes wakeup delay from the same deadline.
+    stuck = true; advance_ms = 3; now += 123;
+    begin = now;
+    assert(serial_write(nullptr, serial, bytes, 9, &count, 10) == MINI_ERR_TIMEOUT);
+    assert(now - begin <= 10000 && driver_timeout == 7 && cdc_inflight);
+    finish_late(); advance_ms = 0;
     reserved = true; before = releases;
     assert(serial_close(nullptr, serial) == MINI_OK);
     assert(releases == before && session_ready && !serial_reserved);
@@ -165,7 +267,7 @@ int main() {
     assert(serial_close(nullptr, serial) == MINI_OK && !session_dirty);
     before = releases;
     assert(release_unused() && releases == before);
-    cdc_device = nullptr;
+    cdc_ready = false;
     int before_prepare = prepares;
     assert(adv_qmx_discovery_begin() == MINI_OK && discovery_held && session_ready);
     assert(prepares == before_prepare + 1);
@@ -173,13 +275,10 @@ int main() {
     for (unsigned i = 0; i < 200; ++i) {
         serial = 99;
         assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_ERR_NOT_READY);
-        assert(serial == 0 && now == held_now && lock_wait == 0 && releases == before);
+        assert(serial == 0 && now == held_now && releases == before);
         assert(prepares == before_prepare + 1 && session_ready);
     }
-    cdc_device = (void *)1; lock_ok = false;
-    assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_ERR_NOT_READY && !serial);
-    assert(now == held_now && releases == before && lock_wait == 0);
-    lock_ok = true;
+    cdc_ready = true;
     assert(serial_open(nullptr, "serial:qmx", &serial) == MINI_OK);
     assert(serial_close(nullptr, serial) == MINI_OK && releases == before && session_ready);
     assert(adv_qmx_discovery_end() == MINI_OK && releases == before + 1 && !session_dirty);
@@ -228,7 +327,7 @@ static mini_result_t key_read(mini_key_event_t *event, uint32_t timeout) {
             return MINI_OK;
         }
         if (scenario == 3) return MINI_ERR_IO;
-        cdc_device = (void *)1; // First attachment, later than the old 3 s deadline.
+        cdc_ready = true; // First attachment, later than the old 3 s deadline.
     }
     return MINI_ERR_TIMEOUT;
 }
@@ -241,7 +340,7 @@ extern "C" int test_ft8_entry(int argc, char **argv) {
     mini_result_t synced;
     int session_prepares = prepares, session_releases = releases;
     while ((synced = radio_control_open_qmx(&radio, &api, argv[4], 7074000)) == MINI_ERR_NOT_READY) {
-        assert(lock_wait == 0 && now == (int64_t)polls * 100000);
+        assert(now == (int64_t)polls * 100000);
         assert(!serial_reserved && radio.stream == MINI_SERIAL_INVALID);
         assert(prepares == session_prepares && releases == session_releases);
         mini_key_event_t event = {};
@@ -273,7 +372,7 @@ static void test_late_attach() {
     api.input = &input_api; api.console = &console_api;
     for (scenario = 0; scenario < 8; ++scenario) {
         now = polls = entries = announcements = 0;
-        transmitted.clear(); cdc_device = nullptr;
+        transmitted.clear(); cdc_ready = false;
         prepare_ok = scenario != 4; cdc_running = scenario != 5;
         tx_result = scenario == 7 ? ESP_ERR_TIMEOUT : ESP_OK;
         int before_prepare = prepares, before_release = releases;
@@ -315,7 +414,7 @@ with tempfile.TemporaryDirectory(prefix='t030-serial-') as temp:
                         *include_args, '-c', str(source), '-o', str(obj)], check=True)
         objects.append(str(obj))
     subprocess.run([sys.argv[1] if len(sys.argv) > 1 else 'c++', '-std=c++17',
-        '-Wall', '-Wextra', '-Werror', '-Wpedantic', *include_args,
+        '-Wall', '-Wextra', '-Werror', '-Wpedantic', '-pthread', *include_args,
         str(path), *objects, '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 print('ADV QMX Serial callbacks / ownership / late first attach: PASS')

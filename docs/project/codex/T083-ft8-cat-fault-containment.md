@@ -1,6 +1,6 @@
 # T083 — MiniFT8 QMX CAT fault containment and CDC ownership cleanup
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -924,3 +924,143 @@ If implementation reveals that the sole-owner CDC task cannot provide bounded
 10 ms TA command service without breaking tone timing, stop and report measured
 evidence rather than adding another worker or silently weakening the ownership
 model.
+
+---
+
+## Codex implementation handoff
+
+### Implementation summary
+
+- Split internal TX invariant/semantic errors from contained external faults.
+  CAT begin, first/later tone, RX restore, Audio stop/start, and live band
+  command-submission failures leave the controller loop alive. Failed TX does
+  not commit successful physical-TX/AutoSeq completion or re-enter the same slot.
+- A failed RX command is attempted once by the TX step; its uncertainty remains
+  in `radio_control`. A failed Audio resume retains `rx_paused`. Both inhibit
+  later physical TX without an automatic recovery loop. A new explicit band
+  selection permits one fresh debounced setup submission.
+- Added bounded `FT8T` PREP/BEGIN/FIRST_TONE/END/RX_RESUME and stage/code/slot
+  fault diagnostics through System.write (the existing ADV debug UART sink).
+- Removed only the redundant per-TX `MD6;`. Setup still submits exactly
+  `MD6; FR0; FT0; FA...;`; TX submits `TX; TA...; RX;` with unchanged timeouts.
+- The existing CDC task now owns its local CDC device handle, open, close, and
+  driver TX. Foreground writes copy at most 64 bytes into a one-entry request
+  queue and await a generation-tagged completion within the original deadline.
+  There is one unresolved request, no per-command allocation, and no retry.
+  Callback work is flag publication only; the outer CDC mutex is removed.
+- An unresolved driver call causes later writes to fail fast. A late result
+  cannot complete a newer generation. The request bytes remain provider-owned
+  after the caller returns. The 100 Hz wait uses a single tick deadline so
+  sub-millisecond bookkeeping does not truncate a 10 ms TA wait to zero.
+- CDC teardown waits at most five seconds for this same owner, diagnoses failure,
+  and retains its queues/session rather than closing a live handle elsewhere.
+
+### Files changed
+
+- `apps/ft8/src/app_controller/app_controller.c`: explicit band retry reset.
+- `apps/ft8/src/app_controller/app_controller_tx_physical.c`: containment,
+  invariants, TX inhibit, and diagnostics.
+- `apps/ft8/src/radio_control/radio_qmx.c`: setup-only mode command.
+- `platform/adv/adv_audio_uac.cpp`: sole CDC owner, bounded mailbox transport,
+  retained teardown, and logical-pause discontinuity handling.
+- `tests/ft8_physical_tx_test.c`, `tests/ft8_radio_tx_test.c`,
+  `tests/linux_ft8_cat_tx.py`: fault injection and exact normal CAT sequences.
+- `tests/adv_qmx_serial_test.py`: production Serial/worker callback tests,
+  deterministic blocked driver, copied storage, timeout budget, stale results,
+  static ownership assertions, and retained T030 public ownership/late attach tests.
+- `tests/adv_uac_allocation_test.py`: pause/resume discontinuity and stale-sample
+  rejection without physical reset; real loss still requests physical recovery.
+- `tests/adv_usb_console_boundary.py`, `tests/adv_usb_host_owner_test.py`:
+  sole-owner close ordering and bounded retained CDC teardown.
+- This task packet: implementation and review handoff.
+
+### Behavior/invariants preserved
+
+No public API, persisted format, UI layout, DSP, T081 decode scheduling, T082
+paging/CQ policy, tone timing mathematics, FIFO tuning, or component version
+changes. Successful TX retains its normal AutoSeq/logging behavior. Internal
+encoder/tone-plan/scheduler/clock errors remain distinct error returns.
+
+The UAC review found one detail beyond the task's description of current code:
+although `rx_stop()` already kept physical streaming alive, `rx_read()` later
+acknowledged its discontinuity with `reset_required=true`, making the capture
+worker stop/start UAC after every TX pause. The provider now distinguishes this
+logical pause notification from genuine transport loss. Both still invalidate
+stale samples and report the existing public discontinuity, but only genuine
+transport loss requests a physical reset. This implements required change D;
+it does not alter the Audio stop/start contract or transport-loss recovery.
+
+Updated tests that expected per-TX MD6, fatal recovery returns, foreground CDC
+close, or a manually cleared UAC pause reset were stale under T083's explicit
+requirements. Their replacements check the new boundary rather than dropping
+failure coverage. No architectural deviation or additional worker was needed.
+
+### Tests run and results
+
+Commands run from repository root:
+
+```text
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T083-unit
+cmake --build /tmp/T083-unit -j8
+ctest --test-dir /tmp/T083-unit --output-on-failure
+
+python3 tests/app_dependency_boundary.py . ft8
+python3 tests/app_platform_boundary.py . ft8
+python3 tests/ft8_platform_boundary.py .
+python3 tests/architecture_rules.py .
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+
+git diff --check
+```
+
+Unit suite: **29/29 passed**. All four boundary/architecture commands passed.
+ADV build passed; final image size is `0x1545d0` bytes with 78% of the app
+partition free. The pinned managed CDC headers emit their existing C++ pedantic
+warnings; no component changes were made.
+
+Focused controller/radio/provider/USB tests passed. The first full Linux run
+passed 127/128, with the obsolete foreground `close_cdc()` static assertion as
+the sole failure. The assertion was changed to require close in the owner
+before `cdc_done`, and the full suite was rerun after all fixes. That final run
+passed **127/128**, with only the documented unrelated `linux_serial_unit`
+line-67 PTY timeout flake. The unchanged focused test initially failed again,
+then passed on the second attempt of this bounded repeat:
+
+```text
+ctest --test-dir build-linux -R '^linux_serial_unit$' --output-on-failure
+ctest --test-dir build-linux -R '^linux_serial_unit$' --repeat until-pass:3 --output-on-failure
+```
+
+No Linux Serial implementation or unit-test assertion was modified. All T083
+regressions and all other full-suite tests pass.
+
+### Hardware/manual validation still required
+
+T083 H1–H3 are **not performed** in this environment. Wei must validate 20–30
+ADV/QMX physical TX cycles, complete stage diagnostics, responsive keys and
+post-TX RX, safe fault containment if practical, and healthy quit/console/usbmsc.
+Software mocks do not establish real 10 ms TA service latency under USB load.
+Canonical accepted-state documentation remains for supervisor/hardware acceptance.
+
+### Known limitations or risks
+
+This contains a wedged CDC driver; it does not recover that driver. A permanently
+stuck owner retains the USB session after bounded cleanup failure. Radio RX
+uncertainty or failed Audio recovery blocks further TX until operator recovery.
+CAT remains WRITE-only: successful command submission is not QMX readback or
+verification of applied mode/VFO/frequency. The provider accepts a maximum
+64-byte write, sufficient for all existing QMX commands. Finite waits follow
+FreeRTOS tick resolution and normal scheduling latency; hardware timing remains
+an acceptance gate.
+
+### Commit reference
+
+Implementation commit is the commit containing this handoff on
+`codex/T083-ft8-cat-fault-containment`, based on `main` at `904d887`.
+The final handoff reports its pushed SHA; no PR or main merge is performed.

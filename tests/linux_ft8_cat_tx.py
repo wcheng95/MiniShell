@@ -33,7 +33,7 @@ def main():
                 station.write_text(contents)
                 started = time.monotonic()
                 os.write(console, f"ft8 --cat {endpoint} --cat-test-tone 1500 --cat-test-ms {duration}\n".encode())
-                assert read_until(cat, b"TA1500.00;") == f"MD6;FR0;FT0;FA000{frequency};MD6;TX;TA1500.00;".encode()
+                assert read_until(cat, b"TA1500.00;") == f"MD6;FR0;FT0;FA000{frequency};TX;TA1500.00;".encode()
                 tone_seen = time.monotonic()
                 assert not select.select([cat], [], [], duration / 2000)[0], "RX before requested hold"
                 assert read_until(cat, b"RX;") == b"RX;"

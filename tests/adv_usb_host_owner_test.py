@@ -43,12 +43,14 @@ constexpr int ESP_INTR_FLAG_LEVEL1=2, USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS=1;
 #define ESP_LOGW(...) ((void)0)
 struct Semaphore { std::mutex mutex; std::condition_variable cv; bool ready=false; };
 using SemaphoreHandle_t=Semaphore*;
-SemaphoreHandle_t capture_done, host_ready, host_done, cdc_done, cdc_mutex;
+SemaphoreHandle_t capture_done, host_ready, host_done, cdc_done;
 std::atomic<bool> quit{false}, host_quit{false}, unplugged{false}, cdc_unplugged{false};
 std::atomic<bool> host_installed{false};
 std::atomic<esp_err_t> host_start_result{ESP_ERR_INVALID_STATE};
 bool started, capture_running, cdc_running, host_running, cdc_installed, uac_installed;
-void *connections, *capture_handle;
+void *connections, *capture_handle, *cdc_requests, *cdc_completions;
+struct CdcRequest { uint8_t data[64]; }; struct CdcCompletion { int result; };
+bool cdc_ready, cdc_inflight; int cdc_error;
 unsigned char capture_stack[4096]; int capture_tcb;
 struct Connection { int unused; };
 struct usb_host_config_t { int intr_flags; struct {int rx_fifo_lines,nptx_fifo_lines,ptx_fifo_lines;} fifo_settings_custom; };
@@ -61,14 +63,17 @@ std::thread::id install_thread;
 std::atomic<bool> allow_install{true}, block_uninstall{false};
 std::atomic<int> install_calls{0}, uninstall_calls{0}, events{0}, frees{0};
 int install_error, tasks, class_calls, remaining_semaphores;
-bool task_failure, ready_timeout, join_timeout, uac_failure, console_active, ready_taken;
+bool cdc_join_timeout, task_failure, ready_timeout, join_timeout, uac_failure, console_active, ready_taken;
 Semaphore* xSemaphoreCreateBinary() { ++remaining_semaphores; return new Semaphore; }
 Semaphore* xSemaphoreCreateMutex() { return xSemaphoreCreateBinary(); }
 void vSemaphoreDelete(Semaphore* s) { --remaining_semaphores; delete s; }
 void xSemaphoreGive(Semaphore* s) {
     std::lock_guard<std::mutex> guard(s->mutex); s->ready=true; s->cv.notify_one();
 }
-int xSemaphoreTake(Semaphore* s, int) {
+int xSemaphoreTake(Semaphore* s, int wait) {
+    if (s==cdc_done && cdc_join_timeout) {
+        assert(wait==5000); cdc_join_timeout=false; return 0;
+    }
     if (s==host_ready && ready_timeout) { allow_install=true; return 0; }
     if (s==host_done && join_timeout) { join_timeout=false; return 0; }
     std::unique_lock<std::mutex> guard(s->mutex);
@@ -133,20 +138,26 @@ cases = r'''
 int main() {
     // Success, task creation failure, install failure, ready timeout, retained
     // owner after teardown timeout, and UAC failure after host/CDC startup.
-    for (int scenario=0;scenario<6;++scenario) {
+    for (int scenario=0;scenario<7;++scenario) {
         install_calls=uninstall_calls=events=frees=0;
         tasks=class_calls=0; ready_taken=false;
         task_failure=scenario==1; install_error=scenario==2 ? ESP_ERR_INVALID_STATE : ESP_OK;
         ready_timeout=scenario==3; allow_install=!ready_timeout;
         join_timeout=scenario==4; block_uninstall=join_timeout; uac_failure=scenario==5;
+        cdc_join_timeout=scenario==6;
         bool ok=prepare();
-        assert(ok==(scenario==0 || scenario==4));
+        assert(ok==(scenario==0 || scenario==4 || scenario==6));
         if (scenario>=1 && scenario<=3) assert(class_calls==0);
         if (scenario==2) assert(!host_installed);
         if (scenario==4) {
             assert(!release());
             assert(host_running && host_installed && console_active && tasks==1);
             block_uninstall=false;
+        }
+        if (scenario==6) {
+            assert(!release());
+            assert(cdc_running && cdc_installed && uac_installed && host_running && console_active);
+            assert(cdc_requests && cdc_completions); // Retain storage for the stuck owner.
         }
         assert(release());
         assert(!task.joinable() && !host_running && !host_installed && !console_active);

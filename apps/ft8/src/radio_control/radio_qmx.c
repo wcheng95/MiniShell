@@ -33,8 +33,6 @@ mini_result_t radio_qmx_begin_tx(const mini_serial_api_t *serial, mini_serial_t 
 {
     if (!out_tx_attempted) return MINI_ERR_INVALID;
     *out_tx_attempted = false;
-    mini_result_t result = send_command(serial, stream, "MD6;", 200u);
-    if (result != MINI_OK) return result;
     *out_tx_attempted = true;
     return send_command(serial, stream, "TX;", 200u);
 }

@@ -51,6 +51,7 @@ static void vTaskDelay(int) {}
 std::atomic<unsigned> read_errors{0}, transfer_errors{0};
 bool capture_running, serial_reserved, session_ready, session_dirty, discovery_held;
 uint32_t rx_generation;
+bool rx_pause_discontinuity;
 #define portENTER_CRITICAL(unused) ((void)0)
 #define portEXIT_CRITICAL(unused) ((void)0)
 constexpr uint32_t MALLOC_CAP_INTERNAL = 1, MALLOC_CAP_8BIT = 2;
@@ -183,12 +184,18 @@ int main()
         assert(ring == saved && ring->high_water == 42 && ring->pending);
         assert(allocations == before);
         assert(rx_read(nullptr, audio, frames, 1, &count, MINI_WAIT_NONE) == MINI_ERR_DISCONTINUITY);
-        ring->reset_required = false;
+        assert(!ring->reset_required); // Logical TX pause must not restart UAC.
         assert(adv_uac_feed(ring, ticket, native, sizeof(native))); // Old epoch discarded.
         assert(ring->head == ring->tail);
         assert(adv_uac_feed(ring, adv_uac_begin(ring), native, sizeof(native)));
         assert(rx_read(nullptr, audio, frames, 1, &count, MINI_WAIT_NONE) == MINI_OK);
         assert(count == 1 && frames[0] == 1 && frames[1] == 2);
+        assert(rx_stop(nullptr, audio) == MINI_OK);
+        loss(); // A real transport loss during pause still needs physical recovery.
+        assert(rx_start(nullptr, audio) == MINI_OK);
+        assert(rx_read(nullptr, audio, frames, 1, &count, MINI_WAIT_NONE) == MINI_ERR_DISCONTINUITY);
+        assert(ring->reset_required);
+        ring->reset_required = false;
         assert(rx_close(nullptr, audio) == MINI_OK);
         assert(!ring && !live_allocation && !reserved && !usb_owned);
         assert(rx_close(nullptr, audio) == MINI_ERR_BAD_HANDLE);

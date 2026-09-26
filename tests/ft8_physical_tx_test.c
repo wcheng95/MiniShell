@@ -8,13 +8,13 @@
 #include "radio_qmx.h"
 
 static struct { char path[256], text[16384]; size_t size, pos; bool exists, open; } files[12];
-static char cat[8192], events[8192], expected[8192];
+static char cat[8192], events[8192], expected[8192], diagnostics[16384];
 static uint64_t now_us, anchor;
 static uint64_t tone_times[100];
 static unsigned tone_count, starts, stops, reads, audio_closes, serial_closes, syncs, file_closes;
 static unsigned fail_command, serial_writes, fail_rt; /* RT: open/write/sync/close */
 static unsigned stop_delay_ms, write_delay_us;
-static bool stop_fail, restart_fail, rt_short, rt_zero, record_expected, short_cat;
+static bool fail_rx, stop_fail, restart_fail, rt_short, rt_zero, record_expected, short_cat;
 static unsigned audio_started;
 static bool fail_station_save;
 static const AppController *keying_app;
@@ -29,7 +29,13 @@ static mini_result_t utc(mini_utc_time_t *time)
 }
 static mini_result_t alloc_mem(uint32_t size, void **out) { *out = calloc(1, size); return *out ? MINI_OK : MINI_ERR_NO_MEMORY; }
 static mini_result_t free_mem(void *p) { free(p); return MINI_OK; }
-static void diagnostic(const char *message) { assert(strstr(message, "ft8:")); event('!'); }
+static void diagnostic(const char *message)
+{
+    assert(strstr(message, "ft8:"));
+    assert(strlen(diagnostics) + strlen(message) < sizeof(diagnostics));
+    strcat(diagnostics, message);
+    if (!strstr(message, "FT8T") || strstr(message, "FAULT")) event('!');
+}
 static unsigned path_id(const char *path)
 {
     for (unsigned i = 0; i < 12; ++i) if (strcmp(path, files[i].path) == 0) return i;
@@ -126,7 +132,7 @@ static mini_result_t serial_write(mini_serial_t stream, const void *buf, uint32_
     }
     if (count == 3 && memcmp(buf,"RX;",3) == 0) event('E');
     now_us += write_delay_us;
-    bool fail = ++serial_writes == fail_command;
+    bool fail = ++serial_writes == fail_command || (fail_rx && count == 3 && memcmp(buf,"RX;",3) == 0);
     *out = fail && short_cat ? count - 1 : count;
     return fail && !short_cat ? MINI_ERR_TIMEOUT : MINI_OK;
 }
@@ -147,10 +153,10 @@ static const mini_api_t api = {.struct_size=sizeof(api), .fs=&fs, .memory=&memor
 static void reset(void)
 {
     fail_station_save=false; keying_app=NULL;
-    memset(files, 0, sizeof(files)); cat[0]=events[0]=expected[0]=0;
+    memset(files, 0, sizeof(files)); cat[0]=events[0]=expected[0]=diagnostics[0]=0;
     tone_count=starts=stops=reads=audio_closes=serial_closes=syncs=file_closes=0;
     fail_command=serial_writes=fail_rt=stop_delay_ms=write_delay_us=0;
-    stop_fail=restart_fail=rt_short=rt_zero=record_expected=short_cat=false;
+    fail_rx=stop_fail=restart_fail=rt_short=rt_zero=record_expected=short_cat=false;
     now_us=1000000000u; anchor=1005000000u; /* next natural 15 s boundary */
     unsigned i=path_id("/flash/ft8/station.txt"); strcpy(files[i].text,station_text);
     files[i].size=strlen(station_text); files[i].exists=true;
@@ -214,6 +220,11 @@ static void success(unsigned poll_ms, unsigned late_ms, unsigned write_us)
     app_controller_build_model(&app,&model); assert(!model.tx_active);
     assert(auto_seq_active_count(&app.auto_seq)==0 && app_controller_rx_active(&app));
     assert(strstr(events,"Ea") && starts==2 && stops==1);
+    for (unsigned i=0; i<7; ++i) {
+        const char *milestones[]={"PREP", "BEGIN_ENTER", "BEGIN_OK", "FIRST_TONE_OK", "END_ENTER", "END_OK", "RX_RESUME"};
+        assert(strstr(diagnostics,milestones[i]));
+    }
+    assert(!strstr(diagnostics,"FAULT"));
     assert(app.rx->timing_pending);
     assert(app_controller_step_rx(&app,&changed));
     assert(reads == 1u + RX_READY_DRAIN_LIMIT);
@@ -222,7 +233,7 @@ static void success(unsigned poll_ms, unsigned late_ms, unsigned write_us)
     assert(app.rx->live_next_capture_slot == app.rx->framer.slot_id + 1);
     assert(app.rx->framer.slot_id==(1789776000+(int64_t)(now_us/1000000u))/15);
     /* Expected bytes use the production formatter; timing expectations use the immutable plan. */
-    strcpy(expected,"MD6;TX;"); record_expected=true;
+    strcpy(expected,"TX;"); record_expected=true;
     int previous=-1; unsigned emitted=0;
     for(unsigned i=first;i<79;++i) if(plan.tones[i]!=previous) {
         assert(radio_qmx_set_tone_hz(&serial,7,ft8_tx_tone_hz(plan.base_hz,plan.tones[i]))==MINI_OK);
@@ -238,33 +249,73 @@ static void success(unsigned poll_ms, unsigned late_ms, unsigned write_us)
 
 static void failures(void)
 {
-    for(unsigned which=0;which<10;++which) for(unsigned short_mode=0;short_mode<2;++short_mode) {
+    const char *stages[] = {"rt_log", "audio_pause", "begin", "first_tone",
+        "tone", "end", "audio_resume"};
+    for (unsigned which=0; which<7; ++which) for (unsigned short_mode=0; short_mode<2; ++short_mode) {
         AppController app; setup(&app,true); short_cat=short_mode!=0;
-        if(which==0) fail_rt=2;
-        if(which==1) stop_fail=true;
-        if(which==2) fail_command=1;
-        if(which==3) fail_command=2;
-        if(which==4) fail_command=3;
-        if(which==5) fail_command=4;
-        if(which==6) fail_command=4;
-        if(which==7) restart_fail=true;
-        if(which==8) strcpy(app.auto_seq.config.callsign,"INVALID!");
-        if(which==9) stop_delay_ms=1100;
+        AutoSeq saved = app.auto_seq;
+        if (which==0) fail_rt=2;
+        if (which==1) stop_fail=true;
+        if (which==2) fail_command=1;
+        if (which==3) fail_command=2;
+        if (which==4 || which==5) fail_command=3;
+        if (which==6) restart_fail=true;
         bool changed; assert(app_controller_step_tx(&app,&changed));
-        if(which==5) { now_us=anchor+160000; assert(app_controller_step_tx(&app,&changed)); }
-        if(which==6 || which==7) {
+        if (which==4) { now_us=anchor+160000; assert(app_controller_step_tx(&app,&changed)); }
+        if (which==5 || which==6) {
             now_us=anchor+12640000;
-            bool ok=app_controller_step_tx(&app,&changed); assert(ok==(which!=7));
+            assert(app_controller_step_tx(&app,&changed));
         }
-        assert(!app.tx.active && !changed && app.tx.physical_tx_count==0 && app.tx.failed_tx_count==1);
-        assert(auto_seq_active_count(&app.auto_seq)==1);
-        assert(app.auto_seq.queue[0].retry_counter==0);
-        if(which>=3 && which<=7) assert(strstr(cat,"RX;"));
-        if(which==0 || which==1 || which==2 || which==8 || which==9) assert(!strstr(cat,"TX;"));
-        if(which!=1 && which!=8) assert(starts==2);
+        assert(!app.tx.active && !app.tx.pending && !changed);
+        assert(app.tx.physical_tx_count==0 && app.tx.failed_tx_count==1);
+        assert(memcmp(&saved, &app.auto_seq, sizeof(saved))==0);
+        char stage[64]; snprintf(stage,sizeof(stage),"FAULT stage=%s", stages[which]);
+        assert(strstr(diagnostics,stage));
+        if (which>=2 && which<=6) assert(strstr(cat,"RX;"));
+        if (which<=1) assert(!strstr(cat,"TX;"));
+        if (which==5) {
+            assert(app.radio.rx_required && app.radio.tx_active);
+            assert(!strstr(strstr(cat,"RX;")+3,"RX;")); // No automatic RX retry.
+        }
+        if (which==6) assert(app.tx.rx_paused && !app_controller_rx_active(&app));
+        unsigned before=serial_writes, before_starts=starts;
+        assert(app_controller_step_tx(&app,&changed) && serial_writes==before);
+        UiModel model; app_controller_build_model(&app,&model); assert(!model.tx_active);
+        AppAction view={.type=APP_ACTION_LOAD_QSO_PAGE,.value.page_index=0};
+        assert(app_controller_apply_action(&app,&view)); // UI remains serviceable.
+        if (which==5 || which==6) {
+            now_us=anchor+30000000; app.rx->applied_slot+=2;
+            assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
+            assert(serial_writes==before && starts==before_starts);
+        }
         stop_fail=false; restart_fail=false; fail_rt=fail_command=0;
         cleanup(&app);
     }
+    // Simultaneous begin, RX restoration and Audio failures are each contained.
+    AppController app; setup(&app,true); fail_command=1; fail_rx=restart_fail=true;
+    bool changed; assert(app_controller_step_tx(&app,&changed));
+    assert(!app.tx.active && app.tx.rx_paused && !app.tx.physical_tx_count);
+    assert(strstr(diagnostics,"FAULT stage=begin") && strstr(diagnostics,"FAULT stage=audio_resume"));
+    assert(app.radio.rx_required && !app.radio.tx_active && serial_writes==2);
+    assert(strstr(diagnostics,"FAULT stage=end"));
+    unsigned before=serial_writes;
+    for (unsigned i=0;i<3;++i) {
+        now_us=anchor+i*30000000ull; app.rx->applied_slot=(1789776000+(int64_t)(now_us/1000000))/15-1;
+        assert(app_controller_step_tx(&app,&changed) && !app.tx.active && serial_writes==before);
+    }
+    fail_rx=restart_fail=false; fail_command=0; cleanup(&app);
+
+    // Invalid semantic plans and scheduler clock reversal remain internal errors.
+    setup(&app,true); strcpy(app.auto_seq.config.callsign,"INVALID!");
+    assert(!app_controller_step_tx(&app,&changed) && !app.tx.active && !strstr(cat,"TX;"));
+    cleanup(&app);
+    setup(&app,true); assert(app_controller_step_tx(&app,&changed) && app.tx.active);
+    app.tx.plan.tones[1]=8; now_us=anchor+160000;
+    assert(!app_controller_step_tx(&app,&changed) && !app.tx.active && !app.tx.physical_tx_count);
+    cleanup(&app);
+    setup(&app,true); stop_delay_ms=1100;
+    assert(app_controller_step_tx(&app,&changed) && !app.tx.active && !strstr(cat,"TX;"));
+    assert(strstr(diagnostics,"FAULT stage=prepare_window")); cleanup(&app);
 }
 
 static void freshness_and_stalls(void)
@@ -279,7 +330,7 @@ static void freshness_and_stalls(void)
     unsigned before=tone_count; now_us=anchor+3000000;
     assert(app_controller_step_tx(&app,&changed) && tone_count<=before+1 && app.tx.schedule.next_tone==19);
     assert(app_controller_step_tx(&app,&changed) && tone_count<=before+1);
-    now_us=anchor+2900000; assert(app_controller_step_tx(&app,&changed) && !app.tx.active && app.tx.failed_tx_count==1);
+    now_us=anchor+2900000; assert(!app_controller_step_tx(&app,&changed) && !app.tx.active && app.tx.failed_tx_count==1);
     app_controller_build_model(&app,&projection); assert(!projection.tx_active);
     assert(auto_seq_active_count(&app.auto_seq)==1); cleanup(&app);
     setup(&app,true); app.rx->have_applied_batch=false;
@@ -542,7 +593,7 @@ static void offset_integration(void)
             assert(memcmp(&plan,&app.tx.plan,sizeof(plan))==0 && app.tx.offset_rng==states[attempt]);
         }
         assert(!app.tx.active && app.tx.physical_tx_count==attempt+1);
-        strcpy(expected,"MD6;TX;"); record_expected=true;
+        strcpy(expected,"TX;"); record_expected=true;
         int previous=-1;
         for (unsigned i=0;i<79;++i) {
             float hz=ft8_tx_tone_hz(plan.base_hz,plan.tones[i]);
@@ -578,8 +629,8 @@ static void offset_integration(void)
         setup(&app,true); app.config.offset_src=FT8_OFFSET_RANDOM; app.tx.offset_rng=1;
         if (failure==0) fail_rt=2;
         if (failure==1) stop_fail=true;
-        if (failure==2) fail_command=2;
-        if (failure==3) fail_command=3;
+        if (failure==2) fail_command=1;
+        if (failure==3) fail_command=2;
         bool changed; assert(app_controller_step_tx(&app,&changed) && !app.tx.active);
         assert(app.tx.offset_rng==270369 && app.tx.failed_tx_count==1 && !app.tx.physical_tx_count);
         assert(app.auto_seq.queue[0].offset_hz==1500 && app.auto_seq.queue[0].retry_counter==0);
@@ -769,7 +820,7 @@ static void nonstandard_cq_reply(void)
     assert(rc==FT8_TX_ENCODE_OK && app.tx.active);
     assert(strcmp(plan.canonical_text,"W1AW/9 AG6AQ CM97")==0);
     assert(ft8_protocol_get_type(plan.payload)==FT8_PROTOCOL_STANDARD);
-    assert(app.tx.plan.base_hz==1500 && strstr(cat,"MD6;TX;TA"));
+    assert(app.tx.plan.base_hz==1500 && strstr(cat,"TX;TA"));
     assert(strstr(rt_contents(),"] W1AW/9 AG6AQ CM97 1500\n"));
     uint64_t start=now_us;
     for (unsigned i=1;i<=79;++i) {
@@ -987,17 +1038,22 @@ static void band_cat(void)
     assert(strcmp(cat, "MD6;FR0;FT0;FA00021074000;") == 0 && serial_writes == 4);
     cleanup(&app);
 
+    for (unsigned command = 1; command <= 4; ++command)
     for (unsigned short_failure = 0; short_failure < 2; ++short_failure) {
         setup(&app, false); saved = app.auto_seq;
         set_band(&app, 4); now_us += 1000000;
-        fail_command = 4; short_cat = short_failure;
-        assert(!app_controller_step_cat(&app));
+        fail_command = command; short_cat = short_failure;
+        assert(app_controller_step_cat(&app));
         assert(strchr(events, '!') && app.cat_band_sync_pending);
-        assert(!app_controller_step_cat(&app) && serial_writes == 4); // No auto-retry.
+        assert(app_controller_step_cat(&app) && serial_writes == command); // No auto-retry.
         now_us = anchor + 30000000;
         assert(app_controller_step_tx(&app, &changed) && !app.tx.active);
         assert(!strstr(cat, "TX;") && !strstr(cat, "RX;"));
         assert(memcmp(&saved, &app.auto_seq, sizeof(saved)) == 0 && !app.tx.failed_tx_count);
+        assert(strstr(diagnostics,"FAULT stage=band"));
+        set_band(&app, 5); assert(!app.cat_band_sync_failed);
+        now_us+=1000000; fail_command=0;
+        assert(app_controller_step_cat(&app) && !app.cat_band_sync_pending && serial_writes==command+4);
         cleanup(&app);
     }
 
