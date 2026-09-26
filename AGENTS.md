@@ -154,3 +154,30 @@ docs/MiniFT8/ui.md
 ```
 
 Detailed `rx-*` and `as-*` documents are design/regression history and remain useful, but current-state documents take precedence when status text conflicts.
+
+
+## MiniFT8 About version rule
+
+The MiniFT8 `V -> 6 About` screen is the architect's on-device binary identity
+for ADV.
+
+For any task that changes production code linked into the MiniFT8 executable,
+update the About version to:
+
+```text
+MiniFT8-V3.<task number>
+```
+
+Examples:
+
+```text
+T085 -> MiniFT8-V3.085
+T091 -> MiniFT8-V3.091
+```
+
+Do not bump the MiniFT8 version for documentation-only, test-only, or unrelated
+MiniShell tasks.
+
+Keep the matching About-string assertion in the task's UI tests. Do not add Git
+SHA, timestamps, generated build metadata, or a version framework unless the
+architect explicitly requests it.
