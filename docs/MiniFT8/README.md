@@ -492,8 +492,7 @@ next completed RX batch
 T082 returns the visible RX screen to page 1 for every completed batch,
 including an empty batch. Same-generation redraws preserve paging, and batches
 received while another screen is visible do not change its paging. Paging stays
-owned by `ui_shell`; RX order and batch lifetime are unchanged. T082 ADV manual
-acceptance remains pending.
+owned by `ui_shell`; RX order and batch lifetime are unchanged. T082 ADV manual acceptance passed on 2026-09-25.
 
 This avoids losing useful context at TX start while also avoiding stale prior-slot
 messages after a TX slot has completed. Live Linux/QMX validation passed.
