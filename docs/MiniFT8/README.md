@@ -159,7 +159,7 @@ complete 960 blocks      93
 slot-end remainder       720 samples
 ```
 
-Live behavior (T081 software implementation; ADV/QMX acceptance pending):
+Live behavior (T081 hardware accepted on ADV/QMX):
 
 ```text
 UTC - 1.60 s    reset slot-local waterfall writer and FFT history
@@ -173,6 +173,8 @@ leave the current waterfall incomplete. Capture never waits for decode or result
 publication. ADV retains one core-1 worker and one `protocol_messages[50]`
 buffer. A completed result is consumed promptly into an `RxBatch`; a completed
 zero-message slot advances the batch/display generation and clears RX rows.
+T081 ADV/QMX live validation passed on 2026-09-25; the previous held-RX-slot
+symptom was no longer observed.
 
 A prior RUNNING decode or READY result at the next decode trigger is an explicit
 invariant failure, with the previous slot and elapsed time/result age reported.
