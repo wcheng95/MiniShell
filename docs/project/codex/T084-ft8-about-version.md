@@ -19,8 +19,23 @@ This task does **not** rename the architectural generation from "MiniFT8-V3" to
 "MiniFT8-V3.083" throughout historical/design documentation. "V3" remains the
 generation name; `MiniFT8-V3.083` is the current runtime/product version label.
 
-Version bumps remain explicit architectural decisions. Do not automatically
-change the version for every future T-number.
+Version bumps are tied to the MiniFT8 binary identity.
+
+After T084, every future task that changes the production MiniFT8 executable must
+update `V -> 6 About` so the displayed suffix matches that task number.
+
+Examples:
+
+```text
+T085 changes MiniFT8 production code -> MiniFT8-V3.085
+T091 changes MiniFT8 production code -> MiniFT8-V3.091
+```
+
+Documentation-only, test-only, or unrelated MiniShell tasks do not bump the
+MiniFT8 version.
+
+This lets the architect identify which MiniFT8 binary is actually running on ADV
+without needing a Git SHA or build metadata.
 
 ## Current state
 
@@ -185,7 +200,8 @@ and Back/Q behavior is unchanged.
 ## Non-goals
 
 - no global repository rename from V3 to V3.083;
-- no automatic task-number/version coupling;
+- no version bump for doc-only/test-only/unrelated tasks;
+- production MiniFT8 binary changes must keep About coherent with the task number;
 - no new version API;
 - no platform-specific behavior;
 - no changes outside About/version documentation/tests unless strictly required.
@@ -212,3 +228,20 @@ docs/project/codex/T084-ft8-about-version.md
 
 Keep one small reviewable commit and record normal handoff evidence in this task
 packet.
+
+
+## Future MiniFT8 task rule
+
+For every future task packet that changes production code linked into the
+MiniFT8 binary, Codex must include this acceptance item:
+
+```text
+V -> 6 About version updated to MiniFT8-V3.<task number>
+```
+
+The task's tests must assert the matching About string.
+
+Purpose: the About screen is the architect's on-device binary identifier for ADV.
+
+Do not substitute Git SHA/build timestamps or add generated version machinery
+unless separately requested.
