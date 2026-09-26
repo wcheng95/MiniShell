@@ -1,6 +1,6 @@
 # T083 — MiniFT8 QMX CAT fault containment and CDC ownership cleanup
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -1127,3 +1127,82 @@ git diff --check:     PASS
 Remaining gate: T083 H1-H3 ADV/QMX hardware validation, with particular attention
 to repeated TX tone timing, UI responsiveness, complete FT8T milestone sequences,
 RX recovery, and clean quit/USB-console restoration.
+
+
+## Architect hardware acceptance
+
+ADV/QMX sustained normal-operation validation passed on 2026-09-26.
+
+Observed accepted behavior included:
+
+- repeated live RX -> decode -> TX -> RX cycles;
+- complete healthy TX diagnostics:
+  `PREP -> BEGIN_ENTER -> BEGIN_OK -> FIRST_TONE_OK -> END_ENTER -> END_OK -> RX_RESUME`;
+- continued RX discontinuity/resync behavior without application failure;
+- zero observed UAC read/transfer errors in the captured healthy run;
+- responsive MiniFT8 UI throughout the accepted run;
+- no recurrence of the previously observed FT8 UI freeze during the validation
+  period.
+
+The architect accepted this sustained normal-operation result as sufficient
+hardware evidence for the intermittent freeze regression.
+
+Result: **PASS. T083 COMPLETE.**
+
+### Accepted T083 baseline
+
+```text
+CAT/Audio transport fault
+    -> contain current operation
+    -> preserve unknown/paused state where appropriate
+    -> keep MiniFT8 UI alive
+
+ADV CDC owner task
+    -> sole CDC handle/open/close/driver-TX owner
+
+setup:
+    MD6; FR0; FT0; FA...;
+
+each TX:
+    TX; TA...; RX;
+
+logical RX pause
+    -> physical UAC continues streaming/draining
+```
+
+A permanently wedged CDC driver is contained from the FT8/UI task but is not
+automatically recovered.
+
+## Deferred non-critical blocking audit
+
+A post-T083 read-only screening found four non-critical places worth remembering
+for future performance/failure diagnosis. These are **not active bugs/tasks** and
+did not block T083 acceptance.
+
+1. **RxTxLog latency on the core-0 path.** Each decoded RX message currently
+   performs synchronous open/write/`fsync`/close before the batch is fully
+   applied. TX also writes/syncs its `T` record before key-up. Logging failure
+   is already non-fatal, but logging latency can still gate AutoSeq/UI/TX
+   preparation.
+2. **Persistent QSO log work is synchronous.** ADIF/Cabrillo commit paths can
+   copy/rewrite the existing file, sync, close, and rename on the FT8 task.
+   Current-day QSO view refresh also scans the daily ADIF file synchronously.
+3. **Diagnostics share a serialized output path.** Core-0 FT8 and the core-1
+   decoder can both wait on the ADV diagnostic output lock/UART path. Diagnostic
+   output should be treated as best-effort if this ever becomes observable.
+4. **Some cleanup joins remain effectively unbounded after bounded waits.**
+   Decode-worker and UAC-capture shutdown paths contain post-timeout waits for
+   task suspension. These affect failure/exit cleanup rather than healthy radio
+   operation.
+
+Current operating philosophy:
+
+```text
+transient RX imperfection -> count/resync/continue
+subsystem fault           -> contain locally
+unknown RF state          -> block further TX only
+internal invariant        -> fail loudly
+```
+
+Do not optimize these deferred items without measured evidence. They are
+diagnostic leads for future failures/performance work.
