@@ -1,6 +1,6 @@
 # T082 — MiniFT8 RX page reset + configurable CQ modifier list
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -580,3 +580,57 @@ One review commit titled `T082: reset RX paging and configure CQ modifiers` on
 `codex/T082-ft8-rx-page-cq-list`, based on current main
 `10d14910210c9893a1d9dce0f89a338a0ed2e834`. The pushed SHA is supplied in the
 Codex handoff; main is not merged and no PR is opened.
+
+
+## Supervisor review
+
+Reviewed `main..772d86358e1ee0a647f5b85ee4ba1dcfa9e29071` against T082.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Key findings:
+
+- RX paging resets only when `rx_generation` changes; same-generation redraws
+  preserve the operator's selected RX page.
+- A new RX generation while another UIScreen is active does not disturb that
+  screen's paging; entering RX still uses the established page-1 rule.
+- `cqtypes=` parsing is bounded, allocation-free, order-preserving, uppercase
+  normalized, duplicate-filtered, and ignores invalid FT8 CQ modifiers.
+- Plain `CQ` remains implicit index 0.
+- The default list preserves existing numeric compatibility:
+  `SOTA POTA QRP FD`, including `cq_type=2` -> `CQ POTA`.
+- UI navigation is generic and driven by current index/count/text; no modifier
+  list is hard-coded in `ui_shell`.
+- A shared pure CQ-token helper now defines the same modifier grammar for config
+  validation and the FT8 codec, avoiding duplicated protocol rules.
+- Generic modifiers such as `DX` and `250` pass through AutoSeq/TX intent and
+  encode as normal standard-message CQ tokens.
+- Existing known semantics are preserved; in particular `FD` still carries the
+  Field Day intent/flag behavior.
+- Free-text CQ remains a separate AutoSeq/TX encoder path and `FREETEXT` is not
+  accepted as a generic `cqtypes` token.
+- T027 non-standard-local-call behavior is preserved: modified CQ remains
+  unsupported for a non-standard local call rather than silently dropping the
+  modifier.
+- T081 capture/decode timing and DSP paths are untouched.
+
+Accepted implementation evidence:
+
+```text
+Linux CTest:       128/128 PASS
+portable units:     29/29 PASS
+ADV ESP-IDF build: PASS
+architecture checks: PASS
+```
+
+The earlier serial failure noted in the handoff was intermittent and the final
+full Linux run passed 128/128.
+
+`main` was fast-forwarded to:
+
+```text
+772d86358e1ee0a647f5b85ee4ba1dcfa9e29071
+```
+
+Remaining gate: ADV manual validation of RX page reset, ordered CQ-type
+navigation, persistence across FT8 restart, and normal CQ encoding behavior.
