@@ -1,6 +1,6 @@
 # T083 — MiniFT8 QMX CAT fault containment and CDC ownership cleanup
 
-Status: REVIEW
+Status: TESTING
 
 ## Architect intent
 
@@ -1064,3 +1064,66 @@ an acceptance gate.
 Implementation commit is the commit containing this handoff on
 `codex/T083-ft8-cat-fault-containment`, based on `main` at `904d887`.
 The final handoff reports its pushed SHA; no PR or main merge is performed.
+
+
+## Supervisor review
+
+Reviewed `main..4ca8981cb3583e20cd1ded6608dffa5b67b0e44b` against T083.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Key findings:
+
+- External CAT/Audio transport faults no longer terminate the MiniFT8 main/UI
+  loop. Internal scheduler/semantic/tone-plan errors remain distinct fatal
+  controller errors.
+- Live band CAT command-submission failure leaves the UI alive, records unknown
+  radio state, inhibits TX, and permits one later operator-initiated band-change
+  retry.
+- Per-TX `MD6;` was removed exactly as specified. Setup remains
+  `MD6; FR0; FT0; FA...;`; normal TX is `TX; TA...; RX;`.
+- The ADV CDC owner task now owns the CDC device handle, open, close, and
+  `cdc_acm_host_data_tx_blocking()`. Foreground Serial never touches the driver
+  handle.
+- Foreground `serial_write()` copies commands into fixed provider-owned
+  request storage and waits only for its finite request deadline. A wedged owner
+  leaves the UI task free to continue; later writes fail fast while the prior
+  request remains unresolved.
+- Completion generations prevent stale late results from satisfying newer
+  requests. The caller's input buffer is never retained.
+- The previous outer foreground/lifecycle CDC mutex is gone.
+- Logical MiniShell Audio stop/start preserves the physical QMX UAC stream.
+  Pause discontinuities invalidate stale samples without forcing a physical UAC
+  stop/start; genuine transport loss still requests physical recovery.
+- Failed QMX RX restoration preserves radio uncertainty instead of pretending
+  recovery. Failed Audio resume preserves the RX-paused state. Both inhibit
+  future TX while leaving UI/application ownership intact.
+- No automatic retry of ambiguous CAT writes was introduced.
+- T081 decode scheduling, T082 UI/config behavior, public API, persisted
+  configuration, FIFO tuning, and component versions are unchanged.
+
+One important hardware gate remains: the new owner-mailbox path adds one task
+handoff before each 10 ms `TA` write. The software timing tests cover bounded
+deadline accounting, but only ADV/QMX hardware can prove that the owner task
+consistently services tone writes fast enough under real USB/UAC load.
+
+Accepted implementation evidence:
+
+```text
+portable units:       29/29 PASS
+Linux CTest:          127/128; only known linux_serial_unit PTY flake
+focused serial rerun: PASS unchanged
+architecture checks: PASS
+ADV ESP-IDF build:    PASS
+git diff --check:     PASS
+```
+
+`main` was fast-forwarded to:
+
+```text
+4ca8981cb3583e20cd1ded6608dffa5b67b0e44b
+```
+
+Remaining gate: T083 H1-H3 ADV/QMX hardware validation, with particular attention
+to repeated TX tone timing, UI responsiveness, complete FT8T milestone sequences,
+RX recovery, and clean quit/USB-console restoration.
