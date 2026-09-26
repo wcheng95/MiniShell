@@ -196,7 +196,7 @@ The following are recoverable application-level events:
 - QMX CAT begin/key-up failure;
 - QMX tone-write failure;
 - QMX RX/restore failure;
-- live band CAT synchronization failure;
+- live band CAT command-submission failure;
 - logical Audio RX stop failure before TX;
 - logical Audio RX resume failure after TX.
 
@@ -262,18 +262,42 @@ No background retry loop is required in T083.
 
 A restart/reconnect remains an acceptable recovery path.
 
-## Band CAT synchronization
+## Band CAT command submission
 
-A band-sync write failure must not terminate MiniFT8.
+A band CAT command-submission failure must not terminate MiniFT8.
 
 It should:
 
-- set the existing failed/not-synchronized state;
+- set the existing failed/unknown-radio-state;
 - block physical TX while synchronization is failed;
 - keep UI active.
 
 A new explicit operator band change may clear the prior sync-failed state and
-attempt one new debounced synchronization. Do not continuously retry by itself.
+attempt one new debounced command submission. Do not continuously retry by itself.
+
+---
+
+
+
+### Important write-only CAT limitation
+
+ADV MiniShell exposes QMX CAT as WRITE-only `serial:qmx`. There is no CAT RX
+parser/readback path in this architecture. Therefore T083 must not claim that
+MiniFT8 verifies the QMX mode/VFO/frequency.
+
+For band changes, the only observable outcomes are:
+
+```text
+MD6;/FR0;/FT0;/FA... command sequence submitted successfully
+OR
+local transport submission failed/timed out
+```
+
+A successful write means only that the command bytes were accepted by the local
+CDC transport contract. It does not prove the QMX applied them.
+
+Accordingly, use terms such as `CAT command-submission failure` or
+`radio state unknown`, not `frequency sync verified/failed`.
 
 ---
 
@@ -558,7 +582,7 @@ MD6/TX begin
 first TA tone
 later TA tone
 RX end
-band frequency synchronization
+band CAT command submission
 ```
 
 For every transport failure verify:
@@ -787,7 +811,7 @@ Do not start by adding recovery/watchdog machinery.
 T083 is accepted only when all of these are true:
 
 1. CAT failure cannot terminate MiniFT8's normal UI loop.
-2. Band-sync CAT failure cannot terminate MiniFT8.
+2. Band CAT command-submission failure cannot terminate MiniFT8.
 3. Audio pause/resume failure cannot terminate MiniFT8.
 4. The ADV CDC task is the sole owner of the ESP-IDF CDC handle and driver calls.
 5. FT8/UI core does not call a potentially wedged CDC driver transfer directly.
