@@ -1,6 +1,6 @@
 # T084 — MiniFT8 About version label
 
-Status: REVIEW
+Status: TESTING
 
 ## Intent
 
@@ -319,3 +319,37 @@ The single implementation commit containing this handoff on
 `codex/T084-ft8-about-version`, based on
 `3a79c6dc9d1d44c0f1e9797ca00c78a1d1c5d1fa`. The resulting SHA is supplied in
 the handoff response.
+
+
+## Supervisor review
+
+Reviewed rebased implementation `8cbcfab8bc81dd3451ede3aa59f42edfeff03e00`
+against current `main`.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+The production diff remains intentionally narrow:
+
+- `V -> 6 About` first row is exactly `MiniFT8-V3.083`;
+- existing About rows/navigation/read-only behavior are unchanged;
+- focused UI coverage checks the exact version on both desktop and ADV
+  presentation profiles;
+- canonical UI documentation carries the future task-number version rule;
+- no controller/model field, public API, persisted setting, build-version
+  machinery, platform dependency, or unrelated MiniFT8 behavior was added.
+
+Accepted software evidence from the implementation handoff:
+
+```text
+Linux CTest:          128/128 PASS
+portable units:       29/29 PASS
+focused ft8_ui_smoke: PASS
+boundary checks:      PASS
+ADV build:            PASS
+git diff --check:     PASS
+```
+
+The implementation branch was rebased onto current main before review.
+
+Remaining gate: ADV manual confirmation of `ft8 -> V -> 6`, exact displayed
+version `MiniFT8-V3.083`, and unchanged Back/Q behavior.
