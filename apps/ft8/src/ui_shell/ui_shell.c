@@ -443,7 +443,7 @@ static void render_v_system(const UiShell *ui, const UiModel *model, UiFrame *fr
 
 static void render_v_about(UiFrame *frame)
 {
-    info_line(frame, 0, "MiniFT8-V3");
+    info_line(frame, 0, "MiniFT8-V3.083");
     info_line(frame, 1, "MiniShell application");
     info_line(frame, 2, "Runtime app: ft8");
     info_line(frame, 3, "FT8 protocol only");

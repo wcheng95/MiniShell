@@ -496,8 +496,32 @@ static void test_plain_page_shortcuts(void)
     }
 }
 
+static void test_about_version(void)
+{
+    const ft8_presentation_profile_t profiles[] = {
+        FT8_PRESENTATION_DESKTOP, FT8_PRESENTATION_ADV
+    };
+    for (unsigned i = 0; i < sizeof(profiles) / sizeof(profiles[0]); ++i) {
+        UiShell ui;
+        UiModel model;
+        UiFrame frame;
+        AppAction action;
+        set_default_model(&model);
+        ui_shell_init(&ui, profiles[i]);
+        assert(!ui_shell_handle_input(&ui, &model, key('V'), &action));
+        assert(!ui_shell_handle_input(&ui, &model, key('6'), &action));
+        assert(ui.submenu == UI_SUBMENU_V_ABOUT);
+        ui_shell_render(&ui, &model, &frame);
+        char expected[sizeof(frame.rows[1])];
+        snprintf(expected, sizeof(expected), "%-*s", (int)frame.column_count,
+                 "MiniFT8-V3.083");
+        assert(strcmp(frame.rows[1], expected) == 0);
+    }
+}
+
 int main(void)
 {
+    test_about_version();
     test_plain_page_shortcuts();
     color_status();
     test_qso_view();

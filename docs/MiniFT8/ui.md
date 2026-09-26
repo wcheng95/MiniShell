@@ -303,6 +303,22 @@ MiniFT8 obtains these values only through the platform-independent MiniShell Mem
 
 `app_controller_build_model()` snapshots Memory facts whenever it builds a complete `UiModel`, regardless of the visible screen. `V -> 1 Memory` displays that snapshot; its visibility does not control the query. The controller supplies facts, while `ui_shell` owns presentation, redraw decisions, and navigation.
 
+#### V -> 6 About
+
+The read-only About page begins with the current runtime version
+`MiniFT8-V3.083`, identifying the accepted T083 baseline:
+
+```text
+MiniFT8-V3.083
+MiniShell application
+Runtime app: ft8
+FT8 protocol only
+V is strictly read-only
+```
+
+Existing footer, Back, and quit behavior is unchanged. Production MiniFT8 binary changes update About to MiniFT8-V3.<task number>.
+Documentation-only, test-only, and unrelated MiniShell tasks do not bump it.
+
 ## Rendering boundary
 
 The UI remains behind the MiniFT8/MiniShell display boundary:

@@ -1,6 +1,6 @@
 # T084 — MiniFT8 About version label
 
-Status: READY
+Status: REVIEW
 
 ## Intent
 
@@ -245,3 +245,77 @@ Purpose: the About screen is the architect's on-device binary identifier for ADV
 
 Do not substitute Git SHA/build timestamps or add generated version machinery
 unless separately requested.
+
+## Codex implementation handoff
+
+### Implementation summary
+
+Changed the existing About renderer's first content row to `MiniFT8-V3.083`.
+Added a focused assertion for `V -> 6` in both desktop and ADV presentation
+profiles and documented the current label in the canonical UI contract.
+No deviations from the task.
+
+### Files changed
+
+- `apps/ft8/src/ui_shell/ui_shell.c`: one displayed literal.
+- `tests/ft8_ui_smoke.c`: exact padded first-row assertion after About navigation.
+- `docs/MiniFT8/ui.md`: About content and explicit version ownership.
+- `docs/project/codex/T084-ft8-about-version.md`: status and handoff evidence.
+
+### Behavior/invariants preserved
+
+The About renderer remains the single production source of the version label.
+V-root entries, remaining About rows, footer, Back/quit handling, and read-only
+behavior are unchanged. No changes to controller state, public APIs, platform
+ownership, persisted configuration, RX, CAT, Audio, AutoSeq, or logging.
+
+### Tests run and results
+
+All commands below passed on 2026-09-26:
+
+```text
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux -R '^ft8_ui_smoke$' --output-on-failure
+  1/1 passed
+ctest --test-dir build-linux --output-on-failure
+  128/128 passed
+
+cmake -S tests/unit -B /tmp/T084-unit
+cmake --build /tmp/T084-unit -j8
+ctest --test-dir /tmp/T084-unit --output-on-failure
+  29/29 passed
+
+python3 tests/app_dependency_boundary.py . ft8
+python3 tests/app_platform_boundary.py . ft8
+python3 tests/ft8_platform_boundary.py .
+python3 tests/architecture_rules.py .
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+  PASS: minishell_adv.bin generated, 78% app partition free
+
+git diff --check
+```
+
+ADV configuration used installed dependencies after a component-registry
+connection notice. Compilation reported ESP-IDF header `#include_next`
+pedantic warnings; the build completed successfully.
+
+### Hardware/manual validation still required
+
+On ADV, launch `ft8`, enter `V -> 6`, confirm `MiniFT8-V3.083` on the first
+content row, and confirm unchanged Back/Q behavior. No hardware was flashed
+or exercised for this handoff.
+
+### Known limitations or risks
+
+No known implementation limitations; physical display/navigation acceptance
+remains pending. Existing unrelated untracked files were left untouched.
+
+### Commit reference
+
+The single implementation commit containing this handoff on
+`codex/T084-ft8-about-version`, based on
+`3a79c6dc9d1d44c0f1e9797ca00c78a1d1c5d1fa`. The resulting SHA is supplied in
+the handoff response.
