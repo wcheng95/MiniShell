@@ -54,7 +54,8 @@ enum {
     AUTO_SEQ_CQ_POTA,
     AUTO_SEQ_CQ_QRP,
     AUTO_SEQ_CQ_FD,
-    AUTO_SEQ_CQ_FREETEXT
+    AUTO_SEQ_CQ_FREETEXT,
+    AUTO_SEQ_CQ_MODIFIER
 };
 
 typedef enum {
@@ -84,6 +85,7 @@ typedef struct {
     char callsign[AUTO_SEQ_CALL_CAP];
     char grid[AUTO_SEQ_GRID_CAP];
     char cq_freetext[AUTO_SEQ_FREETEXT_CAP];
+    char cq_modifier[5];
     char fd_exchange[AUTO_SEQ_FD_EXCHANGE_CAP];
     uint16_t max_retry;
     AutoSeqCqType cq_type;
@@ -145,6 +147,7 @@ void auto_seq_set_skip_tx1(AutoSeq *seq, bool enabled);
 bool auto_seq_get_skip_tx1(const AutoSeq *seq);
 void auto_seq_set_max_retry(AutoSeq *seq, int value);
 int auto_seq_get_max_retry(const AutoSeq *seq);
+bool auto_seq_set_cq_modifier(AutoSeq *seq, const char *modifier);
 bool auto_seq_set_cq(AutoSeq *seq, AutoSeqCqType type, const char *freetext);
 bool auto_seq_set_fd_exchange(AutoSeq *seq, const char *exchange);
 

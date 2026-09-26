@@ -365,6 +365,32 @@ MiniFT8 owns:
 
 Current fields include station callsign/grid, profile, band, Skip TX1, retry count, CQ type/free text, general free text, and Field Day exchange.
 
+`cqtypes=` defines an ordered list of CQ modifiers, for example:
+
+```text
+cqtypes=POTA SOTA DX 250
+cq_type=2
+```
+
+Plain CQ is index 0; indices 1..count refer to the configured list. This example
+selects SOTA. O -> 4 -> 1 cycles those choices with Left/Right/Enter and persists
+the index. Reordering the list changes the meaning of a stored nonzero index.
+Out-of-range indices select plain CQ.
+
+Modifiers normalize to uppercase and must be 1..4 letters A-Z or exactly three
+digits. Invalid tokens and duplicates are ignored. Up to 16 distinct valid
+modifiers are retained in first-occurrence order; excess tokens are ignored.
+Saving emits the filtered canonical list. An explicit empty/all-invalid list
+leaves only plain CQ. If the field is absent, the default `SOTA POTA QRP FD`
+list preserves existing `cq_type=2` -> POTA settings.
+
+SOTA/POTA/QRP/FD retain their semantics, including Field Day intent flags;
+generic DX/250 use ordinary CQ semantics. Free-text CQ remains a separate
+AutoSeq/encoder intent and `cq_ft` remains stored; `FREETEXT` is not a modifier.
+The numeric setting now always means a list index (legacy value 5 is no longer
+a special free-text selector). Modified CQ with a non-standard local callsign
+retains the existing encoder restrictions.
+
 The grid stored in `setting.txt` remains the persistent station grid. A live MiniShell location may override the controller's runtime effective grid for AutoSeq/logging during the session, but it does not mutate or persist over the configured grid.
 
 MiniShell owns platform configuration separately under `/flash/config.txt`.
@@ -462,6 +488,12 @@ next completed RX batch
     -> replace current display
     -> empty batch clears display
 ```
+
+T082 returns the visible RX screen to page 1 for every completed batch,
+including an empty batch. Same-generation redraws preserve paging, and batches
+received while another screen is visible do not change its paging. Paging stays
+owned by `ui_shell`; RX order and batch lifetime are unchanged. T082 ADV manual
+acceptance remains pending.
 
 This avoids losing useful context at TX start while also avoiding stale prior-slot
 messages after a TX slot has completed. Live Linux/QMX validation passed.

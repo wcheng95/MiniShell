@@ -1,6 +1,6 @@
 # T082 — MiniFT8 RX page reset + configurable CQ modifier list
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -446,3 +446,137 @@ decode, reply-to-me/CQ-priority decode, or deep-decode work.
 
 Use one reviewable implementation commit. Do not merge to `main` and do not
 open a PR unless asked.
+
+## Codex implementation handoff
+
+### Implementation summary
+
+`UiModel.rx_generation` exposes the existing controller batch generation.
+`ui_shell` observes it before rendering and input handling, resets RX page and
+selected row only on a changed generation while RX is visible, and records it
+without disturbing other screens. Same-generation redraws preserve the chosen
+page. RX entry continues to start on page 1.
+
+Configuration stores up to 16 unique modifiers in fixed five-byte entries.
+Parsing normalizes letters, ignores invalid/duplicate/excess tokens, preserves
+first occurrence order, and defers selected-index validation until the entire
+file is parsed. An absent list defaults to `SOTA POTA QRP FD`; an explicit empty
+or all-invalid list contains only implicit plain CQ. Serialization emits the
+canonical list and numeric index. O -> 4 -> 1 navigates generic text/index/count
+facts with previous/next wrapping and saves through the existing rollback-safe
+controller path.
+
+The standard CQ token grammar/n28 packing was extracted unchanged from
+`ft8_message_codec.c` into the pure `cq_token.h` helper. Configuration, AutoSeq
+modifier validation and the codec share it. Architecture rules allow only that
+specific helper edge, without allowing configuration or AutoSeq to depend on
+engine/UI modules generally.
+
+AutoSeq retains its known CQ types and separate free-text CQ intent, adds a
+bounded generic modifier, and maps known names back to their existing semantics.
+FD still sets the Field Day intent flag/exchange. TX encoding carries generic
+standard CQ tokens and retains T027's non-standard-local-call restrictions.
+
+### Files changed
+
+- `apps/ft8/include/ft8/app_types.h`, `src/ui_shell/ui_shell.[ch]`,
+  `src/app_controller/app_controller.c`: generation-driven RX paging and generic
+  CQ display/navigation/config synchronization.
+- `apps/ft8/src/config_service/config_service.[ch]`: bounded ordered modifier
+  list, filtering, default compatibility, index validation and serialization.
+- `apps/ft8/include/ft8/cq_token.h`,
+  `src/ft8_engine/ft8_message_codec.c`, `tests/architecture_rules.py`: one shared
+  standard-CQ grammar and narrowly scoped dependency ownership.
+- `apps/ft8/src/auto_seq/auto_seq.[ch]`, `auto_seq_tx_intent.[ch]`,
+  `src/tx_encoder/tx_encoder.c`: generic CQ transport with known/free-text
+  semantics preserved.
+- `tests/ft8_cq_list_test.c`, `ft8_ui_smoke.c`, `ft8_physical_tx_test.c`,
+  `linux_ft8_config_load.py`, `CMakeLists.txt`: parsing, codec, UI, controller
+  persistence/rollback and default-file regression coverage.
+- `docs/MiniFT8/README.md`, `ui.md`, and this task: operator behavior and handoff.
+
+### Behavior/invariants preserved
+
+- T081 capture/decode scheduling, worker ownership and batch-generation semantics
+  are unchanged. Waterfall/FFT/candidate/LDPC and framer files match base main.
+- RX content/order, selection mapping, TX/QSO paging, top-line layout, beacon
+  parity, physical TX/CAT lifecycle and TX offset policy are unchanged.
+- No MiniShell public API or config location changes; no heap allocation added.
+- Default `cq_type=2` still selects POTA. Config indices are now intentionally
+  independent of AutoSeq's semantic CQ enum.
+- `cq_ft` storage and free-text CQ AutoSeq/encoder support remain separate.
+  Per the packet's index contract, numeric 5 means the fifth configured modifier
+  if present, otherwise plain CQ; it is no longer a special free-text selector.
+- Existing tests were updated only for the authorized enum-to-list UI contract
+  and the newly serialized default `cqtypes` field. Their persistence, rollback,
+  beacon and physical-TX assertions remain in place.
+- No task-scope deviations. The chosen bounded capacity is 16 modifiers; later
+  valid tokens are ignored and this bound is documented for operators.
+
+### Tests run and results
+
+```text
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+    PASS; no compiler warnings in the Linux build log.
+
+ctest --test-dir build-linux -R 'ft8_(cq_list|ui|physical_tx|auto_seq|tx_encoder)|linux_ft8_config_load' --output-on-failure
+    PASS: 6/6.
+
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+    Final run PASS: 128/128 (62.32 s).
+    Earlier run: 127/128; only the known serial timeout assertion failed.
+
+ctest --test-dir build-linux -R 'ft8_(cq_list|ui|physical_tx|auto_seq|tx_encoder)|linux_ft8_config_load|^linux_serial_unit$' --output-on-failure
+    All six FT8 checks PASS; known unrelated linux_serial_unit failure reproduced.
+
+cmake -S tests/unit -B /tmp/T082-unit
+cmake --build /tmp/T082-unit -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T082-unit --output-on-failure
+    PASS: 29/29.
+
+python3 tests/app_dependency_boundary.py . ft8
+python3 tests/app_platform_boundary.py . ft8
+python3 tests/ft8_platform_boundary.py .
+python3 tests/architecture_rules.py .
+    PASS: all four commands, including purity/no-heap checks.
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+    PASS: firmware 0x1541a0 bytes; 78% of smallest app partition free.
+    Existing SDK include_next/pedantic warnings remain.
+
+git diff --check
+    PASS.
+```
+
+New coverage checks exact CQ option order; normalization and repeated spaces;
+invalid/duplicate/empty/missing/overflow lists; out-of-range indices and field
+order independence; canonical save/reparse; all requested CQ encode/decode
+round-trips plus FD/QRP; Field Day intent metadata; non-standard-call rejection;
+separate free-text CQ; controller selection save/reload and failed-save rollback;
+generic UI text and all navigation directions; new/same/empty RX generations;
+TX page preservation; RX screen re-entry; and input before redraw.
+
+### Hardware/manual validation still required
+
+ADV acceptance from the task: multi-page RX returns to page 1 on a fresh batch;
+`cqtypes=POTA SOTA DX 250` cycles in that order; selection survives exit/re-entry.
+Optional RF confirmation of DX/250 remains for hardware testing. No device was
+flashed and no RF transmission was performed for this handoff.
+
+### Known limitations or risks
+
+The previously observed unrelated serial PTY timeout flake remains at
+`tests/linux_serial_test.c:67` (`write(...) == MINI_ERR_TIMEOUT && n == 0`).
+Serial test/backend/service/public API files match base main; no serial changes
+or weakened assertions were made. Hardware acceptance of T082 is still pending.
+The modifier list is bounded at 16 entries, and reordering it deliberately
+changes what a saved nonzero index selects.
+
+### Commit reference
+
+One review commit titled `T082: reset RX paging and configure CQ modifiers` on
+`codex/T082-ft8-rx-page-cq-list`, based on current main
+`10d14910210c9893a1d9dce0f89a338a0ed2e834`. The pushed SHA is supplied in the
+Codex handoff; main is not merged and no PR is opened.

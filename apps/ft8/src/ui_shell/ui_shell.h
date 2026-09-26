@@ -31,11 +31,12 @@ typedef struct {
     UiSubmenu submenu;
     int selected_line;
     uint32_t page_index;
+    uint64_t last_rx_generation;
     ft8_presentation_profile_t presentation;
 } UiShell;
 
 void ui_shell_init(UiShell *ui, ft8_presentation_profile_t presentation);
-void ui_shell_render(const UiShell *ui, const UiModel *model, UiFrame *frame);
+void ui_shell_render(UiShell *ui, const UiModel *model, UiFrame *frame);
 bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
                            UiInput input, AppAction *action_out);
 

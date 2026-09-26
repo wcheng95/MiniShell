@@ -27,6 +27,7 @@ bool auto_seq_prepare_tx_intent(const AutoSeq *seq, AutoSeqTxIntent *out_intent)
     out_intent->retry_counter = ctx->retry_counter;
     out_intent->retry_limit = ctx->retry_limit;
     out_intent->cq_type = seq->config.cq_type;
+    copy_field(out_intent->cq_modifier, sizeof(out_intent->cq_modifier), seq->config.cq_modifier);
 
     copy_field(out_intent->callsign, sizeof(out_intent->callsign), seq->config.callsign);
     copy_field(out_intent->grid, sizeof(out_intent->grid), seq->config.grid);

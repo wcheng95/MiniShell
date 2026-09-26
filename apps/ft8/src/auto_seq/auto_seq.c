@@ -1,3 +1,4 @@
+#include "../../include/ft8/cq_token.h"
 #include "auto_seq.h"
 
 #include <ctype.h>
@@ -61,7 +62,7 @@ static bool normalize_call(char out[AUTO_SEQ_CALL_CAP], const char *text)
 
 static bool cq_type_valid(AutoSeqCqType type)
 {
-    return type <= AUTO_SEQ_CQ_FREETEXT;
+    return type <= AUTO_SEQ_CQ_MODIFIER;
 }
 
 static bool event_valid(const AutoSeqRxEvent *event)
@@ -465,6 +466,8 @@ bool auto_seq_init(AutoSeq *seq, const AutoSeqConfig *config)
     seq->config.max_retry = local.max_retry;
     seq->config.skip_tx1 = local.skip_tx1 ? 1u : 0u;
     seq->config.cq_type = local.cq_type;
+    if (local.cq_type == AUTO_SEQ_CQ_MODIFIER &&
+        !auto_seq_set_cq_modifier(seq, local.cq_modifier)) return false;
     if (!copy_checked(seq->config.cq_freetext, sizeof(seq->config.cq_freetext),
                       local.cq_freetext) ||
         !copy_upper_checked(seq->config.fd_exchange, sizeof(seq->config.fd_exchange),
@@ -536,12 +539,28 @@ int auto_seq_get_max_retry(const AutoSeq *seq)
 bool auto_seq_set_cq(AutoSeq *seq, AutoSeqCqType type, const char *freetext)
 {
     char copy[AUTO_SEQ_FREETEXT_CAP];
-    if (seq == NULL || freetext == NULL || !cq_type_valid(type) ||
+    if (seq == NULL || freetext == NULL || type > AUTO_SEQ_CQ_FREETEXT ||
         !copy_checked(copy, sizeof(copy), freetext)) {
         return false;
     }
     seq->config.cq_type = type;
+    seq->config.cq_modifier[0] = '\0';
     memcpy(seq->config.cq_freetext, copy, sizeof(copy));
+    return true;
+}
+
+bool auto_seq_set_cq_modifier(AutoSeq *seq, const char *modifier)
+{
+    if (!seq || !modifier) return false;
+    size_t length = 0;
+    while (length < sizeof(seq->config.cq_modifier) && modifier[length]) ++length;
+    if (length && !ft8_cq_modifier_pack(modifier, length, NULL)) return false;
+    static const char *const known[] = {"", "SOTA", "POTA", "QRP", "FD"};
+    AutoSeqCqType type = AUTO_SEQ_CQ_MODIFIER;
+    for (unsigned i = 0; i < sizeof(known) / sizeof(known[0]); ++i)
+        if (strcmp(modifier, known[i]) == 0) type = (AutoSeqCqType)i;
+    memcpy(seq->config.cq_modifier, modifier, length + 1);
+    seq->config.cq_type = type;
     return true;
 }
 

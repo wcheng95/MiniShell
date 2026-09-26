@@ -25,6 +25,7 @@ typedef struct {
     AutoSeqTxIntentType type;
     AutoSeqMessageKind message_kind;
     AutoSeqCqType cq_type;
+    char cq_modifier[5];
     uint8_t tx_parity;
     uint8_t flags;
     int16_t offset_hz;

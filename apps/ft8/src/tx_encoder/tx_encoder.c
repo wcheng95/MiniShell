@@ -83,8 +83,14 @@ static bool project(const AutoSeqTxIntent *intent, Ft8ProtocolMessage *message)
         return false;
     if (intent->type == AUTO_SEQ_TX_INTENT_CQ) {
         static const char *const cq[] = {"CQ", "CQ SOTA", "CQ POTA", "CQ QRP", "CQ FD"};
-        if (intent->cq_type >= sizeof(cq) / sizeof(cq[0])) return false;
-        strcpy(standard->call_to, cq[intent->cq_type]);
+        if (intent->cq_type == AUTO_SEQ_CQ_MODIFIER) {
+            if (!memchr(intent->cq_modifier, '\0', sizeof(intent->cq_modifier)) ||
+                !intent->cq_modifier[0]) return false;
+            snprintf(standard->call_to, sizeof(standard->call_to), "CQ %s", intent->cq_modifier);
+        } else {
+            if (intent->cq_type >= sizeof(cq) / sizeof(cq[0])) return false;
+            strcpy(standard->call_to, cq[intent->cq_type]);
+        }
         return grid_field(intent, standard);
     }
     if (intent->type != AUTO_SEQ_TX_INTENT_QSO ||

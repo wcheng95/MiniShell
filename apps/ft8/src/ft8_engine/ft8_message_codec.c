@@ -1,3 +1,4 @@
+#include "../../include/ft8/cq_token.h"
 #include "ft8_message_codec.h"
 
 #include <stdio.h>
@@ -881,17 +882,8 @@ static Ft8ProtocolCodecStatus pack_call(const char call[FT8_PROTOCOL_CALL_CAP],
     size_t length = strlen(call);
     if (allow_cq && strcmp(call, "CQ") == 0) { *value = 2; return FT8_PROTOCOL_CODEC_OK; }
     if (allow_cq && strncmp(call, "CQ ", 3) == 0 && length >= 4u && length <= 7u) {
-        unsigned letters = 0, digits = 0, modifier = 0, number = 0;
-        for (size_t i = 3; i < length; ++i) {
-            if (call[i] >= 'A' && call[i] <= 'Z') {
-                ++letters; modifier = modifier * 27u + (unsigned)(call[i] - 'A' + 1);
-            } else if (call[i] >= '0' && call[i] <= '9') {
-                ++digits; number = number * 10u + (unsigned)(call[i] - '0');
-            } else return FT8_PROTOCOL_CODEC_MALFORMED;
-        }
-        if (!digits && letters) *value = 1003u + modifier;
-        else if (digits == 3u && !letters) *value = 3u + number;
-        else return FT8_PROTOCOL_CODEC_MALFORMED;
+        if (!ft8_cq_modifier_pack(call + 3, length - 3, value))
+            return FT8_PROTOCOL_CODEC_MALFORMED;
         return FT8_PROTOCOL_CODEC_OK;
     }
     if (length > 2u && call[length - 2] == '/' &&

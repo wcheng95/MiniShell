@@ -42,12 +42,6 @@ typedef enum {
 
 _Static_assert(APP_MAX_TX_LINES >= AUTO_SEQ_MAX_QUEUE,
                "UiModel must hold the complete active AutoSeq queue");
-_Static_assert(FT8_CONFIG_CQ == AUTO_SEQ_CQ, "CQ type mapping drifted");
-_Static_assert(FT8_CONFIG_CQ_SOTA == AUTO_SEQ_CQ_SOTA, "CQ type mapping drifted");
-_Static_assert(FT8_CONFIG_CQ_POTA == AUTO_SEQ_CQ_POTA, "CQ type mapping drifted");
-_Static_assert(FT8_CONFIG_CQ_QRP == AUTO_SEQ_CQ_QRP, "CQ type mapping drifted");
-_Static_assert(FT8_CONFIG_CQ_FD == AUTO_SEQ_CQ_FD, "CQ type mapping drifted");
-_Static_assert(FT8_CONFIG_CQ_FREETEXT == AUTO_SEQ_CQ_FREETEXT, "CQ type mapping drifted");
 
 struct AppRxState {
     const mini_api_t *api;
@@ -405,9 +399,9 @@ static bool app_sync_auto_seq_config(AppController *app)
     auto_seq_set_skip_tx1(&app->auto_seq, app->config.skip_tx1);
     auto_seq_set_max_retry(&app->auto_seq, app->config.max_retry);
 
-    if (!auto_seq_set_cq(&app->auto_seq,
-                         (AutoSeqCqType)app->config.cq_type,
-                         app->config.cq_freetext)) {
+    if (!auto_seq_set_cq(&app->auto_seq, AUTO_SEQ_CQ, app->config.cq_freetext) ||
+        !auto_seq_set_cq_modifier(&app->auto_seq,
+                         config_service_cq_modifier(&app->config, app->config.cq_type))) {
         return false;
     }
     return auto_seq_set_fd_exchange(&app->auto_seq, app->config.fd_exchange);
@@ -1421,8 +1415,10 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
     snprintf(model->band_name, sizeof(model->band_name), "%s",
              config_service_band_name(model->profile_index, model->band_index));
 
-    model->cq_type = app->config.cq_type == FT8_CONFIG_CQ ? UI_CQ :
-                     app->config.cq_type == FT8_CONFIG_CQ_POTA ? UI_CQ_POTA : UI_CQ_UNAVAILABLE;
+    model->cq_index = app->config.cq_type;
+    model->cq_option_count = 1u + app->config.cq_modifier_count;
+    const char *modifier = config_service_cq_modifier(&app->config, app->config.cq_type);
+    snprintf(model->cq_text, sizeof(model->cq_text), "CQ%s%s", *modifier ? " " : "", modifier);
     switch (app_controller_get_beacon_mode(app)) {
         case TX_BEACON_EVEN: model->beacon_mode = UI_BEACON_EVEN; break;
         case TX_BEACON_ODD: model->beacon_mode = UI_BEACON_ODD; break;
@@ -1434,6 +1430,7 @@ void app_controller_build_ui_model(const AppController *app, UiModel *model)
     model->tx_active = app_controller_tx_active(app);
     build_utc_model(app, model);
 
+    model->rx_generation = app->rx ? app->rx->batch_generation : 0;
     if (app->rx != NULL && app->rx->have_batch &&
         app->rx->display_generation == app->rx->batch_generation) {
         size_t count = app->rx->display_count;
@@ -1557,10 +1554,8 @@ bool app_controller_apply_action(AppController *app, const AppAction *action)
 
         case APP_ACTION_SET_CQ_TYPE: {
             int value = action->value.int_value;
-            if (value != UI_CQ && value != UI_CQ_POTA) return false;
             Ft8ConfigCqType previous = app->config.cq_type;
-            if (!config_service_set_cq_type(&app->config,
-                    value == UI_CQ ? FT8_CONFIG_CQ : FT8_CONFIG_CQ_POTA)) return false;
+            if (!config_service_set_cq_type(&app->config, value)) return false;
             if (app_sync_auto_seq_config(app) && app_save_config(app)) return true;
             /* A failed atomic save must not leave the model advertising a commit. */
             app->config.cq_type = previous;

@@ -494,6 +494,14 @@ target_include_directories(ft8_rx_discontinuity_unit PRIVATE ${FT8_DISCONTINUITY
 target_link_libraries(ft8_rx_discontinuity_unit PRIVATE m)
 target_compile_options(ft8_rx_discontinuity_unit PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(ft8_cq_list_unit tests/ft8_cq_list_test.c
+    apps/ft8/src/config_service/config_service.c
+    apps/ft8/src/auto_seq/auto_seq_tx_intent.c)
+target_include_directories(ft8_cq_list_unit PRIVATE ${FT8_DISCONTINUITY_INCLUDES})
+target_link_libraries(ft8_cq_list_unit PRIVATE ft8_auto_seq_core ft8_tx_encoder_core)
+target_compile_options(ft8_cq_list_unit PRIVATE -Wall -Wextra -Wpedantic -UNDEBUG)
+add_test(NAME ft8_cq_list_unit COMMAND ft8_cq_list_unit)
+
 add_executable(ft8_rx_lifecycle_unit tests/ft8_rx_lifecycle_test.c ${FT8_DISCONTINUITY_SOURCES})
 target_include_directories(ft8_rx_lifecycle_unit PRIVATE ${FT8_DISCONTINUITY_INCLUDES})
 target_compile_definitions(ft8_rx_lifecycle_unit PRIVATE FT8_DEFAULT_FREQ_OSR=1)

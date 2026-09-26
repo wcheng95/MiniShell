@@ -222,7 +222,7 @@ static void render_o_root(const UiShell *ui, const UiModel *model, UiFrame *fram
 
 static void render_o_cq(const UiShell *ui, const UiModel *model, UiFrame *frame)
 {
-    const char *cq = model->cq_type == UI_CQ ? "CQ" : model->cq_type == UI_CQ_POTA ? "CQ POTA" : "--";
+    const char *cq = model->cq_text;
     const char *beacon = model->beacon_mode == UI_BEACON_EVEN ? "EVEN" :
                          model->beacon_mode == UI_BEACON_ODD ? "ODD" : "OFF";
     row_item(ui, frame, 0, "CQ Type: %s", cq);
@@ -471,10 +471,22 @@ void ui_shell_init(UiShell *ui, ft8_presentation_profile_t presentation)
     ui->selected_line = 0;
     ui->page_index = 0u;
     ui->presentation = presentation;
+    ui->last_rx_generation = 0;
 }
 
-void ui_shell_render(const UiShell *ui, const UiModel *model, UiFrame *frame)
+static void observe_rx_generation(UiShell *ui, const UiModel *model)
 {
+    if (ui->last_rx_generation == model->rx_generation) return;
+    ui->last_rx_generation = model->rx_generation;
+    if (ui->screen == SCREEN_RX) {
+        ui->page_index = 0;
+        ui->selected_line = 0;
+    }
+}
+
+void ui_shell_render(UiShell *ui, const UiModel *model, UiFrame *frame)
+{
+    observe_rx_generation(ui, model);
     ft8_presentation_spec_t spec;
     if (!ft8_presentation_get_spec(ui->presentation, &spec)) {
         (void)ft8_presentation_get_spec(FT8_PRESENTATION_DESKTOP, &spec);
@@ -533,8 +545,13 @@ static bool emit_set_band(const UiModel *model, int delta, AppAction *action)
 static bool emit_cq_control(const UiModel *model, int line, int delta, AppAction *action)
 {
     if (line == 0) {
+        if (!model->cq_option_count) return false;
         action->type = APP_ACTION_SET_CQ_TYPE;
-        action->value.int_value = model->cq_type == UI_CQ ? UI_CQ_POTA : UI_CQ;
+        unsigned current = model->cq_index % model->cq_option_count;
+        unsigned next = delta < 0
+            ? (current ? current - 1 : model->cq_option_count - 1)
+            : (current + 1) % model->cq_option_count;
+        action->value.int_value = (int)next;
         return true;
     }
     if (line == 1) {
@@ -671,6 +688,7 @@ static void move_page(UiShell *ui, const UiModel *model, int delta)
 bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
                            UiInput input, AppAction *action_out)
 {
+    observe_rx_generation(ui, model);
     clear_action(action_out);
 
     if (input.type == UI_INPUT_CHAR) {

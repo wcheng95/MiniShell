@@ -15,7 +15,7 @@ import wave
 
 DEFAULT_STATION = (
     b"# MiniFT8-V3 setting.txt\ncallsign=\ngrid=\nprofile=0\nband=3\n"
-    b"skip_tx1=0\nmax_retry=3\ncq_type=0\ncq_ft=\nfree_text=\nfd_exchange=\nrxtx_log=1\noffset_src=0\noffset=1500\n"
+    b"skip_tx1=0\nmax_retry=3\ncq_type=0\ncqtypes=SOTA POTA QRP FD\ncq_ft=\nfree_text=\nfd_exchange=\nrxtx_log=1\noffset_src=0\noffset=1500\n"
 )
 
 

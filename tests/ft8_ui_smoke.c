@@ -27,6 +27,8 @@ static void set_default_model(UiModel *model)
     model->band_count = 7;
     snprintf(model->band_name, sizeof(model->band_name), "%s", "20m");
     model->max_retry = 3;
+    model->cq_option_count = 5;
+    strcpy(model->cq_text, "CQ");
     model->utc_valid = true;
     model->utc_hour = 14u;
     model->utc_minute = 32u;
@@ -255,6 +257,38 @@ static void test_adv_no_utc(void)
     assert(strcmp(frame.rows[0], "RX 20 --:--:-- 1/1 E") == 0);
 }
 
+static void test_rx_generation_pages(void)
+{
+    UiShell ui; UiModel model; UiFrame frame; AppAction action;
+    set_default_model(&model);
+    model.rx_count = model.tx_count = 18;
+    model.rx_generation = 1;
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    ui_shell_render(&ui, &model, &frame);
+    assert(!ui_shell_handle_input(&ui, &model, key('.'), &action));
+    ui.selected_line = 3;
+    ui_shell_render(&ui, &model, &frame);
+    assert(ui.page_index == 1 && ui.selected_line == 3 && strstr(frame.rows[0], "2/3"));
+    ++model.rx_generation;
+    ui_shell_render(&ui, &model, &frame);
+    assert(ui.page_index == 0 && ui.selected_line == 0 && strstr(frame.rows[0], "1/3"));
+    ui.page_index = 2;
+    model.rx_count = 0; ++model.rx_generation;
+    ui_shell_render(&ui, &model, &frame);
+    assert(ui.page_index == 0 && strstr(frame.rows[0], "1/1"));
+    assert(!ui_shell_handle_input(&ui, &model, key('t'), &action));
+    ui.page_index = 2; ui.selected_line = 4;
+    ++model.rx_generation;
+    ui_shell_render(&ui, &model, &frame);
+    assert(ui.page_index == 2 && ui.selected_line == 4 && strstr(frame.rows[0], "3/3"));
+    assert(!ui_shell_handle_input(&ui, &model, key('r'), &action));
+    assert(ui.page_index == 0 && ui.selected_line == 0);
+    /* Input arriving before redraw must also use the new first page. */
+    model.rx_count = 18; ui.page_index = 2; ++model.rx_generation;
+    assert(ui_shell_handle_input(&ui, &model, key('1'), &action));
+    assert(action.type == APP_ACTION_SELECT_RX_MESSAGE && action.value.index == 0);
+}
+
 static void test_cq_beacon_controls(void)
 {
     UiShell ui; UiModel model; UiFrame frame; AppAction action;
@@ -263,25 +297,25 @@ static void test_cq_beacon_controls(void)
     assert(!ui_shell_handle_input(&ui,&model,key('O'),&action));
     assert(!ui_shell_handle_input(&ui,&model,key('4'),&action));
     assert(ui.submenu==UI_SUBMENU_O_CQ && ui.selected_line==0);
-    const char *cq_names[]={"CQ Type: CQ", "CQ Type: CQ POTA"};
+    const char *cq_names[]={"CQ", "CQ POTA", "CQ SOTA", "CQ DX", "CQ 250"};
     const char *beacon_names[]={"Beacon: OFF", "Beacon: EVEN", "Beacon: ODD"};
-    for (int cq=0;cq<2;++cq) for (int beacon=0;beacon<3;++beacon) {
-        model.cq_type=(UiCqType)cq; model.beacon_mode=(UiBeaconMode)beacon;
+    for (int cq=0;cq<5;++cq) for (int beacon=0;beacon<3;++beacon) {
+        model.cq_index=(unsigned)cq; strcpy(model.cq_text, cq_names[cq]); model.beacon_mode=(UiBeaconMode)beacon;
         ui_shell_render(&ui,&model,&frame);
-        assert(strstr(frame.rows[1],cq_names[cq]) && strstr(frame.rows[2],beacon_names[beacon]));
+        assert(strstr(frame.rows[1], "CQ Type: ") && strstr(frame.rows[1],cq_names[cq]) && strstr(frame.rows[2],beacon_names[beacon]));
         assert(frame.column_count==20 && frame.row_count==7);
         for (unsigned row=0;row<frame.row_count;++row) assert(strlen(frame.rows[row])<=20);
     }
     for (int line=0;line<2;++line) {
         const UiInput inputs[]={key((char)('1'+line)),special(UI_INPUT_ENTER),
                                 special(UI_INPUT_RIGHT),special(UI_INPUT_LEFT)};
-        for (unsigned k=0;k<4;++k) for (int value=0;value<(line ? 3 : 2);++value) {
-            model.cq_type=(UiCqType)value; model.beacon_mode=(UiBeaconMode)value;
+        for (unsigned k=0;k<4;++k) for (int value=0;value<(line ? 3 : 5);++value) {
+            model.cq_index=(unsigned)value; model.beacon_mode=(UiBeaconMode)value;
             ui.selected_line=line;
             assert(ui_shell_handle_input(&ui,&model,inputs[k],&action));
             assert(action.type==(line ? APP_ACTION_SET_BEACON_MODE : APP_ACTION_SET_CQ_TYPE));
-            assert(action.value.int_value==(line ? (value+(k==3 ? 2 : 1))%3 : 1-value));
-            assert((int)model.cq_type==value && (int)model.beacon_mode==value);
+            assert(action.value.int_value==(line ? (value+(k==3 ? 2 : 1))%3 : (value+(k==3 ? 4 : 1))%5));
+            assert((int)model.cq_index==value && (int)model.beacon_mode==value);
         }
     }
     assert(!ui_shell_handle_input(&ui,&model,key('3'),&action) && action.type==APP_ACTION_NONE);
@@ -468,6 +502,7 @@ int main(void)
     color_status();
     test_qso_view();
     test_cq_beacon_controls();
+    test_rx_generation_pages();
     test_profile_contract();
     test_desktop_existing_navigation();
     test_adv_locked_top_and_rx_paging();

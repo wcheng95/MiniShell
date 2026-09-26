@@ -385,14 +385,49 @@ static void apply_setting(AppController *app, AppActionType type, int value)
     assert(app_controller_apply_action(app,&action));
 }
 
+static void configured_cq_settings(void)
+{
+    const char *original = station_text;
+    station_text = "callsign=AG6AQ\ngrid=CM97\ncqtypes=POTA SOTA DX 250 FD\ncq_type=0\nfd_exchange=1B SCV\n";
+    AppController app; setup(&app, false);
+    unsigned station = path_id("/flash/ft8/station.txt");
+    const char *names[] = {"CQ", "CQ POTA", "CQ SOTA", "CQ DX", "CQ 250", "CQ FD"};
+    for (int i = 0; i < 6; ++i) {
+        apply_setting(&app, APP_ACTION_SET_CQ_TYPE, i);
+        UiModel model; app_controller_build_model(&app, &model);
+        assert(model.cq_index == (unsigned)i && model.cq_option_count == 6);
+        assert(strcmp(model.cq_text, names[i]) == 0);
+        ConfigService saved;
+        assert(config_service_parse(&saved, files[station].text));
+        assert(saved.cq_type == i && saved.cq_modifier_count == 5);
+        assert(strstr(files[station].text, "cqtypes=POTA SOTA DX 250 FD\n"));
+        AutoSeqTxIntent intent; Ft8TxPlan plan;
+        assert(auto_seq_prepare_tx_intent(&app.auto_seq, &intent));
+        assert(ft8_tx_encode(&intent, &plan) == FT8_TX_ENCODE_OK);
+        char expected[64]; snprintf(expected, sizeof(expected), "%s AG6AQ CM97", names[i]);
+        assert(strcmp(plan.canonical_text, expected) == 0);
+    }
+    apply_setting(&app, APP_ACTION_SET_CQ_TYPE, 3);
+    fail_station_save = true;
+    AppAction action = {.type = APP_ACTION_SET_CQ_TYPE, .value.int_value = 4};
+    assert(!app_controller_apply_action(&app, &action));
+    assert(app.config.cq_type == 3 && strcmp(app.auto_seq.config.cq_modifier, "DX") == 0);
+    fail_station_save = false;
+    cleanup(&app);
+    assert(app_controller_init(&app, &api, "/flash/ft8", "/flash/ft8/station.txt"));
+    assert(app.config.cq_type == 3 && strcmp(app.auto_seq.config.cq_modifier, "DX") == 0);
+    cleanup(&app);
+    station_text = original;
+}
+
 static void cq_beacon_settings(void)
 {
     AppController app; setup(&app,false);
     UiModel model; app_controller_build_model(&app,&model);
-    assert(model.cq_type==UI_CQ && model.beacon_mode==UI_BEACON_OFF);
+    assert(model.cq_index==FT8_CONFIG_CQ && model.beacon_mode==UI_BEACON_OFF);
     unsigned station=path_id("/flash/ft8/station.txt");
     for (unsigned i=0;i<2;++i) {
-        apply_setting(&app,APP_ACTION_SET_CQ_TYPE,i==0 ? UI_CQ_POTA : UI_CQ);
+        apply_setting(&app,APP_ACTION_SET_CQ_TYPE,i==0 ? FT8_CONFIG_CQ_POTA : FT8_CONFIG_CQ);
         assert(app.config.cq_type==(i==0 ? FT8_CONFIG_CQ_POTA : FT8_CONFIG_CQ));
         assert(app.auto_seq.config.cq_type==(i==0 ? AUTO_SEQ_CQ_POTA : AUTO_SEQ_CQ));
         assert(strstr(files[station].text,i==0 ? "cq_type=2\n" : "cq_type=0\n"));
@@ -401,16 +436,16 @@ static void cq_beacon_settings(void)
         assert(ft8_tx_encode(&intent,&plan)==FT8_TX_ENCODE_OK);
         assert(strcmp(plan.canonical_text,i==0 ? "CQ POTA AG6AQ CM97" : "CQ AG6AQ CM97")==0);
         app_controller_build_model(&app,&model);
-        assert(model.cq_type==(i==0 ? UI_CQ_POTA : UI_CQ));
+        assert(model.cq_index==(i==0 ? FT8_CONFIG_CQ_POTA : FT8_CONFIG_CQ));
     }
     char saved[2048]; strcpy(saved,files[station].text);
     fail_station_save=true;
-    AppAction action={.type=APP_ACTION_SET_CQ_TYPE,.value.int_value=UI_CQ_POTA};
+    AppAction action={.type=APP_ACTION_SET_CQ_TYPE,.value.int_value=FT8_CONFIG_CQ_POTA};
     assert(!app_controller_apply_action(&app,&action));
     assert(app.config.cq_type==FT8_CONFIG_CQ && app.auto_seq.config.cq_type==AUTO_SEQ_CQ);
     assert(strcmp(saved,files[station].text)==0);
     fail_station_save=false;
-    action.value.int_value=UI_CQ_UNAVAILABLE; assert(!app_controller_apply_action(&app,&action));
+    action.value.int_value=99; assert(!app_controller_apply_action(&app,&action));
     action.value.int_value=-1; assert(!app_controller_apply_action(&app,&action));
     unsigned closes=file_closes;
     const UiBeaconMode modes[]={UI_BEACON_EVEN,UI_BEACON_ODD,UI_BEACON_OFF,
@@ -435,7 +470,7 @@ static void cq_beacon_settings(void)
     assert(app_controller_get_beacon_mode(&app)==TX_BEACON_OFF); cleanup(&app);
 
     for (unsigned parity=0;parity<2;++parity) {
-        setup(&app,false); apply_setting(&app,APP_ACTION_SET_CQ_TYPE,UI_CQ_POTA);
+        setup(&app,false); apply_setting(&app,APP_ACTION_SET_CQ_TYPE,FT8_CONFIG_CQ_POTA);
         apply_setting(&app,APP_ACTION_SET_BEACON_MODE,parity ? UI_BEACON_ODD : UI_BEACON_EVEN);
         assert(!auto_seq_active_count(&app.auto_seq));
         bool changed;
@@ -447,10 +482,10 @@ static void cq_beacon_settings(void)
         assert(app_controller_step_tx(&app,&changed) && app.tx.active);
         assert(app.tx.plan.tx_parity==parity && strstr(rt_contents(),"CQ POTA AG6AQ CM97"));
         Ft8TxPlan plan=app.tx.plan; closes=file_closes;
-        apply_setting(&app,APP_ACTION_SET_CQ_TYPE,UI_CQ);
+        apply_setting(&app,APP_ACTION_SET_CQ_TYPE,FT8_CONFIG_CQ);
         apply_setting(&app,APP_ACTION_SET_BEACON_MODE,UI_BEACON_OFF);
         app_controller_build_model(&app,&model);
-        assert(model.cq_type==UI_CQ_POTA && model.beacon_mode==(parity ? UI_BEACON_ODD : UI_BEACON_EVEN));
+        assert(model.cq_index==FT8_CONFIG_CQ_POTA && model.beacon_mode==(parity ? UI_BEACON_ODD : UI_BEACON_EVEN));
         assert(memcmp(&plan,&app.tx.plan,sizeof(plan))==0 && file_closes==closes);
         cleanup(&app);
     }
@@ -484,7 +519,7 @@ static void offset_integration(void)
     station_text="callsign=AG6AQ\ngrid=CM97\ncq_type=2\nband=3\noffset_src=0\noffset=1600\n";
     setup(&app,false); station_text=original;
     assert(app.tx.offset_rng==tx_offset_seed(1000000000u,1789777000,0));
-    apply_setting(&app,APP_ACTION_SET_CQ_TYPE,UI_CQ_POTA);
+    apply_setting(&app,APP_ACTION_SET_CQ_TYPE,FT8_CONFIG_CQ_POTA);
     unsigned station=path_id("/flash/ft8/station.txt");
     assert(strstr(files[station].text,"offset_src=0\n") && strstr(files[station].text,"offset=1600\n"));
     apply_setting(&app,APP_ACTION_SET_BEACON_MODE,UI_BEACON_ODD);
@@ -846,6 +881,7 @@ static void rx_display_order(void)
     assert(rx_emit_event(app.rx,&reset_event)==0);
     app_controller_build_model(&app,&model);
     assert(model.rx_count==50 && app.rx->selected_rx_valid);
+    assert(model.rx_generation==generation);
     assert(memcmp(model.rx_lines,preserved.rx_lines,sizeof(model.rx_lines))==0);
     assert(memcmp(model.rx_kind,preserved.rx_kind,sizeof(model.rx_kind))==0);
     assert(app_controller_apply_action(&app,&select) && app.rx->selected_rx_index==0);
@@ -857,9 +893,11 @@ static void rx_display_order(void)
     assert(model.rx_count==2 && strcmp(model.rx_lines[0],original[3].canonical_text)==0);
     assert(app.rx->display_order[0]==0 && app.rx->display_order[1]==1);
     assert(app.rx->batch_generation==generation+1 && !app.rx->selected_rx_valid);
+    assert(model.rx_generation==generation+1);
     app_controller_build_model(&app,&model); assert(app.rx->batch_generation==generation+1);
     app.rx->batch.message_count=0; rx_complete_batch(app.rx);
     app_controller_build_model(&app,&model); assert(model.rx_count==0);
+    assert(model.rx_generation==generation+2);
     cleanup(&app);
 }
 
@@ -1079,6 +1117,7 @@ int main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "--qso") == 0) { qso_view(); qso_completion(); return 0; }
     if (argc == 2 && strcmp(argv[1], "--band-cat") == 0) { band_cat(); return 0; }
+    configured_cq_settings();
     rx_display_tx_lifetime();
     rx_display_order();
     nonstandard_cq_reply();

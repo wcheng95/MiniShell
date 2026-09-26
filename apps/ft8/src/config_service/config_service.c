@@ -1,3 +1,4 @@
+#include "../../include/ft8/cq_token.h"
 #include "config_service.h"
 
 #include <ctype.h>
@@ -34,11 +35,32 @@ static int clamp_band(int value)
     return value;
 }
 
-static int clamp_cq_type(int value)
+static void parse_cq_modifiers(ConfigService *config, const char *value)
 {
-    if (value < (int)FT8_CONFIG_CQ) return (int)FT8_CONFIG_CQ;
-    if (value > (int)FT8_CONFIG_CQ_FREETEXT) return (int)FT8_CONFIG_CQ_FREETEXT;
-    return value;
+    config->cq_modifier_count = 0;
+    memset(config->cq_modifiers, 0, sizeof(config->cq_modifiers));
+    while (*value) {
+        while (*value == ' ') ++value;
+        const char *begin = value;
+        while (*value && *value != ' ') ++value;
+        size_t length = (size_t)(value - begin);
+        if (!length || length >= FT8_CONFIG_CQ_MODIFIER_CAP) continue;
+        char token[FT8_CONFIG_CQ_MODIFIER_CAP] = {0};
+        for (size_t i = 0; i < length; ++i)
+            token[i] = begin[i] >= 'a' && begin[i] <= 'z' ? begin[i] - 'a' + 'A' : begin[i];
+        if (!ft8_cq_modifier_pack(token, length, NULL)) continue;
+        bool duplicate = false;
+        for (unsigned i = 0; i < config->cq_modifier_count; ++i)
+            if (strcmp(config->cq_modifiers[i], token) == 0) duplicate = true;
+        if (!duplicate && config->cq_modifier_count < FT8_CONFIG_CQ_MODIFIERS_MAX)
+            strcpy(config->cq_modifiers[config->cq_modifier_count++], token);
+    }
+}
+
+const char *config_service_cq_modifier(const ConfigService *config, unsigned index)
+{
+    return config && index > 0 && index <= config->cq_modifier_count
+        ? config->cq_modifiers[index - 1] : "";
 }
 
 static void strip_cr(char *text)
@@ -84,6 +106,7 @@ void config_service_defaults(ConfigService *config)
     config->profile_index = 0;
     config->band_index = 3; /* 20m */
     config->cq_type = FT8_CONFIG_CQ;
+    parse_cq_modifiers(config, "SOTA POTA QRP FD");
     config->offset_src = FT8_OFFSET_RANDOM;
     config->fixed_offset_hz = 1500;
 }
@@ -143,7 +166,12 @@ bool config_service_parse(ConfigService *config, const char *text)
             int parsed_value = atoi(value);
             parsed.max_retry = parsed_value < 0 ? 0 : parsed_value;
         } else if (strcmp(key, "cq_type") == 0) {
-            parsed.cq_type = (Ft8ConfigCqType)clamp_cq_type(atoi(value));
+            char *end;
+            long index = strtol(value, &end, 10);
+            parsed.cq_type = end != value && *end == '\0' && index >= 0 &&
+                             index <= FT8_CONFIG_CQ_MODIFIERS_MAX ? (Ft8ConfigCqType)index : 0;
+        } else if (strcmp(key, "cqtypes") == 0) {
+            parse_cq_modifiers(&parsed, value);
         } else if (strcmp(key, "cq_ft") == 0) {
             if (!copy_checked(parsed.cq_freetext, sizeof(parsed.cq_freetext), value)) return false;
         } else if (strcmp(key, "free_text") == 0) {
@@ -153,6 +181,7 @@ bool config_service_parse(ConfigService *config, const char *text)
         }
     }
 
+    if (parsed.cq_type > parsed.cq_modifier_count) parsed.cq_type = 0;
     *config = parsed;
     return true;
 }
@@ -162,6 +191,11 @@ bool config_service_serialize(const ConfigService *config, char *out, size_t out
     int used;
     if (config == NULL || out == NULL || out_size == 0u) return false;
 
+    char modifiers[FT8_CONFIG_CQ_MODIFIERS_MAX * FT8_CONFIG_CQ_MODIFIER_CAP + 1] = {0};
+    for (unsigned i = 0; i < config->cq_modifier_count; ++i) {
+        if (i) strcat(modifiers, " ");
+        strcat(modifiers, config->cq_modifiers[i]);
+    }
     used = snprintf(out, out_size,
                     "# MiniFT8-V3 setting.txt\n"
                     "callsign=%s\n"
@@ -171,6 +205,7 @@ bool config_service_serialize(const ConfigService *config, char *out, size_t out
                     "skip_tx1=%d\n"
                     "max_retry=%d\n"
                     "cq_type=%u\n"
+                    "cqtypes=%s\n"
                     "cq_ft=%s\n"
                     "free_text=%s\n"
                     "fd_exchange=%s\n"
@@ -184,6 +219,7 @@ bool config_service_serialize(const ConfigService *config, char *out, size_t out
                     config->skip_tx1 ? 1 : 0,
                     config->max_retry,
                     (unsigned)config->cq_type,
+                    modifiers,
                     config->cq_freetext,
                     config->free_text,
                     config->fd_exchange,
@@ -238,7 +274,7 @@ void config_service_set_band(ConfigService *config, int index)
 bool config_service_set_cq_type(ConfigService *config, int value)
 {
     if (config == NULL || value < (int)FT8_CONFIG_CQ ||
-        value > (int)FT8_CONFIG_CQ_FREETEXT) {
+        value > config->cq_modifier_count) {
         return false;
     }
     config->cq_type = (Ft8ConfigCqType)value;

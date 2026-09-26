@@ -175,6 +175,13 @@ Switching to another UIScreen always enters the destination UIScreen at its top 
 
 Use Up/Down to move between pages. Paging wraps around.
 
+Every newly completed RX batch returns the visible RX screen to page 1 and
+selects its first row, including a zero-message batch. Redrawing the same batch
+generation preserves the user's page. A new RX batch while viewing TX or another
+screen does not change that screen's page or selection; returning to RX uses the
+existing page-1 screen-entry rule. The controller exposes factual batch generation
+in `UiModel`; `ui_shell` owns the page/selection reset.
+
 For a three-page UIScreen:
 
 ```text
@@ -228,7 +235,22 @@ Use MiniFT8-V2 TX behavior as the baseline. Detailed V3 content is TODO.
 
 ### O
 
-Use MiniFT8-V2 O-screen behavior as the baseline. Detailed V3 content is TODO.
+`O -> 4 -> 1` selects the CQ type. Plain `CQ` is always first, followed by
+the ordered modifiers configured in MiniFT8 `setting.txt`:
+
+```text
+cqtypes=POTA SOTA DX 250
+cq_type=2
+```
+
+This list cycles `CQ`, `CQ POTA`, `CQ SOTA`, `CQ DX`, `CQ 250`; the example
+selects `CQ SOTA`. Left selects the previous entry, Right and Enter select the
+next, and navigation wraps. The current row renders `CQ Type: <choice>` and
+the selected index is saved through the normal settings path.
+
+The UI receives display text, index and option count; it does not interpret
+modifier names or own the configured list. Beacon OFF/EVEN/ODD behavior is
+unchanged. T082 software implementation awaits ADV manual acceptance.
 
 ### S
 

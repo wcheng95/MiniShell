@@ -52,7 +52,6 @@ typedef enum { UI_RX_NORMAL = 0, UI_RX_CQ, UI_RX_TO_ME } UiRxKind;
 typedef enum { UI_COLOR_DEFAULT = 0, UI_COLOR_WHITE, UI_COLOR_GREEN, UI_COLOR_RED } UiColor;
 
 /* Presentation values keep policy/configuration headers out of ui_shell. */
-typedef enum { UI_CQ, UI_CQ_POTA, UI_CQ_UNAVAILABLE } UiCqType;
 typedef enum { UI_BEACON_OFF, UI_BEACON_EVEN, UI_BEACON_ODD } UiBeaconMode;
 
 typedef struct {
@@ -62,7 +61,9 @@ typedef struct {
     int band_index;
     int band_count;
     char band_name[8];
-    UiCqType cq_type;
+    unsigned cq_index;
+    unsigned cq_option_count;
+    char cq_text[8];
     UiBeaconMode beacon_mode;
     bool skip_tx1;
     int max_retry;
@@ -89,6 +90,7 @@ typedef struct {
     char rx_lines[APP_MAX_RX_LINES][UI_TEXT_CAP];
     UiRxKind rx_kind[APP_MAX_RX_LINES];
     size_t rx_count;
+    uint64_t rx_generation;
     char tx_lines[APP_MAX_TX_LINES][UI_TEXT_CAP];
     size_t tx_count;
 } UiModel;

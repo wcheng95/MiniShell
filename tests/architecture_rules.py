@@ -98,6 +98,13 @@ APP_RULES = {
 }
 
 
+# Shared standard-message CQ grammar, extracted from the codec for T082.
+# Keep this edge limited to the pure token helper rather than UI shared types.
+APP_RULES["ft8"]["module_paths"]["cq_token"] = ("include/ft8/cq_token.h",)
+APP_RULES["ft8"]["allowed"]["cq_token"] = {"cq_token"}
+for module in ("config_service", "auto_seq", "ft8_engine"):
+    APP_RULES["ft8"]["allowed"][module].add("cq_token")
+
 APP_RULES["ft8"]["module_paths"]["tools"] = ("tools",)
 APP_RULES["ft8"]["allowed"]["tools"] = {"tools", "ft8_engine"}
 APP_RULES["ft8"]["api_modules"] = {
