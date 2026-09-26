@@ -250,7 +250,7 @@ the selected index is saved through the normal settings path.
 
 The UI receives display text, index and option count; it does not interpret
 modifier names or own the configured list. Beacon OFF/EVEN/ODD behavior is
-unchanged. T082 software implementation awaits ADV manual acceptance.
+unchanged. T082 is hardware accepted on ADV.
 
 ### S
 
