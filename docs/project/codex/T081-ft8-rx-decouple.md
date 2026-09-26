@@ -1,6 +1,6 @@
 # T081 — MiniFT8 live RX capture/decode decoupling
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -680,3 +680,29 @@ and normal physical RX/TX recovery.
 
 If any invariant diagnostic appears during hardware testing, stop and debug that
 condition. Do not add buffering, backpressure, or slot dropping to hide it.
+
+
+## Architect hardware acceptance
+
+ADV + QMX live hardware validation passed on 2026-09-25.
+
+The architect reports the decoupled RX behavior worked correctly in live use:
+capture continued on its UTC schedule, consecutive receive opportunities were
+preserved, and the prior held-RX-slot symptom was no longer observed.
+
+Result: **PASS. T081 COMPLETE.**
+
+The accepted production rule is now:
+
+```text
+UTC -1.60 s    reset/fill the slot-local waterfall
+UTC +12.64 s   start that slot's decode
+repeat every slot
+
+capture never waits for decode/result state
+late decoder/result state is an invariant fault, not backpressure
+live Audio discontinuity does not cancel decode or redefine slot timing
+```
+
+Future early/partial result delivery and deep-decoding work must preserve this
+capture/decode decoupling.
