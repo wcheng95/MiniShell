@@ -70,8 +70,8 @@ QMX USB-UAC
        stereo -> mono
        12 kHz -> 6 kHz
     -> RxSlotFramer
-       UTC establishes initial slot phase
-       sample count owns progression
+       UTC schedules each live slot
+       sample count frames producer blocks
        960 samples/block
     -> Ft8Engine
        monitor / waterfall
@@ -159,21 +159,33 @@ complete 960 blocks      93
 slot-end remainder       720 samples
 ```
 
-Live behavior:
+Live behavior (T081 software implementation; ADV/QMX acceptance pending):
 
 ```text
-UTC slot boundary
-    -> begin waterfall
-    -> process one 960-sample block at a time
-    -> decode immediately after block 79 / 12.64 s
-    -> reset waterfall only
-       preserve FFT sample history
-    -> continue consuming audio through 15.0 s
-    -> discard the final partial 720-sample block
-    -> begin next slot
+UTC - 1.60 s    reset slot-local waterfall writer and FFT history
+UTC            anchor this slot's decode view
+UTC + 12.64 s  submit this slot's decode
+next -1.60 s   reset producer independently of decode/result state
 ```
 
-The first partial slot after stream start or discontinuity is discarded. `Ft8Engine` never reads wall-clock time directly.
+UTC drives each action, including decode submission when missing Audio samples
+leave the current waterfall incomplete. Capture never waits for decode or result
+publication. ADV retains one core-1 worker and one `protocol_messages[50]`
+buffer. A completed result is consumed promptly into an `RxBatch`; a completed
+zero-message slot advances the batch/display generation and clears RX rows.
+
+A prior RUNNING decode or READY result at the next decode trigger is an explicit
+invariant failure, with the previous slot and elapsed time/result age reported.
+It fails the RX step rather than silently dropping the new slot. An unusually
+late decoder may read waterfall data overwritten by the next producer; this can
+reduce yield without delaying capture.
+
+Live Audio discontinuities reset frontend conversion only. They neither cancel
+decode nor reacquire timing; the next UTC capture reset recovers the producer.
+Startup waits for the next capture opportunity. Intentional physical-TX
+pause/resume retains its existing cancellation and timing reinitialization.
+`Ft8Engine` never reads wall-clock time directly; producer resets do not clear
+decode jobs, and callsign-hash aging belongs to accepted decode-slot progression.
 
 ## Live QMX commands
 

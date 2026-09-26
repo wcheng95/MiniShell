@@ -99,9 +99,6 @@ Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id)
     if (!engine->initialized)
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
 
-    if (engine->slot_anchor_valid && engine->pending_hash_ages != UINT32_MAX)
-        ++engine->pending_hash_ages;
-
     /* Explicit/offline compatibility can arrive at a UTC boundary with
      * arbitrary pre-boundary history still in the 93-block linear buffer.
      * Reserve a complete 79-block FT8 decode window from the new anchor.
@@ -138,14 +135,6 @@ Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine)
 
     ft8_monitor_reset_stream(&engine->monitor);
     engine->slot_anchor_valid = 0;
-    engine->decode_active = 0;
-    engine->decode_search_active = 0;
-    memset(&engine->decode_search, 0, sizeof(engine->decode_search));
-    memset(&engine->decode_search_waterfall, 0, sizeof(engine->decode_search_waterfall));
-    engine->decode_candidate_count = 0u;
-    engine->decode_next_candidate = 0u;
-    engine->decode_noise_ready = 0;
-    memset(&engine->decode_slot, 0, sizeof(engine->decode_slot));
     return FT8_ENGINE_OK;
 }
 
@@ -318,12 +307,17 @@ static Ft8EngineStatus decode_one_candidate(Ft8Engine *engine,
     return FT8_ENGINE_OK;
 }
 
-static void apply_pending_hash_ages(Ft8Engine *engine)
+/* Only decode ownership advances hash age; producer anchors never touch it. */
+static void age_decode_hashes(Ft8Engine *engine, int64_t slot_id)
 {
-    while (engine->pending_hash_ages > 0u) {
-        ft8_hash_store_age_slot(&engine->hash_store);
-        --engine->pending_hash_ages;
+    if (engine->hash_slot_valid && slot_id > engine->hash_slot_id) {
+        uint64_t elapsed = (uint64_t)slot_id - (uint64_t)engine->hash_slot_id;
+        if (elapsed > UINT8_MAX) elapsed = UINT8_MAX;
+        while (elapsed-- > 0u)
+            ft8_hash_store_age_slot(&engine->hash_store);
     }
+    engine->hash_slot_id = slot_id;
+    engine->hash_slot_valid = 1;
 }
 
 Ft8EngineStatus ft8_engine_start_decode(
@@ -347,7 +341,7 @@ Ft8EngineStatus ft8_engine_start_decode(
                                      &waterfall) != FT8_MONITOR_OK)
         return FT8_ENGINE_ERR_INTERNAL;
 
-    apply_pending_hash_ages(engine);
+    engine->decode_hash_aged = 0;
     engine->decode_slot_id = engine->slot_id;
     engine->decode_anchor_seq = engine->slot_anchor_seq;
     engine->decode_search_waterfall = waterfall;
@@ -379,6 +373,11 @@ Ft8EngineStatus ft8_engine_decode_step(Ft8Engine *engine,
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
     if (!engine->decode_active)
         return FT8_ENGINE_ERR_STATE;
+
+    if (!engine->decode_hash_aged) {
+        age_decode_hashes(engine, engine->decode_slot_id);
+        engine->decode_hash_aged = 1;
+    }
 
     if (engine->decode_search_active) {
         size_t candidate_count = 0u;
@@ -475,7 +474,7 @@ Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
     if (!engine->slot_anchor_valid || engine->decode_active)
         return FT8_ENGINE_ERR_STATE;
 
-    apply_pending_hash_ages(engine);
+    age_decode_hashes(engine, engine->slot_id);
     ft8_protocol_slot_init(out_slot,
                            engine->slot_id,
                            message_storage,

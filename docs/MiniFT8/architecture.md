@@ -238,6 +238,25 @@ Hardware/OS transport conversion belongs below the MiniShell Audio API. The chec
 
 If the FT8 decoder requires a different internal representation, such as 6 kHz mono float, that DSP conversion belongs inside MiniFT8, not MiniShell.
 
+### Live RX capture/decode ownership (T081)
+
+The controller schedules each live slot from UTC: producer reset at -1.60 s,
+anchor at UTC, and decode submission at +12.64 s. Audio discontinuities may reset
+frontend conversion but do not cancel decode or restart this schedule.
+
+The producer owns monitor/FFT state and slot anchors. Its resets never clear a
+decode job. The ADV core-1 worker owns candidate search, noise estimation,
+LDPC/CRC, message decode and hash aging based on accepted decode-slot progression.
+The intentional shared input is the linear waterfall view; a late reader may see
+later producer writes without affecting capture timing.
+
+The single `protocol_messages[50]` buffer remains owned by the completed slot
+until the controller builds/publishes its `RxBatch`. RUNNING or unconsumed READY
+at the following decode trigger is an invariant fault, distinguished by prior
+slot and elapsed time/result age. No result queue, extra message buffer or silent
+slot-dropping policy is introduced. Intentional physical-TX cancellation and
+resume remain separate from live transport discontinuities.
+
 ### 5.3 TX ownership
 
 For future physical audio-based TX, MiniFT8 will own protocol waveform synthesis and channel mapping:

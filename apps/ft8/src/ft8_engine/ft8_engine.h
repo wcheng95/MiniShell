@@ -63,10 +63,12 @@ typedef struct {
     Ft8EngineConfig config;
     Ft8Monitor monitor;
     Ft8HashStore hash_store;
-    uint32_t pending_hash_ages;
+    int hash_slot_valid;
+    int64_t hash_slot_id;
 
     /* One decode job at a time, with bounded search work before LDPC. */
     int decode_active;
+    int decode_hash_aged;
     int decode_search_active;
     int64_t decode_slot_id;
     uint64_t decode_anchor_seq;
@@ -100,7 +102,7 @@ Ft8EngineStatus ft8_engine_begin_window(Ft8Engine *engine, int64_t slot_id);
  * monitor; an already-running decode keeps its copied linear waterfall view. */
 Ft8EngineStatus ft8_engine_reset_window(Ft8Engine *engine);
 
-/* Reset DSP continuity after a real stream discontinuity. */
+/* Reset producer DSP/anchor only. Never cancels or clears a decode job. */
 Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine);
 
 /* Process exactly one continuous 960-sample / 6 kHz mono-float block. */

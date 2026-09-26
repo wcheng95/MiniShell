@@ -1,6 +1,6 @@
 # T081 — MiniFT8 live RX capture/decode decoupling
 
-Status: READY
+Status: REVIEW
 
 ## Architect intent
 
@@ -486,3 +486,128 @@ message delivery or deep decoding.
 
 Use one reviewable implementation commit. Do not merge to `main` and do not
 open a PR unless asked.
+
+## Codex implementation handoff
+
+### Implementation summary
+
+Live capture reset, UTC anchoring, and decode submission are now independent
+UTC actions. The scheduler splits input chunks at -1.60 s, UTC, and +12.64 s;
+live framer block-count notifications no longer independently anchor/submit.
+This also preserves a damaged slot's decode trigger when missing transport
+samples leave its waterfall short. Offline explicit-timing framing is retained.
+
+Producer stream reset no longer cancels/clears an engine decode job. Capture
+reset and anchoring never mutate callsign hashes. The first worker step ages
+hashes from accepted decode-slot progression (elapsed ages saturate at 255),
+with the synchronous tool path following the same rule.
+
+The existing atomic handoff enum is retained: RESULT explicitly means execution
+has finished but the single protocol message buffer remains owned until
+publication. No extra message buffer, queue, or deep copy was added. The main
+RX step consumes completed results before reading more Audio and again after
+the drain. A RUNNING job or READY result at a subsequent trigger fails the RX
+step with an unconditional `FT8D INVARIANT` diagnostic containing the attempted
+slot, prior slot, and decode elapsed time or result age respectively.
+
+Live discontinuities reset frontend conversion only. Startup, offline stream
+reset and intentional physical-TX pause/resume retain timing initialization;
+intentional TX cancellation remains intact. Normal ADV diagnostic events are
+`CAPTURE_RESET`, `DECODE_START`, `DECODE_DONE`, and `RESULT_PUBLISH`.
+
+### Files changed
+
+- `apps/ft8/src/app_controller/app_controller.c`: UTC submission, fault
+  diagnostics, publication ordering, live discontinuity policy.
+- `apps/ft8/src/ft8_engine/ft8_engine.[ch]`: producer-only reset semantics and
+  decoder-owned hash aging.
+- `tests/ft8_rx_lifecycle_test.c` and `CMakeLists.txt`: new production-stack
+  regression using the ADV 2x1 profile and deterministic worker scheduling.
+- `docs/MiniFT8/README.md`, `development.md`, `architecture.md`: current timing
+  and ownership contracts, with hardware acceptance explicitly pending.
+- This task packet: implementation and validation handoff.
+
+### Behavior/invariants preserved
+
+- 6 kHz, 960-sample blocks, -1.60 s reset, +12.64 s decode, ADV 2x1 geometry,
+  50 candidates, FFT/search/LDPC/SNR mathematics unchanged.
+- One ADV core-1 worker and the existing single `protocol_messages[50]` storage.
+- Empty results advance batch/display generations and clear old RX rows.
+- Public MiniShell APIs, AutoSeq, UI layout, CAT/TX policy and intentional
+  physical-TX pause/resume are unchanged.
+- No platform dependencies or heap allocations introduced into pure modules.
+- No architectural deviations. The UTC-trigger split is needed to satisfy the
+  packet's damaged-slot contract as well as removal of the busy-skip lifecycle.
+
+### Tests run and results
+
+```text
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+    Initial run PASS: 127/127 (61.00 s).
+    Final run: 126/127 (61.11 s); unchanged linux_serial_unit line 67 failed.
+    All FT8 golden/reference, lifecycle and physical-TX regressions passed.
+
+ctest --test-dir build-linux -R '^linux_serial_unit$' --output-on-failure
+    PASS: 1/1 on the focused check after the final suite failure.
+
+ctest --test-dir build-linux -R 'ft8_rx_(lifecycle|discontinuity|adv_profile)|ft8_engine_rx1g' --output-on-failure
+    PASS: 4/4.
+
+cmake -S tests/unit -B /tmp/T081-unit
+cmake --build /tmp/T081-unit -j8
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir /tmp/T081-unit --output-on-failure
+    PASS: 29/29.
+
+python3 tests/app_dependency_boundary.py . ft8
+python3 tests/app_platform_boundary.py . ft8
+python3 tests/ft8_platform_boundary.py .
+python3 tests/architecture_rules.py .
+    PASS: all four commands.
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+    PASS: firmware built; 78% of smallest app partition free.
+
+git diff --check
+    PASS.
+```
+
+The new regression proves five consecutive reset/decode/done/publication slot
+sequences, active decode spanning the next reset and UTC anchor, unchanged
+worker view/hash state during producer actions, frontend-only discontinuity
+handling, UTC submission despite missing samples, next-slot recovery, READY
+spanning a reset, distinct late-RUNNING/late-READY failures with exact prior-slot
+and 15000-ms diagnostics, producer stream reset retaining a job, empty-result
+batch/display clearing, and prompt publication despite an Audio timeout.
+Existing explicit-timing discontinuity tests remain unchanged and pass.
+
+### Hardware/manual validation still required
+
+ADV + QMX active-band run covering quiet/busy slots, bounded per-slot diagnostics,
+zero-message display clearing, decode across capture reset, and normal physical
+RX/TX recovery. No hardware was flashed or RF test performed in this handoff.
+Stop acceptance and investigate if an invariant diagnostic occurs.
+
+### Known limitations or risks
+
+The final full-suite run reproduced the previously observed serial PTY timeout
+flake at `tests/linux_serial_test.c:67` (`write(...) == MINI_ERR_TIMEOUT &&
+n == 0`); both the initial full run and the subsequent focused check passed.
+The serial test/backend/service/public API files match base main exactly. No
+serial test or implementation was changed to accommodate this failure.
+
+A late decoder can still read waterfall bytes overwritten by the following
+producer, as explicitly allowed by this packet; yield may degrade. The tests
+hold worker steps deterministically and do not replace multicore/hardware
+validation. Device disappearance/re-enumeration remains outside T081. UTC
+scheduling is serviced by incoming live Audio chunks, as in the existing design;
+this task does not add a separate timer or transport recovery policy.
+
+### Commit reference
+
+One implementation commit titled `T081: decouple FT8 live capture and decode`
+on `codex/T081-ft8-rx-decouple`, based on current main
+`4238191af6a2553f0feb7385317eb80942eb791d`. The pushed SHA is supplied in the
+Codex handoff; main is not merged and no PR is opened.

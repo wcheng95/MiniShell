@@ -494,6 +494,13 @@ target_include_directories(ft8_rx_discontinuity_unit PRIVATE ${FT8_DISCONTINUITY
 target_link_libraries(ft8_rx_discontinuity_unit PRIVATE m)
 target_compile_options(ft8_rx_discontinuity_unit PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(ft8_rx_lifecycle_unit tests/ft8_rx_lifecycle_test.c ${FT8_DISCONTINUITY_SOURCES})
+target_include_directories(ft8_rx_lifecycle_unit PRIVATE ${FT8_DISCONTINUITY_INCLUDES})
+target_compile_definitions(ft8_rx_lifecycle_unit PRIVATE FT8_DEFAULT_FREQ_OSR=1)
+target_link_libraries(ft8_rx_lifecycle_unit PRIVATE m)
+target_compile_options(ft8_rx_lifecycle_unit PRIVATE -Wall -Wextra -Wpedantic -UNDEBUG)
+add_test(NAME ft8_rx_lifecycle_unit COMMAND ft8_rx_lifecycle_unit)
+
 add_executable(ft8_rx_adv_profile_unit tests/ft8_rx_discontinuity_test.c ${FT8_DISCONTINUITY_SOURCES})
 target_include_directories(ft8_rx_adv_profile_unit PRIVATE ${FT8_DISCONTINUITY_INCLUDES})
 target_compile_definitions(ft8_rx_adv_profile_unit PRIVATE FT8_DEFAULT_FREQ_OSR=1 FT8_TEST_EXPECT_FREQ_OSR=1)

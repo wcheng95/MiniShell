@@ -100,7 +100,7 @@ RxFrontend
         v
 RxSlotFramer
 960-sample blocks
-UTC initial phase + sample-count progression
+UTC live scheduling + sample-count block framing
         |
         v
 Ft8Engine
@@ -145,18 +145,23 @@ At 6 kHz:
 79 * 960 = 75840 samples = 12.64 s
 ```
 
-V2-compatible live behavior:
+Live capture resets the slot-local writer/FFT at UTC -1.60 s and submits
+decode at UTC +12.64 s. T081 makes both recurring actions independent of the
+previous decoder/result lifecycle and of lost Audio samples. The controller
+supplies UTC; the engine remains clock-free.
 
-```text
-0.00 s     begin slot/waterfall
-12.64 s    decode current waterfall
-            reset waterfall count only
-            preserve FFT history
-15.00 s    discard incomplete 720-sample tail block
-            begin next slot
-```
+ADV retains one core-1 decoder and one completed-result message buffer. Capture
+can cross a RUNNING decode or READY result at its next reset. At the next decode
+trigger, either condition is an invariant failure with prior-slot/time diagnostics,
+not a supported slot-dropping policy. Live discontinuities reset frontend
+conversion without canceling decode or reinitializing the slot schedule.
+Producer reset and decoder cancellation are separate operations; callsign-hash
+aging runs in decoder ownership. Physical TX pause/resume is preserved.
 
-The first partial slot after stream start/discontinuity is discarded. After timing is established, sample count owns progression.
+Bounded ADV diagnostics (`FT8_DECODE_DIAGNOSTICS`) identify `CAPTURE_RESET`,
+`DECODE_START`, `DECODE_DONE`, and `RESULT_PUBLISH` by slot. Invariant diagnostics
+are emitted regardless of that build flag. T081 software validation and pending
+ADV/QMX acceptance are recorded in its task packet.
 
 ## Stage status
 
@@ -265,7 +270,7 @@ Slot:
 90000 total 6 kHz samples
 75840 samples to V2 decode-ready point
 93 complete 960-sample blocks in full slot
-720 slot-end samples discarded
+live writer resets at the next UTC -1.60 s
 ```
 
 `Ft8Engine` does not own or read a clock.
@@ -540,7 +545,7 @@ Detailed `rx-*` and `as-*` documents are historical implementation records and r
 ## Deferred follow-up boundaries
 
 The first complete Linux/QMX QSO and the physical transmitter lifecycle are done.
-T027 non-standard/hash TX, T028 RX display ordering, T029 RX display lifetime, T031 live QMX band CAT synchronization, and T032 V -> 3 current-day QSO display are complete. No new task is active.
+T027 non-standard/hash TX, T028 RX display ordering, T029 RX display lifetime, T031 live QMX band CAT synchronization, and T032 V -> 3 current-day QSO display are complete. T081 RX lifecycle decoupling is in software review; hardware acceptance remains pending.
 
 Deferred items:
 
