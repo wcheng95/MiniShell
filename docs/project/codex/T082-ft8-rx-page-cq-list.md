@@ -1,6 +1,6 @@
 # T082 — MiniFT8 RX page reset + configurable CQ modifier list
 
-Status: TESTING
+Status: COMPLETE
 
 ## Architect intent
 
@@ -634,3 +634,34 @@ full Linux run passed 128/128.
 
 Remaining gate: ADV manual validation of RX page reset, ordered CQ-type
 navigation, persistence across FT8 restart, and normal CQ encoding behavior.
+
+
+## Architect hardware acceptance
+
+ADV manual validation passed on 2026-09-25.
+
+Confirmed on hardware:
+
+- a newly completed RX batch returns the visible RX screen to page 1;
+- `cqtypes=POTA SOTA DX 250` appears and cycles in the configured order after
+  plain `CQ`;
+- the selected CQ type persists across FT8 exit/re-entry;
+- normal FT8 operation remains intact.
+
+Result: **PASS. T082 COMPLETE.**
+
+The accepted baseline is:
+
+```text
+new RxBatch generation -> RX page 1
+
+cqtypes=POTA SOTA DX 250
+choices:
+CQ
+CQ POTA
+CQ SOTA
+CQ DX
+CQ 250
+```
+
+Invalid configured modifiers remain ignored according to the FT8 CQ-token grammar.
