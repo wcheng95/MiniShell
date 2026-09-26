@@ -64,6 +64,7 @@ T031 live QMX band CAT sync             COMPLETE — 1 s debounce, hardware vali
 T032 V -> 3 current-day QSO view        COMPLETE — compact ADIF pages, hardware validated
 T049 color status                        COMPLETE — ADV TX bar + RX row colors
 T050 RX/TX bare page shortcuts           COMPLETE — `;` previous / `.` next
+T083 CAT fault containment                COMPLETE — sustained ADV/QMX validation
 ```
 
 Working live Linux/QMX command:
@@ -186,6 +187,7 @@ T021        COMPLETE — pure FT8 TX encoder + immutable 79-tone plan
 T022        COMPLETE — integrated physical QMX FT8 TX + RX recovery + RxTxLog
 T023        COMPLETE — CQ/CQ POTA + beacon OFF/EVEN/ODD
 T082        COMPLETE — RX page reset on new batch + configurable cqtypes list
+T083        COMPLETE — CAT fault containment + sole-owner CDC transport
 T024        COMPLETE — Random/Fixed/RX TX-offset source
 T026        COMPLETE — temporary GRID-coded RR73 -> TX4 compatibility fix
 T027        COMPLETE — V2-compatible non-standard/hash TX + type-4 plain CQ
@@ -548,6 +550,24 @@ The first complete Linux/QMX QSO and the physical transmitter lifecycle are done
 T027 non-standard/hash TX, T028 RX display ordering, T029 RX display lifetime, T031 live QMX band CAT synchronization, T032 V -> 3 current-day QSO display, and T081 RX lifecycle decoupling are complete.
 
 Deferred items:
+
+### Deferred non-critical blocking/performance leads
+
+Post-T083 screening identified the following as useful future diagnostic/performance
+leads, not current correctness blockers:
+
+- RxTxLog is synchronous on the FT8 task and currently performs open/write/sync/close
+  per decoded message; TX RT logging also precedes key-up.
+- ADIF/Cabrillo commits and current-day QSO view reads are synchronous filesystem
+  work on the FT8 task.
+- ADV diagnostic output is serialized through a shared output lock/UART path used
+  by both core-0 FT8 and the core-1 decode worker.
+- Some failure-cleanup joins retain unbounded post-timeout suspension waits.
+
+Do not optimize these without measured evidence. Prefer local best-effort recovery
+for discontinuities/skips and preserve strict blocking only for unknown RF/TX state
+or genuine internal invariants.
+
 
 ```text
 RR73 ambiguity
