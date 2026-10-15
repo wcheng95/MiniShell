@@ -551,22 +551,58 @@ T027 non-standard/hash TX, T028 RX display ordering, T029 RX display lifetime, T
 
 Deferred items:
 
-### Deferred non-critical blocking/performance leads
+### Active-band field follow-up — V2 fidelity decisions
 
-Post-T083 screening identified the following as useful future diagnostic/performance
-leads, not current correctness blockers:
+A busy-band ADV/QMX field test produced many healthy slots, including more than
+13 decoded messages in a slot, but also intermittent slots with zero decoded
+messages despite clearly active FT8 signals. Long decode execution extending into
+the following slot is not itself considered a failure; the zero-decode slots are
+the correctness symptom to investigate.
 
-- RxTxLog is synchronous on the FT8 task and currently performs open/write/sync/close
-  per decoded message; TX RT logging also precedes key-up.
+A pinned-V2 versus current-V3 audit confirmed that the core FT8 decode mathematics
+are already substantially V2-equivalent: 6 kHz engine rate, 200-2900 Hz analysis,
+time_osr=2, freq_osr=1, 50 candidates, minimum sync score 5, strongest-first
+candidate ordering, BP-LDPC, and 25 maximum LDPC iterations. The remaining
+differences are primarily runtime RX/decode scheduling and surrounding I/O policy.
+
+The architect has approved the following future fix/improvement work:
+
+1. **Restore V2 decoder scheduling — APPROVED.**
+   Keep the ADV decoder on core 1, restore the V2-style higher decode urgency
+   (priority 4 rather than the current priority 1), and remove deliberate
+   per-work-unit/per-candidate yielding. Preserve the V3/MiniShell ownership
+   boundary and do not alter candidate count, LDPC parameters, decoder math, or
+   add speculative priority schemes as part of this restoration.
+
+2. **Restore V2 RxTxLog durability policy — APPROVED.**
+   V2 RX/TX trace append uses normal append/close without per-record flash sync.
+   V3 currently performs open/write/sync/close for each decoded RX message.
+   Restore V2 best-effort RT trace durability so optional traffic logging cannot
+   outrank waterfall/RX work. This decision applies to RxTxLog; it does not
+   weaken the separate ADIF/Cabrillo QSO-commit durability contract.
+
+3. **Restore V2 block normalization — POSTPONED.**
+   V2 scales each 960-sample FFT input block toward a bounded nominal level before
+   monitor processing. V3 does not currently do this. Do not implement it yet;
+   retain it as a V2-fidelity option after the RX/FFT path is reviewed.
+
+These are design decisions, not implementation task packets yet. RX/FFT transport,
+timing, buffering, waterfall production and ownership remain open for the next
+architecture discussion before task numbering/scope is frozen.
+
+### Other deferred non-critical blocking/performance leads
+
+The post-T083 audit also identified the following future diagnostic/performance
+leads:
+
 - ADIF/Cabrillo commits and current-day QSO view reads are synchronous filesystem
   work on the FT8 task.
 - ADV diagnostic output is serialized through a shared output lock/UART path used
   by both core-0 FT8 and the core-1 decode worker.
 - Some failure-cleanup joins retain unbounded post-timeout suspension waits.
 
-Do not optimize these without measured evidence. Prefer local best-effort recovery
-for discontinuities/skips and preserve strict blocking only for unknown RF/TX state
-or genuine internal invariants.
+Prefer local best-effort recovery for discontinuities/skips and preserve strict
+blocking only for unknown RF/TX state or genuine internal invariants.
 
 
 ```text
