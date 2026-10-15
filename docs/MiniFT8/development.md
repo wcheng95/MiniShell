@@ -590,6 +590,51 @@ These are design decisions, not implementation task packets yet. RX/FFT transpor
 timing, buffering, waterfall production and ownership remain open for the next
 architecture discussion before task numbering/scope is frozen.
 
+#### RX/FFT direction agreed after the V2 audit
+
+The preferred direction restores the simple V2 slot-local capture window while
+keeping V3's lifecycle decoupling:
+
+```text
+UTC +0.00 s
+    new slot owns capture
+    reset slot-local audio/framer/FFT/waterfall state
+
+0.00 .. 12.64 s
+    consume 79 x 960 samples at 6 kHz
+    capture + FFT/waterfall have priority over optional application work
+
+UTC +12.64 s
+    waterfall is decode-ready
+    submit decode on core 1
+
+12.64 .. 15.00 s
+    decoder normally finishes inside the remaining 2.36 s
+    transport acquisition may continue/drain independently
+
+next UTC boundary
+    next slot takes capture ownership immediately
+    reset slot-local capture/waterfall state regardless of prior decode state
+```
+
+Do not restore the V3 -1.60 s preroll/continuous-waterfall schedule unless later
+evidence requires it. Candidate search may retain V2-compatible negative time
+offset handling with unavailable pre-slot rows, as V2 did.
+
+Physical QMX UAC acquisition remains continuous below the MiniShell Audio API.
+"Reset at the slot boundary" means reset/discard the slot-local consumer state;
+do not tear down or physically restart USB/UAC. Prefer continuously draining or
+explicitly discarding non-capture-period audio so stale ring backlog cannot be
+mistaken for the next slot's first samples.
+
+A late previous decode is subordinate to the new slot. Crossing the UTC boundary
+must not delay or invalidate new-slot capture. If a prior decode is still RUNNING
+or has an unconsumed result at the following slot's decode trigger, treat it as a
+stale performance overrun to cancel/drop in favor of the current slot rather than
+terminating the FT8 application. The exact cancellation/data-handoff mechanism is
+still an implementation detail; do not add extra waterfall buffering unless
+measurement shows it is necessary.
+
 ### Other deferred non-critical blocking/performance leads
 
 The post-T083 audit also identified the following future diagnostic/performance
