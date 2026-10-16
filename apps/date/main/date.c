@@ -33,10 +33,10 @@ static int days_in_month(int year, int month)
 
 static int parse_date_text(const char *text, int *year, int *month, int *day)
 {
-    if (text == NULL || strlen(text) != 10u || text[4] != '-' || text[7] != '-') return 0;
+    if (text == NULL || strlen(text) != 8u) return 0;
     int y = decimal4(text);
-    int m = decimal2(text + 5);
-    int d = decimal2(text + 8);
+    int m = decimal2(text + 4);
+    int d = decimal2(text + 6);
     if (y < 1970 || y > 9999 || m < 1 || m > 12 || d < 1 || d > days_in_month(y, m)) return 0;
     *year = y;
     *month = m;
@@ -46,10 +46,10 @@ static int parse_date_text(const char *text, int *year, int *month, int *day)
 
 static int parse_time_text(const char *text, int *hour, int *minute, int *second)
 {
-    if (text == NULL || strlen(text) != 8u || text[2] != ':' || text[5] != ':') return 0;
+    if (text == NULL || strlen(text) != 6u) return 0;
     int h = decimal2(text);
-    int m = decimal2(text + 3);
-    int s = decimal2(text + 6);
+    int m = decimal2(text + 2);
+    int s = decimal2(text + 4);
     if (h < 0 || h > 23 || m < 0 || m > 59 || s < 0 || s > 59) return 0;
     *hour = h;
     *minute = m;
@@ -139,27 +139,51 @@ int main(int argc, char **argv)
 
     if (argc == 1) return read_and_print(api);
 
-    int year, month, day, hour, minute, second;
-    int valid = 0;
-    if (argc == 2 && strlen(argv[1]) == 19u && argv[1][10] == 'T') {
-        char date_part[11];
-        memcpy(date_part, argv[1], 10u);
-        date_part[10] = '\0';
-        valid = parse_date_text(date_part, &year, &month, &day) &&
-                parse_time_text(argv[1] + 11, &hour, &minute, &second);
-    } else if (argc == 3) {
-        valid = parse_date_text(argv[1], &year, &month, &day) &&
-                parse_time_text(argv[2], &hour, &minute, &second);
+    int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+    int have_date = 0, have_time = 0;
+    int valid = argc == 2 || argc == 3;
+    for (int i = 1; valid && i < argc; ++i) {
+        if (!have_date && parse_date_text(argv[i], &year, &month, &day)) {
+            have_date = 1;
+        } else if (!have_time && parse_time_text(argv[i], &hour, &minute, &second)) {
+            have_time = 1;
+        } else {
+            valid = 0;
+        }
     }
 
     if (!valid) {
-        api->console->write("usage: date [YYYY-MM-DD HH:MM:SS]\n");
+        api->console->write("usage: date [YYYYMMDD] [HHMMSS] (either order)\n");
         return 2;
     }
     if ((api->time_location->capabilities & MINI_TIMELOC_CAP_SET_UTC) == 0u ||
         api->time_location->utc_set == NULL) {
         api->console->write("date: setting time unsupported\n");
         return 1;
+    }
+
+    if (!have_date || !have_time) {
+        mini_utc_time_t now = {.struct_size = sizeof(now)};
+        if (api->time_location->utc_get(&now) != MINI_OK) {
+            api->console->write("date: time unavailable\n");
+            return 1;
+        }
+        int64_t days = now.unix_seconds / 86400;
+        int64_t sod = now.unix_seconds % 86400;
+        if (sod < 0) {
+            sod += 86400;
+            --days;
+        }
+        if (!have_date) {
+            unsigned m, d;
+            civil_from_days(days, &year, &m, &d);
+            month = (int)m;
+            day = (int)d;
+        } else {
+            hour = (int)(sod / 3600);
+            minute = (int)((sod % 3600) / 60);
+            second = (int)(sod % 60);
+        }
     }
 
     int64_t seconds;

@@ -1,6 +1,6 @@
 # T085 — Compact and order-independent `date` setter
 
-Status: READY
+Status: REVIEW
 
 ## Intent
 
@@ -125,7 +125,6 @@ Examples that must fail:
 ```text
 date 2026-10-15
 date 14:30:12
-date 202610
 date 1430
 date 20260229
 date 240000
@@ -134,6 +133,9 @@ date 20261015 20261016
 date 143000 154000
 date 20261015 143000 extra
 ```
+
+Architect clarification: classify exactly eight digits as a date and exactly
+six digits as a time. `date 202610` is valid and sets 20:26:10.
 
 Leap-day example that must succeed:
 
@@ -289,3 +291,66 @@ Hardware/manual validation still required
 Known limitations or risks
 Commit reference
 ```
+
+## Codex handoff
+
+### Implementation summary
+
+Compact eight-digit dates and six-digit times are validated and accepted in
+either order. Single operands preserve the unspecified half from exactly one
+UTC snapshot. Successful setters read back and print UTC. The architect
+confirmed `202610` is valid (20:26:10); its erroneous invalid example was
+corrected. Old punctuated forms are removed.
+
+### Files changed
+
+- `apps/date/main/date.c`: compact parsing and snapshot-based partial setters.
+- `tests/date_test.c`: real portable app with fake Console and Time/Location;
+  grammar, date/time bounds, leap days, snapshot preservation, capability and
+  API failures, and readback output.
+- `CMakeLists.txt`: focused host test target and CTest registration.
+- `tests/linux_resources.py`: use compact setter syntax; retain existing output
+  and non-persistence assertions. This additional test file encoded the removed
+  syntax and required a narrow update.
+- This task packet: clarified example and implementation/test evidence.
+
+### Behavior/invariants preserved
+
+Public MiniShell APIs only; no heap, backend, RTC, public API, output-format,
+or MiniFT8/version changes. Setter capability and function are still required.
+Invalid input does not call the clock APIs. No implementation deviations beyond
+the architect-approved correction of the contradictory example.
+
+### Tests run and results
+
+- `cmake -S . -B build-linux`: passed.
+- `cmake --build build-linux -j8`: passed.
+- `./build-linux/date_unit`: passed, including `202610` as 20:26:10.
+- Final `ctest --test-dir build-linux --output-on-failure`: 129/129 passed
+  (60.39 seconds), including the serial test.
+- `git diff --check`: passed.
+- `source /home/wei/projects/esp-idf/export.sh` then
+  `idf.py -C platform/adv build`: passed with the final production source;
+  ESP-IDF emitted its stdio.h `include_next` extension warning.
+
+Initial full-suite run before clarification: 126/129 passed. `date_unit` failed
+on the contradictory example, and `linux_resources` used removed syntax; both
+have been corrected. `linux_serial_unit` failed its write-timeout assertion;
+`ctest --test-dir build-linux --output-on-failure -R '^(linux_resources|linux_serial_unit)$'`
+then passed 2/2 without serial code changes.
+
+### Hardware/manual validation still required
+
+Architect acceptance on Linux/pc-1 for bare `date`, and on ADV for the four
+setter examples above, including preservation and operand order. Fake-clock
+unit tests do not alter the host OS clock.
+
+### Known limitations or risks
+
+Hardware acceptance remains pending. One initial serial timeout assertion failed
+and passed on rerun; no serial code was modified.
+
+### Commit reference
+
+The single implementation commit containing this handoff on
+`codex/T085-date-compact-args` (SHA supplied in the chat handoff).

@@ -51,7 +51,7 @@ def main() -> int:
             minishell,
             runtime_apps,
             root,
-            "free\ndf\ndate 2040-01-02 03:04:05\ndate\nexit\n",
+            "free\ndf\ndate 20400102 030405\ndate\nexit\n",
             {
                 "MINISHELL_MEMORY_LIMIT": "8M",
                 "MINISHELL_STORAGE_LIMIT": "64K",

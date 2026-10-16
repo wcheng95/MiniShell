@@ -1010,3 +1010,8 @@ add_executable(shell_completion_unit tests/shell_completion_test.c core/shell_co
 target_include_directories(shell_completion_unit PRIVATE core include)
 target_compile_options(shell_completion_unit PRIVATE -Wall -Wextra -Werror -Wpedantic)
 add_test(NAME shell_completion_unit COMMAND shell_completion_unit)
+
+add_executable(date_unit tests/date_test.c)
+target_include_directories(date_unit PRIVATE include)
+target_compile_options(date_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
+add_test(NAME date_unit COMMAND date_unit)
