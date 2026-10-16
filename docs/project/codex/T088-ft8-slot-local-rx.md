@@ -1,6 +1,6 @@
 # T088 — Slot-local RX/FFT lifecycle with decoupled decode
 
-Status: REVIEW
+Status: TESTING
 
 ## Intent
 
@@ -333,3 +333,16 @@ pc-1 Linux/ADV build evidence is required before fast-forwarding main.
 
 The branch is delivered as one squashed T088 implementation commit; the full SHA
 is supplied in the chat handoff.
+
+
+## Bench acceptance
+
+Architect bench test on ADV/QMX after flashing V3.088:
+
+- no functional breakage observed;
+- decoding is noticeably faster;
+- V3.088 is promoted as the new MiniFT8 baseline;
+- active-band field validation of the zero-decode blocker remains pending.
+
+T088 therefore remains in TESTING until the field test establishes whether
+unexplained zero-decode slots are eliminated under real crowded-band load.
