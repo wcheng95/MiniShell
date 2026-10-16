@@ -1,6 +1,6 @@
 # T088 — Slot-local RX/FFT lifecycle with decoupled decode
 
-Status: DRAFT
+Status: REVIEW
 
 ## Intent
 
@@ -11,8 +11,8 @@ V3/T081 lifecycle decoupling:
 > may degrade or become stale, but it must never delay or poison capture of the
 > next slot.
 
-This task is intentionally DRAFT until T086/T087 field evidence is available.
-Do not implement it yet unless the architect promotes it to READY.
+The architect promoted T088 directly on 2026-10-15 so the complete active-band
+repair can be field-tested as one V3.088 binary after local build/test.
 
 Pinned V2 reference:
 
@@ -167,9 +167,10 @@ MiniFT8-V3.088
 
 with matching UI assertion.
 
-## Evidence required before READY
+## Acceptance evidence
 
-Review T086/T087 active-band results:
+Before hardware acceptance, run the normal Linux and ADV build/test gates. The
+field test should then collect:
 
 ```text
 candidate count
@@ -180,10 +181,9 @@ UAC high-water / overflow
 zero-decode occurrences
 ```
 
-If zero-decode disappears completely and repeated active-band operation is
-stable after T086/T087, the architect may decide whether T088 is still worth
-implementing as simplification. If zero-decode remains, T088 becomes the next
-correctness repair.
+The primary acceptance criterion is elimination of unexplained zero-decode slots
+on an active band while normal slot progression, UI responsiveness, and RX/TX
+behavior remain intact.
 
 ## Likely implementation areas
 
@@ -200,3 +200,136 @@ ADV live diagnostics
 
 Keep MiniShell Audio as the transport boundary and MiniFT8 as owner of FT8
 slot/DSP semantics.
+
+
+## Implementation handoff
+
+### Implementation summary
+
+Implemented the promoted T088 slot-local live RX lifecycle on
+`codex/T088-ft8-slot-local-rx`.
+
+Live scheduling now has only two UTC deadlines per slot:
+
+```text
+UTC +0.00 s   reset/begin fresh slot-local capture
+UTC +12.64 s  submit decode and stop feeding the slot waterfall
+```
+
+Samples between +12.64 s and the next UTC boundary are continuously consumed from
+MiniShell Audio/frontend processing but discarded before the framer/FFT path. The
+next UTC boundary takes producer ownership immediately even when the previous
+core-1 decode is still running.
+
+The old live `-1.60 s` preroll/reset plus separate UTC anchor sequence is no
+longer used by `app_controller`.
+
+Late-decode policy is now contained:
+
+- crossing the next UTC boundary is normal;
+- if an old RUNNING decode survives until the following slot's +12.64 s trigger,
+  core 0 requests cancellation and records the current slot as pending;
+- core 1 performs its own engine cancellation;
+- the pending current-slot decode starts when ownership returns;
+- an unconsumed stale READY result is dropped rather than terminating RX.
+
+V2-compatible negative time-offset search is retained without preroll storage:
+unavailable early rows are skipped and later Costas rows still contribute.
+
+MiniFT8 About is `MiniFT8-V3.088`.
+
+### Files changed
+
+```text
+apps/ft8/src/app_controller/app_controller.c
+apps/ft8/src/ft8_engine/ft8_decoder.c
+apps/ft8/src/rx_slot_framer/rx_slot_framer.h
+apps/ft8/src/ui_shell/ui_shell.c
+tests/ft8_rx_lifecycle_test.c
+tests/ft8_decoder_rx1d_test.c
+tests/ft8_ui_smoke.c
+docs/MiniFT8/README.md
+docs/MiniFT8/architecture.md
+docs/MiniFT8/development.md
+docs/project/codex/T088-ft8-slot-local-rx.md
+```
+
+### Behavior/invariants preserved
+
+- physical QMX UAC remains continuously running below MiniShell Audio;
+- MiniShell remains transport owner; MiniFT8 owns FT8 slot/DSP timing;
+- ADV decoder remains core 1 / priority 4 / static 8192-byte stack from T087;
+- T086 RxTxLog no-sync policy remains unchanged;
+- candidate capacity 50, minimum score 5, strongest-first ordering, BP-LDPC and
+  25-iteration limit remain unchanged;
+- no block normalization, freq_osr=2, WebUI, speculative decode, extra waterfall
+  bank, or physical UAC slot restart was added;
+- explicit-timing/offline RX path remains separate from the live scheduler.
+
+### Test changes
+
+`ft8_rx_lifecycle_test` now covers:
+
+- consecutive slot-local 79-block capture;
+- decode crossing a UTC boundary while the next slot captures;
+- a transport gap not moving UTC deadlines;
+- stale RUNNING decode cancellation/pending handoff;
+- stale READY result drop;
+- startup mid-slot waiting for the next complete slot;
+- prompt result publication.
+
+`ft8_decoder_rx1d_test` adds a no-preroll negative-time candidate case.
+
+The normal About assertion is updated to V3.088.
+
+### Validation status
+
+Source-level review completed:
+
+- no remaining live `RX_SLOT_FRAMER_PREROLL_SAMPLES` dependency in
+  `app_controller`;
+- no old fatal `INVARIANT` trigger path remains there;
+- no stale `live_begin_emitted` state remains;
+- modified files have no trailing whitespace.
+
+The supervisor environment cannot execute the repository's Linux/ESP-IDF build.
+Run the normal pc-1 gates before merge/flash:
+
+```text
+cmake -S . -B build-linux
+cmake --build build-linux -j8
+ctest --test-dir build-linux --output-on-failure
+git diff --check
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+```
+
+### Hardware/manual validation still required
+
+Field-test V3.088 on an active band. The blocker criterion is zero-decode:
+strong/active FT8 slots must not intermittently collapse to zero decoded messages
+because of prior-slot load.
+
+Also verify normal:
+
+```text
+CAPTURE_RESET -> DECODE_START -> DECODE_DONE -> RESULT_PUBLISH
+```
+
+slot progression, UI responsiveness, UAC high-water/overflow, and RX/TX behavior.
+
+### Known limitations or risks
+
+A previous decode that crosses the next UTC boundary still reads the same
+waterfall allocation while the new producer gradually overwrites it. This is
+intentional and may reduce only the stale previous slot's late decode yield;
+current-slot capture always wins.
+
+The implementation has not yet been compiled in this supervisor environment, so
+pc-1 Linux/ADV build evidence is required before fast-forwarding main.
+
+### Commit reference
+
+The branch is delivered as one squashed T088 implementation commit; the full SHA
+is supplied in the chat handoff.

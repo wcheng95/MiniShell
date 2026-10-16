@@ -76,8 +76,9 @@ struct AppRxState {
     bool live_capture_active;
     bool live_capture_schedule_valid;
     int64_t live_next_capture_slot;
-    bool live_begin_emitted;
     bool live_decode_submitted;
+    bool live_decode_pending;
+    int64_t live_decode_pending_slot;
     bool have_applied_batch;
     int64_t applied_slot;
     uint64_t applied_generation;
@@ -604,71 +605,120 @@ static int64_t floor_div_i64(int64_t value, int64_t divisor)
 static void rx_live_schedule_init(AppRxState *rx, int64_t first_pos)
 {
     int64_t target;
-    int64_t pre;
+    int64_t boundary;
     const int64_t tolerance = 240; /* 40 ms at 6 kHz */
 
-    target = floor_div_i64(first_pos + RX_SLOT_FRAMER_PREROLL_SAMPLES,
-                           RX_SLOT_FRAMER_SLOT_SAMPLES);
-    pre = target * (int64_t)RX_SLOT_FRAMER_SLOT_SAMPLES -
-          RX_SLOT_FRAMER_PREROLL_SAMPLES;
+    target = floor_div_i64(first_pos, RX_SLOT_FRAMER_SLOT_SAMPLES);
+    boundary = target * (int64_t)RX_SLOT_FRAMER_SLOT_SAMPLES;
 
-    if (first_pos > pre + tolerance)
+    /* Only join the current slot when startup lands essentially on its UTC edge.
+     * Otherwise drain/discard until the next complete slot. */
+    if (first_pos > boundary + tolerance)
         ++target;
 
     rx->live_next_capture_slot = target;
     rx->live_capture_schedule_valid = true;
     rx->live_capture_active = false;
+    rx->live_decode_submitted = false;
+    rx->live_decode_pending = false;
 }
 
-/* A violated trigger is fatal to this RX run, never supported backpressure.
- * RUNNING metadata is immutable until the owner releases the worker; RESULT
- * metadata is read only after its release/acquire handoff. */
-static int rx_decode_invariant(AppRxState *rx, int64_t slot_id,
-                               RxDecodeAsyncState state)
+static void rx_decode_overrun_diag(AppRxState *rx, const char *event,
+                                   int64_t slot_id, int64_t prior_slot,
+                                   RxDecodeAsyncState state)
 {
     char line[192];
-    bool ready = state == RX_DECODE_ASYNC_RESULT;
-    int64_t prior = ready ? rx->decode_completed_slot.slot_id : rx->engine.decode_slot_id;
-    int64_t since = ready ? rx->decode_result_ready_ms : rx->decode_diag_start_ms;
+
+    if (rx == NULL || event == NULL)
+        return;
+
     (void)snprintf(line, sizeof(line),
-                   "FT8D INVARIANT %s slot=%lld prior_slot=%lld %s=%lld state=%d\n",
-                   ready ? "result-READY" :
-                       (state == RX_DECODE_ASYNC_RUNNING ? "decoder-RUNNING" : "decoder-state"),
-                   (long long)slot_id, (long long)prior,
-                   ready ? "result_age_ms" : "elapsed_ms",
-                   (long long)(rx_monotonic_ms(rx) - since), (int)state);
+                   "FT8D OVERRUN %s slot=%lld prior_slot=%lld elapsed_ms=%lld state=%d\n",
+                   event, (long long)slot_id, (long long)prior_slot,
+                   (long long)(rx_monotonic_ms(rx) - rx->decode_diag_start_ms),
+                   (int)state);
     if (rx->api && rx->api->system && rx->api->system->write)
         rx->api->system->write(line);
-    return -1;
 }
 
-static int rx_submit_decode(AppRxState *rx, int64_t slot_id)
+static int rx_start_decode_idle(AppRxState *rx, int64_t slot_id)
 {
     Ft8EngineStatus status;
-    if (rx->decode_external &&
-        rx_decode_state(rx) != RX_DECODE_ASYNC_IDLE) {
-        RxDecodeAsyncState state = rx_decode_state(rx);
-        return rx_decode_invariant(rx, slot_id, state);
-    }
+
     status = ft8_engine_start_decode(&rx->engine,
                                      rx->protocol_messages,
                                      FT8_ENGINE_JOB_CANDIDATE_CAPACITY);
-    if (status == FT8_ENGINE_OK) {
-        rx->decode_diag_start_ms = rx_monotonic_ms(rx);
-        rx->decode_diag_search_reported = false;
-        rx_decode_diag(rx, "DECODE_START", slot_id, 0,
-                       0u, 0u,
-                       rx->decode_external ? RX_DECODE_ASYNC_RUNNING
-                                           : RX_DECODE_ASYNC_IDLE);
-    }
-    if (status == FT8_ENGINE_OK && rx->decode_external) {
+    if (status != FT8_ENGINE_OK)
+        return -1;
+
+    rx->decode_diag_start_ms = rx_monotonic_ms(rx);
+    rx->decode_diag_search_reported = false;
+    rx_decode_diag(rx, "DECODE_START", slot_id, 0,
+                   0u, 0u,
+                   rx->decode_external ? RX_DECODE_ASYNC_RUNNING
+                                       : RX_DECODE_ASYNC_IDLE);
+    if (rx->decode_external) {
         atomic_store_explicit(&rx->decode_async_state,
                               RX_DECODE_ASYNC_RUNNING,
                               memory_order_release);
     }
-    if (status == FT8_ENGINE_BUSY)
-        return rx_decode_invariant(rx, slot_id, RX_DECODE_ASYNC_RUNNING);
-    return status == FT8_ENGINE_OK ? 0 : -1;
+    return 0;
+}
+
+static int rx_submit_decode(AppRxState *rx, int64_t slot_id)
+{
+    RxDecodeAsyncState state;
+
+    if (rx == NULL)
+        return -1;
+
+    if (!rx->decode_external) {
+        if (ft8_engine_decode_active(&rx->engine)) {
+            rx_decode_overrun_diag(rx, "inline-cancel", slot_id,
+                                   rx->engine.decode_slot_id,
+                                   RX_DECODE_ASYNC_RUNNING);
+            if (ft8_engine_cancel_decode(&rx->engine) != FT8_ENGINE_OK)
+                return -1;
+        }
+        return rx_start_decode_idle(rx, slot_id);
+    }
+
+    state = rx_decode_state(rx);
+    if (state == RX_DECODE_ASYNC_ERROR)
+        return -1;
+
+    if (state == RX_DECODE_ASYNC_IDLE)
+        return rx_start_decode_idle(rx, slot_id);
+
+    if (state == RX_DECODE_ASYNC_RESULT) {
+        rx_decode_overrun_diag(rx, "drop-result", slot_id,
+                               rx->decode_completed_slot.slot_id, state);
+        memset(&rx->decode_completed_slot, 0, sizeof(rx->decode_completed_slot));
+        atomic_store_explicit(&rx->decode_async_state,
+                              RX_DECODE_ASYNC_IDLE,
+                              memory_order_release);
+        return rx_start_decode_idle(rx, slot_id);
+    }
+
+    if (state == RX_DECODE_ASYNC_CANCELED) {
+        atomic_store_explicit(&rx->decode_async_state,
+                              RX_DECODE_ASYNC_IDLE,
+                              memory_order_release);
+        return rx_start_decode_idle(rx, slot_id);
+    }
+
+    if (state == RX_DECODE_ASYNC_RUNNING ||
+        state == RX_DECODE_ASYNC_CANCEL_REQUESTED) {
+        int64_t prior = rx->engine.decode_slot_id;
+        rx->live_decode_pending = true;
+        rx->live_decode_pending_slot = slot_id;
+        if (state == RX_DECODE_ASYNC_RUNNING)
+            rx_request_decode_cancel(rx);
+        rx_decode_overrun_diag(rx, "cancel-pending", slot_id, prior, state);
+        return 0;
+    }
+
+    return -1;
 }
 
 static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event);
@@ -693,53 +743,52 @@ static bool rx_live_process_timed_samples(AppRxState *rx,
         rx_live_schedule_init(rx, pos);
 
     for (;;) {
-        int64_t reset = rx->live_next_capture_slot *
-                        (int64_t)RX_SLOT_FRAMER_SLOT_SAMPLES -
-                        RX_SLOT_FRAMER_PREROLL_SAMPLES;
-        int64_t slot = rx->live_next_capture_slot - 1;
-        int64_t deadline = reset;
-        enum { CAPTURE, BEGIN, DECODE } action = CAPTURE;
+        int64_t slot;
+        int64_t deadline;
+        enum { CAPTURE, DECODE } action;
 
-        if (rx->live_capture_active && !rx->live_begin_emitted) {
+        if (!rx->live_capture_active) {
+            slot = rx->live_next_capture_slot;
             deadline = slot * (int64_t)RX_SLOT_FRAMER_SLOT_SAMPLES;
-            action = BEGIN;
-        } else if (rx->live_capture_active && !rx->live_decode_submitted) {
+            action = CAPTURE;
+        } else {
+            slot = rx->live_next_capture_slot - 1;
             deadline = slot * (int64_t)RX_SLOT_FRAMER_SLOT_SAMPLES +
                        RX_SLOT_FRAMER_DECODE_BLOCKS * RX_SLOT_FRAMER_BLOCK_SAMPLES;
             action = DECODE;
         }
 
-        int64_t limit = deadline < end ? deadline : end;
-        if (limit > pos) {
-            size_t take = (size_t)(limit - pos);
-            if (rx->live_capture_active &&
-                rx_slot_framer_process(&rx->framer, samples + index, take,
-                                       rx_emit_event, rx) != RX_SLOT_FRAMER_OK)
-                return false;
-            index += take;
-            pos = limit;
+        {
+            int64_t limit = deadline < end ? deadline : end;
+            if (limit > pos) {
+                size_t take = (size_t)(limit - pos);
+                if (rx->live_capture_active &&
+                    rx_slot_framer_process(&rx->framer, samples + index, take,
+                                           rx_emit_event, rx) != RX_SLOT_FRAMER_OK)
+                    return false;
+                /* Outside 0..12.64 s the same continuously acquired audio is
+                 * intentionally drained/discarded here. */
+                index += take;
+                pos = limit;
+            }
         }
         if (deadline > end)
             break;
 
-        /* UTC owns these actions even when a gap left the block count short. */
-        if (action == BEGIN) {
+        if (action == CAPTURE) {
+            if (rx_slot_framer_start_capture(&rx->framer, slot,
+                                             rx_emit_event, rx) != RX_SLOT_FRAMER_OK)
+                return false;
             if (ft8_engine_begin_window(&rx->engine, slot) != FT8_ENGINE_OK)
                 return false;
-            rx->live_begin_emitted = true;
-        } else if (action == DECODE) {
+            rx->live_capture_active = true;
+            rx->live_decode_submitted = false;
+            rx->live_next_capture_slot = slot + 1;
+        } else {
             if (rx_submit_decode(rx, slot) != 0)
                 return false;
             rx->live_decode_submitted = true;
-        } else {
-            if (rx_slot_framer_start_capture(&rx->framer,
-                                             rx->live_next_capture_slot,
-                                             rx_emit_event, rx) != RX_SLOT_FRAMER_OK)
-                return false;
-            rx->live_capture_active = true;
-            rx->live_begin_emitted = false;
-            rx->live_decode_submitted = false;
-            ++rx->live_next_capture_slot;
+            rx->live_capture_active = false;
         }
     }
 
@@ -825,6 +874,23 @@ static bool app_publish_external_decode(AppController *app)
     state = rx_decode_state(rx);
     if (state == RX_DECODE_ASYNC_ERROR)
         return false;
+
+    if (rx->live_decode_pending &&
+        (state == RX_DECODE_ASYNC_CANCELED ||
+         state == RX_DECODE_ASYNC_RESULT)) {
+        int64_t slot_id = rx->live_decode_pending_slot;
+        if (state == RX_DECODE_ASYNC_RESULT) {
+            rx_decode_overrun_diag(rx, "drop-result", slot_id,
+                                   rx->decode_completed_slot.slot_id, state);
+            memset(&rx->decode_completed_slot, 0, sizeof(rx->decode_completed_slot));
+        }
+        rx->live_decode_pending = false;
+        atomic_store_explicit(&rx->decode_async_state,
+                              RX_DECODE_ASYNC_IDLE,
+                              memory_order_release);
+        return rx_start_decode_idle(rx, slot_id) == 0;
+    }
+
     if (state == RX_DECODE_ASYNC_CANCELED) {
         atomic_store_explicit(&rx->decode_async_state,
                               RX_DECODE_ASYNC_IDLE,

@@ -146,22 +146,30 @@ At 6 kHz:
 79 * 960 = 75840 samples = 12.64 s
 ```
 
-Live capture resets the slot-local writer/FFT at UTC -1.60 s and submits
-decode at UTC +12.64 s. T081 makes both recurring actions independent of the
-previous decoder/result lifecycle and of lost Audio samples. The controller
-supplies UTC; the engine remains clock-free.
+T088 restores the V2-style slot-local live window while preserving T081's useful
+capture/decode lifecycle decoupling. At each UTC boundary the current slot resets
+and owns the producer/framer/FFT/waterfall state. Exactly 79 x 960 samples are
+accepted into the waterfall from UTC +0.00 through +12.64 s; decode is submitted
+at +12.64 s. From +12.64 through the next UTC boundary, physical Audio acquisition
+continues but MiniFT8 drains/discards those samples instead of extending the
+waterfall.
 
-ADV retains one core-1 decoder and one completed-result message buffer. Capture
-can cross a RUNNING decode or READY result at its next reset. At the next decode
-trigger, either condition is an invariant failure with prior-slot/time diagnostics,
-not a supported slot-dropping policy. Live discontinuities reset frontend
-conversion without canceling decode or reinitializing the slot schedule.
-Producer reset and decoder cancellation are separate operations; callsign-hash
-aging runs in decoder ownership. Physical TX pause/resume is preserved.
+ADV retains one core-1 decoder and one completed-result message buffer. Decode may
+cross the following UTC boundary while the next slot begins capture independently.
+If an old decode is still RUNNING at the following slot's own +12.64 s trigger,
+core 0 requests cancellation and leaves engine mutation to the core-1 owner; the
+new slot decode starts as soon as cancellation completes. An unconsumed stale
+READY result is dropped. These are contained performance overruns, not fatal RX
+invariants. Live discontinuities still do not move UTC capture/decode deadlines.
+
+The former -1.60 s preroll/93-block live schedule is no longer used. Candidate
+search still accepts V2-compatible negative time offsets by ignoring unavailable
+pre-slot rows and scoring later Costas rows. The controller supplies UTC; the
+engine remains clock-free. Physical TX pause/resume remains separate.
 
 Bounded ADV diagnostics (`FT8_DECODE_DIAGNOSTICS`) identify `CAPTURE_RESET`,
-`DECODE_START`, `DECODE_DONE`, and `RESULT_PUBLISH` by slot. Invariant diagnostics
-are emitted regardless of that build flag. T081 software and ADV/QMX hardware validation are recorded in its task packet.
+`DECODE_START`, `DECODE_DONE`, `RESULT_PUBLISH`, and contained `OVERRUN`
+events by slot.
 
 ## Stage status
 
@@ -270,9 +278,10 @@ Slot:
 
 ```text
 90000 total 6 kHz samples
-75840 samples to V2 decode-ready point
-93 complete 960-sample blocks in full slot
-live writer resets at the next UTC -1.60 s
+75840 samples = 79 blocks in the live decode window
+UTC +0.00 s  reset/begin slot-local capture
+UTC +12.64 s submit decode and stop feeding this slot's waterfall
+12.64..15.00 s continuously drain/discard Audio until the next UTC boundary
 ```
 
 `Ft8Engine` does not own or read a clock.
@@ -595,14 +604,14 @@ The architect has approved the following future fix/improvement work:
 These decisions are now promoted into bounded follow-up work:
 
 ```text
-T086  REVIEW — V2 RxTxLog append/close policy implemented; ADV acceptance pending
-T087  REVIEW — V2 ADV priority/tight scheduling implemented; hardware acceptance pending
-T088  DRAFT — slot-local 0..12.64 s RX/FFT lifecycle with decoupled decode
+T086  TESTING — V2 RxTxLog append/close policy; ADV acceptance pending
+T087  TESTING — V2 ADV priority/tight scheduling; hardware acceptance pending
+T088  REVIEW — slot-local 0..12.64 s RX/FFT lifecycle implemented; build/field acceptance pending
 ```
 
-Execute and evaluate T086/T087 before promoting T088 so active-band evidence can
-show whether the larger timing simplification remains necessary for the
-zero-decode blocker.
+The architect promoted T088 directly so the complete repair can be field-tested
+as one V3.088 binary. Zero-decode on an active band remains the primary acceptance
+blocker; T086/T087/T088 should be evaluated together in that field test.
 
 #### RX/FFT direction agreed after the V2 audit
 

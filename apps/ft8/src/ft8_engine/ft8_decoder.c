@@ -64,21 +64,8 @@ static int ft8_sync_score_direct(const Ft8WaterfallView *wf,
     int score = 0;
     int num_average = 0;
     int64_t last_block;
-    int64_t base_offset;
-    const uint8_t *mag_cand;
 
     last_block = (int64_t)wf->first_block + (int64_t)wf->num_blocks;
-    if ((int64_t)candidate->time_offset < (int64_t)wf->first_block ||
-        (int64_t)candidate->time_offset >= last_block)
-        return 0;
-
-    base_offset = (int64_t)candidate->time_offset *
-                  (int64_t)wf->block_stride;
-    base_offset += (int64_t)candidate->time_sub *
-                   (int64_t)wf->freq_osr * (int64_t)wf->num_bins;
-    base_offset += (int64_t)candidate->freq_sub * (int64_t)wf->num_bins;
-    base_offset += (int64_t)candidate->freq_offset;
-    mag_cand = wf->mag + base_offset;
 
     for (int m = 0; m < FT8_NUM_SYNC; ++m) {
         for (int k = 0; k < FT8_LENGTH_SYNC; ++k) {
@@ -92,7 +79,13 @@ static int ft8_sync_score_direct(const Ft8WaterfallView *wf,
             if ((int64_t)logical >= last_block)
                 break;
 
-            p8 = mag_cand + (ptrdiff_t)block * wf->block_stride;
+            /* Match V2: a candidate may start before the retained waterfall.
+             * Unavailable early rows are skipped while later Costas rows still
+             * contribute to the score. candidate_symbol() keeps the access
+             * inside the allocation instead of forming a pre-buffer pointer. */
+            p8 = candidate_symbol(wf, candidate, block);
+            if (p8 == NULL)
+                continue;
             sm = kCostasPattern[k];
 
             if (sm > 0) {
@@ -156,23 +149,8 @@ static int prepare_score_terms(const Ft8WaterfallView *wf,
 
     state->score_term_count = 0u;
 
-    /*
-     * Match ft8_sync_score_direct(): if the candidate origin itself lies
-     * outside the retained logical waterfall, its score is exactly zero even
-     * when later Costas symbols would happen to fall inside the view.
-     */
-    {
-        int64_t last_block =
-            (int64_t)wf->first_block + (int64_t)wf->num_blocks;
-        if ((int64_t)state->time_offset < (int64_t)wf->first_block ||
-            (int64_t)state->time_offset >= last_block) {
-            state->score_cache_time_offset = state->time_offset;
-            state->score_cache_time_sub = state->time_sub;
-            state->score_cache_freq_sub = state->freq_sub;
-            state->score_cache_valid = 1;
-            return 1;
-        }
-    }
+    /* V2 allows negative candidate origins: unavailable early rows are
+     * ignored and later Costas rows still contribute. */
 
     for (int m = 0; m < FT8_NUM_SYNC; ++m) {
         for (int k = 0; k < FT8_LENGTH_SYNC; ++k) {

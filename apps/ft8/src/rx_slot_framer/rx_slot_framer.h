@@ -81,7 +81,7 @@ RxSlotFramerStatus rx_slot_framer_init(RxSlotFramer *framer,
 
 void rx_slot_framer_destroy(RxSlotFramer *framer);
 
-/* Start a fresh live capture exactly at UTC-1.6 s for slot_id.  The partial
+/* Start a fresh live slot-local capture at its UTC boundary. The partial
  * 160-ms block is discarded and CAPTURE_RESET is emitted before new samples. */
 RxSlotFramerStatus rx_slot_framer_start_capture(RxSlotFramer *framer,
                                                 int64_t slot_id,

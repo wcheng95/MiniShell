@@ -91,6 +91,58 @@ static void test_negative_time_offset_uses_linear_preroll(void)
     CHECK(found);
 }
 
+static void test_negative_time_offset_without_preroll(void)
+{
+    enum { BLOCKS = 79, NUM_BINS = 16, FREQ_OFFSET = 4 };
+    static const uint8_t costas[7] = {3, 1, 4, 0, 6, 5, 2};
+    uint8_t mag[BLOCKS * NUM_BINS];
+    Ft8WaterfallView wf = {
+        .mag = mag,
+        .max_blocks = BLOCKS,
+        .num_blocks = BLOCKS,
+        .num_bins = NUM_BINS,
+        .time_osr = 1,
+        .freq_osr = 1,
+        .block_stride = NUM_BINS,
+        .anchor_index = 0,
+        .first_block = 0,
+    };
+    Ft8Candidate candidates[FT8_DECODER_CANDIDATE_CAPACITY];
+    size_t count = 0u;
+    int found = 0;
+
+    memset(mag, 0, sizeof(mag));
+
+    /* Candidate starts ten symbols before UTC. With no preroll, its first
+     * Costas group is unavailable, but the later two groups are valid V2
+     * evidence and must still be scored. */
+    for (int group = 1; group < 3; ++group) {
+        for (int k = 0; k < 7; ++k) {
+            int logical = -10 + 36 * group + k;
+            mag[(size_t)logical * wf.block_stride +
+                FREQ_OFFSET + costas[k]] = 200u;
+        }
+    }
+
+    CHECK(ft8_decoder_find_candidates(&wf,
+                                      candidates,
+                                      FT8_DECODER_CANDIDATE_CAPACITY,
+                                      5,
+                                      &count) == FT8_DECODER_OK);
+
+    for (size_t i = 0u; i < count; ++i) {
+        if (candidates[i].time_offset == -10 &&
+            candidates[i].time_sub == 0u &&
+            candidates[i].freq_offset == FREQ_OFFSET &&
+            candidates[i].freq_sub == 0u &&
+            candidates[i].score > 0) {
+            found = 1;
+            break;
+        }
+    }
+    CHECK(found);
+}
+
 static void test_incremental_search_matches_synchronous(void)
 {
     enum { MAX_BLOCKS = 20, NUM_BINS = 24, CAPACITY = 8 };
@@ -199,6 +251,7 @@ int main(void)
 
     test_candidate_search_contract();
     test_negative_time_offset_uses_linear_preroll();
+    test_negative_time_offset_without_preroll();
     test_incremental_search_matches_synchronous();
     test_decode_failure_is_explicit();
     test_waterfall_validation();

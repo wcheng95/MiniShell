@@ -238,24 +238,31 @@ Hardware/OS transport conversion belongs below the MiniShell Audio API. The chec
 
 If the FT8 decoder requires a different internal representation, such as 6 kHz mono float, that DSP conversion belongs inside MiniFT8, not MiniShell.
 
-### Live RX capture/decode ownership (T081)
+### Live RX capture/decode ownership (T081/T088)
 
-The controller schedules each live slot from UTC: producer reset at -1.60 s,
-anchor at UTC, and decode submission at +12.64 s. Audio discontinuities may reset
-frontend conversion but do not cancel decode or restart this schedule.
+T081 established independent producer/decode lifecycles. T088 simplifies the live
+producer timing back toward V2: every UTC boundary begins a fresh slot-local
+capture, exactly 79 x 960 samples build the waterfall through +12.64 s, and decode
+is submitted at +12.64 s. From +12.64 s to the next UTC boundary, physical Audio
+acquisition remains continuous but MiniFT8 drains/discards those samples rather
+than extending the current waterfall. Audio discontinuities do not move these UTC
+deadlines.
 
-The producer owns monitor/FFT state and slot anchors. Its resets never clear a
-decode job. The ADV core-1 worker owns candidate search, noise estimation,
-LDPC/CRC, message decode and hash aging based on accepted decode-slot progression.
-The intentional shared input is the linear waterfall view; a late reader may see
-later producer writes without affecting capture timing.
+The producer owns current-slot frontend/framer/FFT/waterfall state. The ADV
+core-1 worker owns candidate search, noise estimation, LDPC/CRC, message decode,
+hash aging, and cancellation of its own active job. Producer reset at the next UTC
+boundary never waits for the previous decoder; a late decoder may see portions of
+its old waterfall overwritten as the new slot progresses, reducing old-slot yield
+without delaying current capture.
 
-The single `protocol_messages[50]` buffer remains owned by the completed slot
-until the controller builds/publishes its `RxBatch`. RUNNING or unconsumed READY
-at the following decode trigger is an invariant fault, distinguished by prior
-slot and elapsed time/result age. No result queue, extra message buffer or silent
-slot-dropping policy is introduced. Intentional physical-TX cancellation and
-resume remain separate from live transport discontinuities.
+The single `protocol_messages[50]` buffer remains the decode/result handoff. A
+decode may cross the next UTC boundary normally. If it is still RUNNING at the
+following slot's own +12.64 s trigger, core 0 requests cancellation and records
+the new slot as pending; core 1 performs the cancellation, then the pending current
+slot decode starts. An unconsumed stale READY result is dropped. These conditions
+are contained performance overruns, not fatal application invariants. No result
+queue or extra waterfall bank is introduced. Intentional physical-TX
+cancellation/resume remains separate from live transport discontinuities.
 
 ### 5.3 TX ownership
 
