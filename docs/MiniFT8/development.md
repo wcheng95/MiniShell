@@ -606,12 +606,17 @@ These decisions are now promoted into bounded follow-up work:
 ```text
 T086  TESTING — V2 RxTxLog append/close policy; ADV acceptance pending
 T087  TESTING — V2 ADV priority/tight scheduling; hardware acceptance pending
-T088  REVIEW — slot-local 0..12.64 s RX/FFT lifecycle implemented; build/field acceptance pending
+T088  TESTING — V3.088 current baseline; bench stable/faster, active-band zero-decode field test pending
 ```
 
 The architect promoted T088 directly so the complete repair can be field-tested
 as one V3.088 binary. Zero-decode on an active band remains the primary acceptance
 blocker; T086/T087/T088 should be evaluated together in that field test.
+
+V3.088 is the current MiniFT8 baseline after ADV/QMX bench validation: no
+functional breakage was observed and decode was noticeably faster. The remaining
+acceptance gate is active-band field evidence that the intermittent zero-decode
+symptom is gone.
 
 #### RX/FFT direction agreed after the V2 audit
 
