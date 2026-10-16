@@ -1,6 +1,6 @@
 # T086 — Restore V2 RxTxLog durability policy
 
-Status: REVIEW
+Status: TESTING
 
 ## Intent
 
@@ -226,3 +226,35 @@ symptoms are eliminated. ADIF/Cabrillo durability remains unchanged.
 
 The single implementation commit containing this handoff on
 `codex/T086-ft8-rxtxlog-v2-durability`; full SHA supplied in the chat handoff.
+
+
+## Supervisor review
+
+Reviewed implementation `439077d06abc82c0c561a740cecf10feaf8420e6`
+against current `main`.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Accepted scope:
+
+- `log_service_write_rt()` no longer requires or calls Filesystem sync;
+- RT path remains exact append/open/write/close with partial-write handling;
+- open/write/close failures remain errors;
+- ADIF/Cabrillo sync-before-rename behavior and failure-injection coverage are
+  unchanged;
+- the physical-TX regression test now treats only the old RT sync fault as
+  irrelevant while retaining open/write/close failure behavior;
+- MiniFT8 About and UI assertion are exactly `MiniFT8-V3.086`;
+- no controller, configuration, public API, platform ownership, or decoder
+  behavior changed.
+
+Accepted evidence:
+
+```text
+Linux CTest: 129/129 PASS
+ADV build: PASS
+git diff --check: PASS
+```
+
+Remaining gate: ADV/QMX manual validation with `rxtx_log=1`, normal RT file
+contents after exit, and ordinary RX/UI operation.
