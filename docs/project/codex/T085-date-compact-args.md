@@ -1,6 +1,6 @@
 # T085 — Compact and order-independent `date` setter
 
-Status: REVIEW
+Status: TESTING
 
 ## Intent
 
@@ -354,3 +354,45 @@ and passed on rerun; no serial code was modified.
 
 The single implementation commit containing this handoff on
 `codex/T085-date-compact-args` (SHA supplied in the chat handoff).
+
+
+## Supervisor review
+
+Reviewed implementation `c5455b396a2d4108db5ef256ff52edd687fea655`
+against current `main`.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Accepted behavior:
+
+- bare `date` still prints `YYYY-MM-DD HH:MM:SS UTC`;
+- exactly eight digits are classified as `YYYYMMDD`;
+- exactly six digits are classified as `HHMMSS`;
+- one compact operand preserves the unspecified half from exactly one coherent
+  pre-set UTC snapshot;
+- one date plus one time is accepted in either order;
+- duplicate date/date and time/time operands are rejected;
+- old punctuated setter forms are rejected;
+- invalid syntax does not call Time/Location getter/setter APIs;
+- setter capability checks and successful readback behavior are preserved;
+- no public MiniShell API, backend, RTC implementation, MiniFT8 code, or
+  MiniFT8 About version changed.
+
+The task packet originally listed `202610` among invalid examples, which
+contradicted the architect's length-based grammar. The implementation correctly
+treats it as the valid time `20:26:10` and records that clarification.
+
+Accepted software evidence:
+
+```text
+Linux CTest: 129/129 PASS
+focused date_unit: PASS
+ADV build: PASS
+git diff --check: PASS
+```
+
+An initial unrelated `linux_serial_unit` timeout assertion was flaky and passed
+on rerun without serial-code changes; the final full suite passed.
+
+Remaining gate: manual operator acceptance of bare display and compact setter
+behavior, especially one-field preservation and two-field arbitrary order.
