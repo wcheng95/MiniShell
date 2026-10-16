@@ -1,6 +1,6 @@
 # T087 — Restore V2 ADV decoder scheduling
 
-Status: REVIEW
+Status: TESTING
 
 ## Intent
 
@@ -242,3 +242,39 @@ remain pending; no claim is made that zero-decode symptoms are eliminated.
 
 The single implementation commit containing this handoff on
 `codex/T087-ft8-v2-decode-scheduling`; full SHA supplied in the chat handoff.
+
+
+## Supervisor review
+
+Reviewed implementation `68d3f59bac61e9d8d8610ef897ca3762eead29f3`
+against current `main`.
+
+Result: **PASS for software review; advanced to TESTING.**
+
+Accepted scope:
+
+- ADV decoder worker remains pinned to core 1;
+- static decode stack remains exactly 8192 bytes;
+- decode priority is exactly FreeRTOS priority 4;
+- active decode work immediately loops with no deliberate `taskYIELD()`;
+- idle worker still uses `vTaskDelay(1)`, so it does not busy-spin;
+- stop/abort lifecycle and existing diagnostics remain unchanged;
+- candidate count/order, sync threshold, BP-LDPC, iteration limit, hash/message
+  semantics, capture/FFT timing, and T086 logging behavior are unchanged;
+- MiniFT8 About and UI assertion are exactly `MiniFT8-V3.087`.
+
+Accepted evidence:
+
+```text
+focused scheduling policy: PASS
+Linux CTest: 130/130 PASS
+ADV build: PASS
+git diff --check: PASS
+```
+
+The source-policy test verifies configured scheduling policy only; live FreeRTOS
+timing and active-band performance still require ADV/QMX evidence.
+
+Remaining gate: confirm startup reports core 1 / priority 4 / 8192-byte stack,
+normal RX remains healthy, and collect representative crowded-band decode timing,
+candidate/message counts, UAC high-water/overflow, and any zero-decode slots.
