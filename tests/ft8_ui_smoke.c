@@ -514,7 +514,7 @@ static void test_about_version(void)
         ui_shell_render(&ui, &model, &frame);
         char expected[sizeof(frame.rows[1])];
         snprintf(expected, sizeof(expected), "%-*s", (int)frame.column_count,
-                 "MiniFT8-V3.083");
+                 "MiniFT8-V3.086");
         assert(strcmp(frame.rows[1], expected) == 0);
     }
 }

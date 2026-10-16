@@ -1,6 +1,6 @@
 # T086 — Restore V2 RxTxLog durability policy
 
-Status: READY
+Status: REVIEW
 
 ## Intent
 
@@ -159,3 +159,70 @@ Hardware/manual validation still required
 Known limitations or risks
 Commit reference
 ```
+
+## Codex handoff
+
+### Implementation summary
+
+Restored the pinned V2 policy described in this task:
+`log_rxtx_line -> storage_append_text_locked_path(..., sync_to_flash=false)`.
+`log_service_write_rt()` now requires only open/write/close and performs no
+explicit sync. Updated MiniFT8 About and its UI assertion to `MiniFT8-V3.086`.
+No task deviations.
+
+### Files changed
+
+- `apps/ft8/src/log_service/log_service.c`: remove RT sync requirement/call.
+- `tests/ft8_log_service_test.c`: separate RT fake transport proving exact RX/TX
+  formatting, daily path, append flags, seven-byte partial writes, append to an
+  existing record, one close per successful open, absent sync, and no sync calls
+  with a failing callback present. Inject failures at every partial write,
+  open and close, plus a successful write returning zero bytes.
+- `apps/ft8/src/ui_shell/ui_shell.c`: About identity.
+- `tests/ft8_ui_smoke.c`: matching About assertion.
+- `tests/ft8_physical_tx_test.c`: update RT-only sync expectations. The old
+  test required two sync calls and failure on an injected sync error; the
+  restored policy requires zero syncs and success despite that unused error.
+  All controller/configuration and ADIF/Cabrillo assertions remain intact.
+- `docs/MiniFT8/development.md`: implemented durability policy and pending
+  hardware acceptance.
+- This task packet: implementation and validation evidence.
+
+### Behavior/invariants preserved
+
+RT path, timestamps, frequencies, text formats, append mode, partial-write
+handling, and open/write/close failure returns remain unchanged. No controller
+or configuration changes. ADIF/Cabrillo copy-on-write sync-before-rename logic
+and all existing failure-injection tests remain unchanged. MiniShell APIs and
+platform ownership boundaries remain intact; no allocation or logging framework
+was added.
+
+### Tests run and results
+
+- Initial `ctest --test-dir build-linux --output-on-failure`: 128/129 passed;
+  the physical-TX test exposed the obsolete RT sync expectation described above.
+- `cmake -S . -B build-linux`: passed.
+- `cmake --build build-linux -j8`: passed.
+- Final `ctest --test-dir build-linux --output-on-failure`: 129/129 passed
+  (61.29 seconds), including focused log-service, physical-TX and UI tests.
+- `git diff --check`: passed.
+- `source /home/wei/projects/esp-idf/export.sh` then
+  `idf.py -C platform/adv build`: passed. ESP-IDF's stdio.h emitted
+  `#include_next is a GCC extension` warnings.
+
+### Hardware/manual validation still required
+
+On ADV/QMX with `rxtx_log=1`, receive decoded messages, exit FT8 normally, and
+inspect the current RT file for RX and any transmitted records. Confirm ordinary
+UI/RX operation and About `MiniFT8-V3.086`. No hardware acceptance is claimed.
+
+### Known limitations or risks
+
+RT is intentionally best-effort: process/power loss may lose the most recently
+buffered records. This task does not establish that active-band zero-decode
+symptoms are eliminated. ADIF/Cabrillo durability remains unchanged.
+
+### Commit reference
+
+The single implementation commit containing this handoff on
+`codex/T086-ft8-rxtxlog-v2-durability`; full SHA supplied in the chat handoff.

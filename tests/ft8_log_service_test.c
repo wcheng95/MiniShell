@@ -377,6 +377,105 @@ static void test_qso_pages(const LogService *log)
     puts("daily QSO streaming, partial reads, pagination, malformed records and faults PASS");
 }
 
+/* Separate RT transport keeps the QSO copy-on-write fault harness unchanged. */
+static struct {
+    char text[512];
+    size_t size;
+    unsigned opens, writes, syncs, closes;
+    unsigned fail_write;
+    bool opened, fail_open, fail_close, zero_write;
+} rt;
+
+static mini_result_t rt_open(const char *path, uint32_t flags, mini_file_t *out)
+{
+    CHECK(strcmp(path, "/flash/ft8/RT240102.txt") == 0);
+    CHECK(flags == (MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_APPEND));
+    ++rt.opens;
+    CHECK(!rt.opened);
+    if (rt.fail_open) return MINI_ERR_IO;
+    rt.opened = true;
+    *out = 42;
+    return MINI_OK;
+}
+
+static mini_result_t rt_write(mini_file_t file, const void *data, uint32_t size,
+                              uint32_t *written)
+{
+    CHECK(file == 42 && rt.opened);
+    *written = 0;
+    if (++rt.writes == rt.fail_write) return MINI_ERR_IO;
+    if (rt.zero_write) return MINI_OK;
+    if (size > 7) size = 7;
+    CHECK(rt.size + size < sizeof(rt.text));
+    memcpy(rt.text + rt.size, data, size);
+    rt.size += size;
+    rt.text[rt.size] = '\0';
+    *written = size;
+    return MINI_OK;
+}
+
+static mini_result_t rt_sync(mini_file_t file)
+{
+    CHECK(file == 42 && rt.opened);
+    ++rt.syncs;
+    return MINI_ERR_IO; /* Any sync would make a successful RT append fail. */
+}
+
+static mini_result_t rt_close(mini_file_t file)
+{
+    CHECK(file == 42 && rt.opened);
+    ++rt.closes;
+    rt.opened = false;
+    return rt.fail_close ? MINI_ERR_IO : MINI_OK;
+}
+
+static void test_rt(const mini_time_location_api_t *time)
+{
+    mini_fs_api_t fs = {
+        .struct_size = sizeof(fs), .open = rt_open, .write = rt_write,
+        .sync = rt_sync, .close = rt_close
+    };
+    LogService log;
+    CHECK(log_service_init(&log, &fs, time, "/flash/ft8/station.txt"));
+    const char *rx = "R [20240102 030405][14.074] CQ W6ABC CM88 -12 750\n";
+    const char *tx = "T [20240102 030405][7.074] W6ABC AG6AQ -12 1250\n";
+    for (unsigned with_sync = 0; with_sync < 2; ++with_sync) {
+        fs.sync = with_sync ? rt_sync : NULL;
+        memset(&rt, 0, sizeof(rt));
+        CHECK(log_service_write_rt(&log, false, 3, "CQ W6ABC CM88", -12, 750));
+        CHECK(strcmp(rt.text, rx) == 0);
+        CHECK(rt.opens == 1 && rt.closes == 1 && !rt.opened && !rt.syncs);
+        CHECK(rt.writes == (strlen(rx) + 6) / 7);
+        CHECK(log_service_write_rt(&log, true, 1, "W6ABC AG6AQ -12", -99, 1250));
+        CHECK(strncmp(rt.text, rx, strlen(rx)) == 0);
+        CHECK(strcmp(rt.text + strlen(rx), tx) == 0);
+        CHECK(rt.opens == 2 && rt.closes == 2 && !rt.opened && !rt.syncs);
+        CHECK(rt.writes == (strlen(rx) + 6) / 7 + (strlen(tx) + 6) / 7);
+    }
+    /* Fail each partial write, including after bytes have already appended. */
+    for (unsigned failure = 1; failure <= (strlen(rx) + 6) / 7; ++failure) {
+        memset(&rt, 0, sizeof(rt));
+        rt.fail_write = failure;
+        CHECK(!log_service_write_rt(&log, false, 3, "CQ W6ABC CM88", -12, 750));
+        CHECK(rt.writes == failure && rt.opens == 1 && rt.closes == 1);
+        CHECK(!rt.opened && !rt.syncs);
+    }
+    memset(&rt, 0, sizeof(rt));
+    rt.fail_open = true;
+    CHECK(!log_service_write_rt(&log, false, 3, "CQ W6ABC CM88", -12, 750));
+    CHECK(rt.opens == 1 && !rt.writes && !rt.closes && !rt.syncs && !rt.opened);
+    memset(&rt, 0, sizeof(rt));
+    rt.fail_close = true;
+    CHECK(!log_service_write_rt(&log, true, 1, "W6ABC AG6AQ -12", -99, 1250));
+    CHECK(strcmp(rt.text, tx) == 0);
+    CHECK(rt.opens == 1 && rt.closes == 1 && !rt.syncs && !rt.opened);
+    memset(&rt, 0, sizeof(rt));
+    rt.zero_write = true;
+    CHECK(!log_service_write_rt(&log, false, 3, "CQ W6ABC CM88", -12, 750));
+    CHECK(rt.opens == 1 && rt.writes == 1 && rt.closes == 1 && !rt.syncs && !rt.opened);
+    puts("RT exact append, partial writes, no-sync policy and failures PASS");
+}
+
 int main(void)
 {
     const mini_fs_api_t fs = {
@@ -462,6 +561,7 @@ int main(void)
     CHECK(!files[1].opened);
     test_persistence(&log, &station, &qso);
     test_qso_pages(&log);
+    test_rt(&time);
     puts("ft8_log_service_test: PASS");
     return 0;
 }

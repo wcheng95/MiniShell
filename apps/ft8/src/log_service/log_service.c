@@ -361,7 +361,7 @@ bool log_service_write_rt(const LogService *service, bool transmit, int band_ind
     char name[32], path[256], frequency[16], line[192];
     if (!service || !text || !*text || strlen(text) >= 64 ||
         strchr(text, '\n') || strchr(text, '\r') || !service->fs ||
-        !service->fs->open || !service->fs->write || !service->fs->sync || !service->fs->close ||
+        !service->fs->open || !service->fs->write || !service->fs->close ||
         !utc_fields(service->time_location, &year, &month, &day, &hour, &minute, &second) ||
         year < 0 || year > 9999) return false;
     band_frequency_mhz(band_index, frequency);
@@ -378,7 +378,7 @@ bool log_service_write_rt(const LogService *service, bool transmit, int band_ind
     if (service->fs->open(path, MINI_FS_WRITE | MINI_FS_CREATE | MINI_FS_APPEND, &file) != MINI_OK)
         return false;
     bool ok = fs_write_all(service->fs, file, line, (size_t)(n + tail));
-    if (ok && service->fs->sync(file) != MINI_OK) ok = false;
+    /* V2 RT traces are best-effort append/close, without per-record sync. */
     if (service->fs->close(file) != MINI_OK) ok = false;
     return ok;
 }

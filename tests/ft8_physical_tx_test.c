@@ -400,9 +400,11 @@ static void rt_logging(void)
     assert(strcmp(files[path_id("/flash/ft8/RT260919.txt")].text,
         "T [20260919 000000][14.074] W1ABC K9XYZ -12 1500\n"
         "R [20260919 000000][7.074] K9XYZ W1ABC R-08 -12 1500\n")==0);
-    assert(syncs==2 && file_closes==2);
+    assert(syncs==0 && file_closes==2);
     for(fail_rt=1;fail_rt<=4;++fail_rt) {
-        assert(!log_service_write_rt(&log,true,3,"CQ AG6AQ CM97",0,1500));
+        /* RT no longer syncs; only open/write/close faults fail the append. */
+        assert(log_service_write_rt(&log,true,3,"CQ AG6AQ CM97",0,1500) == (fail_rt==3));
+        assert(syncs==0);
         for(unsigned i=0;i<12;++i) assert(!files[i].open);
     }
     fail_rt=0; rt_zero=true; assert(!log_service_write_rt(&log,true,3,"CQ AG6AQ CM97",0,1500));

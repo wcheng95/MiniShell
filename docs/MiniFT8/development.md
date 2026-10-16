@@ -452,6 +452,11 @@ R [YYYYMMDD HHMMSS][freq_MHz] <text> <snr_db> <offset_hz>
 using daily `RT[YYMMDD].txt` storage. The generated RT trace becomes part of the
 T022 hardware acceptance evidence.
 
+T086 restores V2 best-effort append/close durability for RT records: no explicit
+per-record Filesystem sync is required or called. Recent buffered records may
+be lost on process/power loss. ADIF and Cabrillo retain sync-before-rename
+commits. T086 ADV/QMX hardware acceptance remains pending.
+
 ## RX display ordering
 
 T028 makes RX ordering an app_controller-owned presentation/selection policy
@@ -576,9 +581,9 @@ The architect has approved the following future fix/improvement work:
 
 2. **Restore V2 RxTxLog durability policy — APPROVED.**
    V2 RX/TX trace append uses normal append/close without per-record flash sync.
-   V3 currently performs open/write/sync/close for each decoded RX message.
-   Restore V2 best-effort RT trace durability so optional traffic logging cannot
-   outrank waterfall/RX work. This decision applies to RxTxLog; it does not
+   T086 restores open/write/close without an explicit per-record sync in V3.
+   This removes the extra sync from optional traffic logging during RX work.
+   This decision applies to RxTxLog; it does not
    weaken the separate ADIF/Cabrillo QSO-commit durability contract.
 
 3. **Restore V2 block normalization — POSTPONED.**
@@ -589,7 +594,7 @@ The architect has approved the following future fix/improvement work:
 These decisions are now promoted into bounded follow-up work:
 
 ```text
-T086  READY — restore V2 RxTxLog append/close durability policy
+T086  REVIEW — V2 RxTxLog append/close policy implemented; ADV acceptance pending
 T087  READY — restore V2 ADV decoder priority/tight scheduling
 T088  DRAFT — slot-local 0..12.64 s RX/FFT lifecycle with decoupled decode
 ```
