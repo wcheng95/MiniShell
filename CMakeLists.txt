@@ -1015,3 +1015,6 @@ add_executable(date_unit tests/date_test.c)
 target_include_directories(date_unit PRIVATE include)
 target_compile_options(date_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
 add_test(NAME date_unit COMMAND date_unit)
+
+add_test(NAME adv_ft8_decode_policy
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_ft8_decode_policy_test.py)

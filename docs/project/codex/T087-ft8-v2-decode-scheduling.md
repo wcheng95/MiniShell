@@ -1,6 +1,6 @@
 # T087 — Restore V2 ADV decoder scheduling
 
-Status: READY
+Status: REVIEW
 
 ## Intent
 
@@ -181,3 +181,64 @@ Hardware/manual validation still required
 Known limitations or risks
 Commit reference
 ```
+
+## Codex handoff
+
+### Implementation summary
+
+Restored the pinned V2 scheduling policy specified by this task: the ADV
+core-1 decoder runs at exactly FreeRTOS priority 4 and does not deliberately
+yield between active work units. The idle branch still calls `vTaskDelay(1)`.
+About now displays `MiniFT8-V3.087`. No task deviations.
+
+### Files changed
+
+- `platform/adv/adv_ft8_decode.c`: priority 4 and removal of active `taskYIELD()`.
+- `tests/adv_ft8_decode_policy_test.py`: source-policy regression for core,
+  exact priority, static stack and task creation wiring, active/idle scheduling,
+  and About identity in production and its UI test.
+- `CMakeLists.txt`: register the scheduling-policy test with CTest.
+- `apps/ft8/src/ui_shell/ui_shell.c`: About version.
+- `tests/ft8_ui_smoke.c`: matching About assertion.
+- `docs/MiniFT8/development.md`: implemented scheduling policy, pending hardware
+  acceptance.
+- This task packet: implementation and validation evidence.
+
+### Behavior/invariants preserved
+
+Core 1, static 8192-byte stack, stop/abort lifecycle, and startup/stack diagnostics
+are unchanged. No decoder mathematics, 50-candidate capacity, minimum sync score
+5, strongest-first ordering, BP-LDPC or 25-iteration limit changes. Hash/message
+semantics, capture/FFT timing, T086 logging policy, and MiniShell ownership
+boundaries remain unchanged. No normalization or speculative decode was added.
+
+### Tests run and results
+
+- `python3 tests/adv_ft8_decode_policy_test.py`: 3/3 passed.
+- `cmake -S . -B build-linux`: passed.
+- `cmake --build build-linux -j8`: passed.
+- `ctest --test-dir build-linux --output-on-failure`: 130/130 passed
+  (59.31 seconds).
+- `git diff --check`: passed.
+- `source /home/wei/projects/esp-idf/export.sh` then
+  `idf.py -C platform/adv build`: passed. ESP-IDF headers emitted
+  `#include_next is a GCC extension` warnings.
+
+### Hardware/manual validation still required
+
+On ADV/QMX, confirm startup reports core 1, priority 4, stack 8192 bytes and
+About reads `MiniFT8-V3.087`. Confirm normal active-band RX operation and record
+candidate-search time, total decode time, candidate/message counts, UAC
+high-water/overflow, and zero-decode slots. Compare crowded-slot timings with the
+priority-1/per-work-unit-yield baseline.
+
+### Known limitations or risks
+
+Host source-policy checks establish the configured scheduling policy, not actual
+FreeRTOS timing or live-radio performance. ADV/QMX timing and normal RX evidence
+remain pending; no claim is made that zero-decode symptoms are eliminated.
+
+### Commit reference
+
+The single implementation commit containing this handoff on
+`codex/T087-ft8-v2-decode-scheduling`; full SHA supplied in the chat handoff.

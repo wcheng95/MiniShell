@@ -573,11 +573,12 @@ differences are primarily runtime RX/decode scheduling and surrounding I/O polic
 The architect has approved the following future fix/improvement work:
 
 1. **Restore V2 decoder scheduling — APPROVED.**
-   Keep the ADV decoder on core 1, restore the V2-style higher decode urgency
-   (priority 4 rather than the current priority 1), and remove deliberate
-   per-work-unit/per-candidate yielding. Preserve the V3/MiniShell ownership
-   boundary and do not alter candidate count, LDPC parameters, decoder math, or
-   add speculative priority schemes as part of this restoration.
+   T087 keeps the ADV decoder on core 1 with its static 8192-byte stack and
+   restores FreeRTOS priority 4. Active work loops without deliberate yielding;
+   the idle worker retains a one-tick delay. Stop/abort and diagnostics remain
+   unchanged. Decoder math, candidate limits/order, capture/FFT timing and
+   V3/MiniShell ownership boundaries are preserved. ADV/QMX timing and normal
+   RX acceptance remain pending.
 
 2. **Restore V2 RxTxLog durability policy — APPROVED.**
    V2 RX/TX trace append uses normal append/close without per-record flash sync.
@@ -595,7 +596,7 @@ These decisions are now promoted into bounded follow-up work:
 
 ```text
 T086  REVIEW — V2 RxTxLog append/close policy implemented; ADV acceptance pending
-T087  READY — restore V2 ADV decoder priority/tight scheduling
+T087  REVIEW — V2 ADV priority/tight scheduling implemented; hardware acceptance pending
 T088  DRAFT — slot-local 0..12.64 s RX/FFT lifecycle with decoupled decode
 ```
 

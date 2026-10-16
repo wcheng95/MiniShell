@@ -9,7 +9,7 @@
 #include "freertos/task.h"
 
 #define ADV_FT8_DECODE_STACK_BYTES 8192u
-#define ADV_FT8_DECODE_PRIORITY (tskIDLE_PRIORITY + 1u)
+#define ADV_FT8_DECODE_PRIORITY 4u
 #define ADV_FT8_DECODE_CORE 1
 
 static const char *s_tag = "adv_ft8";
@@ -52,7 +52,7 @@ static void decode_task(void *arg)
                          (unsigned)lowest_free,
                          (unsigned)ADV_FT8_DECODE_STACK_BYTES);
             }
-            taskYIELD();
+            /* V2 runs active decode work without a deliberate scheduling gap. */
         } else {
             vTaskDelay(1);
         }
