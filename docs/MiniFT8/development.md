@@ -586,9 +586,17 @@ The architect has approved the following future fix/improvement work:
    monitor processing. V3 does not currently do this. Do not implement it yet;
    retain it as a V2-fidelity option after the RX/FFT path is reviewed.
 
-These are design decisions, not implementation task packets yet. RX/FFT transport,
-timing, buffering, waterfall production and ownership remain open for the next
-architecture discussion before task numbering/scope is frozen.
+These decisions are now promoted into bounded follow-up work:
+
+```text
+T086  READY — restore V2 RxTxLog append/close durability policy
+T087  READY — restore V2 ADV decoder priority/tight scheduling
+T088  DRAFT — slot-local 0..12.64 s RX/FFT lifecycle with decoupled decode
+```
+
+Execute and evaluate T086/T087 before promoting T088 so active-band evidence can
+show whether the larger timing simplification remains necessary for the
+zero-decode blocker.
 
 #### RX/FFT direction agreed after the V2 audit
 
