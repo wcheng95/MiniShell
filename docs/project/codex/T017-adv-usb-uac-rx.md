@@ -2,6 +2,75 @@
 
 Status: COMPLETE
 
+## Current V3.088 reading note
+
+T017 is the implementation/history record for the ADV QMX USB-host RX vertical
+slice. It is still a useful companion when reading `platform/adv/adv_audio_uac.cpp`,
+but later MiniFT8 and CAT tasks changed some behavior above and beside the original
+T017 boundary.
+
+For current code, read these statements as authoritative:
+
+```text
+QMX native UAC RX       48000 Hz / 24-bit packed / stereo
+MiniShell Audio         12000 Hz / S16 / stereo
+canonical UAC ring      2048 frames, lazily allocated from internal heap
+USB Host task           priority 5, core 1
+UAC background task     priority 5, core 0
+UAC capture task        priority 4, static 4096-byte stack
+ADV foreground app      priority 1, core 0
+ADV decode worker       priority 4, core 1, static 8192-byte stack
+debug UART              UART0 TX=GPIO3 RX=GPIO6, 115200
+ADV FT8 profile         time_osr=2 / freq_osr=1
+```
+
+Current V3.088 live RX is slot-local:
+
+```text
+UTC +0.00 s    reset/begin current slot
+0..12.64 s     79 x 960 samples build the waterfall
+UTC +12.64 s   submit decode
+12.64..15.00   continue draining Audio but discard before FFT
+next UTC       next slot takes capture ownership immediately
+```
+
+An ordinary live UAC discontinuity resets the MiniFT8 frontend conversion phase,
+but it does **not** move those UTC capture/decode deadlines or put live RX into the
+old timing-pending/re-anchor path.
+
+The current ADV packaging also composes both QMX resources for bare `ft8`:
+
+```text
+--rx  uac:qmx
+--cat serial:qmx
+```
+
+`adv_audio_uac.cpp` therefore now contains both the UAC Audio transport and the
+ADV QMX CDC/Serial transport added by later work. QMX CAT command meaning remains
+owned above this file by MiniFT8 `radio_qmx`; the platform file owns only USB/CDC
+transport and lifecycle.
+
+T017's final hardware acceptance recorded successful repeated FT8 entry/exit at
+that time. The **current** accepted limitation is weaker: after a complete
+USB-host teardown, a fresh QMX enumeration can fail until QMX is reset or
+power-cycled. Do not treat repeated `ft8 -> quit -> ft8` as a guaranteed current
+QMX behavior.
+
+Current V3.088 operator memory evidence (2026-10-16, FT8 loaded) is approximately:
+
+```text
+free heap       87 KiB
+largest block   31 KiB
+```
+
+This is runtime evidence, not a fixed ABI/resource guarantee.
+
+The long implementation/review log later in this packet is intentionally
+chronological. Historical values such as the former 16384-frame ring, the
+temporary GPIO4/GPIO5 debug wiring, old test counts, and pre-CAT operator behavior
+are retained as history and are superseded by this section plus the canonical
+`docs/MiniFT8/{README,development,architecture}.md`.
+
 ## Objective
 
 Bring the working MiniFT8-V2 QMX USB host path into MiniShell's ADV backend without
@@ -215,11 +284,15 @@ Do not downmix in the ADV provider; `RxFrontend` owns stereo channel meaning and
 
 This is mandatory.
 
-MiniFT8 V3 decodes synchronously. During decode the foreground ADV app task may stop
-calling `Audio.read()`.
+When T017 was designed, ADV decode could synchronously occupy the foreground app
+long enough to delay `Audio.read()`. That was the original motivation for making
+UAC acquisition independent.
 
-Therefore UAC acquisition must continue in an ADV worker/task below MiniShell Audio,
-just as Linux keeps ALSA capture running below the application.
+Current V3.088 has a separate core-1 decode worker, so foreground capture and
+decode are now decoupled at the application level too. The transport requirement
+still stands: USB/UAC acquisition must remain in an ADV-owned worker below
+MiniShell Audio so USB service timing does not depend on application/UI/logging
+scheduling and short consumer delays are absorbed by the canonical ring.
 
 Task priority guidance from the proven V2 structure:
 
@@ -252,7 +325,8 @@ failure. Lazy allocation remains unchanged. Historical implementation and review
 notes below retain their original capacities; the 2048-frame handoff records the
 current build. Further capacity changes require measurements and authorization.
 
-Use a power-of-two ring and fixed/static storage where practical.
+Use a power-of-two ring. The current 2048-frame ring is lazily allocated from
+internal heap when Audio opens; the capture task stack remains static.
 
 This is a starting point, not permission to grow RAM blindly. Record high-water
 occupancy during hardware validation. If it overflows during decode, measure the
@@ -286,13 +360,18 @@ MINI_ERR_DISCONTINUITY
 
 and flush/restart the canonical capture epoch.
 
-The existing MiniFT8 path already handles this by:
+Current MiniFT8 handling depends on the RX mode:
 
-- resetting RxFrontend stream phase;
-- marking RX timing pending;
-- re-anchoring slot timing from UTC on the next real samples.
+- reset `RxFrontend` stream/decimation phase;
+- for **live V3.088 RX**, keep the fixed UTC slot schedule unchanged; lost samples
+  can leave the current waterfall short, and the next UTC boundary starts the
+  next slot cleanly;
+- explicit-timing/offline paths may still use their own stream-reset/timing
+  reinitialization behavior.
 
-Reuse the accepted Linux discontinuity ownership pattern where practical.
+Reuse the accepted Linux discontinuity ownership pattern where practical, but do
+not infer the pre-T088 live timing-pending/re-anchor behavior from this T017
+history.
 
 ## Open/start/read/stop/close lifecycle
 
@@ -333,7 +412,10 @@ Desired semantics:
 - release provider state and ring;
 - leave the OTG peripheral reusable by the existing `usbmsc` command.
 
-Repeated `ft8 -> quit -> ft8` must work without reboot.
+T017 originally required and hardware-accepted repeated `ft8 -> quit -> ft8`
+during that validation session. This is historical acceptance, not a current
+guarantee: later field experience established that a fresh QMX enumeration after
+full host teardown can fail until QMX is reset/power-cycled.
 
 ## CDC-ACM companion scope
 
@@ -424,7 +506,7 @@ Required implementation rules:
    - UART TX GPIO3
    - UART RX GPIO6
    - 115200 baud.
-4. The GPIO4/5 UART is a diagnostics/debug terminal during the FT8 USB-host window.
+4. The GPIO3/6 UART is the current diagnostics/debug terminal during the FT8 USB-host window.
    It is not a new public MiniShell service and not part of MiniFT8 application
    logic.
 5. Route ADV/System/debug diagnostics that would otherwise disappear while USB
@@ -437,12 +519,14 @@ Required implementation rules:
    `usb_host_uninstall()` has actually released the PHY.
 9. If USB Host teardown is incomplete:
    - do NOT re-enable USB Serial/JTAG;
-   - keep/report diagnostics through GPIO4/5 where possible;
+   - keep/report diagnostics through GPIO3/6 where possible;
    - return an error and preserve enough state for a later cleanup retry.
 10. If prepare fails after USB Serial/JTAG was suspended, unwind whatever host/class
     ownership was acquired; restore USB Serial/JTAG only when the PHY is confirmed
     free.
-11. Repeated `ft8 -> quit -> ft8` must suspend/restore both console owners cleanly.
+11. Every clean FT8 exit must suspend/restore console ownership cleanly. T017
+    historically passed repeated entry/exit, but current QMX firmware/hardware
+    does not guarantee a second fresh enumeration after full host teardown.
 12. Do not attempt UAC-host and TinyUSB MSC device mode simultaneously.
 13. Do not change `usbmsc`'s already validated handoff behavior.
 
@@ -467,19 +551,23 @@ normal M$> visible over USB Serial/JTAG
 
 ## ADV default FT8 RX
 
-For the statically packaged ADV FT8 application, bare:
+T017 established the ADV composition default `--rx uac:qmx` without teaching
+MiniFT8 core about ADV hardware.
+
+Later QMX CAT work extended the same ADV wrapper. Current bare:
 
 ```text
 M$> ft8
 ```
 
-should default to:
+normally composes:
 
 ```text
---rx uac:qmx
+--rx  uac:qmx
+--cat serial:qmx
 ```
 
-without teaching MiniFT8 core about ADV hardware.
+unless explicit options override those defaults.
 
 Preferred implementation is composition-time configuration, for example a generic
 `FT8_DEFAULT_RX_ENDPOINT` compile-time default or a narrow ADV wrapper.
@@ -600,7 +688,10 @@ With QMX connected to ADV USB host:
    - read/capture errors;
    - heap/largest block if available.
 
-No CAT frequency synchronization is expected in T017, so manual QMX tuning is required.
+Historical T017 phase note: no CAT frequency synchronization was implemented by
+T017 itself, so its original hardware validation used manual QMX tuning. Current
+V3.088 bare ADV `ft8` also composes `serial:qmx`; later MiniFT8 radio-control
+tasks own MD6/VFO/frequency/TX CAT semantics above the transport.
 
 ## Hardware validation — phase 2: live FT8
 
@@ -1084,9 +1175,14 @@ Ownership rule:
   normal Digital I/O service.
 - No public API or MiniFT8 domain code changes.
 
-## Architect FT8 debug-terminal decision
+## Historical pre-remap FT8 debug-terminal decision
 
-While `ft8` owns the ESP32-S3 USB PHY for USB Host, use the same temporary debug UART wiring as MiniFT8-V2:
+This subsection records the earlier GPIO4/GPIO5 decision and is superseded by
+**Architect debug-pin remap — GPIO3/GPIO6** immediately above. It is retained to
+show why the console-lease implementation evolved.
+
+While `ft8` owns the ESP32-S3 USB PHY for USB Host, the earlier plan used the
+temporary debug UART wiring from MiniFT8-V2:
 
 ```text
 UART debug during ft8
