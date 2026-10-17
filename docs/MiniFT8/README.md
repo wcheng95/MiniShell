@@ -39,16 +39,16 @@ WinBook/TW700 QMX RX/CAT/TX      PASS
 
 Linux remains the deterministic regression/reference environment. Linux/pc-1 + QMX has completed a real two-way MiniFT8-V3 QSO; WinBook/TW700 and rpi3-2 also validate portable Linux RX/CAT/TX. Cardputer ADV is now an accepted embedded RX/TX deployment target: real QMX CAT transmission, RX recovery, band sync, color status, compact RX/TX paging, and T083 CAT-fault containment have been exercised on hardware. Transport faults no longer own the FT8 UI lifetime; unknown RF state blocks further TX instead. T031, T032, and T083 remain accepted live-operation baselines.
 
-T088 / V3.088 is the current MiniFT8 baseline. Bench validation found no functional breakage and noticeably faster decoding. A 2026-10-16 field test under poor band conditions performed very well with no zero-decode slots, closing the active-band blocker that motivated the T086-T088 repair sequence.
+T089 / V3.089 is the current accepted MiniFT8 baseline. It retains the
+V3.088 capture/decode/UAC/CAT/TX behavior and adds the optional W/w RX top-row
+waterfall through MiniShell's generic RGB565 raster capability. ADV hardware
+validation confirms clean waterfall operation with no UTC-second or RX-batch
+row-0 flash. Linux remains text-only. The session-local history is about 4.5 KiB
+and reuses the existing FT8 monitor FFT; no second FFT is added.
 
-## T089 software candidate
-
-V3.089 adds an optional W/w RX top-row waterfall through the generic MiniShell
-RGB565 raster capability. ADV supports it; Linux remains text-only. The history
-is optional/session-local, about 4.5 KiB, with no extra FFT. The accepted V3.088
-capture/decode/UAC/CAT/TX policy remains unchanged. Software evidence and pending
-ADV/QMX visual, Memory and continuity checks are tracked in
-`docs/project/codex/T089-ft8-waterfall-overlay.md`; hardware acceptance is pending.
+The earlier T088 / V3.088 field validation remains the decode baseline underneath
+V3.089: the 2026-10-16 active-band test showed strong decode behavior with no
+zero-decode slots.
 
 ## Working live QMX path
 
