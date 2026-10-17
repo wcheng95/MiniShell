@@ -438,6 +438,7 @@ README.md          current application status and contracts
 development.md     completed stages, current baseline and next work
 ui.md              canonical MiniFT8-V3 UI behavior
 architecture.md    application ownership/dependency architecture
+adv-uac-rx.md      current ADV/QMX USB-UAC RX code-reading guide
 ```
 
 Detailed RX and AS stage documents remain in this directory as implementation history and regression rationale. They are subordinate to the current contracts above when wording conflicts.
