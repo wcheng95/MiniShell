@@ -1,6 +1,6 @@
 # T089 — MiniShell RGB565 raster + MiniFT8 RX waterfall overlay
 
-Status: TESTING
+Status: COMPLETE
 
 ## Intent
 
@@ -1929,3 +1929,35 @@ focused dirty-row tests     6/6 PASS
 T089 remains TESTING only for real ADV/QMX confirmation that RX-batch refresh
 no longer flashes row-0 status text and that normal waterfall/UI/UAC/decode
 behavior remains clean.
+
+## ADV/QMX hardware acceptance — COMPLETE
+
+Architect hardware validation confirms the final V3.089 implementation is accepted.
+
+Observed result:
+
+~~~text
+waterfall display              PASS
+W toggle                       PASS
+UTC-second row-0 flash         ELIMINATED
+RX-batch/slot row-0 flash      ELIMINATED
+rows 1..6 refresh              PASS
+separator behavior             PASS
+~~~
+
+The final dirty-row ownership model is therefore accepted on real ADV/QMX:
+
+~~~text
+W OFF:
+    text owns rows 0..6
+
+W ON:
+    raster owns physical row 0
+    text owns rows 1..6
+    separator remains text/backend-owned
+~~~
+
+No additional DSP, UAC, decode-scheduling, CAT/TX, allocation-ordering or task
+changes were required. V3.089 becomes the accepted MiniFT8 baseline.
+
+T089 is COMPLETE.
