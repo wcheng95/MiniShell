@@ -297,7 +297,7 @@ scheduling and short consumer delays are absorbed by the canonical ring.
 Task priority guidance from the proven V2 structure:
 
 - USB host / class work higher than foreground application;
-- capture worker should not be starved by synchronous decode;
+- capture worker should not be starved by decode/application/UI/logging load;
 - ADV foreground app currently runs at `tskIDLE_PRIORITY + 1`.
 
 Do not make MiniFT8 spawn or own a USB capture task.
@@ -716,8 +716,10 @@ Record representative decoded lines and timing.
 ## Hardware validation — phase 3: lifecycle
 
 1. quit FT8 normally to `M$>`;
-2. repeat `ft8` live RX at least 3 times;
-3. verify no obvious heap/resource leak;
+2. T017 acceptance historically repeated `ft8` live RX at least 3 times;
+   current V3.088 does not treat reliable second fresh QMX enumeration after a
+   full host teardown as guaranteed hardware behavior;
+3. verify no obvious heap/resource leak within the tested lifecycle;
 4. QMX unplug/replug after an already-successful enumeration is **not a T017
    acceptance requirement**. Real QMX/V2 behavior shows that the device may not
    re-emulate/re-enumerate correctly without its own reset/power cycle. V3 must
@@ -736,7 +738,7 @@ unperformed hardware acceptance remains unchecked):
 - [x] native UAC audio becomes MiniShell 12k/S16/stereo;
 - [x] channel order preserved;
 - [x] existing RxFrontend remains owner of mono/6k conversion;
-- [x] continuous producer drains UAC during synchronous decode;
+- [x] continuous producer drains UAC independently of application/decode scheduling;
 - [x] ring overflow/USB loss becomes explicit discontinuity;
 - [x] ADV WAV RX remains usable;
 - [x] bare ADV `ft8` defaults to live `uac:qmx`;
