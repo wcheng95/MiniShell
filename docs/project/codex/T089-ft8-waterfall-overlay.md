@@ -1360,3 +1360,85 @@ firmware                    +16 bytes
 T089 now moves to TESTING. Remaining acceptance is the task packet's real ADV/QMX
 hardware checklist: visual geometry/color/160-ms progression, W toggle/screen
 latching, runtime Memory values, UAC continuity, decode behavior, and clean exit.
+
+## Hardware finding — periodic hidden-row flash
+
+Architect hardware test on V3.089 reports the waterfall is otherwise nearly
+perfect, but the normal text status row flashes through the waterfall once per
+second.
+
+Cause:
+
+~~~text
+UTC second changes
+    -> UiFrame row 0 changes
+    -> whole-frame memcmp changes
+    -> ft8_ui_adapter_render()
+    -> text present() physically redraws row 0
+    -> waterfall is immediately painted back
+~~~
+
+The waterfall is therefore correct; the flash is caused by unnecessarily
+presenting a text row that is physically hidden by the active raster overlay.
+
+### Required amendment
+
+Do not change MiniShell raster semantics, ADV backend, FFT/projection, waterfall
+history, UAC, decode timing, or task scheduling.
+
+Add a small presentation-level frame comparison policy in ft8_main.c (or an
+equally narrow portable helper):
+
+- if old and new frames are exactly equal, no render;
+- if both old and new frames have waterfall_overlay == true, ignore differences
+  in rows[0] and row_color[0] when deciding whether a physical text render is
+  required;
+- all other frame fields remain significant:
+  - overlay state;
+  - geometry/footer facts;
+  - rows 1..N;
+  - row colors 1..N;
+  - separator presence/color;
+- even when physical rendering is skipped, update the cached rendered_frame to
+  the new logical frame.
+
+This gives the intended behavior:
+
+~~~text
+waterfall ON + UTC second changes only
+    update cached logical row 0
+    no text present()
+    no flash
+
+waterfall ON + RX content/separator/screen changes
+    normal text render/present
+    waterfall redrawn afterward
+
+W ON -> OFF
+    overlay flag changes
+    physical render occurs
+    current cached status row is restored immediately
+
+leave RX / enter submenu
+    overlay flag changes
+    physical render occurs normally
+~~~
+
+Do not suppress actual model/UI changes below row 0. Do not alter UiFrame's
+normal top-row contents; the status row remains logically current while hidden.
+
+### Regression coverage
+
+Add focused tests proving:
+
+- successive overlay-enabled frames differing only in row 0 do not call the
+  physical renderer;
+- the cached logical frame still advances to the new row-0 value;
+- a rows 1..6 change while overlay is enabled still renders;
+- separator-color change still renders;
+- overlay ON->OFF renders and restores the newest row-0 value;
+- non-waterfall frames retain the existing full-frame comparison behavior.
+
+This amendment is a hardware-driven presentation fix within T089. T089 remains
+TESTING until the architect verifies the once-per-second text flash is gone and
+the rest of the existing hardware checklist remains clean.
