@@ -1594,3 +1594,152 @@ sole failure                known flaky linux_serial_unit
 T089 remains TESTING pending ADV/QMX confirmation that the once-per-second
 status flash is gone and the existing visual/UAC/decode/Memory checklist remains
 clean.
+
+## Hardware finding — RX-batch refresh still flashes hidden row 0
+
+After the once-per-second status-only flash was removed, ADV/QMX hardware still
+shows a brief row-0 status flash when an RX batch refreshes rows 1..6. This is
+expected from the current backend behavior:
+
+~~~text
+RX rows 1..6 change
+    -> MiniFT8 must render the text frame
+    -> ADV display present() calls render_all()
+    -> physical row 0 is redrawn even though waterfall owns y=0..18
+    -> waterfall is then painted back
+~~~
+
+The remaining problem is therefore not frame comparison. It is that ADV text
+`present()` redraws every physical text row instead of only rows modified through
+the MiniShell Display API.
+
+### Final T089 amendment — split row ownership
+
+Adopt this physical ownership while the waterfall overlay is active:
+
+~~~text
+W OFF:
+    text owns physical rows 0..6
+
+W ON:
+    raster owns physical y=0..18 (logical text row 0)
+    text owns logical/physical rows 1..6
+    separator y=19..20 remains text/backend-owned
+~~~
+
+This is preferable to blanking row 0. Row 0 must simply not be touched physically
+while the raster overlay owns it.
+
+### MiniFT8 adapter rule
+
+When `frame->waterfall_overlay == false`, retain the normal full text-frame path.
+
+When `frame->waterfall_overlay == true`:
+
+- do not call `text->clear()`, because clearing the full logical text surface
+  dirties/resets row 0;
+- do not call `write_at()` or `write_at_attr()` for row 0;
+- write the fixed-width rows 1..N normally;
+- update the separator normally when required;
+- call `display->present()`;
+- redraw/update the waterfall only through the existing raster path;
+- keep the logical UiFrame row 0 current in the cached application frame so W-off
+  restores the latest status immediately.
+
+The ADV profile uses fixed-width complete rows, so rows 1..6 do not require a
+preceding full `clear()` before being rewritten.
+
+### ADV backend dirty rendering
+
+Current ADV `display_present()` calls `render_all()`. Change only the MiniShell
+Display API path to track dirty text rows and separator state.
+
+Required private backend behavior:
+
+~~~text
+display_text_write_at(row, ...)
+display_text_write_at_attr(row, ...)
+display_text_clear_at(row range, ...)
+    -> update logical text buffers
+    -> mark affected row(s) dirty
+
+display_text_clear()
+    -> clear logical text buffers/separator
+    -> mark all rows + separator dirty
+
+display_set_row_separator()
+    -> update separator state
+    -> mark separator dirty
+
+display_present()
+    -> render only dirty rows
+    -> render separator only if dirty
+    -> clear dirty flags
+~~~
+
+Do not add a new public MiniShell API or capability. `present()` still means
+"make preceding logical Display API changes visible"; dirty tracking is an ADV
+implementation optimization that makes this contract more precise.
+
+### Resident console paths
+
+Do not accidentally change resident shell/editor behavior. Existing private
+console operations may continue to use `render_all()` directly:
+
+~~~text
+initial display setup
+console clear/write
+console editor redraw
+scrollback redraw
+~~~
+
+The dirty-row mechanism is specifically for the application-visible MiniShell
+Display text API and its `present()` path.
+
+### Interaction with prior T089 row-0 comparison
+
+Keep the earlier hidden-row comparison optimization. It remains useful:
+
+- UTC-second-only row-0 changes while W is ON require no adapter render at all;
+- RX content changes require adapter rendering, but the new split/dirty path
+  updates only rows 1..6 and never touches physical row 0.
+
+Together:
+
+~~~text
+UTC second changes only
+    -> no text render
+
+RX batch changes
+    -> rows 1..6 dirty
+    -> present rows 1..6 only
+    -> row 0 untouched
+
+W OFF
+    -> full normal text path
+    -> row 0 becomes dirty/rendered with current cached status
+~~~
+
+### Required regressions
+
+Add/extend tests proving:
+
+- ADV Display API writes to row 1 mark/render row 1 but not row 0;
+- writes to multiple rows render exactly those rows;
+- `clear_at()` dirties only its affected rows;
+- full `clear()` dirties all rows and separator;
+- separator-only change does not render row 0;
+- `present()` clears dirty state so a second present without writes does no row
+  rendering;
+- private console/editor paths still redraw their complete view;
+- MiniFT8 overlay render writes rows 1..6 only and does not call text clear or
+  row-0 write;
+- RX batch refresh with overlay enabled performs no physical row-0 text draw;
+- W-off uses the normal full path and restores current row 0;
+- Linux behavior remains unchanged.
+
+Do not modify raster API/backend semantics, waterfall DSP/history, allocation
+ordering, UAC, CAT/TX, decode scheduling, slot timing, or task priorities.
+
+This is still T089. Keep status TESTING until real ADV/QMX confirms that both
+the per-second and per-RX-batch row-0 flashes are gone.
