@@ -824,6 +824,19 @@ Supervisor reviews the diff before hardware testing.
 
 Do not merge before live ADV QMX decode is confirmed.
 
+## Chronological implementation history
+
+Everything below this heading is retained as the **T017 development timeline**.
+Measurements, task counts, temporary GPIO assignments, ring sizes, statements
+using words such as "current", and pending/required hardware checks describe the
+repository state **at that point in T017**, not the present V3.088 baseline.
+
+When a historical paragraph conflicts with the **Current V3.088 reading note**
+near the top of this file or with the canonical MiniFT8 documents, the newer
+current-state text wins. Keeping this history is useful because it explains why
+the present UAC provider has its allocation, ownership, console-handoff, driver
+patch, and scheduling structure.
+
 ## Codex implementation notes
 
 The following records initial implementation commit
