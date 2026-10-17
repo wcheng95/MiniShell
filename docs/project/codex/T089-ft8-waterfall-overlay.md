@@ -1305,3 +1305,58 @@ Additional review commit on `codex/T089-ft8-waterfall-overlay`, parent
 `483347b40abdd5ac1a7fd964f4b545945e7f15ff`. Resolve the amended review SHA with
 `git rev-parse codex/T089-ft8-waterfall-overlay`; the exact pushed SHA accompanies
 the handoff. No PR and no merge. Stop at **REVIEW**.
+
+
+## Supervisor review — software PASS, hardware TESTING
+
+Reviewed the complete T089 branch through
+e0e6c741da6865dab77a834c088b27d49e892762, including the original implementation
+and supervisor-review amendment.
+
+Software review PASS.
+
+The two review blockers are resolved:
+
+- UiShell now initializes waterfall support/enabled deterministically OFF on every
+  new session; regression coverage poisons prior state and proves reset.
+- Raster capability discovery remains non-allocating. The optional 4,568-byte
+  waterfall history is prepared only after successful RX/UAC startup and successful
+  decode-worker startup. Allocation failure leaves FT8 operational and registers
+  no waterfall observer.
+
+Full review also confirms:
+
+- pinned-V2 first-time-subrow / MAX-freq-osr / integer MAX-pool projection is
+  preserved;
+- no second FFT or decoder-waterfall copy was added;
+- current V3.088 slot timing, UAC/ring, decoder task/priority/stack, CAT/TX and
+  logging policies are unchanged;
+- MiniShell raster semantics remain generic RGB565 transport; ADV alone owns LCD
+  byte order; Linux remains text-only;
+- waterfall history is optional heap state, not foreground-stack or static pixel
+  storage;
+- normal text render precedes raster overlay and W restores row-0 text through the
+  ordinary frame path;
+- the known linux_serial_unit failure is pre-existing/flaky and reproduced on
+  unchanged main; no serial code or assertion was weakened.
+
+Accepted software evidence:
+
+~~~text
+Linux build                 PASS
+Linux CTest                 130/131
+sole failure                known flaky linux_serial_unit
+portable/unit suite         29/29 PASS
+architecture checks         PASS
+ADV build                   PASS
+git diff --check            PASS
+
+amendment resource delta:
+firmware                    +16 bytes
+.dram0.data                 +0
+.dram0.bss                  +0
+~~~
+
+T089 now moves to TESTING. Remaining acceptance is the task packet's real ADV/QMX
+hardware checklist: visual geometry/color/160-ms progression, W toggle/screen
+latching, runtime Memory values, UAC continuity, decode behavior, and clean exit.
