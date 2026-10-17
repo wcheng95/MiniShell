@@ -36,14 +36,14 @@ must be installed before the native build because Linux ALSA support is selected
 at compile time. Preserve this bring-up recipe/evidence for future CardputerZero
 work.
 
-## T089 software candidate
+## V3.089 accepted baseline
 
-V3.089 adds an optional W/w RX top-row waterfall through the generic MiniShell
-RGB565 raster capability. ADV supports it; Linux remains text-only. The history
-is optional/session-local, about 4.5 KiB, with no extra FFT. The accepted V3.088
-capture/decode/UAC/CAT/TX policy remains unchanged. Software evidence and pending
-ADV/QMX visual, Memory and continuity checks are tracked in
-`docs/project/codex/T089-ft8-waterfall-overlay.md`; hardware acceptance is pending.
+T089 is complete. V3.089 adds the optional W/w RX top-row waterfall through the
+generic MiniShell RGB565 raster capability while preserving the accepted V3.088
+capture/decode/UAC/CAT/TX policy. ADV hardware validation confirms the final
+dirty-row ownership model eliminates both UTC-second and RX-batch row-0 flashes.
+Linux remains text-only. The history is optional/session-local, about 4.5 KiB,
+and reuses existing monitor FFT output with no second FFT.
 
 ## Current production baseline
 
@@ -615,18 +615,18 @@ These decisions are now promoted into bounded follow-up work:
 ```text
 T086  TESTING — V2 RxTxLog append/close policy; ADV acceptance pending
 T087  TESTING — V2 ADV priority/tight scheduling; hardware acceptance pending
-T088  COMPLETE — V3.088 accepted baseline; field test passed with no zero-decode slots
+T088  COMPLETE — V3.088 decode baseline; field test passed with no zero-decode slots
+T089  COMPLETE — V3.089 accepted baseline; ADV waterfall hardware accepted
 ```
 
 The architect promoted T088 directly so the complete repair can be field-tested
 as one V3.088 binary. Zero-decode on an active band remains the primary acceptance
 blocker; T086/T087/T088 should be evaluated together in that field test.
 
-V3.088 is the accepted MiniFT8 baseline after ADV/QMX bench and field
-validation. Bench operation showed no functional breakage and noticeably faster
-decode. A 2026-10-16 field test under less-than-ideal band conditions performed
-very well and showed no zero-decode slots, closing the active-band correctness
-blocker. Future work returns to code reading and small, measured incremental
+V3.089 is the accepted MiniFT8 baseline. It preserves the V3.088 ADV/QMX
+decode behavior that passed bench and field validation, including the 2026-10-16
+active-band test with no zero-decode slots, and adds the hardware-accepted T089
+RX waterfall. Future work returns to code reading and small, measured incremental
 improvements rather than another RX repair campaign.
 
 #### RX/FFT direction agreed after the V2 audit
