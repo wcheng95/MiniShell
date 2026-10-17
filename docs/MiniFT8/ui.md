@@ -385,4 +385,4 @@ text rows/separator, then the adapter repaints the waterfall. Hidden row-0-only
 changes still skip rendering while advancing the logical cache. W-off uses the
 normal full text path and restores the newest status. Visible spectrum updates
 use only immediate raster blits without text present.
-ADV/QMX visual and continuity acceptance remains pending supervisor review.
+ADV/QMX hardware acceptance is complete; V3.089 is the accepted MiniFT8 baseline.
