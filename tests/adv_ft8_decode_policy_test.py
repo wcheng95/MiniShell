@@ -57,7 +57,7 @@ class DecodePolicy(unittest.TestCase):
 
     def test_about_identity(self):
         for path in ['apps/ft8/src/ui_shell/ui_shell.c', 'tests/ft8_ui_smoke.c']:
-            self.assertEqual(re.findall(r'MiniFT8-V3\.\d+', code(path)), ['MiniFT8-V3.087'])
+            self.assertEqual(re.findall(r'MiniFT8-V3\.\d+', code(path)), ['MiniFT8-V3.089'])
 
 
 if __name__ == '__main__':

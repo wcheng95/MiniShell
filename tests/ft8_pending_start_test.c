@@ -149,3 +149,8 @@ int main(void)
     assert(ft8_lifecycle_entry(7,tone_args)==0 && tone_tests==1 && !normal_frames && !destroys);
     puts("ft8_pending_start: PASS");return 0;
 }
+
+void app_controller_observe_waterfall(AppController *app, void (*notify)(void *), void *ctx)
+{ (void)app; (void)notify; (void)ctx; }
+bool app_controller_waterfall_latest(const AppController *app, uint64_t *gen, uint8_t *row, uint32_t width)
+{ (void)app; (void)gen; (void)row; (void)width; return false; }

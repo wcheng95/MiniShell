@@ -59,7 +59,9 @@ static void test_requirements_and_lifecycle(void)
     CHECK(ft8_hash_store_count(&engine.hash_store) == 0u);
 
     /* Continuous capture is valid before the first UTC slot anchor. */
+    uint64_t generation_before = ft8_engine_waterfall_generation(&engine);
     CHECK(ft8_engine_process_block(&engine, zero_block) == FT8_ENGINE_OK);
+    CHECK(ft8_engine_waterfall_generation(&engine) == generation_before + 1u);
     CHECK(engine.monitor.next_block_seq == 1u);
     CHECK(ft8_engine_finalize_window(&engine, NULL, 0u, &slot) == FT8_ENGINE_ERR_STATE);
 
@@ -86,7 +88,9 @@ static void test_requirements_and_lifecycle(void)
     CHECK(!engine.decode_search_active);
     CHECK(!ft8_engine_decode_active(&engine));
 
+    generation_before = ft8_engine_waterfall_generation(&engine);
     CHECK(ft8_engine_reset_stream(&engine) == FT8_ENGINE_OK);
+    CHECK(ft8_engine_waterfall_generation(&engine) == generation_before);
     CHECK(!engine.slot_anchor_valid);
     CHECK(engine.monitor.next_block_seq == 0u);
     CHECK(ft8_engine_process_block(&engine, zero_block) == FT8_ENGINE_OK);

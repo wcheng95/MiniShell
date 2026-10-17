@@ -389,7 +389,7 @@ static void test_late_attach() {
 }
 '''
 cases = cases.rsplit('}', 1)[0] + 'test_late_attach();\n}\n'
-parser = (root / 'apps/ft8/main/ft8_main.c').read_text().split('int main(', 1)[0]
+parser = (root / 'apps/ft8/main/ft8_main.c').read_text().split('typedef struct {\n    AppController *app;', 1)[0]
 wrapper_path = Path(sys.argv[2]) if len(sys.argv) > 2 else root / 'platform/adv/main/ft8_static.c'
 wrapper = wrapper_path.read_text().split('int minishell_app_ft8_main', 1)[1]
 includes = [root / p for p in ('include', 'core/minishell_services', 'platform/adv',

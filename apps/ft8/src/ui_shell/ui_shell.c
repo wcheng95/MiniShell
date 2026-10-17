@@ -443,7 +443,7 @@ static void render_v_system(const UiShell *ui, const UiModel *model, UiFrame *fr
 
 static void render_v_about(UiFrame *frame)
 {
-    info_line(frame, 0, "MiniFT8-V3.088");
+    info_line(frame, 0, "MiniFT8-V3.089");
     info_line(frame, 1, "MiniShell application");
     info_line(frame, 2, "Runtime app: ft8");
     info_line(frame, 3, "FT8 protocol only");
@@ -484,6 +484,12 @@ static void observe_rx_generation(UiShell *ui, const UiModel *model)
     }
 }
 
+void ui_shell_set_waterfall_supported(UiShell *ui, bool supported)
+{
+    ui->waterfall_supported = supported;
+    if (!supported) ui->waterfall_enabled = false;
+}
+
 void ui_shell_render(UiShell *ui, const UiModel *model, UiFrame *frame)
 {
     observe_rx_generation(ui, model);
@@ -496,6 +502,8 @@ void ui_shell_render(UiShell *ui, const UiModel *model, UiFrame *frame)
     frame->column_count = spec.columns;
     frame->row_count = spec.rows;
     frame->has_footer = spec.has_footer;
+    frame->waterfall_overlay = ui->waterfall_supported && ui->waterfall_enabled &&
+        ui->screen == SCREEN_RX && ui->submenu == UI_SUBMENU_NONE;
     frame->separator_after_top = true;
     frame->separator_color = model->tx_active ? UI_COLOR_RED : UI_COLOR_WHITE;
     for (uint32_t r = 0u; r < UI_MAX_ROWS; ++r) frame->row_color[r] = UI_COLOR_WHITE;
@@ -699,6 +707,8 @@ bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
             return false;
         }
         int ch = tolower((unsigned char)input.ch);
+        if (ch == 'w' && ui->screen == SCREEN_RX && ui->submenu == UI_SUBMENU_NONE &&
+            ui->waterfall_supported) { ui->waterfall_enabled = !ui->waterfall_enabled; return false; }
         if (ch == 'r') { enter_screen(ui, SCREEN_RX); return false; }
         if (ch == 't') { enter_screen(ui, SCREEN_TX); return false; }
         if (ch == 'o') { enter_screen(ui, SCREEN_O); return false; }

@@ -44,6 +44,7 @@ _Static_assert(APP_MAX_TX_LINES >= AUTO_SEQ_MAX_QUEUE,
                "UiModel must hold the complete active AutoSeq queue");
 
 struct AppRxState {
+    AppController *owner;
     const mini_api_t *api;
     RxAudioAdapter audio;
     RxFrontend frontend;
@@ -806,7 +807,10 @@ static int rx_emit_event(void *ctx, const RxSlotFramerEvent *event)
         return ft8_engine_begin_window(&rx->engine, event->slot_id) == FT8_ENGINE_OK ? 0 : -1;
 
     case RX_SLOT_FRAMER_EVENT_ENGINE_BLOCK:
-        return ft8_engine_process_block(&rx->engine, event->samples) == FT8_ENGINE_OK ? 0 : -1;
+        if (ft8_engine_process_block(&rx->engine, event->samples) != FT8_ENGINE_OK) return -1;
+        if (rx->owner && rx->owner->waterfall_notify)
+            rx->owner->waterfall_notify(rx->owner->waterfall_ctx);
+        return 0;
 
     case RX_SLOT_FRAMER_EVENT_FINALIZE_WINDOW:
         /* Live submission is UTC-driven, including slots with lost samples. */
@@ -1068,6 +1072,7 @@ bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config)
     }
     memset(rx, 0, sizeof(*rx));
     rx->api = app->api;
+    rx->owner = app;
     atomic_init(&rx->decode_async_state, RX_DECODE_ASYNC_IDLE);
     app->rx = rx;
     rx->live = !config->has_explicit_timing;
@@ -1726,4 +1731,24 @@ bool app_controller_rx_ready_for_tx(const AppController *app, int64_t slot_id)
 {
     if (!app->rx || !app->rx->active || !app->rx->live) return true;
     return slot_id != INT64_MIN && app->rx->have_applied_batch && app->rx->applied_slot == slot_id - 1;
+}
+
+void app_controller_observe_waterfall(AppController *app,
+                                      void (*notify)(void *ctx), void *ctx)
+{
+    if (!app) return;
+    app->waterfall_notify = notify;
+    app->waterfall_ctx = ctx;
+}
+
+bool app_controller_waterfall_latest(const AppController *app, uint64_t *generation,
+                                      uint8_t *row, uint32_t width)
+{
+    if (!app || !app->rx || !generation) return false;
+    const Ft8Engine *engine = &app->rx->engine;
+    uint64_t current = ft8_engine_waterfall_generation(engine);
+    if (current == *generation || !current ||
+        ft8_engine_project_latest(engine, row, width) != FT8_ENGINE_OK) return false;
+    *generation = current;
+    return true;
 }

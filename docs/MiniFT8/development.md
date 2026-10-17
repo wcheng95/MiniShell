@@ -36,6 +36,15 @@ must be installed before the native build because Linux ALSA support is selected
 at compile time. Preserve this bring-up recipe/evidence for future CardputerZero
 work.
 
+## T089 software candidate
+
+V3.089 adds an optional W/w RX top-row waterfall through the generic MiniShell
+RGB565 raster capability. ADV supports it; Linux remains text-only. The history
+is optional/session-local, about 4.5 KiB, with no extra FFT. The accepted V3.088
+capture/decode/UAC/CAT/TX policy remains unchanged. Software evidence and pending
+ADV/QMX visual, Memory and continuity checks are tracked in
+`docs/project/codex/T089-ft8-waterfall-overlay.md`; hardware acceptance is pending.
+
 ## Current production baseline
 
 ```text

@@ -514,13 +514,47 @@ static void test_about_version(void)
         ui_shell_render(&ui, &model, &frame);
         char expected[sizeof(frame.rows[1])];
         snprintf(expected, sizeof(expected), "%-*s", (int)frame.column_count,
-                 "MiniFT8-V3.088");
+                 "MiniFT8-V3.089");
         assert(strcmp(frame.rows[1], expected) == 0);
     }
 }
 
+static void test_waterfall_toggle(void)
+{
+    UiShell ui; UiModel model; UiFrame frame; AppAction action;
+    set_default_model(&model); ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    ui_shell_handle_input(&ui, &model, key('w'), &action);
+    assert(!ui.waterfall_enabled);
+    ui_shell_set_waterfall_supported(&ui, true);
+    ui_shell_handle_input(&ui, &model, key('w'), &action);
+    ui_shell_render(&ui, &model, &frame);
+    assert(ui.waterfall_enabled && frame.waterfall_overlay && frame.rows[0][0]);
+    const Screen screens[] = {SCREEN_TX, SCREEN_O, SCREEN_S, SCREEN_V};
+    for (unsigned i = 0; i < sizeof(screens)/sizeof(*screens); ++i) {
+        ui.screen = screens[i];
+        ui_shell_handle_input(&ui, &model, key('W'), &action);
+        ui_shell_render(&ui, &model, &frame);
+        assert(ui.waterfall_enabled && !frame.waterfall_overlay);
+    }
+    ui.screen = SCREEN_RX;
+    for (int sub = UI_SUBMENU_O_CQ; sub <= UI_SUBMENU_V_ABOUT; ++sub) {
+        ui.submenu = (UiSubmenu)sub;
+        ui_shell_handle_input(&ui, &model, key('W'), &action);
+        ui_shell_render(&ui, &model, &frame);
+        assert(ui.waterfall_enabled && !frame.waterfall_overlay);
+    }
+    ui.submenu = UI_SUBMENU_NONE;
+    ui_shell_render(&ui, &model, &frame); assert(frame.waterfall_overlay);
+    ui_shell_handle_input(&ui, &model, key('W'), &action);
+    ui_shell_render(&ui, &model, &frame);
+    assert(!ui.waterfall_enabled && !frame.waterfall_overlay);
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    assert(!ui.waterfall_enabled);
+}
+
 int main(void)
 {
+    test_waterfall_toggle();
     test_about_version();
     test_plain_page_shortcuts();
     color_status();

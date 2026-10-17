@@ -6,6 +6,42 @@
 #define FIELD_END(type, field) \
     ((uint32_t)(offsetof(type, field) + sizeof(((type *)0)->field)))
 
+struct Ft8WaterfallHistory {
+    uint8_t rows[FT8_WATERFALL_HEIGHT][FT8_WATERFALL_WIDTH];
+    uint32_t head;
+    bool visible;
+};
+
+static bool draw_waterfall(const ft8_ui_adapter_t *adapter)
+{
+    uint16_t pixels[FT8_WATERFALL_WIDTH];
+    const Ft8WaterfallHistory *history = adapter->waterfall;
+    for (uint32_t y = 0; y < FT8_WATERFALL_HEIGHT; ++y) {
+        const uint8_t *row = history->rows[(history->head + y) % FT8_WATERFALL_HEIGHT];
+        for (uint32_t x = 0; x < FT8_WATERFALL_WIDTH; ++x) {
+            uint16_t v = row[x];
+            pixels[x] = ((v & 0xF8u) << 8) | ((v & 0xFCu) << 3);
+        }
+        if (adapter->raster->blit_rgb565(0, y, FT8_WATERFALL_WIDTH, 1,
+                                        pixels, FT8_WATERFALL_WIDTH) != MINI_OK) return false;
+    }
+    return true;
+}
+
+bool ft8_ui_adapter_waterfall_supported(const ft8_ui_adapter_t *adapter)
+{
+    return adapter && adapter->waterfall;
+}
+
+void ft8_ui_adapter_push_waterfall(ft8_ui_adapter_t *adapter, const uint8_t row[FT8_WATERFALL_WIDTH])
+{
+    if (!adapter || !adapter->waterfall || !row) return;
+    Ft8WaterfallHistory *history = adapter->waterfall;
+    memcpy(history->rows[history->head], row, FT8_WATERFALL_WIDTH);
+    history->head = (history->head + 1u) % FT8_WATERFALL_HEIGHT;
+    if (history->visible) (void)draw_waterfall(adapter);
+}
+
 bool ft8_ui_adapter_init(ft8_ui_adapter_t *adapter, const mini_api_t *api,
                          ft8_presentation_profile_t presentation)
 {
@@ -41,10 +77,28 @@ bool ft8_ui_adapter_init(ft8_ui_adapter_t *adapter, const mini_api_t *api,
         return false;
     }
 
+    memset(adapter, 0, sizeof(*adapter));
     adapter->display = display;
     adapter->text = text;
     adapter->key = key;
     adapter->presentation = presentation;
+    if ((display->capabilities & MINI_DISPLAY_CAP_RASTER_RGB565) &&
+        display->struct_size >= FIELD_END(mini_display_api_t, raster) && display->raster &&
+        display->raster->struct_size >= FIELD_END(mini_raster_display_api_t, blit_rgb565) &&
+        display->raster->get_info && display->raster->blit_rgb565 &&
+        api->memory && api->memory->struct_size >= FIELD_END(mini_memory_api_t, free) &&
+        api->memory->alloc && api->memory->free) {
+        mini_raster_display_info_t raster_info = {.struct_size = sizeof(raster_info)};
+        void *allocation = NULL;
+        if (display->raster->get_info(&raster_info) == MINI_OK &&
+            raster_info.width >= FT8_WATERFALL_WIDTH && raster_info.height >= FT8_WATERFALL_HEIGHT &&
+            api->memory->alloc(sizeof(Ft8WaterfallHistory), &allocation) == MINI_OK && allocation) {
+            adapter->memory = api->memory;
+            adapter->raster = display->raster;
+            adapter->waterfall = allocation;
+            memset(allocation, 0, sizeof(Ft8WaterfallHistory));
+        }
+    }
     return true;
 }
 
@@ -91,7 +145,12 @@ bool ft8_ui_adapter_render(const ft8_ui_adapter_t *adapter, const UiFrame *frame
         mini_result_t result = text->set_row_separator(0u, foreground(frame->separator_color));
         if (result != MINI_OK && result != MINI_ERR_UNSUPPORTED) return false;
     }
-    return adapter->display->present() == MINI_OK;
+    if (adapter->display->present() != MINI_OK) return false;
+    if (adapter->waterfall) {
+        adapter->waterfall->visible = frame->waterfall_overlay;
+        if (frame->waterfall_overlay) return draw_waterfall(adapter);
+    }
+    return true;
 }
 
 static void translate_event(const mini_key_event_t *event, UiInput *out_input)
@@ -158,6 +217,7 @@ bool ft8_ui_adapter_read_input(const ft8_ui_adapter_t *adapter, UiInput *out_inp
 void ft8_ui_adapter_shutdown(const ft8_ui_adapter_t *adapter)
 {
     if (adapter == NULL || adapter->text == NULL || adapter->display == NULL) return;
+    if (adapter->waterfall) (void)adapter->memory->free(adapter->waterfall);
     (void)adapter->text->clear();
     (void)adapter->display->present();
 }

@@ -51,6 +51,8 @@ struct AppController {
     uint64_t last_live_location_update_us;
     bool gps_grid_active;
     AppRxState *rx;
+    void (*waterfall_notify)(void *ctx);
+    void *waterfall_ctx;
     AppTxState tx;
     LogQsoPage qso;
     uint32_t qso_requested_page;

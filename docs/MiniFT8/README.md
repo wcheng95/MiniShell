@@ -41,6 +41,15 @@ Linux remains the deterministic regression/reference environment. Linux/pc-1 + Q
 
 T088 / V3.088 is the current MiniFT8 baseline. Bench validation found no functional breakage and noticeably faster decoding. A 2026-10-16 field test under poor band conditions performed very well with no zero-decode slots, closing the active-band blocker that motivated the T086-T088 repair sequence.
 
+## T089 software candidate
+
+V3.089 adds an optional W/w RX top-row waterfall through the generic MiniShell
+RGB565 raster capability. ADV supports it; Linux remains text-only. The history
+is optional/session-local, about 4.5 KiB, with no extra FFT. The accepted V3.088
+capture/decode/UAC/CAT/TX policy remains unchanged. Software evidence and pending
+ADV/QMX visual, Memory and continuity checks are tracked in
+`docs/project/codex/T089-ft8-waterfall-overlay.md`; hardware acceptance is pending.
+
 ## Working live QMX path
 
 QMX native USB audio:

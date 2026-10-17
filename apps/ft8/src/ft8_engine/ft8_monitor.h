@@ -128,6 +128,11 @@ Ft8MonitorStatus ft8_monitor_get_waterfall_at(const Ft8Monitor *monitor,
                                               uint64_t anchor_seq,
                                               Ft8WaterfallView *out_view);
 
+/* Pure V2 projection: first time subrow, MAX over frequency subs and integer
+ * pixel ranges. Caller supplies width; source DSP storage remains untouched. */
+Ft8MonitorStatus ft8_monitor_project_latest(const Ft8Monitor *monitor,
+                                           uint8_t *row, uint32_t width);
+
 uint64_t ft8_monitor_next_block_sequence(const Ft8Monitor *monitor);
 
 #ifdef __cplusplus

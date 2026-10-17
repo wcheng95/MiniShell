@@ -226,8 +226,45 @@ static void test_linear_waterfall(void)
     free(workspace);
 }
 
+static void test_v2_projection(void)
+{
+    enum { BINS = 433, STRIDE = BINS * 4 };
+    uint8_t data[STRIDE * 2], original[sizeof(data)], row[240];
+    Ft8Monitor mon = {0};
+    mon.initialized = 1; mon.num_blocks = 2; mon.waterfall = data;
+    mon.req.num_bins = BINS; mon.req.block_stride = STRIDE;
+    mon.config.time_osr = 2; mon.config.freq_osr = 2;
+    memset(data, 255, sizeof(data)); /* Prior block and second time-sub must be ignored. */
+    for (unsigned b = 0; b < BINS; ++b) {
+        data[STRIDE + b] = b % 117;
+        data[STRIDE + BINS + b] = 120 + b % 90;
+    }
+    memcpy(original, data, sizeof(data));
+    for (unsigned fs = 1; fs <= 2; ++fs) {
+        mon.config.freq_osr = fs;
+        CHECK(ft8_monitor_project_latest(&mon, row, 240) == FT8_MONITOR_OK);
+        for (unsigned x = 0; x < 240; ++x) {
+            unsigned start = x * BINS / 240, end = (x + 1) * BINS / 240;
+            uint8_t expected = 0;
+            for (unsigned b = start; b < end; ++b)
+                for (unsigned f = 0; f < fs; ++f)
+                    if (data[STRIDE + f * BINS + b] > expected)
+                        expected = data[STRIDE + f * BINS + b];
+            CHECK(row[x] == expected);
+        }
+    }
+    CHECK(!memcmp(original, data, sizeof(data)));
+    mon.req.num_bins = 3; mon.config.freq_osr = 1;
+    data[STRIDE] = 1; data[STRIDE+1] = 2; data[STRIDE+2] = 3;
+    CHECK(ft8_monitor_project_latest(&mon, row, 240) == FT8_MONITOR_OK);
+    for (unsigned x = 0; x < 240; ++x) CHECK(row[x] == 1 + x * 3 / 240);
+    mon.num_blocks = 0;
+    CHECK(ft8_monitor_project_latest(&mon, row, 240) != FT8_MONITOR_OK);
+}
+
 int main(void)
 {
+    test_v2_projection();
     test_requirements();
     test_workspace_failures();
     test_instance_independence();

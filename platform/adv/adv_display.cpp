@@ -377,3 +377,32 @@ extern "C" mini_result_t adv_display_present(void *ctx)
     render_all();
     return MINI_OK;
 }
+
+extern "C" mini_result_t adv_display_raster_get_info(void *ctx, uint32_t *width, uint32_t *height)
+{
+    (void)ctx;
+    if (!s_ready) return MINI_ERR_NOT_READY;
+    if (!width || !height) return MINI_ERR_INVALID;
+    *width = 240u;
+    *height = 135u;
+    return MINI_OK;
+}
+
+extern "C" mini_result_t adv_display_blit_rgb565(void *ctx, uint32_t x, uint32_t y,
+                                                uint32_t width, uint32_t height,
+                                                const uint16_t *pixels, uint32_t stride_pixels)
+{
+    (void)ctx;
+    if (!s_ready) return MINI_ERR_NOT_READY;
+    if (!width || !height) return MINI_OK;
+    if (!pixels || stride_pixels < width || x >= 240u || y >= 135u ||
+        width > 240u - x || height > 135u - y) return MINI_ERR_INVALID;
+    auto &display = M5.Display;
+    const bool swapped = display.getSwapBytes();
+    // LovyanGFX's uint16_t input with swap enabled means logical RGB565.
+    display.setSwapBytes(true);
+    for (uint32_t row = 0; row < height; ++row)
+        display.pushImage(x, y + row, width, 1, pixels + static_cast<size_t>(row) * stride_pixels);
+    display.setSwapBytes(swapped);
+    return MINI_OK;
+}

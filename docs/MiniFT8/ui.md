@@ -6,9 +6,9 @@ This document is the canonical MiniFT8-V3 UI definition. New V3 decisions overri
 
 ### DECIDED
 
-- First-release UI is text-only: **20 columns x 7 lines**.
+- Logical text UI: **20 columns x 7 lines**, with the optional T089 raster overlay.
 - A **2-pixel gap/separator** is placed below the top line.
-- First release has **no countdown bar** and **no graphical waterfall**.
+- No countdown bar. T089 adds an optional RX top-row waterfall overlay (see below).
 - The 20-character top line is fully defined below, with the documented V -> 3 large-page exception.
 - Top-level UIScreen switching uses case-insensitive reserved letters: `R`, `T`, `O`, `S`, `V`, `Q`.
 - `Q` means Quit.
@@ -74,12 +74,8 @@ line 5   UIScreen content
 line 6   UIScreen content
 ```
 
-For the first release there is deliberately:
-
-- no countdown bar;
-- no graphical waterfall.
-
-These can be reconsidered later without changing the basic UIScreen model.
+There is no countdown bar. T089 adds an optional RX waterfall where raster is
+supported, without changing the basic UIScreen model.
 
 ## Top line
 
@@ -363,3 +359,26 @@ selection, classification or RX display lifetime changes.
 Color and separators are optional generic Display capabilities. Linux and other
 plain providers retain the existing monochrome text; unsupported optional styling
 falls back without failing MiniFT8 startup or rendering.
+
+## Optional RX waterfall overlay (T089 / V3.089)
+
+On RX top level, W/w toggles a session-local 240x19 yellow-on-black waterfall
+where the presentation adapter discovers MiniShell RGB565 raster and allocates
+its optional history. New sessions start OFF. Unsupported platforms (including
+Linux) and failed optional allocations leave W inert and FT8 usable.
+
+Only physical y=0..18 is covered; the separator at y=19..20 and decoded-message
+rows 1..6 remain fixed. W is ignored in submenus and on TX/O/S/V. Leaving RX
+hides the overlay; returning restores it if enabled. W again restores ordinary
+top status immediately. The logical status row remains intact in every UiFrame.
+
+Each completed 960-sample monitor block supplies one display row (160 ms), using
+pinned V2 first-time-subrow/frequency-MAX/integer-range MAX pooling. Newest rows
+appear at y=18 and older rows scroll upward. Nineteen rows retain about 3.04 s;
+history continues while hidden and spans slot boundaries. The display stays
+static during the accepted +12.64..15.00 s drain/discard interval and physical TX.
+No extra FFT or persisted setting is introduced.
+
+Ordinary frames render text and present first, then repaint the full overlay.
+Visible spectrum updates use only immediate raster blits without text present.
+ADV/QMX visual and continuity acceptance remains pending supervisor review.

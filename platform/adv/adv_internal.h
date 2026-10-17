@@ -40,6 +40,10 @@ mini_result_t adv_display_text_write_at_attr(void *ctx, uint32_t row, uint32_t c
                                              const char *text, uint32_t byte_count,
                                              uint32_t attributes);
 mini_result_t adv_display_present(void *ctx);
+mini_result_t adv_display_raster_get_info(void *ctx, uint32_t *width, uint32_t *height);
+mini_result_t adv_display_blit_rgb565(void *ctx, uint32_t x, uint32_t y,
+                                     uint32_t width, uint32_t height,
+                                     const uint16_t *pixels, uint32_t stride_pixels);
 
 int adv_keyboard_prepare(void);
 bool adv_keyboard_ready(void);

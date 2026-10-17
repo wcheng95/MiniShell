@@ -36,6 +36,12 @@ bool app_controller_step_location(AppController *app, bool *out_model_changed);
 bool app_controller_start_rx(AppController *app, const AppRxStartConfig *config);
 bool app_controller_step_rx(AppController *app, bool *out_model_changed);
 bool app_controller_rx_active(const AppController *app);
+/* Optional producer-side notification, once per completed monitor block. Runs
+ * synchronously on the foreground owner; never on the decode worker. */
+void app_controller_observe_waterfall(AppController *app,
+                                      void (*notify)(void *ctx), void *ctx);
+bool app_controller_waterfall_latest(const AppController *app, uint64_t *generation,
+                                      uint8_t *row, uint32_t width);
 
 /*
  * Optional external decode executor. Portable/Linux builds leave this disabled

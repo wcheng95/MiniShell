@@ -349,3 +349,29 @@ uint64_t ft8_monitor_next_block_sequence(const Ft8Monitor *monitor)
         return 0u;
     return monitor->next_block_seq;
 }
+
+Ft8MonitorStatus ft8_monitor_project_latest(const Ft8Monitor *monitor,
+                                           uint8_t *row, uint32_t width)
+{
+    if (!monitor || !monitor->initialized || !row || !width || !monitor->num_blocks ||
+        !monitor->waterfall || !monitor->req.num_bins || !monitor->config.freq_osr)
+        return FT8_MONITOR_ERR_INVALID;
+    const uint32_t bins = monitor->req.num_bins;
+    const uint8_t *base = monitor->waterfall +
+        (size_t)(monitor->num_blocks - 1u) * monitor->req.block_stride;
+    for (uint32_t x = 0; x < width; ++x) {
+        uint32_t start = (uint64_t)x * bins / width;
+        uint32_t end = ((uint64_t)x + 1u) * bins / width;
+        if (end <= start) end = start + 1u;
+        uint8_t value = 0;
+        /* MAX commutes: collapse frequency subs inside the pixel pool without
+         * allocating/copying an intermediate full spectrum. */
+        for (uint32_t b = start; b < end; ++b)
+            for (uint32_t fs = 0; fs < monitor->config.freq_osr; ++fs) {
+                uint8_t v = base[(size_t)fs * bins + b];
+                if (v > value) value = v;
+            }
+        row[x] = value;
+    }
+    return FT8_MONITOR_OK;
+}

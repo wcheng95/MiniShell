@@ -150,8 +150,10 @@ Ft8EngineStatus ft8_engine_process_block(
         return FT8_ENGINE_ERR_NOT_INITIALIZED;
 
     status = ft8_monitor_process_block(&engine->monitor, samples);
-    if (status == FT8_MONITOR_OK)
+    if (status == FT8_MONITOR_OK) {
+        ++engine->waterfall_generation;
         return FT8_ENGINE_OK;
+    }
     if (status == FT8_MONITOR_WATERFALL_FULL)
         return FT8_ENGINE_WATERFALL_FULL;
     if (status == FT8_MONITOR_ERR_NOT_INITIALIZED)
@@ -505,4 +507,16 @@ Ft8EngineStatus ft8_engine_finalize_window(Ft8Engine *engine,
     }
 
     return out_slot->message_count == 0u ? FT8_ENGINE_NO_MESSAGES : FT8_ENGINE_OK;
+}
+
+uint64_t ft8_engine_waterfall_generation(const Ft8Engine *engine)
+{
+    return engine && engine->initialized ? engine->waterfall_generation : 0;
+}
+
+Ft8EngineStatus ft8_engine_project_latest(const Ft8Engine *engine, uint8_t *row, uint32_t width)
+{
+    if (!engine || !engine->initialized) return FT8_ENGINE_ERR_NOT_INITIALIZED;
+    return ft8_monitor_project_latest(&engine->monitor, row, width) == FT8_MONITOR_OK
+        ? FT8_ENGINE_OK : FT8_ENGINE_ERR_INVALID;
 }

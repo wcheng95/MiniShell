@@ -37,6 +37,19 @@ static mini_result_t utc_get(mini_utc_time_t *utc)
     utc->nanoseconds = 0;
     return utc_available ? MINI_OK : MINI_ERR_NOT_READY;
 }
+static uint64_t waterfall_generation;
+static unsigned waterfall_notifications;
+static void observe_waterfall(void *ctx)
+{
+    AppController *app = ctx;
+    uint8_t row[240];
+    uint64_t before = waterfall_generation;
+    assert(app_controller_waterfall_latest(app, &waterfall_generation, row, 240));
+    assert(waterfall_generation == before + 1);
+    assert(!app_controller_waterfall_latest(app, &waterfall_generation, row, 240));
+    ++waterfall_notifications;
+}
+
 int main(void)
 {
     const mini_memory_api_t memory = {.alloc = mem_alloc, .free = mem_free};
@@ -52,6 +65,7 @@ int main(void)
     };
     const mini_api_t api = {.memory = &memory, .audio = &audio, .time_location = &time};
     AppController app = {.api = &api};
+    app_controller_observe_waterfall(&app, observe_waterfall, &app);
     assert(auto_seq_init(&app.auto_seq, NULL));
     AppRxStartConfig config = {.endpoint = "fake", .has_explicit_timing = true, .slot_id = 1};
     assert(app_controller_start_rx(&app, &config));
@@ -124,7 +138,9 @@ int main(void)
     read_result = MINI_OK;
     utc_available = false;
     assert(!app_controller_step_rx(&app, &changed));
+    assert(waterfall_notifications == app.rx->engine.waterfall_generation);
     app_rx_destroy(&app);
+    waterfall_generation = 0; waterfall_notifications = 0;
 
     /* A gap before first timing establishment must use init, not reset. */
     config.has_explicit_timing = false;
@@ -136,7 +152,9 @@ int main(void)
     read_result = MINI_OK;
     assert(app_controller_step_rx(&app, &changed));
     assert(app.rx->framer_initialized && app.rx->framer.slot_id == 100);
+    assert(waterfall_notifications == app.rx->engine.waterfall_generation);
     app_rx_destroy(&app);
+    waterfall_generation = 0; waterfall_notifications = 0;
     puts("controller RX discontinuity: PASS");
     return 0;
 }

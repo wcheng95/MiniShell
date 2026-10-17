@@ -8,7 +8,7 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 source = Path(sys.argv[2]) if len(sys.argv) > 2 else root / 'platform/adv/main/ft8_static.c'
 wrapper = source.read_text().split('int minishell_app_ft8_main', 1)[1]
-parser = (root / 'apps/ft8/main/ft8_main.c').read_text().split('int main(', 1)[0]
+parser = (root / 'apps/ft8/main/ft8_main.c').read_text().split('typedef struct {\n    AppController *app;', 1)[0]
 includes = [root / p for p in ('include', 'core/minishell_services', 'platform/adv',
     'apps/ft8/include', 'apps/ft8/main', 'apps/ft8/src/app_controller',
     'apps/ft8/src/presentation_profile', 'apps/ft8/src/ui_shell')]

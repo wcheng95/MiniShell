@@ -4,7 +4,7 @@ Status: **implemented on Linux and Cardputer ADV; ADV color/separator extensions
 
 ## Purpose
 
-Display gives applications a platform-neutral logical display surface without exposing terminal escape sequences, LCD/e-paper controllers, framebuffers, fonts, pixel formats, or board-driver objects.
+Display gives applications a platform-neutral logical display surface without exposing terminal escape sequences, LCD/e-paper controllers, framebuffers, fonts, or board-driver objects. Optional raster transport uses logical RGB565 values.
 
 ```text
 application
@@ -197,3 +197,30 @@ Existing DEFAULT/WHITE/GREEN/CYAN values remain 0/2/4/6; RED is 8. Reserved
 foreground selectors 5–7 and unknown bits return INVALID, including for row
 separators. RED may combine with INVERSE. ADV maps RED to `0xFF0000`; existing
 colors and geometry are unchanged. No API table or version change is introduced.
+
+## Optional RGB565 raster transport (T089)
+
+`MINI_DISPLAY_CAP_RASTER_RGB565` (`1ull << 3`) exposes the optional
+`mini_display_api_t.raster` tail. Check Display `struct_size`, capability, pointer,
+and raster table `struct_size`/callbacks before use. The API version remains 3.
+
+`get_info(mini_raster_display_info_t *)` requires `struct_size` through `height`
+and reports non-zero pixel `width`/`height`; unavailable geometry returns
+NOT_READY. `blit_rgb565(x, y, width, height, pixels, stride_pixels)` transfers a
+rectangle synchronously and immediately. Public pixels are host-endian uint16_t:
+red bits 15..11, green 10..5, blue 4..0. The provider owns LCD/wire byte order.
+
+Zero width or height succeeds without accessing pixels or geometry. Non-zero
+rectangles require non-NULL pixels, stride at least width, and full containment
+within geometry; invalid arguments return INVALID. No clipping is performed.
+The caller provides readable storage for all requested rows, including stride.
+
+Raster does not change logical text buffers, expose a framebuffer, or require a
+later `present()`. Text `present()` may overwrite physical pixels; callers own
+ordering when surfaces overlap. No scaling, palettes, alpha, drawing primitives,
+image decoding or rotation are provided.
+
+ADV reports exactly 240x135 and uses synchronous row transfers with the display
+library's byte-swap facility, restoring its previous setting. Text geometry,
+separator and console behavior stay unchanged. Linux advertises no raster
+capability and leaves the raster pointer NULL.

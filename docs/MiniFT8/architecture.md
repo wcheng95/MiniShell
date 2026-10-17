@@ -438,6 +438,24 @@ Control
 
 There is no UI-level monolithic `Radio` resource and no in-app protocol-mode selector.
 
+### Optional waterfall presentation (T089)
+
+The engine supplies a pure caller-width projection of the latest completed
+monitor block and a generation that advances only on successful blocks. It has
+no Display/UI dependency and never performs an extra FFT or changes decoder
+storage. The controller exposes the newest projected row plus generation and an
+optional synchronous foreground notification per block. This preserves every
+row even when an RX step drains multiple blocks; the notification never runs on
+the decode worker. No observer is registered without presentation support.
+
+`ft8_main` connects that notification/getter to `ft8_ui_adapter`. UiModel contains
+no streaming pixels. UiShell owns support/enabled state and emits only the
+`UiFrame.waterfall_overlay` fact. The adapter owns the circular 19x240 intensity
+history allocated through MiniShell Memory (4568 bytes including cursor/state),
+and converts one 240-pixel RGB565 scratch row at a time. Allocation failure is
+optional and cannot block FT8 startup. No persistent RGB framebuffer is added.
+MiniShell validates generic rectangles; ADV alone owns LCD access and byte order.
+
 ## 10. Protocol ownership
 
 The `ft8` application is FT8. There is no canonical mutable `Mode` state in `app_controller`, `UiModel`, or `station.txt`.

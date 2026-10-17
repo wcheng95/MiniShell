@@ -1,6 +1,6 @@
 # T089 — MiniShell RGB565 raster + MiniFT8 RX waterfall overlay
 
-Status: READY
+Status: REVIEW
 
 ## Intent
 
@@ -962,3 +962,215 @@ manual validation still required
 ~~~
 
 Do not open a PR. Do not merge to main. Supervisor review comes first.
+
+
+## Implementation evidence — 2026-10-17
+
+### Implementation summary
+
+Implemented the optional generic RGB565 Display tail, validated service transport,
+ADV immediate raster provider, and MiniFT8 W/w RX-top-level overlay. About is
+`MiniFT8-V3.089`. Linux remains text-only. This is a software review candidate;
+no hardware acceptance is claimed and main has not been merged.
+
+Started on `codex/T089-ft8-waterfall-overlay` from current main
+`3b49673bf6d6f7224f2f14979dff23c1368009e4`. That commit adds only this READY packet
+above the specified production baseline `2fffd8920017be3aed75f59ee8052cea511a9fcf`.
+Pre-existing untracked caches and `rebuild-all.sh` were left untouched.
+
+Read pinned V2 sources using `git show
+491e757ae6b1e4cfd2b9a6ba10f48b35643849e0:<path>` in the architect-provided local
+repository `/home/wei/projects-migrated-to-mac/Mini-FT8`: the audio pipeline's
+`push_waterfall_latest()` and UI push/draw helpers. The local checkout HEAD is
+newer; only the pinned commit was used for preserved projection semantics.
+
+### API/ownership decisions and invariants preserved
+
+- API version remains 3. Raster is an optional append-only Display pointer.
+  Service checks geometry, struct size, zero rectangles, pixels, stride and full
+  bounds; backend receives valid rectangles unchanged. ADV uses LovyanGFX's
+  `setSwapBytes(true)` for logical uint16_t RGB565, restoring the prior setting.
+  Its installed `LGFXBase.hpp` maps that setting to `rgb565_t`, rather than
+  wire-order `swap565_t`. Host tests exercise red, green and blue with both prior
+  swap settings. No text-buffer or console changes occur in raster blits.
+- Pure monitor projection reads the latest completed block's first time subrow,
+  MAXes frequency subs and exact V2 integer pooling ranges. MAX commutativity
+  avoids even an intermediate collapsed-spectrum allocation. Engine generation
+  advances once per successful block and survives slot/stream resets.
+- Controller offers the newest projected row/generation, without raw pointers.
+  A small optional synchronous foreground notification invokes that getter once
+  per block, because an RX step may drain enough audio to finish multiple blocks.
+  This is a private implementation choice within the packet's row-production
+  boundary: no second queue, scheduler, thread or DSP path. No observer or
+  projection runs on text-only/unavailable sessions or the decode worker.
+- UiShell owns support/enabled state; UiFrame adds only the overlay fact and
+  retains normal row-0 text. The adapter owns optional circular intensity history,
+  continues it while hidden, paints newest at y=18, and renders text/present
+  before overlay. Visible row updates blit without text present. Session state
+  is not persisted; allocation failure leaves FT8 usable.
+- No USB/UAC/ring/frontend, UTC capture/decode/discard, candidate/LDPC, decoder
+  task/core/priority/stack, CAT/TX, durability or cancellation policy changes.
+  Existing tests continue checking the accepted configuration. No extra FFT,
+  decoder-waterfall copy, persistent RGB framebuffer, or application platform
+  dependency was introduced.
+- No task requirement or approved architecture deviation. The optional
+  notification complements the preferred getter to preserve every block row.
+
+### Files changed
+
+- `CMakeLists.txt`
+- `apps/ft8/include/ft8/app_types.h`
+- `apps/ft8/main/ft8_main.c`
+- `apps/ft8/main/ft8_ui_adapter.c`
+- `apps/ft8/main/ft8_ui_adapter.h`
+- `apps/ft8/src/app_controller/app_controller.c`
+- `apps/ft8/src/app_controller/app_controller.h`
+- `apps/ft8/src/app_controller/app_controller_internal.h`
+- `apps/ft8/src/ft8_engine/ft8_engine.c`
+- `apps/ft8/src/ft8_engine/ft8_engine.h`
+- `apps/ft8/src/ft8_engine/ft8_monitor.c`
+- `apps/ft8/src/ft8_engine/ft8_monitor.h`
+- `apps/ft8/src/ui_shell/ui_shell.c`
+- `apps/ft8/src/ui_shell/ui_shell.h`
+- `core/minishell_services/display_service.c`
+- `core/minishell_services/minishell_services.h`
+- `docs/MiniFT8/README.md`
+- `docs/MiniFT8/architecture.md`
+- `docs/MiniFT8/development.md`
+- `docs/MiniFT8/ui.md`
+- `docs/api/display-api.md`
+- `docs/project/codex/T089-ft8-waterfall-overlay.md`
+- `include/minishell/api.h`
+- `platform/adv/adv_backend.c`
+- `platform/adv/adv_display.cpp`
+- `platform/adv/adv_internal.h`
+- `tests/adv_console_scrollback_test.py`
+- `tests/adv_display_color_test.py`
+- `tests/adv_ft8_decode_policy_test.py`
+- `tests/adv_ft8_defaults_test.py`
+- `tests/adv_qmx_serial_test.py`
+- `tests/ft8_engine_rx1g_test.c`
+- `tests/ft8_monitor_rx1c_test.c`
+- `tests/ft8_pending_start_test.c`
+- `tests/ft8_rx_discontinuity_test.c`
+- `tests/ft8_ui_smoke.c`
+- `tests/ft8_waterfall_adapter_test.c`
+- `tests/unit/test_display.c`
+
+### Tests run and results
+
+Commands run from repository root unless a baseline path is stated:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T089-build-unit
+cmake --build /tmp/T089-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T089-build-unit --output-on-failure
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+
+git diff --check
+```
+
+- Linux configure/build: PASS. Final full CTest: **130/131 pass**, 60.97 s;
+  sole failure is existing `linux_serial_unit`, line 67, asserting that a PTY
+  write after queue saturation must time out with zero bytes.
+- Standalone unit configure/build/CTest: **29/29 PASS**, 1.20 s.
+- All three architecture/dependency/platform commands: PASS (exit 0).
+- ADV build: PASS. Existing vendor-header pedantic warnings remain.
+- `git diff --check`: PASS.
+- Focused projection, engine, UI, adapter/history, controller (including ADV
+  profile), physical renderer and console tests: PASS. The final extra adapter
+  missing-get_info discovery case was rebuilt and rerun separately: 1/1 PASS.
+- Initial full suite exposed wrapper harnesses that extracted all code before
+  main and now unintentionally included the new callback. Their parser-only
+  extraction was narrowed; the pending-start mock gained the new controller
+  hooks. The existing decode-policy test's stale V3.087 assertion was updated
+  to the explicitly required V3.089. Product assertions were not weakened.
+
+Serial failure comparison (no changes to serial implementation or tests):
+
+```bash
+mkdir -p /tmp/T089-baseline-test
+# Export unchanged current main without touching the working branch:
+git archive main | tar -x -C /tmp/T089-baseline-test
+cmake -S /tmp/T089-baseline-test -B /tmp/T089-baseline-build
+cmake --build /tmp/T089-baseline-build --target linux_serial_unit -j"$(nproc)"
+ctest --test-dir /tmp/T089-baseline-build -R '^linux_serial_unit$' --output-on-failure
+```
+
+The first unchanged-main run passed. Ten direct executions of each binary then
+produced **1 pass / 9 failures on unchanged main and 1 pass / 9 failures on T089**,
+all at the same line-67 assertion. This is recorded as a pre-existing flaky PTY
+queue assumption; it remains unresolved and outside T089 scope. The full suite
+was not reported as green.
+
+Local logs: `/tmp/T089-linux-final-ctest.log`, `/tmp/T089-unit-ctest.log`,
+`/tmp/T089-focused.log`, `/tmp/T089-recheck.log`, `/tmp/T089-baseline-serial.log`,
+`/tmp/T089-adv-before.log`, `/tmp/T089-adv-after.log`.
+
+### ADV build/resource evidence
+
+Built current main before production edits, copied its map/bin to
+`/tmp/T089-before.map` and `/tmp/T089-before.bin`, then compared the T089
+`platform/adv/build/minishell_adv.map` and `.bin` with the same configuration:
+
+| Resource | Before | T089 | Delta |
+| --- | ---: | ---: | ---: |
+| Firmware binary bytes | 1,394,656 | 1,396,832 | +2,176 |
+| `.dram0.data` bytes | 27,528 | 27,528 | 0 |
+| `.dram0.bss` bytes | 45,488 | 45,536 | +48 |
+
+New permanent static SRAM is the generic raster callback table (12 bytes),
+Display table growth (8 bytes including ABI alignment), two private port hooks
+(8 bytes), and section/alignment effects, totaling the measured +48 BSS bytes.
+No FT8 pixel history or RGB framebuffer is static. The optional history requests
+**4,568 bytes**: 4,560 intensity bytes plus head/visible state and padding; one
+tracked allocation, freed at shutdown. Conversion uses a **480-byte stack RGB
+row**, plus a transient 240-byte projected intensity row at the presentation
+callback. Small controller/engine generation/observer fields also reside in
+existing app allocations. No full 240x19 RGB565 store exists.
+
+Hardware `V -> Memory` with FT8 active is **not measured in this environment**:
+
+| Runtime metric | Before / T089 |
+| --- | --- |
+| Heap free | Pending architect ADV measurement |
+| Largest free block | Pending architect ADV measurement |
+| App allocated | Pending architect ADV measurement |
+| Allocation count | Pending architect ADV measurement |
+
+The packet's approximate prior 87/31 KiB observations are not substituted for
+actual before/after measurements.
+
+### Hardware/manual validation still required
+
+Architect must run the packet's complete 15-step ADV/QMX checklist after software
+review: V3.089 identity; normal RX/decode with W off; exact y=0..18 geometry and
+unchanged separator/message rows; yellow activity and 160-ms row progression;
+expected static discard/TX interval; immediate toggle restoration; screen return
+latching; paging/selection; active-band decode yield; UAC high-water/overflow/
+discontinuity diagnostics; actual Memory metrics; and normal exit/resource cleanup.
+
+### Known limitations or risks
+
+- Physical color, refresh cost and UAC/decode continuity require real ADV/QMX
+  evidence. Stop if refresh harms the accepted baseline; no worker/task tuning
+  was added speculatively.
+- One existing flaky Linux serial test prevents an all-green full suite.
+- Hardware visual/Memory evidence is pending, not an implementation acceptance.
+
+### Commit reference
+
+This single implementation commit on `codex/T089-ft8-waterfall-overlay` contains
+this evidence (resolve with `git rev-parse codex/T089-ft8-waterfall-overlay`). The
+exact pushed SHA is supplied in the accompanying handoff; a commit cannot embed
+its own SHA in its tree. Stop at **REVIEW**. No PR and no merge.

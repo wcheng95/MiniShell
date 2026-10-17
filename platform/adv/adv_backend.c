@@ -46,13 +46,15 @@ static void configure_services_port(void)
     adv_time_location_configure(&s_services_port);
 
     if (s_display_ready) {
-        s_services_port.display_capabilities = MINI_DISPLAY_CAP_TEXT | MINI_DISPLAY_CAP_TEXT_COLOR | MINI_DISPLAY_CAP_ROW_SEPARATOR;
+        s_services_port.display_capabilities = MINI_DISPLAY_CAP_TEXT | MINI_DISPLAY_CAP_TEXT_COLOR | MINI_DISPLAY_CAP_ROW_SEPARATOR | MINI_DISPLAY_CAP_RASTER_RGB565;
         s_services_port.display_set_row_separator = adv_display_set_row_separator;
         s_services_port.display_text_get_info = adv_display_text_get_info;
         s_services_port.display_text_clear = adv_display_text_clear;
         s_services_port.display_text_clear_at = adv_display_text_clear_at;
         s_services_port.display_text_write_at = adv_display_text_write_at;
         s_services_port.display_text_write_at_attr = adv_display_text_write_at_attr;
+        s_services_port.display_raster_get_info = adv_display_raster_get_info;
+        s_services_port.display_blit_rgb565 = adv_display_blit_rgb565;
         s_services_port.display_present = adv_display_present;
     }
 

@@ -14,6 +14,10 @@ with tempfile.TemporaryDirectory() as tmp:
     d = pathlib.Path(tmp)
     (d / 'M5Unified.h').write_text('''
 struct Display {
+ bool swap = false;
+ bool getSwapBytes(){return swap;} void setSwapBytes(bool value){swap=value;}
+ void pushImage(int,int,unsigned,unsigned,const uint16_t*){}
+
  char cells[7][20]; unsigned fg[7][20], bg[7][20], color=0, gap=0;
  int row=0, column=0;
  void begin(){} void setRotation(int){} int width(){return 240;} int height(){return 135;}

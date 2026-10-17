@@ -27,6 +27,8 @@ typedef enum {
 } UiSubmenu;
 
 typedef struct {
+    bool waterfall_supported;
+    bool waterfall_enabled;
     Screen screen;
     UiSubmenu submenu;
     int selected_line;
@@ -36,6 +38,7 @@ typedef struct {
 } UiShell;
 
 void ui_shell_init(UiShell *ui, ft8_presentation_profile_t presentation);
+void ui_shell_set_waterfall_supported(UiShell *ui, bool supported);
 void ui_shell_render(UiShell *ui, const UiModel *model, UiFrame *frame);
 bool ui_shell_handle_input(UiShell *ui, const UiModel *model,
                            UiInput input, AppAction *action_out);

@@ -120,6 +120,21 @@ static bool parse_options(int argc, char **argv, Ft8Options *out)
     return true;
 }
 
+typedef struct {
+    AppController *app;
+    ft8_ui_adapter_t *adapter;
+    uint64_t generation;
+} WaterfallPresentation;
+
+static void waterfall_completed(void *ctx)
+{
+    WaterfallPresentation *presentation = ctx;
+    uint8_t row[FT8_WATERFALL_WIDTH];
+    if (app_controller_waterfall_latest(presentation->app, &presentation->generation,
+                                        row, FT8_WATERFALL_WIDTH))
+        ft8_ui_adapter_push_waterfall(presentation->adapter, row);
+}
+
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
@@ -127,6 +142,7 @@ int main(int argc, char **argv)
     AppController *app = NULL;
     ft8_ui_adapter_t adapter;
     UiShell ui;
+    WaterfallPresentation waterfall = {0};
     UiModel model;
     UiFrame rendered_frame;
     bool adapter_initialized = false;
@@ -178,6 +194,12 @@ int main(int argc, char **argv)
     adapter_initialized = true;
 
     ui_shell_init(&ui, options.presentation);
+    ui_shell_set_waterfall_supported(&ui, ft8_ui_adapter_waterfall_supported(&adapter));
+    if (ft8_ui_adapter_waterfall_supported(&adapter)) {
+        waterfall.app = app;
+        waterfall.adapter = &adapter;
+        app_controller_observe_waterfall(app, waterfall_completed, &waterfall);
+    }
     memset(&rendered_frame, 0, sizeof(rendered_frame));
     app_controller_build_model(app, &model);
     ui_shell_render(&ui, &model, &rendered_frame);
@@ -307,6 +329,7 @@ int main(int argc, char **argv)
 
 cleanup:
     if (decode_worker_started) FT8_PLATFORM_DECODE_WORKER_STOP(app);
+    app_controller_observe_waterfall(app, NULL, NULL);
     if (adapter_initialized) ft8_ui_adapter_shutdown(&adapter);
     app_controller_destroy(app);
     if (result != 0) say_system(api, "ft8: application error\n");

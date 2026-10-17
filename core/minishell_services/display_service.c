@@ -2,6 +2,7 @@
 
 static bool s_available;
 static mini_text_display_api_t s_text_api;
+static mini_raster_display_api_t s_raster_api;
 static mini_display_api_t s_display_api;
 
 static mini_result_t display_get_info(mini_text_display_info_t *out_info)
@@ -112,7 +113,38 @@ static mini_result_t display_present(void)
 {
     const minishell_services_port_t *port = minishell_services_port();
     if (!s_available) return MINI_ERR_UNSUPPORTED;
-    return port->display_present(port->ctx);
+    return port->display_present ? port->display_present(port->ctx) : MINI_ERR_UNSUPPORTED;
+}
+
+static mini_result_t raster_geometry(uint32_t *width, uint32_t *height)
+{
+    const minishell_services_port_t *port = minishell_services_port();
+    mini_result_t result = port->display_raster_get_info(port->ctx, width, height);
+    if (result != MINI_OK) return result;
+    return *width && *height ? MINI_OK : MINI_ERR_NOT_READY;
+}
+
+static mini_result_t raster_get_info(mini_raster_display_info_t *info)
+{
+    if (!(s_display_api.capabilities & MINI_DISPLAY_CAP_RASTER_RGB565)) return MINI_ERR_UNSUPPORTED;
+    if (!info || info->struct_size < MINI_FIELD_END(mini_raster_display_info_t, height))
+        return MINI_ERR_INVALID;
+    return raster_geometry(&info->width, &info->height);
+}
+
+static mini_result_t raster_blit(uint32_t x, uint32_t y, uint32_t width,
+                                  uint32_t height, const uint16_t *pixels, uint32_t stride)
+{
+    if (!(s_display_api.capabilities & MINI_DISPLAY_CAP_RASTER_RGB565)) return MINI_ERR_UNSUPPORTED;
+    if (!width || !height) return MINI_OK;
+    if (!pixels || stride < width) return MINI_ERR_INVALID;
+    uint32_t max_width, max_height;
+    mini_result_t result = raster_geometry(&max_width, &max_height);
+    if (result != MINI_OK) return result;
+    if (x >= max_width || y >= max_height || width > max_width - x || height > max_height - y)
+        return MINI_ERR_INVALID;
+    const minishell_services_port_t *port = minishell_services_port();
+    return port->display_blit_rgb565(port->ctx, x, y, width, height, pixels, stride);
 }
 
 void minishell_display_service_configure(void)
@@ -131,10 +163,19 @@ void minishell_display_service_configure(void)
     s_display_api.struct_size = sizeof(s_display_api);
     s_display_api.capabilities = 0u;
     s_display_api.text = NULL;
+    s_display_api.raster = NULL;
     s_display_api.present = display_present;
+    s_raster_api = (mini_raster_display_api_t){
+        .struct_size = sizeof(s_raster_api), .get_info = raster_get_info, .blit_rgb565 = raster_blit};
+    if (port->display_raster_get_info && port->display_blit_rgb565 &&
+        (port->display_capabilities & MINI_DISPLAY_CAP_RASTER_RGB565)) {
+        s_available = true;
+        s_display_api.capabilities |= MINI_DISPLAY_CAP_RASTER_RGB565;
+        s_display_api.raster = &s_raster_api;
+    }
     bool text_available = port->display_text_get_info != NULL && port->display_text_clear != NULL &&
                           port->display_text_clear_at != NULL && port->display_text_write_at != NULL;
-    if (s_available && text_available && (port->display_capabilities & MINI_DISPLAY_CAP_TEXT) != 0u) {
+    if (port->display_present && text_available && (port->display_capabilities & MINI_DISPLAY_CAP_TEXT) != 0u) {
         s_display_api.capabilities |= MINI_DISPLAY_CAP_TEXT;
         s_display_api.text = &s_text_api;
         if (port->display_text_write_at_attr)

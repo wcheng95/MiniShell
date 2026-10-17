@@ -1018,3 +1018,10 @@ add_test(NAME date_unit COMMAND date_unit)
 
 add_test(NAME adv_ft8_decode_policy
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/adv_ft8_decode_policy_test.py)
+
+add_executable(ft8_waterfall_adapter_unit tests/ft8_waterfall_adapter_test.c
+    apps/ft8/main/ft8_ui_adapter.c apps/ft8/src/presentation_profile/presentation_profile.c)
+target_include_directories(ft8_waterfall_adapter_unit PRIVATE include apps/ft8/include apps/ft8/main
+    apps/ft8/src/presentation_profile)
+target_compile_options(ft8_waterfall_adapter_unit PRIVATE -Wall -Wextra -Werror -Wpedantic -UNDEBUG)
+add_test(NAME ft8_waterfall_adapter_unit COMMAND ft8_waterfall_adapter_unit)

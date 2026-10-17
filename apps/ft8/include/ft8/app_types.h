@@ -99,6 +99,7 @@ typedef struct {
     uint32_t column_count;
     uint32_t row_count;
     bool has_footer;
+    bool waterfall_overlay;
     char rows[UI_MAX_ROWS][UI_TEXT_CAP];
     UiColor row_color[UI_MAX_ROWS];
     bool separator_after_top;

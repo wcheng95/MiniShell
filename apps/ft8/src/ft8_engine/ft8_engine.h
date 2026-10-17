@@ -62,6 +62,7 @@ typedef struct {
 
     Ft8EngineConfig config;
     Ft8Monitor monitor;
+    uint64_t waterfall_generation;
     Ft8HashStore hash_store;
     int hash_slot_valid;
     int64_t hash_slot_id;
@@ -109,6 +110,9 @@ Ft8EngineStatus ft8_engine_reset_stream(Ft8Engine *engine);
 Ft8EngineStatus ft8_engine_process_block(
     Ft8Engine *engine,
     const float samples[FT8_ENGINE_BLOCK_SIZE]);
+
+uint64_t ft8_engine_waterfall_generation(const Ft8Engine *engine);
+Ft8EngineStatus ft8_engine_project_latest(const Ft8Engine *engine, uint8_t *row, uint32_t width);
 
 /*
  * Start a resumable candidate-search job for the currently latched slot.

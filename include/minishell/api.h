@@ -197,6 +197,7 @@ typedef struct {
 #define MINI_DISPLAY_CAP_TEXT  (1ull << 0)
 #define MINI_DISPLAY_CAP_TEXT_COLOR (1ull << 1)
 #define MINI_DISPLAY_CAP_ROW_SEPARATOR (1ull << 2)
+#define MINI_DISPLAY_CAP_RASTER_RGB565 (1ull << 3)
 
 #define MINI_TEXT_ATTR_NONE     0u
 #define MINI_TEXT_ATTR_INVERSE  (1u << 0)
@@ -227,11 +228,32 @@ typedef struct {
     mini_result_t (*set_row_separator)(uint32_t after_row, uint32_t foreground);
 } mini_text_display_api_t;
 
+/* Logical host-endian RGB565: red bits 15..11, green 10..5, blue 4..0.
+ * Providers own any physical byte-order conversion. */
+typedef struct {
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+} mini_raster_display_info_t;
+
+typedef struct {
+    uint32_t struct_size;
+    mini_result_t (*get_info)(mini_raster_display_info_t *out_info);
+    /* Immediate, synchronous; leaves logical text unchanged. No clipping.
+     * Zero width/height succeeds. Otherwise pixels != NULL, stride >= width,
+     * and the rectangle must fit. A later text present may overwrite it. */
+    mini_result_t (*blit_rgb565)(uint32_t x, uint32_t y, uint32_t width,
+                                uint32_t height, const uint16_t *pixels,
+                                uint32_t stride_pixels);
+} mini_raster_display_api_t;
+
 typedef struct {
     uint32_t struct_size;
     uint64_t capabilities;
     const mini_text_display_api_t *text;
     mini_result_t (*present)(void);
+    /* Optional tail; check struct_size and capability before access. */
+    const mini_raster_display_api_t *raster;
 } mini_display_api_t;
 
 #define MINI_INPUT_CAP_KEY  (1ull << 0)
