@@ -1,6 +1,6 @@
 # T088 — Slot-local RX/FFT lifecycle with decoupled decode
 
-Status: TESTING
+Status: COMPLETE
 
 ## Intent
 
@@ -305,19 +305,16 @@ source /home/wei/projects/esp-idf/export.sh
 idf.py -C platform/adv build
 ```
 
-### Hardware/manual validation still required
+### Hardware/manual validation
 
-Field-test V3.088 on an active band. The blocker criterion is zero-decode:
-strong/active FT8 slots must not intermittently collapse to zero decoded messages
-because of prior-slot load.
+COMPLETE.
 
-Also verify normal:
+Field test on 2026-10-16 used V3.088 on ADV/QMX under less-than-ideal band
+conditions. Despite the weak/poor band conditions, MiniFT8 performed very well
+and no unexplained zero-decode slots were observed.
 
-```text
-CAPTURE_RESET -> DECODE_START -> DECODE_DONE -> RESULT_PUBLISH
-```
-
-slot progression, UI responsiveness, UAC high-water/overflow, and RX/TX behavior.
+This closes the primary T088 correctness blocker. Normal operation remained
+stable enough for the architect to accept V3.088 as the production baseline.
 
 ### Known limitations or risks
 
@@ -335,14 +332,18 @@ The branch is delivered as one squashed T088 implementation commit; the full SHA
 is supplied in the chat handoff.
 
 
-## Bench acceptance
+## Bench and field acceptance
 
 Architect bench test on ADV/QMX after flashing V3.088:
 
 - no functional breakage observed;
-- decoding is noticeably faster;
-- V3.088 is promoted as the new MiniFT8 baseline;
-- active-band field validation of the zero-decode blocker remains pending.
+- decoding was noticeably faster.
 
-T088 therefore remains in TESTING until the field test establishes whether
-unexplained zero-decode slots are eliminated under real crowded-band load.
+Field test completed 2026-10-16:
+
+- band conditions were not very good;
+- MiniFT8 nevertheless performed very well;
+- no zero-decode slots were observed.
+
+T088 is COMPLETE. V3.088 is the accepted MiniFT8 baseline for future
+code-reading-driven, incremental improvements.
