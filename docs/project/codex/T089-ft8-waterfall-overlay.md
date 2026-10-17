@@ -1,6 +1,6 @@
 # T089 — MiniShell RGB565 raster + MiniFT8 RX waterfall overlay
 
-Status: REVIEW
+Status: TESTING
 
 ## Intent
 
@@ -1558,3 +1558,39 @@ Additional amendment commit on `codex/T089-ft8-waterfall-overlay`, based on
 `09bc98ac81b750b65768a481e1844ba4bc573ce7`. Exact pushed SHA accompanies the
 handoff; resolve branch HEAD with `git rev-parse codex/T089-ft8-waterfall-overlay`.
 Stop at **REVIEW**. No PR and no merge to main.
+
+## Supervisor review — hidden-row flash amendment PASS
+
+Reviewed amendment `a1171d74ad65afb4997c8cb18c4a2e5f4970e9f4`.
+
+Software review PASS.
+
+The physical-render comparison now suppresses only changes to `rows[0]` and
+`row_color[0]` when both old and new frames have the active waterfall overlay.
+All remaining UiFrame bytes remain significant. The logical cached frame is
+updated even when the physical render is skipped, so W-off restores the newest
+status immediately. Overlay transitions fall back to full-frame comparison.
+
+The byte-range implementation is valid for the current UiFrame layout: the
+ignored elements are contiguous array elements, while geometry, footer/overlay
+facts, rows 1..N, colors 1..N, separator fields and intervening padding remain
+compared. Production `ui_shell_render()` zero-initializes UiFrame before filling
+it, so compared padding is deterministic.
+
+No raster API/backend, DSP, waterfall history, UAC, decoder, timing, allocation
+ordering, or task-scheduling behavior changed.
+
+Accepted software evidence remains:
+
+~~~text
+Linux/ADV builds            PASS
+unit suite                  29/29 PASS
+architecture checks         PASS
+focused regressions         PASS
+full Linux CTest            130/131
+sole failure                known flaky linux_serial_unit
+~~~
+
+T089 remains TESTING pending ADV/QMX confirmation that the once-per-second
+status flash is gone and the existing visual/UAC/decode/Memory checklist remains
+clean.
