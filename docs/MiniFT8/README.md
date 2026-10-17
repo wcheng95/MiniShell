@@ -39,6 +39,8 @@ WinBook/TW700 QMX RX/CAT/TX      PASS
 
 Linux remains the deterministic regression/reference environment. Linux/pc-1 + QMX has completed a real two-way MiniFT8-V3 QSO; WinBook/TW700 and rpi3-2 also validate portable Linux RX/CAT/TX. Cardputer ADV is now an accepted embedded RX/TX deployment target: real QMX CAT transmission, RX recovery, band sync, color status, compact RX/TX paging, and T083 CAT-fault containment have been exercised on hardware. Transport faults no longer own the FT8 UI lifetime; unknown RF state blocks further TX instead. T031, T032, and T083 remain accepted live-operation baselines.
 
+T088 / V3.088 is the current MiniFT8 baseline. Bench validation found no functional breakage and noticeably faster decoding. A 2026-10-16 field test under poor band conditions performed very well with no zero-decode slots, closing the active-band blocker that motivated the T086-T088 repair sequence.
+
 ## Working live QMX path
 
 QMX native USB audio:
@@ -160,7 +162,7 @@ complete 960 blocks      93
 slot-end remainder       720 samples
 ```
 
-Live behavior after T088 implementation (field acceptance pending):
+Accepted live behavior since T088 / V3.088:
 
 ```text
 UTC + 0.00 s   reset/begin fresh slot-local capture
