@@ -1442,3 +1442,119 @@ Add focused tests proving:
 This amendment is a hardware-driven presentation fix within T089. T089 remains
 TESTING until the architect verifies the once-per-second text flash is gone and
 the rest of the existing hardware checklist remains clean.
+
+
+## Hardware-flash amendment implementation — 2026-10-17
+
+Status: **REVIEW**. Continued on the existing
+`codex/T089-ft8-waterfall-overlay` branch, fast-forwarded to current main
+`09bc98ac81b750b65768a481e1844ba4bc573ce7` before editing. This addresses only the
+periodic hidden-row flash finding above. Architect hardware acceptance remains
+pending; the earlier TESTING notes are historical.
+
+### Implementation summary and files changed
+
+- `apps/ft8/main/ft8_main.c`: added a small private presentation comparison. When
+  both old/new UiFrame overlays are true, it excludes exactly `rows[0]` and
+  `row_color[0]` from comparison. Byte ranges covering every other field remain
+  significant, including geometry/footer, rows/colors 1..N, overlay state and
+  separators. Other frames retain full-frame memcmp behavior. No extra UiFrame
+  copies or allocation are needed for the comparison.
+- The physical-render helper always advances the cached logical frame after a
+  successful decision, including when physical rendering is skipped. An overlay
+  transition therefore renders normally using the latest logical status row.
+- `tests/ft8_pending_start_test.c`: focused regression executes these production
+  helpers with the actual adapter and recording Display callbacks.
+- This packet: implementation, validation and resource evidence appended.
+
+### Behavior/invariants preserved
+
+UiFrame contents remain intact. Only the physical-render decision hides row-0
+text/color when both overlays are active. Other UI changes still run the existing
+text-present-then-overlay adapter path. Raster API/backend, waterfall DSP/history,
+optional allocation/startup ordering, UAC/ring, decode timing and task scheduling
+are unchanged. About remains MiniFT8-V3.089. No requirement or ownership deviation.
+
+### Regression evidence
+
+The extended lifecycle test proves:
+
+- first and overlay-transition frames render; identical frames do not;
+- successive overlay-enabled row-0 text/color changes produce no additional
+  physical presents while the complete cached logical frame matches each update;
+- every message row 1..6 and its color still triggers rendering;
+- separator color/presence and footer changes still render; geometry changes
+  remain significant in comparison;
+- an additional hidden status update to Z leaves the physical text unchanged,
+  advances the cache to Z, and overlay ON->OFF physically restores Z immediately;
+- without the overlay, row-0 text and color changes retain full-frame behavior.
+
+Existing adapter/history tests continue to cover repainting the waterfall after
+ordinary text rendering. The new decision tests make no raster/DSP changes.
+
+### Tests run and results
+
+Complete normal T089 gates were run from repository root:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T089-build-unit
+cmake --build /tmp/T089-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T089-build-unit --output-on-failure
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+
+git diff --check
+```
+
+Linux configure/build: PASS. Full Linux CTest: **130/131**, 59.70 s; only
+`linux_serial_unit` failed at the same pre-existing line-67 PTY saturation
+assertion documented and reproduced on unchanged main above. Serial code/tests
+were left untouched. Standalone unit suite: **29/29 PASS**, 1.15 s. All three
+architecture/boundary commands: PASS (exit 0). ADV build and diff check: PASS.
+
+Focused command:
+`PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R
+'ft8_pending_start|ft8_waterfall_adapter|ft8_ui_smoke'`: **3/3 PASS**.
+
+Logs: `/tmp/T089-flash-linux-config.log`, `/tmp/T089-flash-linux-build.log`,
+`/tmp/T089-flash-linux-ctest.log`, `/tmp/T089-flash-unit-ctest.log`,
+`/tmp/T089-flash-focused.log`, `/tmp/T089-flash-adv-build.log`.
+
+### ADV build/resource evidence
+
+Same-configuration comparison with the pre-amendment binary/map copied to
+`/tmp/T089-flash-before.bin` and `/tmp/T089-flash-before.map`:
+
+| Resource | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Firmware binary bytes | 1,396,848 | 1,397,008 | +160 |
+| `.dram0.data` bytes | 27,528 | 27,528 | 0 |
+| `.dram0.bss` bytes | 45,536 | 45,536 | 0 |
+
+No new permanent static SRAM or allocation. History remains the existing optional
+4,568-byte store. No new hardware Memory measurements are claimed.
+
+### Hardware/manual validation still required and risks
+
+Architect must confirm that UTC-second-only changes no longer flash status text
+through the overlay on ADV/QMX, while message updates, separators, screen/submenu
+transitions, W off/current status restoration, and normal waterfall progression
+remain correct. Continue the original Memory/UAC/decode/exit checklist. Host
+renderer evidence cannot establish physical LCD flash removal. The known flaky
+Linux serial test remains the only software gate failure.
+
+### Commit reference
+
+Additional amendment commit on `codex/T089-ft8-waterfall-overlay`, based on
+`09bc98ac81b750b65768a481e1844ba4bc573ce7`. Exact pushed SHA accompanies the
+handoff; resolve branch HEAD with `git rev-parse codex/T089-ft8-waterfall-overlay`.
+Stop at **REVIEW**. No PR and no merge to main.

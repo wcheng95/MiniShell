@@ -135,6 +135,35 @@ static void waterfall_completed(void *ctx)
         ft8_ui_adapter_push_waterfall(presentation->adapter, row);
 }
 
+static bool frame_needs_render(const UiFrame *old, const UiFrame *next)
+{
+    if (!old->waterfall_overlay || !next->waterfall_overlay)
+        return memcmp(old, next, sizeof(*next)) != 0;
+
+    /* Only row-0 text/color are physically hidden. Compare every other byte,
+     * including geometry, overlay state, separators and the remaining rows. */
+    const size_t rows = offsetof(UiFrame, rows);
+    const size_t visible_rows = rows + sizeof(next->rows[0]);
+    const size_t colors = offsetof(UiFrame, row_color);
+    const size_t visible_colors = colors + sizeof(next->row_color[0]);
+    return memcmp(old, next, rows) != 0 ||
+        memcmp((const char *)old + visible_rows, (const char *)next + visible_rows,
+               colors - visible_rows) != 0 ||
+        memcmp((const char *)old + visible_colors, (const char *)next + visible_colors,
+               sizeof(*next) - visible_colors) != 0;
+}
+
+static bool render_frame_if_changed(const ft8_ui_adapter_t *adapter, const UiFrame *frame,
+                                    UiFrame *rendered_frame, bool *have_rendered_frame)
+{
+    if ((!*have_rendered_frame || frame_needs_render(rendered_frame, frame)) &&
+        !ft8_ui_adapter_render(adapter, frame)) return false;
+    /* The logical status must advance even while its physical row is hidden. */
+    *rendered_frame = *frame;
+    *have_rendered_frame = true;
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     const mini_api_t *api = mini_api_get();
@@ -297,14 +326,9 @@ int main(int argc, char **argv)
         app_controller_step_qso(app);
         app_controller_build_model(app, &model);
         ui_shell_render(&ui, &model, &frame);
-        if (!have_rendered_frame ||
-            memcmp(&frame, &rendered_frame, sizeof(frame)) != 0) {
-            if (!ft8_ui_adapter_render(&adapter, &frame)) {
-                result = 5;
-                break;
-            }
-            rendered_frame = frame;
-            have_rendered_frame = true;
+        if (!render_frame_if_changed(&adapter, &frame, &rendered_frame, &have_rendered_frame)) {
+            result = 5;
+            break;
         }
 
         rx_active = app_controller_rx_active(app);

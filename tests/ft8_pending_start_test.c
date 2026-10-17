@@ -141,8 +141,64 @@ static void reset(void)
 }
 static int live(void)
 { char *args[]={"ft8","--profile","adv","--cat","control:test","--rx","audio:test"};return ft8_lifecycle_entry(7,args); }
+static void test_hidden_row_render_policy(void)
+{
+    reset();
+    ft8_ui_adapter_t adapter;
+    assert(ft8_ui_adapter_init(&adapter, &api, FT8_PRESENTATION_ADV));
+    UiShell ui; UiModel model = {0}; UiFrame frame, cached;
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    ui_shell_render(&ui, &model, &frame);
+    frame.waterfall_overlay = true;
+    bool have_frame = false;
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame));
+    assert(have_frame && presents == 1);
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame) && presents == 1);
+    for (unsigned second = 0; second < 3; ++second) {
+        frame.rows[0][0] = 'A' + second;
+        frame.row_color[0] = second % 2 ? UI_COLOR_GREEN : UI_COLOR_RED;
+        assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame));
+        assert(presents == 1 && !memcmp(&cached, &frame, sizeof(frame)));
+    }
+    for (unsigned row = 1; row <= 6; ++row) {
+        unsigned before = presents;
+        frame.rows[row][0] = 'X';
+        assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame));
+        assert(presents == before + 1);
+        frame.row_color[row] = UI_COLOR_RED;
+        assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame));
+        assert(presents == before + 2);
+    }
+    unsigned before = presents;
+    frame.separator_color = UI_COLOR_RED;
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame) && presents == before + 1);
+    frame.separator_after_top = !frame.separator_after_top;
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame) && presents == before + 2);
+    frame.has_footer = !frame.has_footer;
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame) && presents == before + 3);
+    UiFrame geometry = frame;
+    ++geometry.column_count; assert(frame_needs_render(&frame, &geometry));
+    geometry = frame; ++geometry.row_count; assert(frame_needs_render(&frame, &geometry));
+    frame.rows[0][0] = 'Z';
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame));
+    assert(presents == before + 3 && cached.rows[0][0] == 'Z' && lcd[0][0] == 'C');
+    frame.waterfall_overlay = false;
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame));
+    assert(presents == before + 4 && lcd[0][0] == 'Z');
+    before = presents;
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame) && presents == before);
+    frame.rows[0][0] = 'D';
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame) && presents == before + 1);
+    frame.row_color[0] = UI_COLOR_WHITE;
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame) && presents == before + 2);
+    frame.waterfall_overlay = true;
+    assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame) && presents == before + 3);
+    ft8_ui_adapter_shutdown(&adapter);
+}
+
 int main(void)
 {
+    test_hidden_row_render_policy();
     reset();ready_at=UINT64_MAX;assert(live()==0);assert(opens>=10 && input_reads==120 && seen==31 && qso_actions==1);
     assert(!writes && !rx_starts && !worker_starts && !tx_steps && destroys==1 && !waterfall_allocations && !waterfall_observers);
     reset();ready_at=1200000;assert(live()==0);assert(opens==5 && writes==4 && rx_starts==1 && worker_starts==1 && worker_stops==1 && destroys==1);
