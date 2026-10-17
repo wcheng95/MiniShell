@@ -139,8 +139,9 @@ bool ft8_ui_adapter_render(const ft8_ui_adapter_t *adapter, const UiFrame *frame
         text->struct_size >= FIELD_END(mini_text_display_api_t, write_at_attr) && text->write_at_attr;
     const bool separator = (caps & MINI_DISPLAY_CAP_ROW_SEPARATOR) &&
         text->struct_size >= FIELD_END(mini_text_display_api_t, set_row_separator) && text->set_row_separator;
-    if (text->clear() != MINI_OK) return false;
-    for (uint32_t row = 0u; row < frame->row_count; ++row) {
+    /* Raster owns the top row while overlaid; full clear would dirty it too. */
+    if (!frame->waterfall_overlay && text->clear() != MINI_OK) return false;
+    for (uint32_t row = frame->waterfall_overlay ? 1u : 0u; row < frame->row_count; ++row) {
         mini_result_t result = MINI_ERR_UNSUPPORTED;
         if (color) result = text->write_at_attr(row, 0u, frame->rows[row], frame->column_count,
                                                foreground(frame->row_color[row]));
@@ -148,9 +149,11 @@ bool ft8_ui_adapter_render(const ft8_ui_adapter_t *adapter, const UiFrame *frame
             result = text->write_at(row, 0u, frame->rows[row], frame->column_count);
         if (result != MINI_OK) return false;
     }
-    /* clear() resets decorations, so restore the frame's separator every time. */
-    if (separator && frame->separator_after_top) {
-        mini_result_t result = text->set_row_separator(0u, foreground(frame->separator_color));
+    /* Full clear resets decorations; the overlay path must also remove an old
+     * separator explicitly when the new frame no longer requests one. */
+    if (separator && (frame->separator_after_top || frame->waterfall_overlay)) {
+        mini_result_t result = text->set_row_separator(0u, frame->separator_after_top
+            ? foreground(frame->separator_color) : MINI_TEXT_ATTR_FG_DEFAULT);
         if (result != MINI_OK && result != MINI_ERR_UNSUPPORTED) return false;
     }
     if (adapter->display->present() != MINI_OK) return false;

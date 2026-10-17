@@ -1,6 +1,6 @@
 # T089 — MiniShell RGB565 raster + MiniFT8 RX waterfall overlay
 
-Status: TESTING
+Status: REVIEW
 
 ## Intent
 
@@ -1743,3 +1743,142 @@ ordering, UAC, CAT/TX, decode scheduling, slot timing, or task priorities.
 
 This is still T089. Keep status TESTING until real ADV/QMX confirms that both
 the per-second and per-RX-batch row-0 flashes are gone.
+
+
+## Final hardware-finding amendment implementation — 2026-10-17
+
+Status: **REVIEW**, as requested for this engineering handoff. Continued on the
+existing `codex/T089-ft8-waterfall-overlay` branch, fast-forwarded to current main
+`a01558eab47aeea4c2a67f9c0dc550ad03894c05` before implementation. The prior TESTING
+notes describe hardware acceptance still outstanding; no new hardware acceptance
+is claimed by this amendment.
+
+### Implementation summary
+
+- Overlay-active MiniFT8 adapter rendering skips full text clear and skips row 0
+  for both plain and attributed writes. It writes complete fixed-width rows 1..6,
+  updates/removes the separator, presents text, and uses the existing raster
+  repaint path. Overlay-off rendering retains full clear and all seven rows.
+- ADV's MiniShell Display API marks rows dirty on non-zero plain/attribute writes
+  and clear_at row ranges. Full clear dirties all rows plus separator; separator
+  updates dirty only the separator. `adv_display_present()` draws those elements
+  only and consumes their flags. Repeated present without writes draws no text.
+- Private setup/console/editor/scrollback full redraws still call `render_all()`.
+  A full redraw also consumes pending dirty state because it has made the entire
+  logical view visible. Existing cursor-cell rendering is unchanged.
+- The earlier hidden-row comparison/cache optimization in ft8_main is unchanged.
+
+### Files changed
+
+- `apps/ft8/main/ft8_ui_adapter.c`
+- `platform/adv/adv_display.cpp`
+- `tests/adv_display_color_test.py`
+- `tests/ft8_color_adapter_test.c`
+- `tests/ft8_pending_start_test.c`
+- `tests/ft8_waterfall_adapter_test.c`
+- `docs/MiniFT8/ui.md`
+- `docs/api/display-api.md`
+- This task packet.
+
+### Behavior/invariants preserved
+
+No public API/capability or raster semantics/provider changes. DSP, waterfall
+projection/history, UAC/ring, CAT/TX, decode/slot timing, optional allocation
+ordering and tasks are unchanged. About remains MiniFT8-V3.089. Linux uses the
+unchanged normal text path because it has no overlay support. Logical UiFrame
+row 0 stays current even though its provider text row is untouched while overlaid;
+W-off restores the current frame through the full text path. No scope deviation.
+
+### Regression evidence
+
+- Actual ADV renderer host test records exactly row 1 for a row-1 write, exactly
+  rows 2/5 for multiple writes, and exactly rows 3/4 for clear_at. Separator-only
+  updates draw just the y=19 separator. Full clear draws all seven rows plus gap.
+  Second presents and zero-sized edits produce no physical text draw.
+- Private console write/clear, editor begin/line/discard, and scrollback redraw
+  still draw all seven rows plus separator; the existing full console/editor
+  regression also passes.
+- Added adapter-to-ADV integration using the actual C adapter/presentation sources
+  linked to the actual C++ backend with only M5 hardware stubbed. Three simulated
+  RX batch refreshes each produce exactly six text rows (120 cells), the separator,
+  and existing raster repaint, with no physical y=0 text draw. Provider row 0
+  retains its prior text. W-off draws all rows and restores the newest status N.
+- Plain, attributed, missing-tail and unsupported-attribute fallback adapter tests
+  prove overlay rendering never clears or writes row 0; rows 1..6 still update,
+  separator removal works without clear, and W-off resumes the normal full path.
+- Existing hidden-row comparison regression still proves no render on row-0-only
+  changes and cache advancement/restoration. Its known physical-row seed is now
+  explicit; the stale expectation that an overlay batch painted C was replaced
+  with the required unchanged physical text. All comparison/render-count checks
+  remain intact.
+
+### Tests run and results
+
+Normal T089 gates from repository root:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T089-build-unit
+cmake --build /tmp/T089-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T089-build-unit --output-on-failure
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+
+git diff --check
+```
+
+Linux configure/build: PASS. Full Linux CTest: **131/131 PASS**, 59.67 s (the
+previously documented flaky serial test passed this run; its code/test was not
+changed). Standalone configure/build/unit suite: **29/29 PASS**, 1.14 s. All three
+architecture/boundary commands: PASS, exit 0 each. ADV build and diff check: PASS.
+
+Focused command:
+`PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R
+'adv_display_color|adv_console_scrollback|ft8_pending_start|ft8_waterfall_adapter|ft8_color_adapter|ft8_ui_smoke'`:
+**6/6 PASS**, 0.78 s.
+
+Logs: `/tmp/T089-dirty-linux-config.log`, `/tmp/T089-dirty-linux-build.log`,
+`/tmp/T089-dirty-linux-ctest.log`, `/tmp/T089-dirty-unit-ctest.log`,
+`/tmp/T089-dirty-focused.log`, `/tmp/T089-dirty-adv-build.log`.
+
+### ADV build/resource evidence
+
+Compared the same-configuration pre-amendment binary/map saved at
+`/tmp/T089-dirty-before.bin` and `/tmp/T089-dirty-before.map`:
+
+| Resource | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Firmware binary bytes | 1,397,008 | 1,397,232 | +224 |
+| `.dram0.data` bytes | 27,528 | 27,528 | 0 |
+| `.dram0.bss` bytes | 45,536 | 45,536 | 0 |
+
+New permanent backend state is seven bool row flags plus one bool separator flag
+(8 bytes). Linked section sizes remain unchanged due to layout/alignment effects;
+this is not a claim that the flags consume zero storage. No new heap allocation
+or framebuffer. Existing optional history and its post-critical-startup ordering
+are unchanged. No new hardware Memory figures are inferred from build sizes.
+
+### Hardware/manual validation still required and known risks
+
+Architect must verify on ADV/QMX that both UTC-second and RX-batch status flashes
+are gone, that rows 1..6/separator and waterfall still update correctly, that W-off
+restores current status, and that screen/submenu/console/editor transitions remain
+clean. Continue original UAC/decode/Memory/exit checks. Host tests establish draw
+ownership/call ordering, not physical LCD acceptance. No hardware was flashed or
+new runtime measurements collected in this amendment. No known new software
+limitation; prior serial flakiness remains documented despite passing this run.
+
+### Commit reference
+
+Additional amendment commit on `codex/T089-ft8-waterfall-overlay`, based on
+`a01558eab47aeea4c2a67f9c0dc550ad03894c05`. Exact pushed SHA accompanies the
+handoff; resolve with `git rev-parse codex/T089-ft8-waterfall-overlay`.
+Stop at **REVIEW**. No PR and no merge to main.

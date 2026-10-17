@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static unsigned allocations, frees, presents, blits;
+static unsigned allocations, frees, presents, blits, clears, row_writes[7];
 static uint32_t allocation_size, width = 240, height = 135;
 static bool fail_alloc;
 static uint16_t physical[19][240];
@@ -17,9 +17,9 @@ static mini_result_t alloc(uint32_t size, void **out)
 }
 static mini_result_t release(void *ptr) { ++frees; free(ptr); return MINI_OK; }
 static mini_result_t info(mini_text_display_info_t *p) { p->rows=7; p->columns=20; return MINI_OK; }
-static mini_result_t clear(void) { memset(top, 0, sizeof(top)); return MINI_OK; }
+static mini_result_t clear(void) { ++clears;memset(top, 0, sizeof(top)); return MINI_OK; }
 static mini_result_t write_row(uint32_t r, uint32_t c, const char *s, uint32_t n)
-{ assert(c==0 && n==20); if(r==0) memcpy(top,s,n); return MINI_OK; }
+{ assert(c==0 && n==20 && r<7); ++row_writes[r];if(r==0) memcpy(top,s,n); return MINI_OK; }
 static mini_result_t present(void)
 { ++presents; memset(physical, 0xAA, sizeof(physical)); return MINI_OK; }
 static mini_result_t input(mini_key_event_t *p, uint32_t t)
@@ -79,8 +79,12 @@ int main(void)
     assert(ft8_ui_adapter_waterfall_prepare(&adapter) && allocations==2);
     assert(allocation_size>=4560 && allocation_size<4600);
     assert(sizeof(adapter)<128); /* History must stay off the foreground stack. */
+    unsigned clears_before=clears, top_writes_before=row_writes[0];
+    unsigned writes_before[7];memcpy(writes_before,row_writes,sizeof(row_writes));
     frame.waterfall_overlay=true;
     assert(ft8_ui_adapter_render(&adapter,&frame));
+    assert(clears==clears_before && row_writes[0]==top_writes_before);
+    for(unsigned r=1;r<7;++r) assert(row_writes[r]==writes_before[r]+1);
     assert(blits==19);
     for(unsigned y=0;y<19;++y) check_row(y,0);
     uint8_t row[240]; unsigned before=presents;
@@ -90,11 +94,13 @@ int main(void)
     assert(presents==before && blits==19*26);
     for(unsigned y=0;y<19;++y) check_row(y,y+7);
     /* present() clobbers raster; every ordinary redraw must repaint afterward. */
-    frame.rows[0][0]='!';
+    frame.rows[0][0]='!'; frame.rows[1][0]='X';
     assert(ft8_ui_adapter_render(&adapter,&frame));
+    assert(clears==clears_before && row_writes[0]==top_writes_before);
     for(unsigned y=0;y<19;++y) check_row(y,y+7);
     frame.waterfall_overlay=false; before=blits;
     assert(ft8_ui_adapter_render(&adapter,&frame) && blits==before && top[0]=='!');
+    assert(clears==clears_before+1 && row_writes[0]==top_writes_before+1);
     memset(row,255,240); ft8_ui_adapter_push_waterfall(&adapter,row);
     assert(blits==before);
     frame.waterfall_overlay=true;

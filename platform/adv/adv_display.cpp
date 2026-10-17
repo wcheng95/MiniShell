@@ -18,6 +18,8 @@ constexpr uint32_t kWhite = 0xFFFFFFu;
 char s_cells[kRows][kColumns];
 uint8_t s_attrs[kRows][kColumns];
 uint32_t s_separator = MINI_TEXT_ATTR_FG_DEFAULT;
+bool s_dirty_rows[kRows] = {};
+bool s_dirty_separator = false;
 bool s_ready = false;
 bool s_console_mode = true;
 constexpr uint32_t kHistoryRows = 50u;
@@ -83,16 +85,23 @@ void render_cell(uint32_t row, uint32_t column)
     display.write(static_cast<uint8_t>(s_cells[row][column]));
 }
 
+void render_separator(void)
+{
+    M5.Display.fillRect(0, kGapY, 240, kGapHeight, s_separator ? foreground(s_separator) : kBlack);
+}
+
 void render_all(void)
 {
     if (!s_ready) return;
     auto &display = M5.Display;
-    display.fillRect(0, kGapY, 240, kGapHeight, s_separator ? foreground(s_separator) : kBlack);
+    render_separator();
     display.setTextFont(1);
     display.setTextSize(2);
     for (uint32_t row = 0u; row < kRows; ++row)
         for (uint32_t column = 0u; column < kColumns; ++column)
             render_cell(row, column);
+    std::memset(s_dirty_rows, 0, sizeof(s_dirty_rows));
+    s_dirty_separator = false;
 }
 
 uint32_t console_tail(void)
@@ -311,6 +320,8 @@ extern "C" mini_result_t adv_display_text_clear(void *ctx)
     (void)ctx;
     if (!s_ready) return MINI_ERR_NOT_READY;
     clear_buffers();
+    for (uint32_t row = 0; row < kRows; ++row) s_dirty_rows[row] = true;
+    s_dirty_separator = true;
     s_console_mode = false;
     return MINI_OK;
 }
@@ -321,6 +332,7 @@ extern "C" mini_result_t adv_display_text_clear_at(void *ctx, uint32_t row, uint
     (void)ctx;
     if (!s_ready) return MINI_ERR_NOT_READY;
     for (uint32_t r = 0u; r < rows; ++r) {
+        if (columns) s_dirty_rows[row + r] = true;
         for (uint32_t c = 0u; c < columns; ++c) {
             s_cells[row + r][column + c] = ' ';
             s_attrs[row + r][column + c] = 0u;
@@ -340,6 +352,7 @@ extern "C" mini_result_t adv_display_text_write_at(void *ctx, uint32_t row, uint
         s_cells[row][column + i] = display_char(static_cast<uint8_t>(text[i]));
         s_attrs[row][column + i] = 0u;
     }
+    if (byte_count) s_dirty_rows[row] = true;
     s_console_mode = false;
     return MINI_OK;
 }
@@ -355,6 +368,7 @@ extern "C" mini_result_t adv_display_text_write_at_attr(void *ctx, uint32_t row,
         s_cells[row][column + i] = display_char(static_cast<uint8_t>(text[i]));
         s_attrs[row][column + i] = static_cast<uint8_t>(attributes);
     }
+    if (byte_count) s_dirty_rows[row] = true;
     s_console_mode = false;
     return MINI_OK;
 }
@@ -366,6 +380,7 @@ extern "C" mini_result_t adv_display_set_row_separator(void *ctx, uint32_t row, 
     if ((color & ~MINI_TEXT_ATTR_FG_MASK) || color > MINI_TEXT_ATTR_FG_RED) return MINI_ERR_INVALID;
     if (row != 0u) return MINI_ERR_UNSUPPORTED;
     s_separator = color;
+    s_dirty_separator = true;
     s_console_mode = false;
     return MINI_OK;
 }
@@ -374,7 +389,16 @@ extern "C" mini_result_t adv_display_present(void *ctx)
 {
     (void)ctx;
     if (!s_ready) return MINI_ERR_NOT_READY;
-    render_all();
+    auto &display = M5.Display;
+    if (s_dirty_separator) render_separator();
+    display.setTextFont(1);
+    display.setTextSize(2);
+    for (uint32_t row = 0; row < kRows; ++row) {
+        if (!s_dirty_rows[row]) continue;
+        for (uint32_t column = 0; column < kColumns; ++column) render_cell(row, column);
+        s_dirty_rows[row] = false;
+    }
+    s_dirty_separator = false;
     return MINI_OK;
 }
 

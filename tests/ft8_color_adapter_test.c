@@ -5,12 +5,12 @@
 #include <string.h>
 static char rows[UI_MAX_ROWS][UI_TEXT_CAP];
 static uint32_t attrs[UI_MAX_ROWS], bar;
-static unsigned plain_writes,color_writes,separators,presents;
+static unsigned plain_writes,color_writes,separators,presents,clears,top_writes;
 static bool unsupported;
 static mini_result_t info(mini_text_display_info_t *p){p->rows=7;p->columns=20;return MINI_OK;}
-static mini_result_t clear(void){bar=0;memset(rows,0,sizeof(rows));return MINI_OK;}
+static mini_result_t clear(void){++clears;bar=0;memset(rows,0,sizeof(rows));return MINI_OK;}
 static mini_result_t plain(uint32_t r,uint32_t c,const char *s,uint32_t n)
-{assert(r<7 && c==0 && n==20);memcpy(rows[r],s,n);++plain_writes;return MINI_OK;}
+{assert(r<7 && c==0 && n==20);memcpy(rows[r],s,n);++plain_writes;if(r==0)++top_writes;return MINI_OK;}
 static mini_result_t colored(uint32_t r,uint32_t c,const char *s,uint32_t n,uint32_t attr)
 {++color_writes;if(unsupported)return MINI_ERR_UNSUPPORTED;attrs[r]=attr;return plain(r,c,s,n);}
 static mini_result_t separator(uint32_t r,uint32_t fg)
@@ -46,6 +46,17 @@ int main(void)
             assert(ft8_ui_adapter_render(&adapter,&frame) && bar==MINI_TEXT_ATTR_FG_RED && separators==2);
             frame.separator_color=UI_COLOR_WHITE;
         }
+        unsigned before_clears=clears,before_top=top_writes,before_plain=plain_writes,before_color=color_writes;
+        frame.waterfall_overlay=true;
+        assert(ft8_ui_adapter_render(&adapter,&frame));
+        assert(clears==before_clears && top_writes==before_top && plain_writes==before_plain+6);
+        assert(color_writes==before_color+((variant==0 || variant==1 || variant==4)?6u:0u));
+        frame.separator_after_top=false;
+        assert(ft8_ui_adapter_render(&adapter,&frame));
+        if(variant==0 || variant==2) assert(bar==MINI_TEXT_ATTR_FG_DEFAULT);
+        frame.waterfall_overlay=false;frame.separator_after_top=true;
+        assert(ft8_ui_adapter_render(&adapter,&frame));
+        assert(clears==before_clears+1 && top_writes==before_top+1);
         ft8_ui_adapter_shutdown(&adapter);assert(bar==0);
     }
     return 0;

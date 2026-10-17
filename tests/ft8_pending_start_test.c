@@ -144,6 +144,7 @@ static int live(void)
 static void test_hidden_row_render_policy(void)
 {
     reset();
+    assert(clear()==MINI_OK); /* Seed a known physical row before the overlay. */
     ft8_ui_adapter_t adapter;
     assert(ft8_ui_adapter_init(&adapter, &api, FT8_PRESENTATION_ADV));
     UiShell ui; UiModel model = {0}; UiFrame frame, cached;
@@ -181,7 +182,7 @@ static void test_hidden_row_render_policy(void)
     geometry = frame; ++geometry.row_count; assert(frame_needs_render(&frame, &geometry));
     frame.rows[0][0] = 'Z';
     assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame));
-    assert(presents == before + 3 && cached.rows[0][0] == 'Z' && lcd[0][0] == 'C');
+    assert(presents == before + 3 && cached.rows[0][0] == 'Z' && lcd[0][0] == ' ');
     frame.waterfall_overlay = false;
     assert(render_frame_if_changed(&adapter, &frame, &cached, &have_frame));
     assert(presents == before + 4 && lcd[0][0] == 'Z');

@@ -379,6 +379,10 @@ history continues while hidden and spans slot boundaries. The display stays
 static during the accepted +12.64..15.00 s drain/discard interval and physical TX.
 No extra FFT or persisted setting is introduced.
 
-Ordinary frames render text and present first, then repaint the full overlay.
-Visible spectrum updates use only immediate raster blits without text present.
+With the overlay active, the adapter writes only fixed-width text rows 1..6 and
+updates the separator, without full clear or row-0 writes. ADV presents only dirty
+text rows/separator, then the adapter repaints the waterfall. Hidden row-0-only
+changes still skip rendering while advancing the logical cache. W-off uses the
+normal full text path and restores the newest status. Visible spectrum updates
+use only immediate raster blits without text present.
 ADV/QMX visual and continuity acceptance remains pending supervisor review.

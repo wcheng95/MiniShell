@@ -224,3 +224,10 @@ ADV reports exactly 240x135 and uses synchronous row transfers with the display
 library's byte-swap facility, restoring its previous setting. Text geometry,
 separator and console behavior stay unchanged. Linux advertises no raster
 capability and leaves the raster pointer NULL.
+
+ADV's application-visible text API marks modified rows and the separator dirty;
+`present()` draws only those rows/decorations and consumes their dirty state.
+A second present without text changes performs no physical text redraw. Full
+text clear dirties the whole surface and separator; raster blits leave logical
+text and dirty state untouched. Private resident console/editor full-view redraws
+remain independent of this application Display optimization.
