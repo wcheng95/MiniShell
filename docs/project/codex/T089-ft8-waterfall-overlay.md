@@ -1,6 +1,6 @@
 # T089 — MiniShell RGB565 raster + MiniFT8 RX waterfall overlay
 
-Status: REVIEW
+Status: TESTING
 
 ## Intent
 
@@ -1882,3 +1882,50 @@ Additional amendment commit on `codex/T089-ft8-waterfall-overlay`, based on
 `a01558eab47aeea4c2a67f9c0dc550ad03894c05`. Exact pushed SHA accompanies the
 handoff; resolve with `git rev-parse codex/T089-ft8-waterfall-overlay`.
 Stop at **REVIEW**. No PR and no merge to main.
+
+## Supervisor review — dirty-row ownership amendment PASS
+
+Reviewed `321796436cd221bcb7a7d5eea4fb717c36c5cd39`.
+
+Software review PASS.
+
+The final T089 ownership split is implemented as intended:
+
+~~~text
+W OFF:
+    text owns rows 0..6
+
+W ON:
+    raster owns physical row 0
+    text owns rows 1..6
+    separator remains text/backend-owned
+~~~
+
+Review confirms:
+
+- overlay rendering performs no full text clear and no row-0 text write;
+- ADV Display API writes/clear_at dirty only affected rows;
+- full Display clear dirties all rows plus separator;
+- separator state has its own dirty flag;
+- `adv_display_present()` renders only dirty rows/decorations and consumes the flags;
+- private console/editor/scrollback paths still use full `render_all()` and consume
+  pending dirty state;
+- overlay separator removal is explicit because the overlay path does not clear;
+- W-off returns to the normal full-clear/full-row path and restores current row 0;
+- the earlier row-0-only frame-comparison optimization remains intact;
+- no public API, raster, DSP, UAC, decode, timing, allocation or task policy changed.
+
+Accepted gates:
+
+~~~text
+Linux CTest                 131/131 PASS
+standalone unit suite       29/29 PASS
+Linux build                 PASS
+ADV build                   PASS
+architecture/boundary       PASS
+focused dirty-row tests     6/6 PASS
+~~~
+
+T089 remains TESTING only for real ADV/QMX confirmation that RX-batch refresh
+no longer flashes row-0 status text and that normal waterfall/UI/UAC/decode
+behavior remains clean.
