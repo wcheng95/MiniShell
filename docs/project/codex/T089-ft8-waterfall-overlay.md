@@ -1,0 +1,964 @@
+# T089 — MiniShell RGB565 raster + MiniFT8 RX waterfall overlay
+
+Status: READY
+
+## Intent
+
+Restore the useful MiniFT8-V2 local waterfall display in the current V3.088
+architecture without restoring V2's UI/platform coupling.
+
+The operator goal is modest:
+
+> Press W on the RX top level to replace the 19-pixel top status row with a
+> small live waterfall. It is primarily a quick view of band activity and a
+> visual confirmation that the QMX USB-UAC RX path is alive.
+
+This is a nice-to-have presentation feature. It must not change FT8 decode
+mathematics, slot timing, USB/UAC ownership, decoder scheduling, or the accepted
+V3.088 field baseline.
+
+The architect explicitly chose a small generic MiniShell raster capability
+rather than an ADV-private MiniFT8 display hook.
+
+## Baseline
+
+Start from current main:
+
+~~~text
+2fffd8920017be3aed75f59ee8052cea511a9fcf
+~~~
+
+Expected branch:
+
+~~~text
+codex/T089-ft8-waterfall-overlay
+~~~
+
+Pinned MiniFT8-V2 behavioral reference:
+
+~~~text
+repository: wcheng95/Mini-FT8
+commit:     491e757ae6b1e4cfd2b9a6ba10f48b35643849e0
+~~~
+
+Primary V2 waterfall references:
+
+~~~text
+main/ft8_audio_pipeline.cpp
+    push_waterfall_latest()
+
+components/ui/ui.cpp
+    ui_push_waterfall_row()
+    ui_draw_waterfall()
+
+components/ui/include/ui.h
+~~~
+
+V2's pinned local UI used an always-visible 18-pixel waterfall plus a 3-pixel
+countdown bar. T089 does not restore that geometry. It restores the useful
+V2 spectrum projection and scrolling behavior inside the cleaner V3 20x7 layout.
+
+## Current ADV geometry
+
+Current platform/adv/adv_display.cpp maps the 20x7 logical text UI to:
+
+~~~text
+y=0..18      text row 0       19 px
+y=19..20     row separator     2 px
+y=21..39     text row 1       19 px
+...
+             text row 6
+~~~
+
+T089 uses exactly the physical area of text row 0:
+
+~~~text
+x=0..239
+y=0..18
+~~~
+
+The existing separator and rows 1..6 must not move.
+
+Normal RX top level:
+
+~~~text
++------------------------+
+| RX 20 14:32:08 1/1 8  |  y=0..18
++------------------------+  existing separator y=19..20
+| decoded message        |
+| decoded message        |
+| ...                    |
+~~~
+
+Waterfall enabled:
+
+~~~text
++------------------------+
+| 240 x 19 waterfall     |  y=0..18
++------------------------+  existing separator y=19..20
+| decoded message        |
+| decoded message        |
+| ...                    |
+~~~
+
+## User interaction
+
+W is an RX-top-level presentation toggle.
+
+Required behavior:
+
+- w and W are equivalent, following existing case-insensitive UI keys;
+- only SCREEN_RX with UI_SUBMENU_NONE reacts to W;
+- pressing W toggles the waterfall overlay ON/OFF;
+- if the platform does not expose the new raster capability, W does nothing;
+- W is ignored on TX/O/S/V and in all submenus;
+- switching away from RX hides the overlay and shows the destination screen's
+  normal top line;
+- the session-local enabled state may remain latched while another screen is
+  visible; returning to RX top level shows the waterfall again;
+- pressing W again on RX top level disables it and immediately restores the
+  normal status top line;
+- do not persist this state in setting.txt;
+- every new FT8 session starts with the waterfall disabled.
+
+This is an overlay state, not a new UIScreen and not SCREEN_W.
+
+## MiniShell raster capability
+
+Add one deliberately small optional raster capability. Do not build a graphics
+framework.
+
+### Public capability
+
+Append:
+
+~~~c
+#define MINI_DISPLAY_CAP_RASTER_RGB565 (1ull << 3)
+~~~
+
+### Raster info
+
+Add:
+
+~~~c
+typedef struct {
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+} mini_raster_display_info_t;
+~~~
+
+### Raster API
+
+Add:
+
+~~~c
+typedef struct {
+    uint32_t struct_size;
+
+    mini_result_t (*get_info)(
+        mini_raster_display_info_t *out_info);
+
+    mini_result_t (*blit_rgb565)(
+        uint32_t x,
+        uint32_t y,
+        uint32_t width,
+        uint32_t height,
+        const uint16_t *pixels,
+        uint32_t stride_pixels);
+} mini_raster_display_api_t;
+~~~
+
+Append the optional pointer to mini_display_api_t after the existing fields:
+
+~~~c
+const mini_raster_display_api_t *raster;
+~~~
+
+Follow the existing optional-tail pattern used by the Display API. Do not bump
+MINISHELL_API_VERSION solely for this optional append-only capability.
+
+### RGB565 semantic contract
+
+Public RGB565 values are logical host-endian uint16_t values:
+
+~~~text
+bits 15..11  red
+bits 10..5   green
+bits 4..0    blue
+~~~
+
+The application must never know LCD/SPI byte order. If ADV/LovyanGFX needs byte
+swapping, the ADV provider owns that conversion.
+
+### blit_rgb565() semantics
+
+Keep this operation intentionally simple:
+
+- it is a synchronous, immediate raster blit;
+- it does not create or expose a framebuffer;
+- it does not modify MiniShell's logical text buffers;
+- it does not require a later display->present();
+- a later text present() may overwrite overlapping physical pixels;
+- application/presentation code owns ordering when text and raster overlap;
+- non-zero rectangles must fit fully within reported raster geometry;
+- no clipping;
+- pixels must be non-NULL for a non-zero rectangle;
+- stride_pixels >= width;
+- zero width or zero height is a successful no-op;
+- no alpha, palette, image decode, scaling, rotation or color conversion API.
+
+The MiniShell service layer validates these generic arguments before calling the
+backend.
+
+### Explicit non-goals for the raster API
+
+Do not add:
+
+~~~text
+drawLine
+drawRect / fillRect
+circle
+font/text rasterization
+sprite API
+framebuffer mapping
+palette API
+alpha/transparency
+scrolling API
+image/Png/Jpeg/BMP decode
+rotation
+display-specific byte swapping in the public API
+~~~
+
+One bounded RGB565 rectangle transfer is sufficient.
+
+## Platform behavior
+
+### ADV
+
+ADV advertises:
+
+~~~text
+MINI_DISPLAY_CAP_RASTER_RGB565
+~~~
+
+and reports:
+
+~~~text
+width  = 240
+height = 135
+~~~
+
+The backend performs the immediate physical RGB565 blit.
+
+A bounded provider-side row scratch or a display-library byte-swap facility is
+acceptable if required by the LCD library. Do not allocate a full-screen or
+240x19 RGB framebuffer merely for byte-order conversion.
+
+The existing text buffers, 20x7 geometry, separator behavior, console rendering
+and text present() semantics remain unchanged.
+
+### Linux
+
+Linux does not need raster support in T089.
+
+It must:
+
+~~~text
+not advertise MINI_DISPLAY_CAP_RASTER_RGB565
+raster pointer may be NULL
+retain all existing terminal/text behavior
+~~~
+
+MiniFT8 continues to work normally on Linux; W simply has no waterfall effect.
+
+## MiniShell ownership boundary
+
+The generic boundary remains:
+
+~~~text
+MiniFT8
+    owns waterfall meaning, history and colors
+        |
+        v
+MiniShell Display raster API
+    owns validated RGB565 rectangle transport
+        |
+        v
+ADV display backend
+    owns M5.Display / LCD / wire byte order
+~~~
+
+MiniShell must not know:
+
+~~~text
+FT8
+waterfall
+spectrum bins
+200..2900 Hz
+160 ms symbols
+yellow palette meaning
+W key meaning
+~~~
+
+## V2 spectrum projection to preserve
+
+Do not perform another FFT.
+
+Current V3 already produces the FT8 monitor waterfall inside:
+
+~~~text
+apps/ft8/src/ft8_engine/ft8_monitor.c
+~~~
+
+Each successful engine block is:
+
+~~~text
+960 samples / 6000 Hz = 160 ms
+~~~
+
+T089 derives one display row from each newly completed monitor block.
+
+### Exact pinned-V2 projection rule
+
+The pinned V2 push_waterfall_latest() does this for the latest logical monitor
+block:
+
+1. point at the start of the block's stored waterfall data;
+2. use the first time_sub row only;
+3. for each frequency bin, take the maximum across freq_osr;
+4. scale num_bins to 240 display pixels using V2 integer-range MAX pooling.
+
+In pseudocode:
+
+~~~text
+base = latest block
+
+for bin in 0 .. num_bins-1:
+    collapsed[bin] =
+        max(base[freq_sub * num_bins + bin]
+            for freq_sub in 0 .. freq_osr-1)
+
+for x in 0 .. 239:
+    start = x       * num_bins / 240
+    end   = (x + 1) * num_bins / 240
+    if end <= start:
+        end = start + 1
+
+    row[x] = max(collapsed[start .. end-1])
+~~~
+
+Important: with time_osr=2, do not MAX or average the two 80-ms time-subrows
+for the local display. Pinned V2 used the first time-subrow and generated one
+screen row per 160-ms monitor block.
+
+Current ADV freq_osr=1, so the frequency-oversample collapse is currently
+trivial, but keep the helper correct for freq_osr > 1.
+
+The projection must be pure/host-testable and must not modify the decoder
+waterfall.
+
+## Current V3.088 capture timing remains authoritative
+
+T089 does not change the accepted slot-local schedule:
+
+~~~text
+UTC +0.00 s
+    begin/reset current slot capture
+
+0.00 .. 12.64 s
+    79 x 960-sample blocks
+    each completed block can produce one display row
+
+UTC +12.64 s
+    submit decode
+    stop feeding current slot FFT/waterfall
+
+12.64 .. 15.00 s
+    continuously drain/discard Audio
+    no FT8 monitor block is produced
+
+next UTC
+    begin next capture window
+~~~
+
+Therefore a normal RX slot produces up to 79 display-row updates at approximately
+160-ms intervals during the 0..12.64 s capture window.
+
+The waterfall is intentionally static during the existing 12.64..15.00 s
+drain/discard interval and during physical TX. Do not add an extra FFT merely
+to keep the visual moving during those periods.
+
+This matches the architectural goal: display existing DSP work; do not create
+new DSP load for a cosmetic feature.
+
+## Row production boundary
+
+Do not expose Ft8Monitor internals to the UI.
+
+A preferred small shape is:
+
+~~~text
+rx_slot_framer ENGINE_BLOCK
+        |
+        v
+ft8_engine_process_block()
+        |
+        +--> decoder waterfall unchanged
+        |
+        '--> increment a display-waterfall generation
+~~~
+
+Add a pure engine/monitor accessor that can project the latest completed block to
+a caller-supplied width without modifying engine state.
+
+The exact private function names are implementation details, but preserve these
+rules:
+
+- no second FFT;
+- no copy of the full decoder waterfall;
+- no UI/platform dependency under ft8_engine;
+- no display width hard-coded into decoder mathematics;
+- projection width is supplied by the caller;
+- no projection work is required on platforms that do not expose raster;
+- app/controller exposes only the newest row + monotonically changing generation,
+  not raw engine pointers.
+
+A small controller getter such as:
+
+~~~text
+current generation
+latest projected row when generation changed
+~~~
+
+is preferred over putting 240-byte waterfall data into UiModel.
+
+UiModel should remain application state, not a 6.25-Hz streaming pixel channel.
+
+## Waterfall display history
+
+The FT8 presentation edge owns a 19-row intensity history:
+
+~~~text
+19 rows x 240 uint8_t = 4560 bytes
+~~~
+
+Behavior:
+
+- initialize all rows to zero/black when FT8 starts;
+- push one 240-byte row per new monitor block;
+- circular history;
+- newest row appears at physical y=18;
+- older rows scroll upward toward y=0;
+- do not clear at each UTC slot boundary;
+- continue advancing history while the overlay is hidden, if raster is available;
+- no display row is generated during the 12.64..15.00 discard interval or TX;
+- history remains session-local and is discarded when FT8 exits.
+
+Do not allocate a persistent 19x240 RGB565 framebuffer.
+
+For drawing, a temporary one-row conversion buffer is enough:
+
+~~~text
+240 x uint16_t = 480 bytes
+~~~
+
+A bounded stack scratch row is acceptable.
+
+### Allocation rule
+
+Do not add about 5 KiB to the 16-KiB ADV foreground task stack by embedding the
+entire history directly in ft8_ui_adapter_t.
+
+If raster is supported and geometry is at least 240x19, allocate the small
+intensity-history object through MiniShell Memory.
+
+If this optional allocation fails:
+
+~~~text
+waterfall support becomes unavailable for the session
+FT8 continues normally
+~~~
+
+A nice-to-have display must never make FT8 startup fail.
+
+Linux/no-raster builds allocate no waterfall history.
+
+## Color
+
+Use the simple pinned-V2 visual for T089:
+
+~~~text
+R = intensity
+G = intensity
+B = 0
+~~~
+
+yellow on black.
+
+Logical RGB565 conversion is therefore equivalent to:
+
+~~~c
+((v & 0xF8u) << 8) | ((v & 0xFCu) << 3)
+~~~
+
+No blue component.
+
+Do not add:
+
+~~~text
+AGC
+palette selection
+color scale
+frequency labels
+grid lines
+cursor
+TX-tone waterfall
+S-meter
+SWR/power overlay
+~~~
+
+Those are outside T089.
+
+## UI ownership
+
+UiShell owns the session toggle state.
+
+Add bounded state equivalent to:
+
+~~~text
+waterfall_supported
+waterfall_enabled
+~~~
+
+waterfall_supported is supplied by the presentation edge after MiniShell
+capability discovery.
+
+UiShell input handling:
+
+~~~text
+if RX top level and raster supported and key is W:
+    waterfall_enabled = !waterfall_enabled
+~~~
+
+Other screens/submenus ignore W.
+
+### UiFrame overlay flag
+
+Add a presentation fact to UiFrame, equivalent to:
+
+~~~text
+waterfall_overlay
+~~~
+
+It is true only when:
+
+~~~text
+waterfall_supported
+AND waterfall_enabled
+AND screen == RX
+AND submenu == NONE
+~~~
+
+This is important because the ordinary text frame itself remains valid and still
+contains the normal top status line.
+
+Do not blank or destroy the logical top text row.
+
+## Rendering order
+
+The raster is a physical overlay on top of the ordinary text presentation.
+
+When a normal UI frame is rendered:
+
+~~~text
+1. render all ordinary text rows
+2. display->present()
+3. if frame.waterfall_overlay:
+       redraw the complete 240x19 waterfall over physical y=0..18
+~~~
+
+Do not call text present() again after the raster overlay.
+
+This gives clean toggle behavior.
+
+### OFF -> ON
+
+waterfall_overlay changes in UiFrame, so the normal frame comparison causes a
+render. Text is rendered first, then the waterfall overlays row 0.
+
+### ON -> OFF
+
+waterfall_overlay changes again. The normal text render/present redraws row 0
+and no raster is applied afterward, so the status line returns immediately.
+
+### Ordinary top-line changes while ON
+
+UTC/status changes may cause a normal text render. The adapter must redraw the
+waterfall immediately after that text present() so the top status text does not
+flash/stay visible over the waterfall.
+
+### New waterfall row while ON
+
+Push the new intensity row into the circular history, then redraw the 240x19
+waterfall immediately through raster blits.
+
+A row-at-a-time redraw using one 240-pixel RGB565 scratch row is preferred over a
+persistent full RGB framebuffer.
+
+## Presentation capability discovery
+
+ft8_ui_adapter may treat waterfall support as available only when all of these
+are true:
+
+~~~text
+display has MINI_DISPLAY_CAP_RASTER_RGB565
+display struct is large enough to contain raster pointer
+raster != NULL
+raster struct contains get_info + blit_rgb565
+reported geometry >= 240 x 19
+small history allocation succeeds
+~~~
+
+Expose a small adapter query to ft8_main/UiShell; do not let ui_shell inspect
+MiniShell APIs directly.
+
+Portable MiniFT8 remains platform-independent.
+
+## No changes to accepted RX/decode architecture
+
+T089 must not change:
+
+~~~text
+QMX UAC transport format
+2048-frame UAC ring
+RxFrontend conversion
+V3.088 UTC capture/decode schedule
+time_osr=2
+freq_osr=1 on ADV
+candidate capacity 50
+minimum score 5
+LDPC iteration limit 25
+decoder core/priority/stack
+T086 RxTxLog durability policy
+T088 stale-decode cancellation policy
+CAT/TX behavior
+physical USB/UAC lifecycle
+~~~
+
+The waterfall must be observational presentation only.
+
+## MiniFT8 version
+
+T089 changes production MiniFT8 behavior.
+
+Set About to:
+
+~~~text
+MiniFT8-V3.089
+~~~
+
+and update the matching UI regression assertion.
+
+Do not change the MiniShell API version merely because the optional raster tail is
+added.
+
+## Expected implementation areas
+
+Likely public/service/platform files:
+
+~~~text
+include/minishell/api.h
+core/minishell_services/minishell_services.h
+core/minishell_services/display_service.c
+platform/adv/adv_backend.c
+platform/adv/adv_internal.h
+platform/adv/adv_display.cpp
+docs/api/display-api.md
+~~~
+
+Likely MiniFT8 files:
+
+~~~text
+apps/ft8/include/ft8/app_types.h
+apps/ft8/main/ft8_main.c
+apps/ft8/main/ft8_ui_adapter.c
+apps/ft8/main/ft8_ui_adapter.h
+apps/ft8/src/ui_shell/ui_shell.c
+apps/ft8/src/ui_shell/ui_shell.h
+apps/ft8/src/app_controller/app_controller.c
+apps/ft8/src/app_controller/app_controller.h
+apps/ft8/src/ft8_engine/ft8_engine.c
+apps/ft8/src/ft8_engine/ft8_engine.h
+apps/ft8/src/ft8_engine/ft8_monitor.c
+apps/ft8/src/ft8_engine/ft8_monitor.h
+~~~
+
+Exact private helper placement may differ if ownership is cleaner, but do not
+introduce a new platform escape hatch.
+
+Update current MiniFT8 docs where appropriate:
+
+~~~text
+docs/MiniFT8/README.md
+docs/MiniFT8/development.md
+docs/MiniFT8/architecture.md
+docs/MiniFT8/ui.md
+~~~
+
+This task packet remains the implementation/history record.
+
+## Automated tests
+
+### MiniShell Display service
+
+Extend display service/unit coverage for:
+
+- raster capability absent -> public raster pointer absent/unsupported;
+- capability present only when required backend hooks are present;
+- get_info() validates struct_size and non-zero geometry;
+- zero-size blit is a no-op;
+- NULL pixels rejected for non-zero rectangle;
+- stride smaller than width rejected;
+- out-of-bounds non-zero rectangles rejected;
+- valid rectangle/stride passed to backend unchanged;
+- text behavior/capabilities remain unchanged;
+- no MiniShell API version bump.
+
+### ADV raster backend
+
+Add host/source-level coverage for:
+
+- reported geometry exactly 240x135;
+- logical RGB565 values reach the physical display with correct color/byte order;
+- a 240x1 row is accepted at y=0..18;
+- no full-screen/full-19-row persistent RGB framebuffer is introduced;
+- existing text row 0, separator, rows 1..6 and console paths remain unchanged;
+- raster blit itself does not mutate text buffers.
+
+### V2 waterfall projection
+
+Add deterministic pure tests against the pinned-V2 projection rule:
+
+- one output row per completed 960-sample block;
+- first time_sub selected;
+- freq_osr=1 exact values;
+- synthetic freq_osr>1 uses MAX across frequency oversamples;
+- FT8 bins -> 240 pixels uses the exact V2 integer MAX-pool boundaries;
+- no mutation of source waterfall;
+- no second FFT.
+
+Prefer a small synthetic waterfall-layout vector that makes time-sub and
+freq-sub mistakes obvious.
+
+### UiShell
+
+Cover:
+
+- W unsupported -> no state change;
+- W toggles on RX top level;
+- lower/upper case both work;
+- W ignored in RX submenu;
+- W ignored on TX/O/S/V;
+- enabled state may remain latched while another screen is shown;
+- overlay flag false outside RX top level;
+- returning to RX top level restores overlay when still enabled;
+- second W disables and overlay flag changes immediately.
+
+### FT8 UI adapter/history
+
+Cover:
+
+- no raster capability -> no optional allocation;
+- insufficient raster geometry -> no optional allocation/support;
+- optional allocation failure -> FT8 UI remains usable, waterfall unsupported;
+- successful history allocation is approximately the 19x240 intensity store,
+  not a full RGB framebuffer;
+- initial history black;
+- pushes scroll upward with newest row at y=18;
+- history advances while hidden;
+- normal text present happens before raster overlay;
+- any ordinary frame redraw while overlay ON repaints the waterfall afterward;
+- toggling OFF restores normal row-0 text;
+- visible row update redraws raster without another text present();
+- shutdown frees the optional history allocation.
+
+### Integration / architecture
+
+Add/source-check as appropriate:
+
+- no ESP-IDF/M5/ADV include enters apps/ft8/**;
+- ui_shell does not inspect MiniShell API/platform details;
+- ft8_engine does not depend on Display/UI;
+- MiniShell display service does not know FT8/waterfall semantics;
+- Linux still runs with raster unsupported;
+- current decoder/UAC/task configuration remains unchanged.
+
+Run the complete existing Linux/unit/architecture suites, not only focused tests.
+
+## Build gates
+
+Run the current full gates from the repository root, including:
+
+~~~bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T089-build-unit
+cmake --build /tmp/T089-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T089-build-unit --output-on-failure
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+
+git diff --check
+~~~
+
+Use the current suite counts from the checkout. Do not hard-code old T017/T088 test
+counts into the handoff.
+
+## Resource evidence
+
+Record ADV build/runtime impact.
+
+At minimum report:
+
+~~~text
+firmware size delta
+.dram0.data delta
+.dram0.bss delta
+any new permanent static SRAM
+optional FT8 waterfall allocation size
+V -> Memory with FT8 active:
+    heap free
+    largest free block
+    app allocated
+    allocation count
+~~~
+
+Expected design target:
+
+~~~text
+persistent FT8 intensity history    ~4560 bytes
+temporary RGB row scratch            480 bytes stack
+no persistent 240x19 RGB565 buffer
+~~~
+
+Do not fail the task solely because allocator metadata/alignment makes the
+measured app allocation slightly larger than 4560 bytes.
+
+The current architect observation before T089 is approximately:
+
+~~~text
+FT8 loaded:
+heap free       ~87 KiB
+largest block   ~31 KiB
+~~~
+
+Use the actual T089 before/after hardware measurements rather than assuming these
+values remain exact.
+
+## Manual ADV/QMX validation
+
+After software review and merge candidate build:
+
+1. Boot ADV and start bare ft8 with QMX.
+2. Confirm normal V3.089 RX/decode first with waterfall OFF.
+3. On RX top level press W.
+4. Confirm only physical y=0..18 changes to waterfall.
+5. Confirm the y=19..20 separator and six decoded-message rows do not move.
+6. Observe band activity in yellow-on-black.
+7. Confirm a healthy live QMX produces visible row progression during the
+   0..12.64 s capture window.
+8. It is expected for the waterfall to remain static during the existing
+   12.64..15.00 s drain/discard interval; this is not a UAC failure.
+9. Press W again; normal top status row must return immediately.
+10. Enable W, switch to another UIScreen, and confirm that screen shows its normal
+    top row. Return to RX; the overlay should reappear if still enabled.
+11. Exercise RX paging/message selection with W enabled; rows 1..6 must behave
+    exactly as before.
+12. Confirm ordinary decode continues and no zero-decode regression appears in
+    reasonable active-band testing.
+13. Check UAC high-water/overflow/discontinuity diagnostics for regression.
+14. Record V -> Memory with the feature available.
+15. Exit FT8 normally; no display/resource cleanup error.
+
+The visual feature is accepted only if it remains subordinate to FT8 correctness.
+If raster refresh measurably damages UAC continuity or decode timing, stop and
+record the evidence rather than increasing task/thread complexity.
+
+## Non-goals
+
+Do not include:
+
+- continuous display-only FFT during 12.64..15.00;
+- a second FFT path;
+- freq_osr=2;
+- V2 block normalization;
+- WebUI;
+- TX waterfall/tone marker;
+- frequency ruler/labels;
+- tuning cursor;
+- spectrum analyzer controls;
+- waterfall palette/settings;
+- persistence of W state;
+- generic graphics primitives beyond RGB565 blit;
+- framebuffer exposure;
+- ADV-private MiniFT8 display hooks;
+- changes to USB/UAC, CAT, TX, decode worker or V3.088 timing.
+
+## Acceptance summary
+
+T089 is successful when:
+
+~~~text
+MiniShell:
+    optional generic RGB565 raster blit exists
+    ADV supports it
+    Linux remains text-only
+
+MiniFT8:
+    W toggles RX-top-row waterfall
+    240 x 19 pixels
+    newest row every completed 160-ms monitor block
+    pinned-V2 spectrum projection
+    yellow on black
+    history ~3.04 s
+    no second FFT
+    normal text/UI restored instantly when OFF
+    no platform coupling
+
+System:
+    V3.088 decode/UAC behavior remains intact
+    optional allocation failure cannot prevent FT8 startup
+~~~
+
+## Codex handoff requirements
+
+Implement on:
+
+~~~text
+codex/T089-ft8-waterfall-overlay
+~~~
+
+Prefer one reviewable implementation commit.
+
+Before handoff, append to this packet:
+
+~~~text
+implementation summary
+files changed
+API/ownership decisions
+tests run/results
+ADV build/resource evidence
+known limitations
+commit SHA
+manual validation still required
+~~~
+
+Do not open a PR. Do not merge to main. Supervisor review comes first.
