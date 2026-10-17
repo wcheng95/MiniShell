@@ -51,6 +51,7 @@ int main(void)
     memcpy(frame.rows[0],"RX normal status    ",20);
     assert(ft8_ui_adapter_init(&adapter,&api,FT8_PRESENTATION_ADV));
     assert(!ft8_ui_adapter_waterfall_supported(&adapter) && !allocations);
+    assert(!ft8_ui_adapter_waterfall_prepare(&adapter) && !allocations);
     display.capabilities |= MINI_DISPLAY_CAP_RASTER_RGB565;
     for(unsigned variant=0;variant<7;++variant) {
         display.struct_size=variant==0?offsetof(mini_display_api_t,raster):sizeof(display);
@@ -61,15 +62,21 @@ int main(void)
         width=variant==4?239:240; height=variant==5?18:135;
         assert(ft8_ui_adapter_init(&adapter,&api,FT8_PRESENTATION_ADV));
         assert(!ft8_ui_adapter_waterfall_supported(&adapter) && !allocations);
+        assert(!ft8_ui_adapter_waterfall_prepare(&adapter) && !allocations);
     }
     raster.get_info=raster_info;
     width=240; height=135; fail_alloc=true;
     assert(ft8_ui_adapter_init(&adapter,&api,FT8_PRESENTATION_ADV));
+    assert(!ft8_ui_adapter_waterfall_supported(&adapter) && !allocations);
+    assert(!ft8_ui_adapter_waterfall_prepare(&adapter));
     assert(!ft8_ui_adapter_waterfall_supported(&adapter) && allocations==1);
     assert(ft8_ui_adapter_render(&adapter,&frame));
     fail_alloc=false;
     assert(ft8_ui_adapter_init(&adapter,&api,FT8_PRESENTATION_ADV));
+    assert(!ft8_ui_adapter_waterfall_supported(&adapter) && allocations==1);
+    assert(ft8_ui_adapter_waterfall_prepare(&adapter));
     assert(ft8_ui_adapter_waterfall_supported(&adapter) && allocations==2);
+    assert(ft8_ui_adapter_waterfall_prepare(&adapter) && allocations==2);
     assert(allocation_size>=4560 && allocation_size<4600);
     assert(sizeof(adapter)<128); /* History must stay off the foreground stack. */
     frame.waterfall_overlay=true;

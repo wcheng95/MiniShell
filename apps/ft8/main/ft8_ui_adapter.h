@@ -25,6 +25,9 @@ typedef struct {
 
 bool ft8_ui_adapter_init(ft8_ui_adapter_t *adapter, const mini_api_t *api,
                          ft8_presentation_profile_t presentation);
+/* Optional history allocation: call only after critical RX/worker startup.
+ * Failure leaves text UI usable and waterfall unsupported. Init only discovers. */
+bool ft8_ui_adapter_waterfall_prepare(ft8_ui_adapter_t *adapter);
 bool ft8_ui_adapter_waterfall_supported(const ft8_ui_adapter_t *adapter);
 void ft8_ui_adapter_push_waterfall(ft8_ui_adapter_t *adapter, const uint8_t row[FT8_WATERFALL_WIDTH]);
 bool ft8_ui_adapter_render(const ft8_ui_adapter_t *adapter, const UiFrame *frame);

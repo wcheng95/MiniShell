@@ -194,12 +194,6 @@ int main(int argc, char **argv)
     adapter_initialized = true;
 
     ui_shell_init(&ui, options.presentation);
-    ui_shell_set_waterfall_supported(&ui, ft8_ui_adapter_waterfall_supported(&adapter));
-    if (ft8_ui_adapter_waterfall_supported(&adapter)) {
-        waterfall.app = app;
-        waterfall.adapter = &adapter;
-        app_controller_observe_waterfall(app, waterfall_completed, &waterfall);
-    }
     memset(&rendered_frame, 0, sizeof(rendered_frame));
     app_controller_build_model(app, &model);
     ui_shell_render(&ui, &model, &rendered_frame);
@@ -253,6 +247,14 @@ int main(int argc, char **argv)
                     break;
                 }
                 decode_worker_started = true;
+                /* Critical RX workspace/UAC and decode worker have priority over
+                 * this optional presentation allocation. */
+                if (ft8_ui_adapter_waterfall_prepare(&adapter)) {
+                    ui_shell_set_waterfall_supported(&ui, true);
+                    waterfall.app = app;
+                    waterfall.adapter = &adapter;
+                    app_controller_observe_waterfall(app, waterfall_completed, &waterfall);
+                }
             }
             startup_complete = true;
         }

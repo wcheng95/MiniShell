@@ -466,6 +466,8 @@ static void render_v(const UiShell *ui, const UiModel *model, UiFrame *frame)
 
 void ui_shell_init(UiShell *ui, ft8_presentation_profile_t presentation)
 {
+    ui->waterfall_supported = false;
+    ui->waterfall_enabled = false;
     ui->screen = SCREEN_RX;
     ui->submenu = UI_SUBMENU_NONE;
     ui->selected_line = 0;

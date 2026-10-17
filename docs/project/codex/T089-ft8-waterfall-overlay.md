@@ -1174,3 +1174,134 @@ This single implementation commit on `codex/T089-ft8-waterfall-overlay` contains
 this evidence (resolve with `git rev-parse codex/T089-ft8-waterfall-overlay`). The
 exact pushed SHA is supplied in the accompanying handoff; a commit cannot embed
 its own SHA in its tree. Stop at **REVIEW**. No PR and no merge.
+
+
+## Supervisor-review amendment — 2026-10-17
+
+Status remains **REVIEW**. This additional review commit addresses both blockers
+in the original implementation commit
+`483347b40abdd5ac1a7fd964f4b545945e7f15ff` on the same
+`codex/T089-ft8-waterfall-overlay` branch. It supersedes the original allocation
+ordering and session-initialization evidence above.
+
+### Implementation summary
+
+- `ui_shell_init()` now explicitly sets `waterfall_supported = false` and
+  `waterfall_enabled = false`. The focused test poisons the whole UiShell with
+  `0xA5` before init, asserts both flags are false, and also checks reinitializing
+  a previously supported/enabled shell. Discovering support in the new session
+  still leaves the overlay OFF.
+- `ft8_ui_adapter_init()` only discovers optional raster/Memory capability and
+  geometry; it performs no allocation. New
+  `ft8_ui_adapter_waterfall_prepare()` allocates/zeros history separately and
+  returns false on unavailable capability or allocation failure. Repeated prepare
+  after success reuses the allocation.
+- `ft8_main` calls prepare only after `app_controller_start_rx()` succeeds and
+  decode-worker startup succeeds. Only successful prepare enables UiShell
+  support and registers the waterfall observer. Pending/failed CAT, failed RX,
+  failed worker startup, and a session without RX allocate no history. Optional
+  failure leaves the normal FT8 UI/RX lifecycle usable and registers no observer.
+
+### Files changed
+
+- `apps/ft8/main/ft8_main.c`
+- `apps/ft8/main/ft8_ui_adapter.c`
+- `apps/ft8/main/ft8_ui_adapter.h`
+- `apps/ft8/src/ui_shell/ui_shell.c`
+- `docs/MiniFT8/architecture.md`
+- `tests/ft8_pending_start_test.c`
+- `tests/ft8_ui_smoke.c`
+- `tests/ft8_waterfall_adapter_test.c`
+- This task packet.
+
+### Behavior/invariants preserved
+
+No changes to FT8 engine/workspace allocation, UAC/ring, decoder scheduling,
+raster API/provider, projection, or V3.088 timing. About stays V3.089. History
+size, palette, rendering order, hidden-history updates, W semantics and teardown
+remain unchanged. This amendment follows the supervisor's specified startup
+ordering; there are no additional scope/architecture deviations.
+
+### Tests run and results
+
+Re-ran the complete T089 gates from repository root:
+
+```bash
+cmake -S . -B build-linux
+cmake --build build-linux -j"$(nproc)"
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure
+
+cmake -S tests/unit -B /tmp/T089-build-unit
+cmake --build /tmp/T089-build-unit -j"$(nproc)"
+ctest --test-dir /tmp/T089-build-unit --output-on-failure
+
+PYTHONDONTWRITEBYTECODE=1 python3 tests/architecture_rules.py .
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_dependency_boundary.py . ft8
+PYTHONDONTWRITEBYTECODE=1 python3 tests/app_platform_boundary.py . ft8
+
+source /home/wei/projects/esp-idf/export.sh
+idf.py -C platform/adv build
+
+git diff --check
+```
+
+- Linux configure/build: PASS.
+- Complete Linux CTest: **130/131 pass**, 60.51 s. Sole failure remains
+  `linux_serial_unit` at the existing line-67 PTY queue-saturation assertion;
+  unchanged-main reproduction is recorded in the original evidence. No serial
+  implementation/test changes were made to mask it.
+- Standalone unit configure/build/CTest: **29/29 PASS**, 1.12 s.
+- Architecture, FT8 dependency and FT8 platform checks: PASS, exit 0 each.
+- ADV build and diff whitespace check: PASS.
+- Focused CTest command after final rebuild:
+  `PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build-linux --output-on-failure -R
+  'ft8_pending_start|ft8_waterfall_adapter|ft8_ui_smoke'`: **3/3 PASS**.
+- Adapter tests explicitly prove valid-raster init allocates nothing; only prepare
+  allocates; absent/undersized raster never allocates; failed prepare leaves
+  support false and normal text rendering usable; successful prepare initializes
+  black history and teardown frees it.
+- The real lifecycle/adapter harness now advertises valid raster. Its allocator
+  asserts RX succeeded and worker startup succeeded before every optional
+  allocation. Observer registration asserts successful allocation and the same
+  startup order. RX/worker failures and indefinitely pending control assert no
+  allocations/observers; allocation failure still completes normal input and
+  worker cleanup with a successful FT8 exit.
+
+Logs: `/tmp/T089-amend-linux-ctest.log`, `/tmp/T089-amend-unit-ctest.log`,
+`/tmp/T089-amend-focused.log`, `/tmp/T089-amend-linux-build.log`,
+`/tmp/T089-amend-final-build.log`, `/tmp/T089-amend-adv-build.log`.
+
+### ADV build/resource evidence
+
+Compared the original T089 binary/map copied before amendment to the rebuilt
+candidate with the same configuration:
+
+| Resource | Original T089 | Amended T089 | Amendment delta |
+| --- | ---: | ---: | ---: |
+| Firmware binary bytes | 1,396,832 | 1,396,848 | +16 |
+| `.dram0.data` bytes | 27,528 | 27,528 | 0 |
+| `.dram0.bss` bytes | 45,536 | 45,536 | 0 |
+
+No new permanent static SRAM. Optional history remains 4,568 requested bytes,
+now allocated after critical startup, with the same single allocation/free and
+480-byte temporary RGB row. Relative to pre-T089 main, firmware is +2,192 bytes
+and BSS remains +48 bytes. Hardware V -> Memory values (heap free, largest block,
+app allocated bytes and allocation count) remain unmeasured/pending; no runtime
+memory claims are inferred from build sizes.
+
+### Hardware/manual validation still required and known risks
+
+The original complete ADV/QMX visual, startup/Memory, UAC continuity, decode-yield
+and exit checklist still requires architect evidence. In particular, validate
+successful critical RX/UAC startup before optional waterfall preparation on real
+ADV, and check Memory after that preparation. No hardware was flashed/tested in
+this amendment. The unrelated flaky serial assertion remains the only software
+gate failure. These two supervisor blockers are fixed; hardware acceptance is
+not claimed.
+
+### Commit reference
+
+Additional review commit on `codex/T089-ft8-waterfall-overlay`, parent
+`483347b40abdd5ac1a7fd964f4b545945e7f15ff`. Resolve the amended review SHA with
+`git rev-parse codex/T089-ft8-waterfall-overlay`; the exact pushed SHA accompanies
+the handoff. No PR and no merge. Stop at **REVIEW**.

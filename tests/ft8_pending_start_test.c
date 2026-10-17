@@ -19,6 +19,8 @@ static mini_api_t api;
 static uint64_t now, ready_at, last_open;
 static unsigned opens, writes, rx_starts, worker_starts, worker_stops, input_reads;
 static unsigned presents, normal_frames, qso_actions, tx_steps, destroys, tone_tests;
+static unsigned waterfall_allocations, waterfall_frees, waterfall_observers;
+static bool fail_waterfall;
 static bool fail_rx, fail_worker, fixture, expect_cat, fail_render;
 static mini_result_t cat_failure;
 static char lcd[7][21], sent[128];
@@ -27,8 +29,15 @@ static unsigned seen;
 static uint64_t clock_us(void) { return now; }
 const mini_api_t *mini_api_get(void) { return &api; }
 static void message(const char *text) { assert(!strstr(text,"waiting for QMX")); }
-static mini_result_t memory_alloc(uint32_t size,void **out) { *out=malloc(size);return *out?MINI_OK:MINI_ERR_NO_MEMORY; }
-static mini_result_t memory_free(void *p) { free(p);return MINI_OK; }
+static mini_result_t memory_alloc(uint32_t size,void **out)
+{
+    /* The real adapter is the only allocator in this lifecycle harness. */
+    assert(controller.rx && rx_starts==1 && worker_starts==1 && !fail_worker);
+    assert(size>=4560 && size<4600);
+    ++waterfall_allocations;
+    *out=fail_waterfall?NULL:malloc(size);return *out?MINI_OK:MINI_ERR_NO_MEMORY;
+}
+static mini_result_t memory_free(void *p) { ++waterfall_frees;free(p);return MINI_OK; }
 static mini_result_t info(mini_text_display_info_t *out) { out->columns=20;out->rows=7;return MINI_OK; }
 static mini_result_t clear(void) { memset(lcd,' ',sizeof(lcd));for(unsigned r=0;r<7;++r)lcd[r][20]=0;return MINI_OK; }
 static mini_result_t write_at(uint32_t row,uint32_t column,const char *text,uint32_t size)
@@ -108,18 +117,24 @@ mini_result_t app_controller_cat_test(const mini_api_t *p,const char *station,co
 { assert(p==&api && station && endpoint && tone==1500 && duration==500);++tone_tests;return MINI_OK; }
 static mini_time_location_api_t time_api={.struct_size=sizeof(time_api),.monotonic_us=clock_us};
 static const mini_system_api_t system_api={.write=message};
-static const mini_memory_api_t memory_api={.alloc=memory_alloc,.free=memory_free};
+static const mini_memory_api_t memory_api={.struct_size=sizeof(memory_api),.alloc=memory_alloc,.free=memory_free};
 static const mini_fs_api_t fs={0};
 static const mini_audio_api_t audio={0};
 static const mini_serial_api_t serial_api={.struct_size=sizeof(serial_api),.capabilities=MINI_SERIAL_CAP_WRITE,.open=serial_open,.write=serial_write,.close=serial_close};
 static const mini_text_display_api_t text_api={.struct_size=sizeof(text_api),.get_info=info,.clear=clear,.write_at=write_at};
-static const mini_display_api_t display_api={.struct_size=sizeof(display_api),.capabilities=MINI_DISPLAY_CAP_TEXT,.text=&text_api,.present=present};
+static mini_result_t raster_info(mini_raster_display_info_t *out)
+{ out->width=240;out->height=135;return MINI_OK; }
+static mini_result_t raster_blit(uint32_t x,uint32_t y,uint32_t w,uint32_t h,const uint16_t *p,uint32_t stride)
+{ (void)x;(void)y;(void)w;(void)h;(void)p;(void)stride;assert(waterfall_observers==1);return MINI_OK; }
+static const mini_raster_display_api_t raster_api={.struct_size=sizeof(raster_api),.get_info=raster_info,.blit_rgb565=raster_blit};
+static const mini_display_api_t display_api={.struct_size=sizeof(display_api),.capabilities=MINI_DISPLAY_CAP_TEXT|MINI_DISPLAY_CAP_RASTER_RGB565,.text=&text_api,.present=present,.raster=&raster_api};
 static const mini_key_input_api_t key_api={.struct_size=sizeof(key_api),.read=key_read};
 static const mini_input_api_t input_api={.struct_size=sizeof(input_api),.capabilities=MINI_INPUT_CAP_KEY,.key=&key_api};
 static void reset(void)
 {
     now=last_open=ready_at=0;opens=writes=rx_starts=worker_starts=worker_stops=input_reads=0;
     presents=normal_frames=qso_actions=tx_steps=destroys=tone_tests=seen=0;sent[0]=0;
+    waterfall_allocations=waterfall_frees=waterfall_observers=0;fail_waterfall=false;
     fail_rx=fail_worker=fixture=fail_render=false;expect_cat=true;cat_failure=MINI_OK;
     api=(mini_api_t){.struct_size=sizeof(api),.api_version=MINISHELL_API_VERSION,.system=&system_api,
         .memory=&memory_api,.fs=&fs,.audio=&audio,.serial=&serial_api,.display=&display_api,.input=&input_api,.time_location=&time_api};
@@ -129,15 +144,21 @@ static int live(void)
 int main(void)
 {
     reset();ready_at=UINT64_MAX;assert(live()==0);assert(opens>=10 && input_reads==120 && seen==31 && qso_actions==1);
-    assert(!writes && !rx_starts && !worker_starts && !tx_steps && destroys==1);
+    assert(!writes && !rx_starts && !worker_starts && !tx_steps && destroys==1 && !waterfall_allocations && !waterfall_observers);
     reset();ready_at=1200000;assert(live()==0);assert(opens==5 && writes==4 && rx_starts==1 && worker_starts==1 && worker_stops==1 && destroys==1);
     reset();assert(live()==0);assert(opens==1 && last_open==0 && writes==4 && rx_starts==1 && worker_starts==1 && worker_stops==1);
+    assert(waterfall_allocations==1 && waterfall_observers==1 && waterfall_frees==1);
+    reset();fail_waterfall=true;assert(live()==0);
+    assert(rx_starts==1 && worker_starts==1 && worker_stops==1 && input_reads==120);
+    assert(waterfall_allocations==1 && !waterfall_observers && !waterfall_frees);
     const mini_result_t failures[]={MINI_ERR_IO,MINI_ERR_UNSUPPORTED,MINI_ERR_ACCESS};
     for(unsigned i=0;i<sizeof(failures)/sizeof(*failures);++i){reset();cat_failure=failures[i];assert(live()==12);assert(normal_frames==1 && opens==1 && !rx_starts && !input_reads && destroys==1);}
     reset();ready_at=1200000;cat_failure=MINI_ERR_IO;
     assert(live()==12 && opens==5 && qso_actions==1 && !writes && !rx_starts && destroys==1);
     reset();fail_rx=true;assert(live()==8 && writes==4 && rx_starts==1 && !worker_starts);
+    assert(!waterfall_allocations && !waterfall_observers);
     reset();fail_worker=true;assert(live()==14 && rx_starts==1 && worker_starts==1 && !worker_stops);
+    assert(!waterfall_allocations && !waterfall_observers);
     reset();fail_render=true;assert(live()==5 && !opens && !rx_starts);
     reset();expect_cat=false;fixture=true;char *fixture_args[]={"ft8","--profile","adv","--rx","/tmp/fixture.wav","--rx-slot","123"};
     assert(ft8_lifecycle_entry(7,fixture_args)==0 && rx_starts==1 && worker_starts==1 && !tx_steps && !opens);
@@ -145,12 +166,20 @@ int main(void)
     assert(ft8_lifecycle_entry(5,file_args)==0 && rx_starts==1 && worker_starts==1 && !opens);
     reset();expect_cat=false;char *offline_args[]={"ft8","--profile","adv"};
     assert(ft8_lifecycle_entry(3,offline_args)==0 && !rx_starts && !worker_starts && !opens);
+    assert(!waterfall_allocations && !waterfall_observers);
     reset();char *tone_args[]={"ft8","--cat","control:test","--cat-test-tone","1500","--cat-test-ms","500"};
     assert(ft8_lifecycle_entry(7,tone_args)==0 && tone_tests==1 && !normal_frames && !destroys);
     puts("ft8_pending_start: PASS");return 0;
 }
 
 void app_controller_observe_waterfall(AppController *app, void (*notify)(void *), void *ctx)
-{ (void)app; (void)notify; (void)ctx; }
+{
+    assert(app==&controller);
+    if (notify) {
+        assert(ctx && controller.rx && worker_starts==1 && !fail_worker);
+        assert(waterfall_allocations==1 && !fail_waterfall && !waterfall_observers);
+        ++waterfall_observers;
+    }
+}
 bool app_controller_waterfall_latest(const AppController *app, uint64_t *gen, uint8_t *row, uint32_t width)
 { (void)app; (void)gen; (void)row; (void)width; return false; }

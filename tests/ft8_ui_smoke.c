@@ -522,7 +522,10 @@ static void test_about_version(void)
 static void test_waterfall_toggle(void)
 {
     UiShell ui; UiModel model; UiFrame frame; AppAction action;
-    set_default_model(&model); ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    set_default_model(&model);
+    memset(&ui, 0xA5, sizeof(ui));
+    ui_shell_init(&ui, FT8_PRESENTATION_ADV);
+    assert(!ui.waterfall_supported && !ui.waterfall_enabled);
     ui_shell_handle_input(&ui, &model, key('w'), &action);
     assert(!ui.waterfall_enabled);
     ui_shell_set_waterfall_supported(&ui, true);
@@ -548,8 +551,13 @@ static void test_waterfall_toggle(void)
     ui_shell_handle_input(&ui, &model, key('W'), &action);
     ui_shell_render(&ui, &model, &frame);
     assert(!ui.waterfall_enabled && !frame.waterfall_overlay);
+    /* A new session must reset even a previously supported/enabled shell. */
+    ui.waterfall_supported = ui.waterfall_enabled = true;
     ui_shell_init(&ui, FT8_PRESENTATION_ADV);
-    assert(!ui.waterfall_enabled);
+    assert(!ui.waterfall_supported && !ui.waterfall_enabled);
+    ui_shell_set_waterfall_supported(&ui, true);
+    ui_shell_render(&ui, &model, &frame);
+    assert(!ui.waterfall_enabled && !frame.waterfall_overlay);
 }
 
 int main(void)

@@ -452,8 +452,11 @@ the decode worker. No observer is registered without presentation support.
 no streaming pixels. UiShell owns support/enabled state and emits only the
 `UiFrame.waterfall_overlay` fact. The adapter owns the circular 19x240 intensity
 history allocated through MiniShell Memory (4568 bytes including cursor/state),
-and converts one 240-pixel RGB565 scratch row at a time. Allocation failure is
-optional and cannot block FT8 startup. No persistent RGB framebuffer is added.
+and converts one 240-pixel RGB565 scratch row at a time. Adapter init only
+discovers capability; optional history preparation occurs after successful RX
+workspace/UAC and decode-worker startup, before observer registration. History
+allocation is optional; failure cannot block FT8 startup. No persistent RGB
+framebuffer is added.
 MiniShell validates generic rectangles; ADV alone owns LCD access and byte order.
 
 ## 10. Protocol ownership

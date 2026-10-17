@@ -89,16 +89,24 @@ bool ft8_ui_adapter_init(ft8_ui_adapter_t *adapter, const mini_api_t *api,
         api->memory && api->memory->struct_size >= FIELD_END(mini_memory_api_t, free) &&
         api->memory->alloc && api->memory->free) {
         mini_raster_display_info_t raster_info = {.struct_size = sizeof(raster_info)};
-        void *allocation = NULL;
         if (display->raster->get_info(&raster_info) == MINI_OK &&
-            raster_info.width >= FT8_WATERFALL_WIDTH && raster_info.height >= FT8_WATERFALL_HEIGHT &&
-            api->memory->alloc(sizeof(Ft8WaterfallHistory), &allocation) == MINI_OK && allocation) {
+            raster_info.width >= FT8_WATERFALL_WIDTH && raster_info.height >= FT8_WATERFALL_HEIGHT) {
             adapter->memory = api->memory;
             adapter->raster = display->raster;
-            adapter->waterfall = allocation;
-            memset(allocation, 0, sizeof(Ft8WaterfallHistory));
         }
     }
+    return true;
+}
+
+bool ft8_ui_adapter_waterfall_prepare(ft8_ui_adapter_t *adapter)
+{
+    if (!adapter || !adapter->raster || !adapter->memory) return false;
+    if (adapter->waterfall) return true;
+    void *allocation = NULL;
+    if (adapter->memory->alloc(sizeof(Ft8WaterfallHistory), &allocation) != MINI_OK || !allocation)
+        return false;
+    adapter->waterfall = allocation;
+    memset(allocation, 0, sizeof(Ft8WaterfallHistory));
     return true;
 }
 
