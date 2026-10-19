@@ -28,7 +28,7 @@ MiniShell's portable-radio scope is intentionally closed at **five modes**:
 ```text
 CW      Mini-CW field keyer/operator station
 FT8     MiniFT8 weak-signal QRP/DX
-JS8     JS8Chat keyboard messaging, Normal mode only
+JTTY    keyboard to keyboard messaging
 RTTY    classic 45.45-baud / 170-Hz amateur RTTY
 SSTV    Robot 36 portable image QSO
 ```
