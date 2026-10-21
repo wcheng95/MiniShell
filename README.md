@@ -309,7 +309,7 @@ configuration files.
 MiniFT8 retains its established configuration path:
 
 ```text
-/flash/ft8/station.txt
+/flash/ft8/setting.txt
 ```
 
 Mini-CW uses:
@@ -400,17 +400,9 @@ tools. These projects and resources deserve explicit credit.
   portable architecture rather than depending on a desktop FT8 application at
   runtime.
 
-### JS8
+### JTTY
 
-- **JS8Call-improved**, especially the pinned **v3.0.3** release, is the normative
-  interoperability reference for MiniShell JS8 Normal-mode framing, Varicode,
-  directed messages, Huffman/JSC data, command mappings, and wire behavior:
-  <https://github.com/JS8Call-improved/JS8Call-improved>
-- The original **JS8Call** source has also been useful for physical-layer and DSP
-  cross-checking:
-  <https://github.com/js8call/js8call>
-- MiniShell's JS8 implementation is MCU-oriented and independently structured; it
-  does not link the desktop JS8Call decoder.
+- **TBD** 
 
 ### RTTY
 
