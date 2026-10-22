@@ -75,6 +75,16 @@ Up/Down and ADV Fn+`;` / Fn+`.` navigate it. ADV Fn+`,` / Fn+`/` move the
 edit cursor; Ctrl+`;` / Ctrl+`.` scroll console output by five rows. History is
 private shell state, separate from public Input/Console.
 
+## AGAQ Keyboard (proposed)
+
+Design-only universal five-button UI and optional QWERTY text entry:
+
+```text
+docs/architecture/agaq-keyboard-v1.md
+```
+
+This is a V1.0 design specification, **not** an implementation commitment. Existing ADV UI behavior remains unchanged.
+
 ## Architecture
 
 Canonical architecture rules:
