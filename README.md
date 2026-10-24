@@ -402,7 +402,11 @@ tools. These projects and resources deserve explicit credit.
 
 ### JTTY
 
-- **TBD** 
+- **WSJT-X JTTY** is the protocol/reference implementation used to cross-check
+  framing, source encoding, 4-GFSK waveform parameters, CRC-12, TBCC coding,
+  synchronization, and interoperability. MiniShell's implementation is planned
+  as an independent portable decoder rather than a port of the WSJT-X code.
+- Canonical MiniShell JTTY documentation lives under `docs/jtty/`.
 
 ### RTTY
 
