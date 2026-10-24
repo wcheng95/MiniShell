@@ -118,15 +118,15 @@ MiniShell deliberately limits portable radio operation to five modes:
 ```text
 CW      Mini-CW
 FT8     MiniFT8 / ft8
-JS8     JS8Chat, Normal speed only
+JTTY    keyboard-to-keyboard messaging
 RTTY    45.45 baud / 170 Hz classic amateur profile
 SSTV    Robot 36 only
 ```
 
 This is a protocol-scope freeze, not a feature freeze. New work should deepen
 field usefulness inside these applications rather than add more modes. FT4,
-other JS8 speeds, other SSTV modes, and a sixth radio mode are outside the
-planned MiniShell portable scope.
+additional JS8 development, other SSTV modes, and a sixth radio mode are outside
+the planned MiniShell portable scope.
 
 ## MiniFT8
 
@@ -174,19 +174,26 @@ docs/RTTY/architecture.md
 
 RTTY is defined as a 12-kHz streaming external MiniShell application. T065 Linux WAV decode is architect-accepted through the actual `rtty` runtime app; later QMX/WebSDR receive reuses the same portable decoder core. ADV deployment remains external `rtty.elf`.
 
-## JS8Chat and SSTV
+## JTTY
 
-Canonical JS8 material lives under:
+Canonical JTTY material lives under:
 
 ```text
-docs/js8/architecture.md
-docs/js8/application-protocol.md
-docs/js8/75-bit-field-map.md
-docs/js8/activity-log.md
+docs/jtty/README.md
+docs/jtty/rx-implementation-plan.md
+docs/jtty/conversational-operation.md
 ```
 
-JS8Chat supports the JS8 **Normal** speed only. Other JS8 speeds are not a
-future roadmap item.
+Current direction is rpi3 + QMX RX first, with a portable 12-kHz S16-mono DSP
+core designed so a later ADV compile-in application does not require a rewrite.
+RX should decode all standard JTTY source types. The first live search window is
+1250-1750 Hz audio; wider-passband and TX work are later stages.
+
+The existing `docs/js8/` material and JS8Chat receive prototype are retained as
+engineering history/reference, but JS8 is no longer one of the five current
+portable-radio modes.
+
+## SSTV
 
 Canonical SSTV architecture:
 
